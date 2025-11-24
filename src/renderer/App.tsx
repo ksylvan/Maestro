@@ -248,6 +248,7 @@ export default function MaestroConsole() {
       const savedLeftSidebarWidth = await window.maestro.settings.get('leftSidebarWidth');
       const savedRightPanelWidth = await window.maestro.settings.get('rightPanelWidth');
       const savedMarkdownRawMode = await window.maestro.settings.get('markdownRawMode');
+      const savedShortcuts = await window.maestro.settings.get('shortcuts');
 
       if (savedEnterToSend !== undefined) setEnterToSendState(savedEnterToSend);
       if (savedLlmProvider !== undefined) setLlmProvider(savedLlmProvider);
@@ -262,6 +263,11 @@ export default function MaestroConsole() {
       if (savedLeftSidebarWidth !== undefined) setLeftSidebarWidthState(savedLeftSidebarWidth);
       if (savedRightPanelWidth !== undefined) setRightPanelWidthState(savedRightPanelWidth);
       if (savedMarkdownRawMode !== undefined) setMarkdownRawModeState(savedMarkdownRawMode);
+
+      // Merge saved shortcuts with defaults (in case new shortcuts were added)
+      if (savedShortcuts !== undefined) {
+        setShortcuts({ ...DEFAULT_SHORTCUTS, ...savedShortcuts });
+      }
     };
     loadSettings();
   }, []);
@@ -270,6 +276,11 @@ export default function MaestroConsole() {
   useEffect(() => {
     document.documentElement.style.fontSize = `${fontSize}px`;
   }, [fontSize]);
+
+  // Persist shortcuts when they change
+  useEffect(() => {
+    window.maestro.settings.set('shortcuts', shortcuts);
+  }, [shortcuts]);
 
   // Refs
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -1110,8 +1121,8 @@ export default function MaestroConsole() {
 
     const mainActions = [
       ...sessionActions,
-      { id: 'new', label: 'New Instance', shortcut: shortcuts.newInstance, action: addNewSession },
-      { id: 'rename', label: 'Rename Current Instance', action: () => {
+      { id: 'new', label: 'New Agent', shortcut: shortcuts.newInstance, action: addNewSession },
+      { id: 'rename', label: 'Rename Current Agent', action: () => {
         setRenameInstanceValue(activeSession.name);
         setRenameInstanceModalOpen(true);
         setQuickActionOpen(false);
@@ -1135,7 +1146,7 @@ export default function MaestroConsole() {
       { id: 'toggleSidebar', label: 'Toggle Sidebar', shortcut: shortcuts.toggleSidebar, action: () => setLeftSidebarOpen(p => !p) },
       { id: 'toggleRight', label: 'Toggle Right Panel', shortcut: shortcuts.toggleRightPanel, action: () => setRightPanelOpen(p => !p) },
       { id: 'switchMode', label: 'Switch AI/Shell Mode', shortcut: shortcuts.toggleMode, action: toggleInputMode },
-      { id: 'kill', label: 'Kill Current Instance', shortcut: shortcuts.killInstance, action: () => deleteSession(activeSessionId) },
+      { id: 'kill', label: 'Kill Current Agent', shortcut: shortcuts.killInstance, action: () => deleteSession(activeSessionId) },
       { id: 'settings', label: 'Settings', action: () => { setSettingsModalOpen(true); setQuickActionOpen(false); } },
       { id: 'theme', label: 'Change Theme', action: () => { setSettingsModalOpen(true); setSettingsTab('theme'); setQuickActionOpen(false); } },
       { id: 'shortcuts', label: 'View Shortcuts', shortcut: shortcuts.help, action: () => { setShortcutsHelpOpen(true); setQuickActionOpen(false); } },
@@ -1228,7 +1239,7 @@ export default function MaestroConsole() {
               <input
                 ref={inputRef}
                 className="flex-1 bg-transparent outline-none text-lg placeholder-opacity-50"
-                placeholder="Type a command or jump to instance..."
+                placeholder="Type a command or jump to agent..."
                 style={{ color: theme.colors.textMain }}
                 value={search}
                 onChange={e => setSearch(e.target.value)}
@@ -2125,7 +2136,7 @@ export default function MaestroConsole() {
                     }
                   }
                 }}
-                placeholder="Enter instance name..."
+                placeholder="Enter agent name..."
                 className="w-full p-3 rounded border bg-transparent outline-none"
                 style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
                 autoFocus
@@ -2647,7 +2658,7 @@ export default function MaestroConsole() {
           
           {leftSidebarOpen && (
              <button onClick={addNewSession} className="flex-1 flex items-center justify-center gap-2 py-2 rounded text-xs font-bold transition-colors text-white" style={{ backgroundColor: theme.colors.accent }}>
-               <Plus className="w-3 h-3" /> New Instance
+               <Plus className="w-3 h-3" /> New Agent
              </button>
           )}
         </div>

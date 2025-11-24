@@ -70,7 +70,7 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, defaultAgen
   };
 
   const handleCreate = () => {
-    const name = instanceName || agents.find(a => a.id === selectedAgent)?.name || 'New Instance';
+    const name = instanceName || agents.find(a => a.id === selectedAgent)?.name || 'New Agent';
     onCreate(selectedAgent, workingDir, name);
     onClose();
 
@@ -97,7 +97,7 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, defaultAgen
       >
         {/* Header */}
         <div className="p-4 border-b flex items-center justify-between" style={{ borderColor: theme.colors.border }}>
-          <h2 className="text-lg font-bold" style={{ color: theme.colors.textMain }}>Create New Instance</h2>
+          <h2 className="text-lg font-bold" style={{ color: theme.colors.textMain }}>Create New Agent</h2>
           <button onClick={onClose} style={{ color: theme.colors.textDim }}>
             <X className="w-5 h-5" />
           </button>
@@ -105,10 +105,10 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, defaultAgen
 
         {/* Body */}
         <div className="p-6 space-y-5">
-          {/* Instance Name */}
+          {/* Agent Name */}
           <div>
             <label className="block text-xs font-bold opacity-70 uppercase mb-2" style={{ color: theme.colors.textMain }}>
-              Instance Name (Optional)
+              Agent Name (Optional)
             </label>
             <input
               type="text"
@@ -213,7 +213,7 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, defaultAgen
             className="px-4 py-2 rounded text-white disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ backgroundColor: theme.colors.accent }}
           >
-            Create Instance
+            Create Agent
           </button>
         </div>
       </div>

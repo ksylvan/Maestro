@@ -9,12 +9,13 @@ Maestro is a desktop application built with Electron that allows you to run and 
 - 🚀 **Multi-Instance Management** - Run multiple AI assistants and terminal sessions simultaneously
 - 🎨 **Beautiful UI** - Obsidian-inspired themes with keyboard-first navigation
 - 🔄 **Dual-Mode Input** - Switch between terminal and AI interaction modes seamlessly
-- 📊 **Context Tracking** - Monitor token usage and context windows in real-time
 - 🌐 **Remote Access** - Built-in web server with optional ngrok/Cloudflare tunneling
 - 🎯 **Git Integration** - Automatic git status, diff tracking, and workspace detection
 - ⚡ **Keyboard Shortcuts** - Full keyboard control with customizable shortcuts
 - 📝 **Session Management** - Group, rename, and organize your sessions
-- 🎭 **Multiple Themes** - Dracula, Monokai, GitHub Light, and Solarized
+- 🎭 **Multiple Themes** - 8 themes including Dracula, Monokai, Nord, Tokyo Night, GitHub Light, Solarized, One Light, and Gruvbox
+- 📄 **File Explorer** - Browse project files with syntax highlighting and markdown preview
+- ✏️ **Scratchpad** - Built-in markdown editor with live preview
 
 ## Quick Start
 
@@ -28,7 +29,7 @@ Maestro is a desktop application built with Electron that allows you to run and 
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/maestro.git
+git clone <repository-url>
 cd maestro
 
 # Install dependencies
@@ -64,19 +65,17 @@ npm run package:linux
 ```
 maestro/
 ├── src/
-│   ├── main/              # Electron main process
-│   │   ├── index.ts       # Main entry point
-│   │   ├── process-manager.ts  # CLI tool spawning
-│   │   ├── web-server.ts  # Remote access server
-│   │   ├── preload.ts     # IPC bridge
-│   │   └── utils/         # Utilities
-│   └── renderer/          # React frontend
-│       ├── App.tsx        # Main UI component
-│       ├── main.tsx       # Renderer entry
-│       └── index.css      # Styles
-├── build/                 # App icons
-├── .github/workflows/     # CI/CD
-└── dist/                  # Build output
+│   ├── main/              # Electron main process (Node.js backend)
+│   │   ├── utils/         # Shared utilities
+│   │   └── ...            # Process management, IPC, web server
+│   └── renderer/          # React frontend (UI)
+│       ├── components/    # React components
+│       ├── types/         # TypeScript definitions
+│       ├── utils/         # Frontend utilities
+│       └── constants/     # App constants
+├── build/                 # Application icons
+├── .github/workflows/     # CI/CD automation
+└── dist/                  # Build output (generated)
 ```
 
 ### Tech Stack
@@ -94,6 +93,9 @@ maestro/
 - Tailwind CSS
 - Vite
 - Lucide React (icons)
+- marked (Markdown rendering)
+- react-syntax-highlighter (code highlighting)
+- emoji-mart (emoji picker)
 
 ### Development Scripts
 
@@ -170,9 +172,7 @@ Settings are stored in:
 
 ### Configuration Files
 
-- `maestro-settings.json` - User preferences (theme, shortcuts, API keys)
-- `maestro-sessions.json` - Session persistence
-- `maestro-groups.json` - Session groups
+- `maestro-settings.json` - User preferences (theme, shortcuts, LLM settings, UI preferences)
 
 ## Architecture
 
@@ -195,17 +195,22 @@ All processes are managed through IPC (Inter-Process Communication) with secure 
 
 ## Keyboard Shortcuts
 
-| Action | Shortcut |
-|--------|----------|
-| Quick Actions | `⌘K` / `Ctrl+K` |
-| Toggle Sidebar | `⌘B` / `Ctrl+B` |
-| Toggle Right Panel | `⌘\` / `Ctrl+\` |
-| New Instance | `⌘N` / `Ctrl+N` |
-| Kill Instance | `⌘⌫` / `Ctrl+Backspace` |
-| Previous Instance | `⌘⇧{` / `Ctrl+Shift+{` |
-| Next Instance | `⌘⇧}` / `Ctrl+Shift+}` |
-| Switch AI/Shell Mode | `⌘J` / `Ctrl+J` |
-| Show Shortcuts | `⌘/` / `Ctrl+/` |
+| Action | macOS | Windows/Linux |
+|--------|-------|---------------|
+| Quick Actions | `⌘K` | `Ctrl+K` |
+| Toggle Sidebar | `⌘B` | `Ctrl+B` |
+| Toggle Right Panel | `⌘\` | `Ctrl+\` |
+| New Agent | `⌘N` | `Ctrl+N` |
+| Kill Agent | `⌘⇧⌫` | `Ctrl+Shift+Backspace` |
+| Previous Agent | `⌘⇧{` | `Ctrl+Shift+{` |
+| Next Agent | `⌘⇧}` | `Ctrl+Shift+}` |
+| Switch AI/Shell Mode | `⌘J` | `Ctrl+J` |
+| Show Shortcuts | `⌘/` | `Ctrl+/` |
+| Open Settings | `⌘,` | `Ctrl+,` |
+| Go to Files Tab | `⌘⇧F` | `Ctrl+Shift+F` |
+| Go to History Tab | `⌘⇧H` | `Ctrl+Shift+H` |
+| Go to Scratchpad | `⌘⇧S` | `Ctrl+Shift+S` |
+| Toggle Markdown Edit/Preview | `⌘E` | `Ctrl+E` |
 
 *All shortcuts are customizable in Settings*
 
@@ -215,11 +220,13 @@ Maestro includes a built-in web server for remote access:
 
 1. **Local Access**: `http://localhost:8000`
 2. **LAN Access**: `http://[your-ip]:8000`
-3. **Public Access**: Enable ngrok/Cloudflare tunnel in Settings
+3. **Public Access**: Enable ngrok or Cloudflare tunnel in Settings
 
 ### Enabling Public Tunnels
 
-1. Get an ngrok auth token from https://ngrok.com
+1. Get an API token from [ngrok.com](https://ngrok.com) or Cloudflare
 2. Open Settings → Network
-3. Enter your ngrok API key
-4. Click the tunnel button on any session
+3. Select your tunnel provider and enter your API key
+4. Start the tunnel from the session interface
+
+The web server provides REST API endpoints and WebSocket support for real-time session updates.
