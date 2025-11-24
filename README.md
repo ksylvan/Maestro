@@ -69,10 +69,12 @@ maestro/
 │   │   ├── utils/         # Shared utilities
 │   │   └── ...            # Process management, IPC, web server
 │   └── renderer/          # React frontend (UI)
-│       ├── components/    # React components
+│       ├── components/    # React components (UI elements, modals, panels)
+│       ├── hooks/         # Custom React hooks (reusable state logic)
+│       ├── services/      # Business logic services (git, process management)
 │       ├── types/         # TypeScript definitions
 │       ├── utils/         # Frontend utilities
-│       └── constants/     # App constants
+│       └── constants/     # App constants (themes, shortcuts, emojis)
 ├── build/                 # Application icons
 ├── .github/workflows/     # CI/CD automation
 └── dist/                  # Build output (generated)

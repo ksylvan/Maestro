@@ -65,9 +65,18 @@ Maestro uses Electron's main/renderer architecture with strict context isolation
 - `preload.ts` - Secure IPC bridge via contextBridge (no direct Node.js exposure to renderer)
 
 **Renderer Process (`src/renderer/`)** - React frontend with no direct Node.js access
-- `App.tsx` - Main UI component
+- `App.tsx` - Main UI component (being refactored - currently 2,988 lines)
 - `main.tsx` - Renderer entry point
 - `components/` - React components (modals, panels, UI elements)
+  - `SessionList.tsx` - Left sidebar component (extracted from App.tsx)
+  - `SettingsModal.tsx`, `NewInstanceModal.tsx`, `Scratchpad.tsx`, `FilePreview.tsx` - Other UI components
+- `hooks/` - Custom React hooks for reusable state logic
+  - `useSettings.ts` - Settings management and persistence
+  - `useSessionManager.ts` - Session and group CRUD operations
+  - `useFileExplorer.ts` - File tree state and operations
+- `services/` - Business logic services (clean wrappers around IPC calls)
+  - `git.ts` - Git operations (status, diff, isRepo)
+  - `process.ts` - Process management (spawn, write, kill, resize)
 
 ### Process Management System
 
@@ -173,6 +182,150 @@ const result = await execFileNoThrow('git', ['status', '--porcelain'], cwd);
 
 // The utility returns: { stdout: string, stderr: string, exitCode: number }
 // It never throws - non-zero exit codes return exitCode !== 0
+```
+
+## Custom Hooks Architecture
+
+The renderer now uses custom hooks to encapsulate reusable state logic and reduce the size of App.tsx.
+
+### useSettings (`src/renderer/hooks/useSettings.ts`)
+
+Manages all application settings with automatic persistence to electron-store.
+
+**What it manages:**
+- LLM settings (provider, model, API key)
+- Tunnel settings (provider, API key)
+- Agent settings (default agent)
+- Font settings (family, size, custom fonts)
+- UI settings (theme, enter-to-send, panel widths, markdown mode)
+- Keyboard shortcuts
+
+**Usage:**
+```typescript
+import { useSettings } from './hooks';
+
+const settings = useSettings();
+// Access: settings.llmProvider, settings.fontSize, etc.
+// Update: settings.setTheme('dracula'), settings.setFontSize(16), etc.
+```
+
+All setter functions automatically persist to electron-store.
+
+### useSessionManager (`src/renderer/hooks/useSessionManager.ts`)
+
+Manages sessions and groups with CRUD operations, drag & drop, and persistence.
+
+**What it manages:**
+- Sessions array and groups array
+- Active session selection
+- Session CRUD (create, delete, rename, toggle modes)
+- Group operations (create, toggle collapse, rename)
+- Drag and drop state and handlers
+- Automatic persistence to electron-store
+
+**Usage:**
+```typescript
+import { useSessionManager } from './hooks';
+
+const sessionManager = useSessionManager();
+// Access: sessionManager.sessions, sessionManager.activeSession, etc.
+// Operations: sessionManager.createNewSession(), sessionManager.deleteSession(), etc.
+```
+
+**Key methods:**
+- `createNewSession(agentId, workingDir, name)` - Create new session
+- `deleteSession(id, showConfirmation)` - Delete with confirmation
+- `toggleInputMode()` - Switch between AI and terminal mode
+- `updateScratchPad(content)` - Update session scratchpad
+- `createNewGroup(name, emoji, moveSession, activeSessionId)` - Create group
+
+### useFileExplorer (`src/renderer/hooks/useFileExplorer.ts`)
+
+Manages file tree state, expansion, navigation, and file operations.
+
+**What it manages:**
+- File preview state
+- File tree navigation and selection
+- Folder expansion/collapse
+- File tree filtering
+- File loading and operations
+
+**Usage:**
+```typescript
+import { useFileExplorer } from './hooks';
+
+const fileExplorer = useFileExplorer(activeSession, setActiveFocus);
+// Access: fileExplorer.previewFile, fileExplorer.filteredFileTree, etc.
+// Operations: fileExplorer.handleFileClick(), fileExplorer.expandAllFolders(), etc.
+```
+
+**Key methods:**
+- `handleFileClick(node, path, activeSession)` - Open file or external app
+- `loadFileTree(dirPath, maxDepth?)` - Load directory tree
+- `toggleFolder(path, activeSessionId, setSessions)` - Toggle folder expansion
+- `expandAllFolders()` / `collapseAllFolders()` - Bulk operations
+- `updateSessionWorkingDirectory()` - Change session CWD
+
+## Services Architecture
+
+Services provide clean wrappers around IPC calls, abstracting away the `window.maestro` API details.
+
+### Git Service (`src/renderer/services/git.ts`)
+
+Provides type-safe git operations.
+
+**Usage:**
+```typescript
+import { gitService } from '../services/git';
+
+// Check if directory is a git repo
+const isRepo = await gitService.isRepo(cwd);
+
+// Get git status
+const status = await gitService.getStatus(cwd);
+// Returns: { files: [{ path: string, status: string }] }
+
+// Get git diff
+const diff = await gitService.getDiff(cwd, ['file1.ts', 'file2.ts']);
+// Returns: { diff: string }
+```
+
+All methods handle errors gracefully and return safe defaults.
+
+### Process Service (`src/renderer/services/process.ts`)
+
+Provides type-safe process management operations.
+
+**Usage:**
+```typescript
+import { processService } from '../services/process';
+
+// Spawn a process
+await processService.spawn(sessionId, {
+  cwd: '/path/to/dir',
+  command: 'claude-code',
+  args: [],
+  isTerminal: false
+});
+
+// Write to process stdin
+await processService.write(sessionId, 'user input\n');
+
+// Kill process
+await processService.kill(sessionId);
+
+// Listen for process events
+const unsubscribeData = processService.onData((sessionId, data) => {
+  console.log('Process output:', data);
+});
+
+const unsubscribeExit = processService.onExit((sessionId, code) => {
+  console.log('Process exited:', code);
+});
+
+// Clean up listeners
+unsubscribeData();
+unsubscribeExit();
 ```
 
 ## UI Architecture & Components
