@@ -44,10 +44,11 @@ export function FileExplorerPanel(props: FileExplorerPanelProps) {
     const expandedSet = new Set(session.fileExplorerExpanded || []);
     return nodes.map((node, idx) => {
       const fullPath = currentPath ? `${currentPath}/${node.name}` : node.name;
+      const absolutePath = `${session.fullPath}/${fullPath}`;
       const change = session.changedFiles.find(f => f.path.includes(node.name));
       const isFolder = node.type === 'folder';
       const isExpanded = expandedSet.has(fullPath);
-      const isSelected = previewFile?.path === fullPath;
+      const isSelected = previewFile?.path === absolutePath;
       const currentIndex = globalIndex.value;
       const isKeyboardSelected = activeFocus === 'right' && activeRightTab === 'files' && currentIndex === selectedFileIndex;
       globalIndex.value++;
