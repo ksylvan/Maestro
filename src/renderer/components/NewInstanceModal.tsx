@@ -121,6 +121,7 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, defaultAgen
               placeholder="My Project Session"
               className="w-full p-2 rounded border bg-transparent outline-none"
               style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
+              autoFocus
             />
           </div>
 
