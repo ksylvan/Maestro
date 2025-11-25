@@ -1,0 +1,164 @@
+/**
+ * Layer Stack Management Hook
+ *
+ * This hook provides the core layer stack management functionality:
+ * - Register/unregister layers dynamically
+ * - Maintain priority-sorted stack
+ * - Handle Escape key delegation to top layer
+ * - Update handlers without re-registration (performance optimization)
+ */
+
+import { useState, useRef, useCallback } from 'react';
+import { Layer } from '../types/layer';
+
+/**
+ * Generate a simple unique ID
+ */
+function generateId(): string {
+  return `layer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+/**
+ * API for managing the layer stack
+ */
+export interface LayerStackAPI {
+  /**
+   * Register a new layer in the stack
+   * @param layer - Layer configuration (without id)
+   * @returns Unique layer id
+   */
+  registerLayer: (layer: Omit<Layer, 'id'>) => string;
+
+  /**
+   * Remove a layer from the stack
+   * @param id - Layer id returned from registerLayer
+   */
+  unregisterLayer: (id: string) => void;
+
+  /**
+   * Update the Escape handler for an existing layer without re-registering
+   * This is a performance optimization to avoid re-sorting the stack
+   * @param id - Layer id
+   * @param handler - New Escape handler function
+   */
+  updateLayerHandler: (id: string, handler: () => void) => void;
+
+  /**
+   * Get the topmost layer in the stack
+   * @returns Top layer or undefined if stack is empty
+   */
+  getTopLayer: () => Layer | undefined;
+
+  /**
+   * Close the topmost layer by calling its Escape handler
+   * Respects onBeforeClose for modals
+   * @returns true if layer was closed, false if close was prevented
+   */
+  closeTopLayer: () => Promise<boolean>;
+
+  /**
+   * Get all layers in priority order (highest priority last)
+   * @returns Array of all registered layers
+   */
+  getLayers: () => Layer[];
+}
+
+/**
+ * Hook that manages the layer stack
+ * Should be used once at the root level via LayerStackContext
+ */
+export function useLayerStack(): LayerStackAPI {
+  // State for all registered layers, sorted by priority
+  const [layers, setLayers] = useState<Layer[]>([]);
+
+  // Ref map to store handler functions without triggering re-renders
+  // Key: layer id, Value: current Escape handler
+  const handlerRefs = useRef<Map<string, () => void>>(new Map());
+
+  /**
+   * Register a new layer in the stack
+   */
+  const registerLayer = useCallback((layer: Omit<Layer, 'id'>): string => {
+    const id = generateId();
+    const newLayer: Layer = { ...layer, id } as Layer;
+
+    // Store the initial handler in the ref map
+    handlerRefs.current.set(id, newLayer.onEscape);
+
+    // Add layer and sort by priority (ascending order - lowest priority first)
+    setLayers((prev) => {
+      const updated = [...prev, newLayer];
+      updated.sort((a, b) => a.priority - b.priority);
+      return updated;
+    });
+
+    return id;
+  }, []);
+
+  /**
+   * Unregister a layer from the stack
+   */
+  const unregisterLayer = useCallback((id: string): void => {
+    // Remove from handler refs
+    handlerRefs.current.delete(id);
+
+    // Remove from layers state
+    setLayers((prev) => prev.filter((layer) => layer.id !== id));
+  }, []);
+
+  /**
+   * Update the Escape handler for an existing layer
+   * This is more efficient than unregistering and re-registering
+   */
+  const updateLayerHandler = useCallback((id: string, handler: () => void): void => {
+    handlerRefs.current.set(id, handler);
+  }, []);
+
+  /**
+   * Get the topmost layer (highest priority)
+   */
+  const getTopLayer = useCallback((): Layer | undefined => {
+    return layers[layers.length - 1];
+  }, [layers]);
+
+  /**
+   * Get all layers in priority order
+   */
+  const getLayers = useCallback((): Layer[] => {
+    return [...layers];
+  }, [layers]);
+
+  /**
+   * Close the topmost layer
+   * Handles onBeforeClose for modals
+   */
+  const closeTopLayer = useCallback(async (): Promise<boolean> => {
+    const topLayer = layers[layers.length - 1];
+    if (!topLayer) return false;
+
+    // Check if it's a modal with onBeforeClose callback
+    if (topLayer.type === 'modal' && topLayer.onBeforeClose) {
+      const canClose = await topLayer.onBeforeClose();
+      if (!canClose) {
+        return false; // Close was prevented
+      }
+    }
+
+    // Get the handler from refs (most up-to-date version)
+    const handler = handlerRefs.current.get(topLayer.id);
+    if (handler) {
+      handler();
+    }
+
+    return true;
+  }, [layers]);
+
+  return {
+    registerLayer,
+    unregisterLayer,
+    updateLayerHandler,
+    getTopLayer,
+    closeTopLayer,
+    getLayers,
+  };
+}
