@@ -73,7 +73,7 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
   const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
   const activeSession = sessions.find(s => s.id === activeSessionId);
 
-  // Register layer on mount
+  // Register layer on mount (handler will be updated by separate effect)
   useEffect(() => {
     layerIdRef.current = registerLayer({
       type: 'modal',
@@ -82,15 +82,7 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
       capturesFocus: true,
       focusTrap: 'strict',
       ariaLabel: 'Quick Actions',
-      onEscape: () => {
-        // Handle escape based on current mode
-        if (mode === 'move-to-group') {
-          setMode('main');
-          setSelectedIndex(0);
-        } else {
-          setQuickActionOpen(false);
-        }
-      }
+      onEscape: () => setQuickActionOpen(false) // Initial handler, updated below
     });
 
     return () => {
@@ -98,9 +90,9 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
         unregisterLayer(layerIdRef.current);
       }
     };
-  }, [registerLayer, unregisterLayer]);
+  }, [registerLayer, unregisterLayer, setQuickActionOpen]);
 
-  // Update handler when dependencies change
+  // Update handler when mode changes
   useEffect(() => {
     if (layerIdRef.current) {
       updateLayerHandler(layerIdRef.current, () => {
@@ -115,10 +107,11 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
     }
   }, [mode, setQuickActionOpen, updateLayerHandler]);
 
+  // Focus input on mount
   useEffect(() => {
-    inputRef.current?.focus();
-    // Also focus the modal container for ARIA compliance
-    modalRef.current?.focus();
+    // Small delay to ensure DOM is ready and layer is registered
+    const timer = setTimeout(() => inputRef.current?.focus(), 50);
+    return () => clearTimeout(timer);
   }, []);
 
   // Scroll selected item into view
