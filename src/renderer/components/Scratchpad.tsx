@@ -353,6 +353,42 @@ export function Scratchpad({
               .prose th { background-color: ${theme.colors.bgActivity}; font-weight: bold; }
               .prose strong { font-weight: bold; }
               .prose em { font-style: italic; }
+              .prose input[type="checkbox"] {
+                appearance: none;
+                -webkit-appearance: none;
+                width: 16px;
+                height: 16px;
+                border: 2px solid ${theme.colors.accent};
+                border-radius: 3px;
+                background-color: transparent;
+                cursor: pointer;
+                vertical-align: middle;
+                margin-right: 8px;
+                position: relative;
+              }
+              .prose input[type="checkbox"]:checked {
+                background-color: ${theme.colors.accent};
+                border-color: ${theme.colors.accent};
+              }
+              .prose input[type="checkbox"]:checked::after {
+                content: '';
+                position: absolute;
+                left: 4px;
+                top: 1px;
+                width: 5px;
+                height: 9px;
+                border: solid ${theme.colors.bgMain};
+                border-width: 0 2px 2px 0;
+                transform: rotate(45deg);
+              }
+              .prose input[type="checkbox"]:hover {
+                border-color: ${theme.colors.highlight};
+                box-shadow: 0 0 4px ${theme.colors.accent}40;
+              }
+              .prose li:has(> input[type="checkbox"]) {
+                list-style-type: none;
+                margin-left: -1.5em;
+              }
             `}</style>
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {content || '*No content yet. Switch to Edit mode to start writing.*'}
