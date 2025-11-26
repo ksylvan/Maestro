@@ -2709,6 +2709,7 @@ export default function MaestroConsole() {
       {aboutModalOpen && (
         <AboutModal
           theme={theme}
+          sessions={sessions}
           onClose={() => setAboutModalOpen(false)}
         />
       )}

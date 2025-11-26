@@ -1,18 +1,90 @@
-import React, { useEffect, useRef } from 'react';
-import { X, Wand2, ExternalLink, FileCode } from 'lucide-react';
-import type { Theme } from '../types';
+import React, { useEffect, useRef, useMemo } from 'react';
+import { X, Wand2, ExternalLink, FileCode, BarChart3 } from 'lucide-react';
+import type { Theme, Session, UsageStats } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import pedramAvatar from '../assets/pedram-avatar.png';
 
 interface AboutModalProps {
   theme: Theme;
+  sessions: Session[];
   onClose: () => void;
 }
 
-export function AboutModal({ theme, onClose }: AboutModalProps) {
+// Calculate aggregated stats from all sessions
+interface GlobalStats {
+  totalSessions: number;
+  totalMessages: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheCreationTokens: number;
+  totalCostUsd: number;
+  totalActiveTimeMs: number;
+}
+
+export function AboutModal({ theme, sessions, onClose }: AboutModalProps) {
   const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
   const layerIdRef = useRef<string>();
+
+  // Calculate global stats from all sessions
+  const globalStats = useMemo<GlobalStats>(() => {
+    const stats: GlobalStats = {
+      totalSessions: sessions.length,
+      totalMessages: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalCacheReadTokens: 0,
+      totalCacheCreationTokens: 0,
+      totalCostUsd: 0,
+      totalActiveTimeMs: 0,
+    };
+
+    for (const session of sessions) {
+      // Count messages (AI logs from user source)
+      stats.totalMessages += session.aiLogs.filter(log => log.source === 'user').length;
+
+      // Aggregate usage stats
+      if (session.usageStats) {
+        stats.totalInputTokens += session.usageStats.inputTokens || 0;
+        stats.totalOutputTokens += session.usageStats.outputTokens || 0;
+        stats.totalCacheReadTokens += session.usageStats.cacheReadInputTokens || 0;
+        stats.totalCacheCreationTokens += session.usageStats.cacheCreationInputTokens || 0;
+        stats.totalCostUsd += session.usageStats.totalCostUsd || 0;
+      }
+
+      // Aggregate active time
+      stats.totalActiveTimeMs += session.activeTimeMs || 0;
+    }
+
+    return stats;
+  }, [sessions]);
+
+  // Format token count with K/M suffix
+  const formatTokens = (count: number): string => {
+    if (count >= 1_000_000) {
+      return `${(count / 1_000_000).toFixed(1)}M`;
+    }
+    if (count >= 1_000) {
+      return `${(count / 1_000).toFixed(1)}K`;
+    }
+    return count.toString();
+  };
+
+  // Format duration from milliseconds
+  const formatDuration = (ms: number): string => {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+
+    if (hours > 0) {
+      return `${hours}h ${minutes % 60}m`;
+    }
+    if (minutes > 0) {
+      return `${minutes}m ${seconds % 60}s`;
+    }
+    return `${seconds}s`;
+  };
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Register layer on mount
@@ -102,6 +174,67 @@ export function AboutModal({ theme, onClose }: AboutModalProps) {
               </div>
             </div>
           </div>
+
+          {/* Global Usage Stats */}
+          {globalStats.totalSessions > 0 && (
+            <div className="p-4 rounded border" style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgActivity }}>
+              <div className="flex items-center gap-2 mb-3">
+                <BarChart3 className="w-4 h-4" style={{ color: theme.colors.accent }} />
+                <span className="text-sm font-bold" style={{ color: theme.colors.textMain }}>Session Statistics</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                {/* Sessions & Messages */}
+                <div className="flex justify-between">
+                  <span style={{ color: theme.colors.textDim }}>Sessions</span>
+                  <span className="font-mono font-bold" style={{ color: theme.colors.textMain }}>{globalStats.totalSessions}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span style={{ color: theme.colors.textDim }}>Messages</span>
+                  <span className="font-mono font-bold" style={{ color: theme.colors.textMain }}>{globalStats.totalMessages}</span>
+                </div>
+
+                {/* Tokens */}
+                <div className="flex justify-between">
+                  <span style={{ color: theme.colors.textDim }}>Input Tokens</span>
+                  <span className="font-mono font-bold" style={{ color: theme.colors.textMain }}>{formatTokens(globalStats.totalInputTokens)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span style={{ color: theme.colors.textDim }}>Output Tokens</span>
+                  <span className="font-mono font-bold" style={{ color: theme.colors.textMain }}>{formatTokens(globalStats.totalOutputTokens)}</span>
+                </div>
+
+                {/* Cache Tokens (if any) */}
+                {(globalStats.totalCacheReadTokens > 0 || globalStats.totalCacheCreationTokens > 0) && (
+                  <>
+                    <div className="flex justify-between">
+                      <span style={{ color: theme.colors.textDim }}>Cache Read</span>
+                      <span className="font-mono font-bold" style={{ color: theme.colors.textMain }}>{formatTokens(globalStats.totalCacheReadTokens)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span style={{ color: theme.colors.textDim }}>Cache Creation</span>
+                      <span className="font-mono font-bold" style={{ color: theme.colors.textMain }}>{formatTokens(globalStats.totalCacheCreationTokens)}</span>
+                    </div>
+                  </>
+                )}
+
+                {/* Active Time */}
+                {globalStats.totalActiveTimeMs > 0 && (
+                  <div className="flex justify-between col-span-2 pt-2 border-t" style={{ borderColor: theme.colors.border }}>
+                    <span style={{ color: theme.colors.textDim }}>Active Time</span>
+                    <span className="font-mono font-bold" style={{ color: theme.colors.textMain }}>{formatDuration(globalStats.totalActiveTimeMs)}</span>
+                  </div>
+                )}
+
+                {/* Total Cost */}
+                {globalStats.totalCostUsd > 0 && (
+                  <div className="flex justify-between col-span-2 pt-2 border-t" style={{ borderColor: theme.colors.border }}>
+                    <span style={{ color: theme.colors.textDim }}>Total Cost</span>
+                    <span className="font-mono font-bold" style={{ color: theme.colors.success }}>${globalStats.totalCostUsd.toFixed(2)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Project Link */}
           <div className="pt-2 border-t" style={{ borderColor: theme.colors.border }}>
