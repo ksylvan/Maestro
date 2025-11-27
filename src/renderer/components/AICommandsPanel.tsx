@@ -88,30 +88,31 @@ export function AICommandsPanel({ theme, customAICommands, setCustomAICommands }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <label className="block text-xs font-bold opacity-70 uppercase mb-1 flex items-center gap-2">
-            <Terminal className="w-3 h-3" />
-            Custom AI Commands
-          </label>
-          <p className="text-xs opacity-50" style={{ color: theme.colors.textDim }}>
-            Slash commands available in AI terminal mode. Built-in commands can be edited but not deleted.
-          </p>
-        </div>
-        {!isCreating && (
+      <div>
+        <label className="block text-xs font-bold opacity-70 uppercase mb-1 flex items-center gap-2">
+          <Terminal className="w-3 h-3" />
+          Custom AI Commands
+        </label>
+        <p className="text-xs opacity-50" style={{ color: theme.colors.textDim }}>
+          Slash commands available in AI terminal mode. Built-in commands can be edited but not deleted.
+        </p>
+      </div>
+
+      {!isCreating && (
+        <div className="flex justify-end">
           <button
             onClick={() => setIsCreating(true)}
-            className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium transition-all"
+            className="flex items-center gap-2 px-4 py-2 rounded text-sm font-medium transition-all"
             style={{
               backgroundColor: theme.colors.accent,
               color: 'white'
             }}
           >
-            <Plus className="w-3 h-3" />
+            <Plus className="w-4 h-4" />
             Add Command
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Create new command form */}
       {isCreating && (

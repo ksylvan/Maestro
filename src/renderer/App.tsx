@@ -826,6 +826,7 @@ export default function MaestroConsole() {
       command: cmd.command,
       description: cmd.description,
       aiOnly: true, // Custom AI commands are only available in AI mode
+      prompt: cmd.prompt, // Include prompt for execution
     }));
     return [...slashCommands, ...customCommandsAsSlash];
   }, [customAICommands]);
@@ -2446,23 +2447,44 @@ export default function MaestroConsole() {
           setSlashCommandOpen(false);
           setInputValue('');
           if (inputRef.current) inputRef.current.style.height = 'auto';
-          // Execute the command directly
-          selectedCommand.execute({
-            activeSessionId,
-            sessions,
-            setSessions,
-            currentMode: activeSession.inputMode,
-            groups,
-            setRightPanelOpen,
-            setActiveRightTab,
-            setActiveFocus,
-            setSelectedFileIndex,
-            sendPromptToAgent: spawnAgentWithPrompt,
-            addHistoryEntry,
-            startNewClaudeSession,
-            spawnBackgroundSynopsis,
-            addToast,
-          });
+
+          // Check if this is a custom AI command (has prompt but no execute)
+          if ('prompt' in selectedCommand && selectedCommand.prompt && !('execute' in selectedCommand)) {
+            // Add user log showing the command was executed
+            setSessions(prev => prev.map(s => {
+              if (s.id !== activeSessionId) return s;
+              return {
+                ...s,
+                aiLogs: [...s.aiLogs, {
+                  id: generateId(),
+                  timestamp: Date.now(),
+                  source: 'user',
+                  text: `${selectedCommand.command}: ${selectedCommand.description}`
+                }],
+                aiCommandHistory: Array.from(new Set([...(s.aiCommandHistory || []), selectedCommand.command])).slice(-50)
+              };
+            }));
+            // Send the custom command's prompt to the AI agent
+            spawnAgentWithPrompt(selectedCommand.prompt);
+          } else if ('execute' in selectedCommand && selectedCommand.execute) {
+            // Execute the built-in command directly
+            selectedCommand.execute({
+              activeSessionId,
+              sessions,
+              setSessions,
+              currentMode: activeSession.inputMode,
+              groups,
+              setRightPanelOpen,
+              setActiveRightTab,
+              setActiveFocus,
+              setSelectedFileIndex,
+              sendPromptToAgent: spawnAgentWithPrompt,
+              addHistoryEntry,
+              startNewClaudeSession,
+              spawnBackgroundSynopsis,
+              addToast,
+            });
+          }
         }
       } else if (e.key === 'Escape') {
         e.preventDefault();

@@ -809,16 +809,14 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
             </>
           )}
           {/* Copy to Clipboard Button - bottom right corner */}
-          {isAIMode && (
-            <button
-              onClick={() => copyToClipboard(log.text)}
-              className="absolute bottom-2 right-2 p-1.5 rounded opacity-0 group-hover:opacity-50 hover:!opacity-100 transition-opacity"
-              style={{ color: theme.colors.textDim }}
-              title="Copy to clipboard"
-            >
-              <Copy className="w-3.5 h-3.5" />
-            </button>
-          )}
+          <button
+            onClick={() => copyToClipboard(log.text)}
+            className="absolute bottom-2 right-2 p-1.5 rounded opacity-0 group-hover:opacity-50 hover:!opacity-100 transition-opacity"
+            style={{ color: theme.colors.textDim }}
+            title="Copy to clipboard"
+          >
+            <Copy className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
     );
@@ -953,7 +951,7 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
                       {formatElapsedTime(elapsedSeconds)}
                     </span>
                   </div>
-                  {session.usageStats && (
+                  {session.inputMode === 'ai' && session.usageStats && (
                     <div className="flex items-center gap-4 mt-1 text-xs" style={{ color: theme.colors.textDim }}>
                       <span>In: {session.usageStats.inputTokens.toLocaleString()}</span>
                       <span>Out: {session.usageStats.outputTokens.toLocaleString()}</span>

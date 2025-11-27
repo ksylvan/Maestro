@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Wand2, Radio, ExternalLink, Columns, Copy, List, Loader2, Clock, GitBranch, ArrowUp, ArrowDown, FileEdit } from 'lucide-react';
 import { LogViewer } from './LogViewer';
 import { TerminalOutput } from './TerminalOutput';
@@ -125,6 +125,29 @@ export function MainPanel(props: MainPanelProps) {
   const [showSessionIdCopied, setShowSessionIdCopied] = useState(false);
   // Git pill tooltip hover state
   const [gitTooltipOpen, setGitTooltipOpen] = useState(false);
+  // Panel width for responsive hiding of widgets
+  const [panelWidth, setPanelWidth] = useState(0);
+  const headerRef = useRef<HTMLDivElement>(null);
+
+  // Track panel width for responsive widget hiding
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setPanelWidth(entry.contentRect.width);
+      }
+    });
+
+    resizeObserver.observe(header);
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  // Responsive breakpoints for hiding widgets
+  const showTimeWidget = panelWidth > 600;
+  const showCostWidget = panelWidth > 500;
+
   // Git info state
   const [gitInfo, setGitInfo] = useState<{
     branch: string;
@@ -253,7 +276,7 @@ export function MainPanel(props: MainPanelProps) {
           onClick={() => setActiveFocus('main')}
         >
           {/* Top Bar */}
-          <div className="h-16 border-b flex items-center justify-between px-6 shrink-0" style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgSidebar }}>
+          <div ref={headerRef} className="h-16 border-b flex items-center justify-between px-6 shrink-0" style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgSidebar }}>
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2 text-sm font-medium">
                 {activeSession.name}
@@ -483,8 +506,8 @@ export function MainPanel(props: MainPanelProps) {
             )}
 
             <div className="flex items-center gap-3">
-              {/* Time Tracker - styled as pill */}
-              {activeSession.activeTimeMs > 0 && (
+              {/* Time Tracker - styled as pill (hidden when panel is narrow) */}
+              {showTimeWidget && activeSession.activeTimeMs > 0 && (
                 <span
                   className="flex items-center gap-1 text-xs font-mono font-bold px-2 py-0.5 rounded-full border"
                   style={{ borderColor: theme.colors.accent + '30', color: theme.colors.accent, backgroundColor: theme.colors.accent + '10' }}
@@ -495,8 +518,8 @@ export function MainPanel(props: MainPanelProps) {
                 </span>
               )}
 
-              {/* Cost Tracker - styled as pill */}
-              {activeSession.inputMode === 'ai' && activeSession.usageStats && activeSession.usageStats.totalCostUsd > 0 && (
+              {/* Cost Tracker - styled as pill (hidden when panel is narrow) */}
+              {showCostWidget && activeSession.inputMode === 'ai' && activeSession.usageStats && activeSession.usageStats.totalCostUsd > 0 && (
                 <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-full border border-green-500/30 text-green-500 bg-green-500/10">
                   ${activeSession.usageStats.totalCostUsd.toFixed(2)}
                 </span>
