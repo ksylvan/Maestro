@@ -55,13 +55,54 @@ export default defineConfig({
       output: {
         // Organize output by type
         entryFileNames: 'assets/[name]-[hash].js',
-        chunkFileNames: 'assets/[name]-[hash].js',
+        // Use dynamic chunk names that preserve mobile/desktop distinction
+        chunkFileNames: (chunkInfo) => {
+          // Preserve mobile/desktop naming for their respective chunks
+          if (chunkInfo.name?.includes('mobile') || chunkInfo.facadeModuleId?.includes('/mobile/')) {
+            return 'assets/mobile-[hash].js';
+          }
+          if (chunkInfo.name?.includes('desktop') || chunkInfo.facadeModuleId?.includes('/desktop/')) {
+            return 'assets/desktop-[hash].js';
+          }
+          // Named chunks (react, vendor) keep their names
+          if (chunkInfo.name && !chunkInfo.name.startsWith('_')) {
+            return `assets/${chunkInfo.name}-[hash].js`;
+          }
+          return 'assets/[name]-[hash].js';
+        },
         assetFileNames: 'assets/[name]-[hash].[ext]',
 
-        // Manual chunking for better caching
-        manualChunks: {
-          // React core in its own chunk
-          react: ['react', 'react-dom'],
+        // Manual chunking for better caching and code splitting
+        manualChunks: (id) => {
+          // React core in its own chunk for optimal caching
+          if (id.includes('node_modules/react-dom')) {
+            return 'react';
+          }
+          if (id.includes('node_modules/react/') || id.includes('node_modules/react-is')) {
+            return 'react';
+          }
+          // Scheduler is a React dependency
+          if (id.includes('node_modules/scheduler')) {
+            return 'react';
+          }
+
+          // Mobile-specific dependencies (future-proofing for Phase 1)
+          // When mobile-specific libraries are added, they'll be bundled separately
+          if (id.includes('/mobile/') && !id.includes('node_modules')) {
+            return 'mobile';
+          }
+
+          // Desktop-specific dependencies (future-proofing for Phase 2)
+          // When desktop-specific libraries are added, they'll be bundled separately
+          if (id.includes('/desktop/') && !id.includes('node_modules')) {
+            return 'desktop';
+          }
+
+          // Shared web components stay in main bundle or get split automatically
+          // This allows React.lazy() to create async chunks for mobile/desktop
+
+          // Return undefined for other modules to let Rollup handle them
+          return undefined;
         },
       },
     },

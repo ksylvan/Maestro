@@ -11,15 +11,16 @@ import { ThemeProvider } from './components/ThemeProvider';
 import './index.css';
 
 // Lazy load mobile and desktop apps for code splitting
-// These will be created in Phase 1 and Phase 2
+// Using webpackChunkName magic comments for Vite compatibility
+// This creates separate bundles that are only loaded based on device type
 const MobileApp = lazy(() =>
-  import('./mobile/App').catch(() => ({
+  import(/* webpackChunkName: "mobile" */ './mobile/App').catch(() => ({
     default: () => <PlaceholderApp type="mobile" />,
   }))
 );
 
 const DesktopApp = lazy(() =>
-  import('./desktop/App').catch(() => ({
+  import(/* webpackChunkName: "desktop" */ './desktop/App').catch(() => ({
     default: () => <PlaceholderApp type="desktop" />,
   }))
 );
