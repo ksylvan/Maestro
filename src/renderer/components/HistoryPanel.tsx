@@ -176,8 +176,11 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
     try {
       // Pass sessionId to filter: only show entries from this session or legacy entries without sessionId
       const entries = await window.maestro.history.getAll(session.cwd, session.id);
-      // Ensure entries is an array and has valid shape
-      setHistoryEntries(Array.isArray(entries) ? entries : []);
+      // Ensure entries is an array, limit to MAX_HISTORY_IN_MEMORY
+      const validEntries = Array.isArray(entries) ? entries : [];
+      setHistoryEntries(validEntries.slice(0, MAX_HISTORY_IN_MEMORY));
+      // Reset display count when reloading
+      setDisplayCount(INITIAL_DISPLAY_COUNT);
     } catch (error) {
       console.error('Failed to load history:', error);
       setHistoryEntries([]);
@@ -219,7 +222,7 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
   };
 
   // Filter entries based on active filters and search text
-  const filteredEntries = historyEntries.filter(entry => {
+  const allFilteredEntries = useMemo(() => historyEntries.filter(entry => {
     if (!entry || !entry.type) return false;
     if (!activeFilters.has(entry.type)) return false;
 
@@ -233,11 +236,32 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
     }
 
     return true;
-  });
+  }), [historyEntries, activeFilters, searchFilter]);
 
-  // Reset selected index when filters change
+  // Slice to only display up to displayCount for performance
+  const filteredEntries = useMemo(() =>
+    allFilteredEntries.slice(0, displayCount),
+    [allFilteredEntries, displayCount]
+  );
+
+  // Check if there are more entries to load
+  const hasMore = allFilteredEntries.length > displayCount;
+
+  // Handle scroll to load more entries
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+
+    // Load more when within 100px of bottom
+    if (scrollBottom < 100 && hasMore) {
+      setDisplayCount(prev => Math.min(prev + LOAD_MORE_COUNT, allFilteredEntries.length));
+    }
+  }, [hasMore, allFilteredEntries.length]);
+
+  // Reset selected index and display count when filters change
   useEffect(() => {
     setSelectedIndex(-1);
+    setDisplayCount(INITIAL_DISPLAY_COUNT);
   }, [activeFilters, searchFilter]);
 
   // Scroll selected item into view
@@ -397,7 +421,7 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
           />
           {searchFilter && (
             <div className="text-[10px] mt-1 text-right" style={{ color: theme.colors.textDim }}>
-              {filteredEntries.length} result{filteredEntries.length !== 1 ? 's' : ''}
+              {allFilteredEntries.length} result{allFilteredEntries.length !== 1 ? 's' : ''}
             </div>
           )}
         </div>
@@ -409,6 +433,7 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
         className="flex-1 overflow-y-auto space-y-3 outline-none scrollbar-thin"
         tabIndex={0}
         onKeyDown={handleKeyDown}
+        onScroll={handleScroll}
       >
         {isLoading ? (
           <div className="text-center py-8 text-xs opacity-50">Loading history...</div>
@@ -421,7 +446,8 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
                 : 'No entries match the selected filters.'}
           </div>
         ) : (
-          filteredEntries.map((entry, index) => {
+          <>
+          {filteredEntries.map((entry, index) => {
             const colors = getPillColor(entry.type);
             const Icon = entry.type === 'AUTO' ? Bot : User;
             const isSelected = index === selectedIndex;
@@ -516,7 +542,17 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
                 </p>
               </div>
             );
-          })
+          })}
+          {/* Load more indicator */}
+          {hasMore && (
+            <div
+              className="text-center py-4 text-xs"
+              style={{ color: theme.colors.textDim }}
+            >
+              Showing {filteredEntries.length} of {allFilteredEntries.length} entries. Scroll for more...
+            </div>
+          )}
+          </>
         )}
       </div>
 
