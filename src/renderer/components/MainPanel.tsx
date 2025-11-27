@@ -141,10 +141,11 @@ export function MainPanel(props: MainPanelProps) {
   const [gitTooltipOpen, setGitTooltipOpen] = useState(false);
   // Agent sessions tooltip hover state
   const [sessionsTooltipOpen, setSessionsTooltipOpen] = useState(false);
-  // Session ID pill overlay state
+  // Session ID pill overlay state (hover-triggered with delay for smooth UX)
   const [sessionPillOverlayOpen, setSessionPillOverlayOpen] = useState(false);
   const [sessionPillRenaming, setSessionPillRenaming] = useState(false);
   const [sessionPillRenameValue, setSessionPillRenameValue] = useState('');
+  const sessionPillHoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Bookmarked and named Claude sessions (stored globally)
   const [bookmarkedSessions, setBookmarkedSessions] = useState<Set<string>>(new Set());
   const [namedSessions, setNamedSessions] = useState<Record<string, string>>({});
@@ -269,7 +270,7 @@ export function MainPanel(props: MainPanelProps) {
     }
   }, [activeSession?.claudeSessionId, sessionPillRenameValue, namedSessions]);
 
-  // Close session pill overlay when clicking outside
+  // Close session pill overlay when clicking outside (mainly for rename mode)
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (sessionPillOverlayOpen && sessionPillRef.current && !sessionPillRef.current.contains(event.target as Node)) {
@@ -280,6 +281,15 @@ export function MainPanel(props: MainPanelProps) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [sessionPillOverlayOpen]);
+
+  // Cleanup hover timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (sessionPillHoverTimeout.current) {
+        clearTimeout(sessionPillHoverTimeout.current);
+      }
+    };
+  }, []);
 
   // Handler for input focus - select session in sidebar
   const handleInputFocus = () => {
@@ -561,20 +571,43 @@ export function MainPanel(props: MainPanelProps) {
                 onViewDiff={handleViewGitDiff}
               />
 
-              {/* Session ID Pill with Overlay */}
+              {/* Session ID Pill with Overlay (hover-triggered) */}
               {activeSession.inputMode === 'ai' && activeSession.claudeSessionId && (
-                <div className="relative" ref={sessionPillRef}>
-                  <button
-                    onClick={() => setSessionPillOverlayOpen(!sessionPillOverlayOpen)}
-                    className="flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border cursor-pointer hover:opacity-80 transition-opacity"
+                <div
+                  className="relative"
+                  ref={sessionPillRef}
+                  onMouseEnter={() => {
+                    // Clear any pending close timeout
+                    if (sessionPillHoverTimeout.current) {
+                      clearTimeout(sessionPillHoverTimeout.current);
+                      sessionPillHoverTimeout.current = null;
+                    }
+                    setSessionPillOverlayOpen(true);
+                  }}
+                  onMouseLeave={() => {
+                    // Delay closing to allow mouse to reach the dropdown
+                    sessionPillHoverTimeout.current = setTimeout(() => {
+                      // Don't close if we're in rename mode
+                      if (!sessionPillRenaming) {
+                        setSessionPillOverlayOpen(false);
+                      }
+                    }, 150);
+                  }}
+                >
+                  <div
+                    className="flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border cursor-default hover:opacity-80 transition-opacity"
                     style={{ backgroundColor: theme.colors.accent + '20', color: theme.colors.accent, borderColor: theme.colors.accent + '30' }}
-                    title={namedSessions[activeSession.claudeSessionId] || `Session: ${activeSession.claudeSessionId}`}
                   >
                     {bookmarkedSessions.has(activeSession.claudeSessionId) && (
                       <Star className="w-2.5 h-2.5 fill-current" />
                     )}
                     {namedSessions[activeSession.claudeSessionId] || activeSession.claudeSessionId.split('-')[0].toUpperCase()}
-                  </button>
+                  </div>
+
+                  {/* Invisible bridge to prevent hover gap issues */}
+                  {sessionPillOverlayOpen && (
+                    <div className="absolute left-0 right-0 h-2" style={{ top: '100%' }} />
+                  )}
 
                   {/* Overlay dropdown */}
                   {sessionPillOverlayOpen && (
@@ -583,7 +616,7 @@ export function MainPanel(props: MainPanelProps) {
                       style={{
                         backgroundColor: theme.colors.bgSidebar,
                         borderColor: theme.colors.border,
-                        minWidth: '200px'
+                        minWidth: '280px'
                       }}
                     >
                       {/* Session ID display */}

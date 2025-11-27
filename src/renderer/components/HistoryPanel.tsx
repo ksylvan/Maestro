@@ -3,28 +3,31 @@ import { Bot, User, ExternalLink, Check, X } from 'lucide-react';
 import type { Session, Theme, HistoryEntry, HistoryEntryType } from '../types';
 import { HistoryDetailModal } from './HistoryDetailModal';
 
-// 24-hour activity bar graph component
+// 24-hour activity bar graph component with sliding time window
 interface ActivityGraphProps {
   entries: HistoryEntry[];
   theme: Theme;
+  referenceTime?: number; // The "end" of the 24-hour window (defaults to now)
 }
 
-const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme }) => {
+const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme, referenceTime }) => {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
-  // Group entries by hour for past 24 hours
-  const hourlyData = useMemo(() => {
-    const now = Date.now();
-    const msPerHour = 60 * 60 * 1000;
-    const hours24Ago = now - (24 * msPerHour);
+  // Use referenceTime as the end of our window, or current time if not provided
+  const endTime = referenceTime || Date.now();
 
-    // Initialize 24 buckets (index 0 = 24 hours ago, index 23 = current hour)
+  // Group entries by hour for the 24-hour window ending at referenceTime
+  const hourlyData = useMemo(() => {
+    const msPerHour = 60 * 60 * 1000;
+    const hours24Ago = endTime - (24 * msPerHour);
+
+    // Initialize 24 buckets (index 0 = 24 hours before endTime, index 23 = endTime hour)
     const buckets: { auto: number; user: number }[] = Array.from({ length: 24 }, () => ({ auto: 0, user: 0 }));
 
-    // Filter to last 24 hours and bucket by hour
+    // Filter to the 24-hour window and bucket by hour
     entries.forEach(entry => {
-      if (entry.timestamp >= hours24Ago && entry.timestamp <= now) {
-        const hoursAgo = Math.floor((now - entry.timestamp) / msPerHour);
+      if (entry.timestamp >= hours24Ago && entry.timestamp <= endTime) {
+        const hoursAgo = Math.floor((endTime - entry.timestamp) / msPerHour);
         const bucketIndex = 23 - hoursAgo; // Convert to 0-indexed from oldest to newest
         if (bucketIndex >= 0 && bucketIndex < 24) {
           if (entry.type === 'AUTO') {
@@ -37,7 +40,7 @@ const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme }) => {
     });
 
     return buckets;
-  }, [entries]);
+  }, [entries, endTime]);
 
   // Find max value for scaling
   const maxValue = useMemo(() => {
@@ -48,7 +51,7 @@ const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme }) => {
   const totalAuto = useMemo(() => hourlyData.reduce((sum, h) => sum + h.auto, 0), [hourlyData]);
   const totalUser = useMemo(() => hourlyData.reduce((sum, h) => sum + h.user, 0), [hourlyData]);
 
-  // Hour labels positioned at: 24 (start), 16, 8, 0 (end/now)
+  // Hour labels positioned at: 24 (start), 16, 8, 0 (end/reference time)
   const hourLabels = [
     { hour: 24, index: 0 },
     { hour: 16, index: 8 },
@@ -58,12 +61,12 @@ const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme }) => {
 
   // Get time range label for tooltip (e.g., "2PM - 3PM")
   const getTimeRangeLabel = (index: number) => {
-    const now = new Date();
+    const refDate = new Date(endTime);
     const hoursAgo = 23 - index;
 
-    // Calculate the start hour of this bucket
-    const endHour = new Date(now.getTime() - (hoursAgo * 60 * 60 * 1000));
-    const startHour = new Date(endHour.getTime() - (60 * 60 * 1000));
+    // Calculate the start hour of this bucket relative to endTime
+    const bucketEnd = new Date(refDate.getTime() - (hoursAgo * 60 * 60 * 1000));
+    const bucketStart = new Date(bucketEnd.getTime() - (60 * 60 * 1000));
 
     const formatHour = (date: Date) => {
       const hour = date.getHours();
@@ -72,13 +75,29 @@ const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme }) => {
       return `${hour12}${ampm}`;
     };
 
-    return `${formatHour(startHour)} - ${formatHour(endHour)}`;
+    return `${formatHour(bucketStart)} - ${formatHour(bucketEnd)}`;
   };
+
+  // Format the reference time for display (shows what time point we're viewing)
+  const formatReferenceTime = () => {
+    const now = Date.now();
+    const diffMs = now - endTime;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+
+    if (diffMins < 1) return 'Now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return new Date(endTime).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
+
+  // Check if we're viewing historical data (not "now")
+  const isHistorical = referenceTime && (Date.now() - referenceTime) > 60000; // More than 1 minute ago
 
   return (
     <div
       className="flex-1 min-w-0 flex flex-col relative mt-0.5"
-      title={hoveredIndex === null ? `Last 24h: ${totalAuto} auto, ${totalUser} user` : undefined}
+      title={hoveredIndex === null ? `${isHistorical ? `Viewing: ${formatReferenceTime()} • ` : ''}24h window: ${totalAuto} auto, ${totalUser} user` : undefined}
     >
       {/* Hover tooltip - positioned below the graph */}
       {hoveredIndex !== null && (
@@ -175,7 +194,7 @@ const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme }) => {
           );
         })}
       </div>
-      {/* Hour labels below */}
+      {/* Hour labels below + reference time indicator */}
       <div className="relative h-3 mt-0.5">
         {hourLabels.map(({ hour, index }) => (
           <span
@@ -191,6 +210,15 @@ const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme }) => {
             {hour}h
           </span>
         ))}
+        {/* Show reference time indicator when viewing historical data */}
+        {isHistorical && (
+          <span
+            className="absolute right-0 text-[8px] font-mono font-bold"
+            style={{ color: theme.colors.accent, top: '-10px' }}
+          >
+            {formatReferenceTime()}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -221,6 +249,7 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
   const [searchFilter, setSearchFilter] = useState('');
   const [searchFilterOpen, setSearchFilterOpen] = useState(false);
   const [displayCount, setDisplayCount] = useState(INITIAL_DISPLAY_COUNT);
+  const [graphReferenceTime, setGraphReferenceTime] = useState<number | undefined>(undefined);
 
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Record<number, HTMLDivElement | null>>({});
@@ -303,7 +332,7 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
   // Check if there are more entries to load
   const hasMore = allFilteredEntries.length > displayCount;
 
-  // Handle scroll to load more entries
+  // Handle scroll to load more entries AND update graph reference time
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
     const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
@@ -312,12 +341,38 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
     if (scrollBottom < 100 && hasMore) {
       setDisplayCount(prev => Math.min(prev + LOAD_MORE_COUNT, allFilteredEntries.length));
     }
-  }, [hasMore, allFilteredEntries.length]);
 
-  // Reset selected index and display count when filters change
+    // Find the topmost visible entry to update the graph's reference time
+    // This creates the "sliding window" effect as you scroll through history
+    const containerRect = target.getBoundingClientRect();
+    let topmostVisibleEntry: HistoryEntry | null = null;
+
+    for (let i = 0; i < filteredEntries.length; i++) {
+      const itemEl = itemRefs.current[i];
+      if (itemEl) {
+        const itemRect = itemEl.getBoundingClientRect();
+        // Check if this item is at or below the top of the container
+        if (itemRect.top >= containerRect.top - 20) {
+          topmostVisibleEntry = filteredEntries[i];
+          break;
+        }
+      }
+    }
+
+    // Update the graph reference time to the topmost visible entry's timestamp
+    // If at the very top (no scrolling), use undefined to show "now"
+    if (target.scrollTop < 10) {
+      setGraphReferenceTime(undefined);
+    } else if (topmostVisibleEntry) {
+      setGraphReferenceTime(topmostVisibleEntry.timestamp);
+    }
+  }, [hasMore, allFilteredEntries.length, filteredEntries]);
+
+  // Reset selected index, display count, and graph reference time when filters change
   useEffect(() => {
     setSelectedIndex(-1);
     setDisplayCount(INITIAL_DISPLAY_COUNT);
+    setGraphReferenceTime(undefined); // Reset to "now" when filters change
   }, [activeFilters, searchFilter]);
 
   // Scroll selected item into view
@@ -459,7 +514,7 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
         </div>
 
         {/* 24-hour activity bar graph */}
-        <ActivityGraph entries={historyEntries} theme={theme} />
+        <ActivityGraph entries={historyEntries} theme={theme} referenceTime={graphReferenceTime} />
       </div>
 
       {/* Search Filter */}
