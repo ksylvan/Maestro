@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Eye, Edit, Play, Square, HelpCircle, Loader2, Image, X, Search, ChevronUp, ChevronDown } from 'lucide-react';
+import { Eye, Edit, Play, Square, HelpCircle, Loader2, Image, X, Search, ChevronUp, ChevronDown, ChevronRight } from 'lucide-react';
 import type { BatchRunState, SessionState } from '../types';
 import { AutoRunnerHelpModal } from './AutoRunnerHelpModal';
 import { MermaidRenderer } from './MermaidRenderer';
@@ -271,6 +271,7 @@ export function Scratchpad({
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [attachmentsList, setAttachmentsList] = useState<string[]>([]);
   const [attachmentPreviews, setAttachmentPreviews] = useState<Map<string, string>>(new Map());
+  const [attachmentsExpanded, setAttachmentsExpanded] = useState(true);
   // Search state
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -830,25 +831,35 @@ export function Scratchpad({
       {/* Attached Images Preview (edit mode) */}
       {mode === 'edit' && attachmentsList.length > 0 && (
         <div
-          className="flex flex-wrap gap-1 px-2 py-2 mx-2 mb-2 rounded"
+          className="px-2 py-2 mx-2 mb-2 rounded"
           style={{ backgroundColor: theme.colors.bgActivity }}
         >
-          <div
-            className="w-full text-[10px] uppercase font-semibold mb-1"
+          <button
+            onClick={() => setAttachmentsExpanded(!attachmentsExpanded)}
+            className="w-full flex items-center gap-1 text-[10px] uppercase font-semibold hover:opacity-80 transition-opacity"
             style={{ color: theme.colors.textDim }}
           >
+            {attachmentsExpanded ? (
+              <ChevronDown className="w-3 h-3" />
+            ) : (
+              <ChevronRight className="w-3 h-3" />
+            )}
             Attached Images ({attachmentsList.length})
-          </div>
-          {attachmentsList.map(filename => (
-            <ImagePreview
-              key={filename}
-              src={attachmentPreviews.get(filename) || ''}
-              filename={filename}
-              theme={theme}
-              onRemove={() => handleRemoveAttachment(filename)}
-              onImageClick={setLightboxImage}
-            />
-          ))}
+          </button>
+          {attachmentsExpanded && (
+            <div className="flex flex-wrap gap-1 mt-2">
+              {attachmentsList.map(filename => (
+                <ImagePreview
+                  key={filename}
+                  src={attachmentPreviews.get(filename) || ''}
+                  filename={filename}
+                  theme={theme}
+                  onRemove={() => handleRemoveAttachment(filename)}
+                  onImageClick={setLightboxImage}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
 
