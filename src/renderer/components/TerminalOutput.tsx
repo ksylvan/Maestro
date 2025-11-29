@@ -740,6 +740,15 @@ const ElapsedTimeDisplay = memo(({ thinkingStartTime, textColor }: { thinkingSta
   );
 });
 
+// Props for busy tab information passed to the status indicator
+export interface BusyTabInfo {
+  id: string;                     // Tab ID for switching to this tab
+  claudeSessionId: string | null; // Claude session ID (null for new tabs)
+  name: string | null;            // User-defined name (null = show UUID octet)
+  starred: boolean;               // Whether session is starred (for pill display)
+  thinkingStartTime?: number;     // When the tab started thinking
+}
+
 interface TerminalOutputProps {
   session: Session;
   theme: Theme;
@@ -758,6 +767,9 @@ interface TerminalOutputProps {
   onRemoveQueuedMessage?: (messageId: string) => void; // Callback to remove a queued message
   onInterrupt?: () => void; // Callback to interrupt the current process
   audioFeedbackCommand?: string; // TTS command for speech synthesis
+  // Busy tab indicator props
+  busyTabs?: BusyTabInfo[];       // List of all busy tabs in current session
+  onSwitchToTab?: (tabId: string) => void; // Callback to switch to a specific tab
 }
 
 export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((props, ref) => {
@@ -765,7 +777,7 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
     session, theme, fontFamily, activeFocus, outputSearchOpen, outputSearchQuery,
     setOutputSearchOpen, setOutputSearchQuery, setActiveFocus, setLightboxImage,
     inputRef, logsEndRef, maxOutputLines, onDeleteLog, onRemoveQueuedMessage, onInterrupt,
-    audioFeedbackCommand
+    audioFeedbackCommand, busyTabs = [], onSwitchToTab
   } = props;
 
   // Use the forwarded ref if provided, otherwise create a local one
@@ -1264,6 +1276,71 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
                 />
               )}
             </div>
+          </div>
+        )}
+
+        {/* AI busy tabs indicator - shows ALL busy tabs in the session (not just current tab) */}
+        {/* This indicator displays at the bottom of the message history when any tab is thinking */}
+        {session.inputMode === 'ai' && busyTabs.length > 0 && (
+          <div
+            className="flex flex-col items-center justify-center gap-2 py-4 mx-6 my-4 rounded-xl border"
+            style={{
+              backgroundColor: theme.colors.bgActivity,
+              borderColor: theme.colors.border
+            }}
+          >
+            {/* Main status row with pulsing dot, status text, timer, and session pills */}
+            <div className="flex items-center gap-3 flex-wrap justify-center">
+              <div
+                className="w-2 h-2 rounded-full animate-pulse shrink-0"
+                style={{ backgroundColor: theme.colors.warning }}
+              />
+              <span className="text-sm shrink-0" style={{ color: theme.colors.textMain }}>
+                {session.statusMessage || 'Agent is thinking...'}
+              </span>
+              {/* Show elapsed time from the first busy tab's thinkingStartTime, or session's thinkingStartTime */}
+              {(busyTabs[0]?.thinkingStartTime || session.thinkingStartTime) && (
+                <ElapsedTimeDisplay
+                  thinkingStartTime={busyTabs[0]?.thinkingStartTime || session.thinkingStartTime!}
+                  textColor={theme.colors.textDim}
+                />
+              )}
+              {/* Session pills for each busy tab */}
+              {busyTabs.map((tab) => {
+                // Format pill display: show name if available, otherwise first UUID octet, otherwise "New"
+                const displayName = tab.name
+                  || (tab.claudeSessionId ? tab.claudeSessionId.split('-')[0].toUpperCase() : 'New');
+                const isCurrentTab = getActiveTab(session)?.id === tab.id;
+
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => onSwitchToTab?.(tab.id)}
+                    className={`flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border transition-colors ${
+                      onSwitchToTab ? 'cursor-pointer hover:opacity-80' : 'cursor-default'
+                    } ${isCurrentTab ? 'ring-1 ring-inset' : ''}`}
+                    style={{
+                      backgroundColor: theme.colors.accent + '20',
+                      color: theme.colors.accent,
+                      borderColor: theme.colors.accent + '30',
+                      ringColor: theme.colors.accent
+                    }}
+                    title={`${tab.starred ? '★ ' : ''}${displayName}${tab.claudeSessionId ? ` (${tab.claudeSessionId})` : ''} - Click to switch to this tab`}
+                  >
+                    {tab.starred && <span>★</span>}
+                    <span className="truncate max-w-[100px]">{displayName}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {/* Token count row (if usage stats available from the active tab) */}
+            {getActiveTab(session)?.usageStats && (
+              <div className="flex items-center gap-4 text-xs" style={{ color: theme.colors.textDim }}>
+                <span>In: {(getActiveTab(session)!.usageStats!.inputTokens || 0).toLocaleString()}</span>
+                <span>Out: {(getActiveTab(session)!.usageStats!.outputTokens || 0).toLocaleString()}</span>
+                <span>Total: {((getActiveTab(session)!.usageStats!.inputTokens || 0) + (getActiveTab(session)!.usageStats!.outputTokens || 0)).toLocaleString()}</span>
+              </div>
+            )}
           </div>
         )}
 

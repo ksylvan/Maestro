@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Wand2, ExternalLink, Columns, Copy, Loader2, Clock, GitBranch, ArrowUp, ArrowDown, FileEdit, Star, Edit2, Check, X } from 'lucide-react';
 import { LogViewer } from './LogViewer';
-import { TerminalOutput } from './TerminalOutput';
+import { TerminalOutput, BusyTabInfo } from './TerminalOutput';
 import { InputArea } from './InputArea';
 import { FilePreview } from './FilePreview';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -10,7 +10,7 @@ import { AgentSessionsBrowser } from './AgentSessionsBrowser';
 import { TabBar } from './TabBar';
 import { gitService } from '../services/git';
 import { formatActiveTime } from '../utils/theme';
-import { getWriteModeTab, getActiveTab } from '../utils/tabHelpers';
+import { getWriteModeTab, getActiveTab, getBusyTabs } from '../utils/tabHelpers';
 import type { Session, Theme, Shortcut, FocusArea, BatchRunState } from '../types';
 
 interface SlashCommand {
@@ -191,6 +191,21 @@ export function MainPanel(props: MainPanelProps) {
 
     return { isLocked: false, lockingTabName: null, lockingTabId: null };
   }, [activeSession?.aiTabs, activeSession?.activeTabId]);
+
+  // Compute busy tabs info for the status indicator in TerminalOutput
+  // This shows all busy tabs in the session (for the busy tab indicator at bottom of message history)
+  const busyTabsInfo: BusyTabInfo[] = useMemo(() => {
+    if (!activeSession?.aiTabs) return [];
+
+    const busyTabs = getBusyTabs(activeSession);
+    return busyTabs.map(tab => ({
+      id: tab.id,
+      claudeSessionId: tab.claudeSessionId,
+      name: tab.name,
+      starred: tab.starred,
+      thinkingStartTime: activeSession.thinkingStartTime // Use session-level thinking time
+    }));
+  }, [activeSession?.aiTabs, activeSession?.thinkingStartTime]);
 
   // Handler to switch to the tab that's holding the write-mode lock
   const handleSwitchToLockedTab = useCallback(() => {
@@ -1035,6 +1050,8 @@ export function MainPanel(props: MainPanelProps) {
                 onRemoveQueuedMessage={onRemoveQueuedMessage}
                 onInterrupt={handleInterrupt}
                 audioFeedbackCommand={props.audioFeedbackCommand}
+                busyTabs={busyTabsInfo}
+                onSwitchToTab={onTabSelect}
               />
 
               {/* Input Area (hidden in mobile landscape for focused reading) */}
