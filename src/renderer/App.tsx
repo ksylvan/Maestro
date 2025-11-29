@@ -2126,6 +2126,16 @@ export default function MaestroConsole() {
             ));
           }
         }
+        if (isTabShortcut(e, 'reopenClosedTab')) {
+          e.preventDefault();
+          // Reopen the most recently closed tab, or switch to existing if duplicate
+          const result = reopenClosedTab(activeSession);
+          if (result) {
+            setSessions(prev => prev.map(s =>
+              s.id === activeSession.id ? result.session : s
+            ));
+          }
+        }
       }
 
       // Forward slash to open file tree filter when file tree has focus
