@@ -45,7 +45,7 @@ interface AgentSessionsBrowserProps {
   activeSession: Session | undefined;
   activeClaudeSessionId: string | null;
   onClose: () => void;
-  onResumeSession: (claudeSessionId: string, messages: LogEntry[]) => void;
+  onResumeSession: (claudeSessionId: string, messages: LogEntry[], sessionName?: string, starred?: boolean) => void;
   onNewSession: () => void;
 }
 
@@ -538,10 +538,12 @@ export function AgentSessionsBrowser({
         source: msg.type === 'user' ? 'user' as const : 'stdout' as const,
         text: msg.content || (msg.toolUse ? `[Tool: ${msg.toolUse[0]?.name || 'unknown'}]` : '[No content]'),
       }));
-      onResumeSession(viewingSession.sessionId, logEntries);
+      // Pass session name and starred status for the new tab
+      const isStarred = starredSessions.has(viewingSession.sessionId);
+      onResumeSession(viewingSession.sessionId, logEntries, viewingSession.sessionName, isStarred);
       onClose();
     }
-  }, [viewingSession, messages, onResumeSession, onClose]);
+  }, [viewingSession, messages, onResumeSession, onClose, starredSessions]);
 
   // Format file size
   const formatSize = (bytes: number) => {

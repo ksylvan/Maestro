@@ -1605,36 +1605,93 @@ export default function MaestroConsole() {
     }
   }, [activeSession]);
 
-  // Handler to resume a Claude session directly (loads messages into main panel)
-  const handleResumeSession = useCallback(async (claudeSessionId: string) => {
+  // Handler to resume a Claude session - opens as a new tab (or switches to existing tab)
+  const handleResumeSession = useCallback(async (
+    claudeSessionId: string,
+    providedMessages?: LogEntry[],
+    sessionName?: string,
+    starred?: boolean
+  ) => {
     if (!activeSession?.cwd) return;
 
+    // Check if a tab with this claudeSessionId already exists
+    const existingTab = activeSession.aiTabs?.find(tab => tab.claudeSessionId === claudeSessionId);
+    if (existingTab) {
+      // Switch to the existing tab instead of creating a duplicate
+      setSessions(prev => prev.map(s =>
+        s.id === activeSession.id
+          ? { ...s, activeTabId: existingTab.id, inputMode: 'ai' }
+          : s
+      ));
+      setActiveClaudeSessionId(claudeSessionId);
+      return;
+    }
+
     try {
-      // Load the session messages
-      const result = await window.maestro.claude.readSessionMessages(
-        activeSession.cwd,
+      // Use provided messages or fetch them
+      let messages: LogEntry[];
+      if (providedMessages && providedMessages.length > 0) {
+        messages = providedMessages;
+      } else {
+        // Load the session messages
+        const result = await window.maestro.claude.readSessionMessages(
+          activeSession.cwd,
+          claudeSessionId,
+          { offset: 0, limit: 100 }
+        );
+
+        // Convert to log entries
+        messages = result.messages.map((msg: { type: string; content: string; timestamp: string; uuid: string }) => ({
+          id: msg.uuid || generateId(),
+          timestamp: new Date(msg.timestamp).getTime(),
+          source: msg.type === 'user' ? 'user' as const : 'stdout' as const,
+          text: msg.content || ''
+        }));
+      }
+
+      // Look up starred status and session name from stores if not provided
+      let isStarred = starred ?? false;
+      let name = sessionName ?? null;
+
+      if (!starred && !sessionName) {
+        try {
+          // Check starred status
+          const starredKey = `starredClaudeSessions:${activeSession.cwd}`;
+          const savedStarred = await window.maestro.settings.get(starredKey);
+          if (savedStarred && Array.isArray(savedStarred) && savedStarred.includes(claudeSessionId)) {
+            isStarred = true;
+          }
+
+          // Look up session name from Claude session origins
+          const origins = await window.maestro.claude.getSessionOrigins(activeSession.cwd);
+          const originData = origins[claudeSessionId];
+          if (originData && typeof originData === 'object' && originData.sessionName) {
+            name = originData.sessionName;
+          }
+        } catch (error) {
+          console.warn('[handleResumeSession] Failed to lookup starred/named status:', error);
+        }
+      }
+
+      // Create a new tab with the session data using the helper function
+      const { session: updatedSession } = createTab(activeSession, {
         claudeSessionId,
-        { offset: 0, limit: 100 }
-      );
+        logs: messages,
+        name,
+        starred: isStarred
+      });
 
-      // Convert to log entries
-      const messages: LogEntry[] = result.messages.map((msg: { type: string; content: string; timestamp: string; uuid: string }) => ({
-        id: msg.uuid || generateId(),
-        timestamp: new Date(msg.timestamp).getTime(),
-        source: msg.type === 'user' ? 'user' as const : 'stdout' as const,
-        text: msg.content || ''
-      }));
-
-      // Update the session
-      setSessions(prev => prev.map(s => {
-        if (s.id !== activeSession.id) return s;
-        return { ...s, claudeSessionId, aiLogs: messages, state: 'idle', inputMode: 'ai', usageStats: undefined, contextUsage: 0, activeTimeMs: 0 };
-      }));
+      // Update the session and switch to AI mode
+      setSessions(prev => prev.map(s =>
+        s.id === activeSession.id
+          ? { ...updatedSession, inputMode: 'ai' }
+          : s
+      ));
       setActiveClaudeSessionId(claudeSessionId);
     } catch (error) {
       console.error('Failed to resume session:', error);
     }
-  }, [activeSession?.cwd, activeSession?.id]);
+  }, [activeSession?.cwd, activeSession?.id, activeSession?.aiTabs]);
 
   // Handler to open lightbox with optional context images for navigation
   const handleSetLightboxImage = useCallback((image: string | null, contextImages?: string[]) => {
@@ -4226,24 +4283,9 @@ export default function MaestroConsole() {
         setLogViewerOpen={setLogViewerOpen}
         setAgentSessionsOpen={setAgentSessionsOpen}
         setActiveClaudeSessionId={setActiveClaudeSessionId}
-        onResumeClaudeSession={(claudeSessionId: string, messages: LogEntry[]) => {
-          // Update the active session with the selected Claude session ID and load messages
-          // Also reset state to 'idle' since we're just loading historical messages
-          // Switch to AI mode since we're resuming an AI session
-          console.log('[onResumeClaudeSession] Resuming session:', claudeSessionId, 'activeSession:', activeSession?.id, activeSession?.claudeSessionId);
-          if (activeSession) {
-            setSessions(prev => {
-              console.log('[onResumeClaudeSession] Updating sessions, looking for id:', activeSession.id);
-              const updated = prev.map(s => {
-                if (s.id !== activeSession.id) return s;
-                return { ...s, claudeSessionId, aiLogs: messages, state: 'idle', inputMode: 'ai', usageStats: undefined, contextUsage: 0, activeTimeMs: 0 };
-              });
-              const updatedSession = updated.find(s => s.id === activeSession.id);
-              console.log('[onResumeClaudeSession] Updated session claudeSessionId:', updatedSession?.claudeSessionId);
-              return updated;
-            });
-            setActiveClaudeSessionId(claudeSessionId);
-          }
+        onResumeClaudeSession={(claudeSessionId: string, messages: LogEntry[], sessionName?: string, starred?: boolean) => {
+          // Opens the Claude session as a new tab (or switches to existing tab if duplicate)
+          handleResumeSession(claudeSessionId, messages, sessionName, starred);
         }}
         onNewClaudeSession={() => {
           // Create a fresh AI terminal session by clearing the Claude session ID and AI logs
