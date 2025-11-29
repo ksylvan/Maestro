@@ -696,7 +696,7 @@ export function AgentSessionsBrowser({
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors hover:opacity-80"
               style={{
                 backgroundColor: theme.colors.accent,
-                color: theme.colors.accentText,
+                color: theme.colors.accentForeground,
               }}
             >
               <Play className="w-4 h-4" />
@@ -708,7 +708,7 @@ export function AgentSessionsBrowser({
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors hover:opacity-80"
               style={{
                 backgroundColor: theme.colors.accent,
-                color: theme.colors.accentText,
+                color: theme.colors.accentForeground,
               }}
             >
               <Plus className="w-4 h-4" />
