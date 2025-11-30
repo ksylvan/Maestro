@@ -947,13 +947,15 @@ function setupIpcHandlers() {
 
   ipcMain.handle('git:log', async (_, cwd: string, options?: { limit?: number; search?: string }) => {
     // Get git log with formatted output for parsing
-    // Format: hash|author|date|refs|subject
+    // Format: hash|author|date|refs|subject followed by shortstat
+    // Using a unique separator to split commits
     const limit = options?.limit || 100;
     const args = [
       'log',
       `--max-count=${limit}`,
-      '--pretty=format:%H|%an|%ad|%D|%s',
-      '--date=iso-strict'
+      '--pretty=format:COMMIT_START%H|%an|%ad|%D|%s',
+      '--date=iso-strict',
+      '--shortstat'
     ];
 
     // Add search filter if provided
@@ -967,20 +969,35 @@ function setupIpcHandlers() {
       return { entries: [], error: result.stderr };
     }
 
-    const entries = result.stdout
-      .split('\n')
-      .filter(line => line.trim())
-      .map(line => {
-        const [hash, author, date, refs, ...subjectParts] = line.split('|');
-        return {
-          hash,
-          shortHash: hash?.slice(0, 7),
-          author,
-          date,
-          refs: refs ? refs.split(', ').filter(r => r.trim()) : [],
-          subject: subjectParts.join('|'), // In case subject contains |
-        };
-      });
+    // Split by COMMIT_START marker and parse each commit
+    const commits = result.stdout.split('COMMIT_START').filter(c => c.trim());
+    const entries = commits.map(commitBlock => {
+      const lines = commitBlock.split('\n').filter(l => l.trim());
+      const mainLine = lines[0];
+      const [hash, author, date, refs, ...subjectParts] = mainLine.split('|');
+
+      // Parse shortstat line (e.g., " 3 files changed, 10 insertions(+), 5 deletions(-)")
+      let additions = 0;
+      let deletions = 0;
+      const statLine = lines.find(l => l.includes('changed'));
+      if (statLine) {
+        const addMatch = statLine.match(/(\d+) insertion/);
+        const delMatch = statLine.match(/(\d+) deletion/);
+        if (addMatch) additions = parseInt(addMatch[1], 10);
+        if (delMatch) deletions = parseInt(delMatch[1], 10);
+      }
+
+      return {
+        hash,
+        shortHash: hash?.slice(0, 7),
+        author,
+        date,
+        refs: refs ? refs.split(', ').filter(r => r.trim()) : [],
+        subject: subjectParts.join('|'), // In case subject contains |
+        additions,
+        deletions,
+      };
+    });
 
     return { entries, error: null };
   });

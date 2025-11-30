@@ -5410,7 +5410,10 @@ export default function MaestroConsole() {
           if (!activeSession) return null;
 
           const isAIMode = activeSession.inputMode === 'ai';
-          const logs = isAIMode ? activeSession.aiLogs : activeSession.shellLogs;
+
+          // For AI mode, use the active tab's logs; for terminal mode, use shellLogs
+          const activeTab = isAIMode ? getActiveTab(activeSession) : null;
+          const logs = isAIMode ? (activeTab?.logs || []) : activeSession.shellLogs;
 
           // Find the log entry and its index
           const logIndex = logs.findIndex(log => log.id === logId);
@@ -5453,20 +5456,23 @@ export default function MaestroConsole() {
             }
           }
 
-          if (isAIMode) {
+          if (isAIMode && activeTab) {
             // For AI mode, also delete from the Claude session JSONL file
             // This ensures the context is actually removed for future interactions
-            if (activeSession.claudeSessionId && activeSession.cwd) {
+            // Use the active tab's claudeSessionId, not the deprecated session-level one
+            const claudeSessionId = activeTab.claudeSessionId;
+            if (claudeSessionId && activeSession.cwd) {
               // Delete asynchronously - don't block the UI update
               window.maestro.claude.deleteMessagePair(
                 activeSession.cwd,
-                activeSession.claudeSessionId,
+                claudeSessionId,
                 logId, // This is the UUID if loaded from Claude session
                 log.text // Fallback: match by content if UUID doesn't match
               ).then(result => {
                 if (result.success) {
                   console.log('[onDeleteLog] Deleted message pair from Claude session', {
-                    linesRemoved: result.linesRemoved
+                    linesRemoved: result.linesRemoved,
+                    claudeSessionId
                   });
                 } else {
                   console.warn('[onDeleteLog] Failed to delete from Claude session:', result.error);
@@ -5476,17 +5482,24 @@ export default function MaestroConsole() {
               });
             }
 
-            // Update aiLogs and aiCommandHistory
+            // Update the active tab's logs and aiCommandHistory
             const commandText = log.text.trim();
             const newAICommandHistory = (activeSession.aiCommandHistory || []).filter(
               cmd => cmd !== commandText
             );
 
-            setSessions(sessions.map(s =>
-              s.id === activeSession.id
-                ? { ...s, aiLogs: newLogs, aiCommandHistory: newAICommandHistory }
-                : s
-            ));
+            setSessions(sessions.map(s => {
+              if (s.id !== activeSession.id) return s;
+              return {
+                ...s,
+                aiCommandHistory: newAICommandHistory,
+                aiTabs: s.aiTabs.map(tab =>
+                  tab.id === activeTab.id
+                    ? { ...tab, logs: newLogs }
+                    : tab
+                )
+              };
+            }));
           } else {
             // Terminal mode - update shellLogs and shellCommandHistory
             const commandText = log.text.trim();

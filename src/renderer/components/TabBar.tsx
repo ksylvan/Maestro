@@ -276,25 +276,31 @@ function Tab({
             setIsHovered(false);
           }}
         >
-          {/* Session name display */}
-          {tab.name && (
-            <div
-              className="px-3 py-2 text-sm font-medium border-b"
-              style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
-            >
-              {tab.name}
-            </div>
-          )}
+          {/* Header with session name and ID */}
+          <div
+            className="border-b"
+            style={{ backgroundColor: theme.colors.bgActivity, borderColor: theme.colors.border }}
+          >
+            {/* Session name display */}
+            {tab.name && (
+              <div
+                className="px-3 py-2 text-sm font-medium"
+                style={{ color: theme.colors.textMain }}
+              >
+                {tab.name}
+              </div>
+            )}
 
-          {/* Session ID display */}
-          {tab.claudeSessionId && (
-            <div
-              className="px-3 py-2 text-[10px] font-mono border-b"
-              style={{ borderColor: theme.colors.border, color: theme.colors.textDim }}
-            >
-              {tab.claudeSessionId}
-            </div>
-          )}
+            {/* Session ID display */}
+            {tab.claudeSessionId && (
+              <div
+                className="px-3 py-2 text-[10px] font-mono"
+                style={{ color: theme.colors.textDim }}
+              >
+                {tab.claudeSessionId}
+              </div>
+            )}
+          </div>
 
           {/* Actions */}
           <div className="p-1">

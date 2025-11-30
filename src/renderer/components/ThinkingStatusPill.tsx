@@ -14,7 +14,7 @@ function getWriteModeTab(session: Session): AITab | undefined {
 interface ThinkingStatusPillProps {
   sessions: Session[];
   theme: Theme;
-  onSessionClick?: (sessionId: string) => void;
+  onSessionClick?: (sessionId: string, tabId?: string) => void;
   namedSessions?: Record<string, string>; // Claude session ID -> custom name
 }
 
@@ -77,14 +77,15 @@ const SessionRow = memo(({
   session: Session;
   theme: Theme;
   namedSessions?: Record<string, string>;
-  onSessionClick?: (sessionId: string) => void;
+  onSessionClick?: (sessionId: string, tabId?: string) => void;
 }) => {
   const displayName = getSessionDisplayName(session, namedSessions);
   const tokens = session.currentCycleTokens || 0;
+  const busyTab = getWriteModeTab(session);
 
   return (
     <button
-      onClick={() => onSessionClick?.(session.id)}
+      onClick={() => onSessionClick?.(session.id, busyTab?.id)}
       className="flex items-center justify-between gap-3 w-full px-3 py-2 text-left hover:bg-white/5 transition-colors"
       style={{ color: theme.colors.textMain }}
     >
@@ -162,8 +163,8 @@ function ThinkingStatusPillInner({ sessions, theme, onSessionClick, namedSession
   const fullTooltip = tooltipParts.join(' | ');
 
   return (
-    // Thinking Pill - centered container (pb-2 only, no top padding)
-    <div className="relative flex justify-center pb-2">
+    // Thinking Pill - centered container with negative top margin to offset parent padding
+    <div className="relative flex justify-center pb-2 -mt-2">
       {/* Thinking Pill - shrinks to fit content */}
       <div
         className="flex items-center gap-2 px-4 py-1.5 rounded-full"
@@ -235,7 +236,7 @@ function ThinkingStatusPillInner({ sessions, theme, onSessionClick, namedSession
               style={{ backgroundColor: theme.colors.border }}
             />
             <button
-              onClick={() => onSessionClick?.(primarySession.id)}
+              onClick={() => onSessionClick?.(primarySession.id, writeModeTab?.id)}
               className="text-xs font-mono hover:underline cursor-pointer"
               style={{ color: theme.colors.accent }}
               title={claudeSessionId ? `Claude Session: ${claudeSessionId}` : 'Claude Session'}

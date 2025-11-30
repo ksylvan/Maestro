@@ -1017,10 +1017,10 @@ export default function MobileApp() {
   // Get active session for input mode
   const activeSession = sessions.find(s => s.id === activeSessionId);
 
-  // Keyboard shortcut: Cmd+J (Mac) or Ctrl+J (Windows/Linux) to toggle AI/CLI mode
+  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Check for Cmd+J (Mac) or Ctrl+J (Windows/Linux)
+      // Check for Cmd+J (Mac) or Ctrl+J (Windows/Linux) to toggle AI/CLI mode
       if ((e.metaKey || e.ctrlKey) && e.key === 'j') {
         e.preventDefault();
         if (!activeSessionId) return;
@@ -1029,12 +1029,43 @@ export default function MobileApp() {
         const currentMode = activeSession?.inputMode || 'ai';
         const newMode = currentMode === 'ai' ? 'terminal' : 'ai';
         handleModeToggle(newMode);
+        return;
+      }
+
+      // Cmd+[ or Ctrl+[ - Previous tab
+      if ((e.metaKey || e.ctrlKey) && e.key === '[') {
+        e.preventDefault();
+        if (!activeSession?.aiTabs || activeSession.aiTabs.length < 2) return;
+
+        const currentIndex = activeSession.aiTabs.findIndex(t => t.id === activeSession.activeTabId);
+        if (currentIndex === -1) return;
+
+        // Wrap around to last tab if at beginning
+        const prevIndex = (currentIndex - 1 + activeSession.aiTabs.length) % activeSession.aiTabs.length;
+        const prevTab = activeSession.aiTabs[prevIndex];
+        handleSelectTab(prevTab.id);
+        return;
+      }
+
+      // Cmd+] or Ctrl+] - Next tab
+      if ((e.metaKey || e.ctrlKey) && e.key === ']') {
+        e.preventDefault();
+        if (!activeSession?.aiTabs || activeSession.aiTabs.length < 2) return;
+
+        const currentIndex = activeSession.aiTabs.findIndex(t => t.id === activeSession.activeTabId);
+        if (currentIndex === -1) return;
+
+        // Wrap around to first tab if at end
+        const nextIndex = (currentIndex + 1) % activeSession.aiTabs.length;
+        const nextTab = activeSession.aiTabs[nextIndex];
+        handleSelectTab(nextTab.id);
+        return;
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [activeSessionId, activeSession?.inputMode, handleModeToggle]);
+  }, [activeSessionId, activeSession, handleModeToggle, handleSelectTab]);
 
   // Determine content based on connection state
   const renderContent = () => {
@@ -1247,8 +1278,8 @@ export default function MobileApp() {
         />
       )}
 
-      {/* Tab bar - shown when active session has multiple tabs */}
-      {activeSession?.aiTabs && activeSession.aiTabs.length > 1 && activeSession.activeTabId && (
+      {/* Tab bar - shown when active session has multiple tabs and in AI mode */}
+      {activeSession?.inputMode === 'ai' && activeSession?.aiTabs && activeSession.aiTabs.length > 1 && activeSession.activeTabId && (
         <TabBar
           tabs={activeSession.aiTabs}
           activeTabId={activeSession.activeTabId}

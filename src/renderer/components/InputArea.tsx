@@ -52,7 +52,7 @@ interface InputAreaProps {
   // ThinkingStatusPill props
   sessions?: Session[];
   namedSessions?: Record<string, string>;
-  onSessionClick?: (sessionId: string) => void;
+  onSessionClick?: (sessionId: string, tabId?: string) => void;
   // ExecutionQueueIndicator props
   onOpenQueueBrowser?: () => void;
   // Read-only mode toggle (per-tab)

@@ -799,7 +799,13 @@ export function MainPanel(props: MainPanelProps) {
                 onInputFocus={handleInputFocus}
                 isAutoModeActive={isAutoModeActive}
                 sessions={sessions}
-                onSessionClick={setActiveSessionId}
+                onSessionClick={(sessionId, tabId) => {
+                  setActiveSessionId(sessionId);
+                  // Also switch to the busy tab if provided
+                  if (tabId && onTabSelect) {
+                    onTabSelect(tabId);
+                  }
+                }}
                 onOpenQueueBrowser={onOpenQueueBrowser}
                 tabReadOnlyMode={activeTab?.readOnlyMode ?? false}
                 onToggleTabReadOnlyMode={props.onToggleTabReadOnlyMode}

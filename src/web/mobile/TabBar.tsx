@@ -61,7 +61,7 @@ function Tab({ tab, isActive, canClose, colors, onSelect, onClose }: TabProps) {
         fontFamily: 'monospace',
         cursor: 'pointer',
         whiteSpace: 'nowrap',
-        minWidth: 0,
+        flexShrink: 0, // Prevent tabs from shrinking - allow horizontal scroll instead
         transition: 'all 0.15s ease',
         // Active tab sits on top of the bar's bottom border
         marginBottom: isActive ? '-1px' : '0',
@@ -88,11 +88,12 @@ function Tab({ tab, isActive, canClose, colors, onSelect, onClose }: TabProps) {
         <span style={{ fontSize: '10px', flexShrink: 0, color: colors.warning }}>★</span>
       )}
 
-      {/* Tab name */}
+      {/* Tab name - minimum 8 characters visible */}
       <span
         style={{
           overflow: 'hidden',
           textOverflow: 'ellipsis',
+          minWidth: '48px', // ~8 characters at 12px monospace (6px per char)
           maxWidth: '80px',
         }}
       >
