@@ -979,13 +979,11 @@ function ScratchpadInner({
           toggleMode();
         }
         // CMD+F to open search (works in both modes from container)
-        // Block Cmd+Shift+F to prevent it from triggering "Go to Files" while in scratchpad
-        if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        // Only intercept Cmd+F (without Shift) - let Cmd+Shift+F propagate to global "Go to Files" handler
+        if ((e.metaKey || e.ctrlKey) && e.key === 'f' && !e.shiftKey) {
           e.preventDefault();
           e.stopPropagation();
-          if (!e.shiftKey) {
-            openSearch();
-          }
+          openSearch();
         }
       }}
     >
