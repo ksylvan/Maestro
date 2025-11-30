@@ -31,6 +31,9 @@ interface UseBatchProcessorProps {
   onSpawnSynopsis: (sessionId: string, cwd: string, claudeSessionId: string, prompt: string) => Promise<{ success: boolean; response?: string }>;
   onAddHistoryEntry: (entry: Omit<HistoryEntry, 'id'>) => void;
   onComplete?: (info: BatchCompleteInfo) => void;
+  // TTS settings for speaking synopsis after each task
+  audioFeedbackEnabled?: boolean;
+  audioFeedbackCommand?: string;
 }
 
 interface UseBatchProcessorReturn {
@@ -105,7 +108,9 @@ export function useBatchProcessor({
   onSpawnAgent,
   onSpawnSynopsis,
   onAddHistoryEntry,
-  onComplete
+  onComplete,
+  audioFeedbackEnabled,
+  audioFeedbackCommand
 }: UseBatchProcessorProps): UseBatchProcessorReturn {
   // Batch states per session
   const [batchRunStates, setBatchRunStates] = useState<Record<string, BatchRunState>>({});
@@ -206,7 +211,8 @@ export function useBatchProcessor({
         scratchpadPath: writeResult.path,
         originalContent: scratchpadContent,
         customPrompt: prompt !== '' ? prompt : undefined,
-        sessionIds: []
+        sessionIds: [],
+        startTime: batchStartTime
       }
     }));
 
@@ -305,6 +311,13 @@ export function useBatchProcessor({
           usageStats: result.usageStats,
           elapsedTimeMs
         });
+
+        // Speak the synopsis via TTS if audio feedback is enabled
+        if (audioFeedbackEnabled && audioFeedbackCommand && shortSummary) {
+          window.maestro.notification.speak(shortSummary, audioFeedbackCommand).catch(err => {
+            console.error('[BatchProcessor] Failed to speak synopsis:', err);
+          });
+        }
 
         // Re-read the scratchpad file to check remaining tasks and sync to UI
         const readResult = await window.maestro.tempfile.read(writeResult.path);

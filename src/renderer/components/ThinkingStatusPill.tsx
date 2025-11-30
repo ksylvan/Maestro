@@ -2,9 +2,11 @@
  * ThinkingStatusPill - Displays status when AI is actively processing/thinking.
  * Shows session name, bytes received, elapsed time, and Claude session ID.
  * Appears centered above the input area when the AI is busy.
+ *
+ * When AutoRun is active, shows a special AutoRun pill with total elapsed time instead.
  */
 import React, { memo, useState, useEffect } from 'react';
-import type { Session, Theme, AITab } from '../types';
+import type { Session, Theme, AITab, BatchRunState } from '../types';
 
 // Helper to get the write-mode (busy) tab from a session
 function getWriteModeTab(session: Session): AITab | undefined {
@@ -16,6 +18,9 @@ interface ThinkingStatusPillProps {
   theme: Theme;
   onSessionClick?: (sessionId: string, tabId?: string) => void;
   namedSessions?: Record<string, string>; // Claude session ID -> custom name
+  // AutoRun state for the active session - when provided and running, shows AutoRun pill instead
+  autoRunState?: BatchRunState;
+  activeSessionId?: string;
 }
 
 // ElapsedTimeDisplay - shows time since thinking started
@@ -115,12 +120,91 @@ const SessionRow = memo(({
 SessionRow.displayName = 'SessionRow';
 
 /**
+ * AutoRunPill - Shows when AutoRun is active
+ * Displays total elapsed time since AutoRun started, with task progress.
+ */
+const AutoRunPill = memo(({
+  theme,
+  autoRunState
+}: {
+  theme: Theme;
+  autoRunState: BatchRunState;
+}) => {
+  const startTime = autoRunState.startTime || Date.now();
+  const { completedTasks, totalTasks, isStopping } = autoRunState;
+
+  return (
+    <div className="relative flex justify-center pb-2 -mt-2">
+      <div
+        className="flex items-center gap-2 px-4 py-1.5 rounded-full"
+        style={{
+          backgroundColor: theme.colors.accent + '20',
+          border: `1px solid ${theme.colors.accent}50`
+        }}
+      >
+        {/* Pulsing accent circle indicator */}
+        <div
+          className="w-2.5 h-2.5 rounded-full shrink-0 animate-pulse"
+          style={{ backgroundColor: theme.colors.accent }}
+        />
+
+        {/* AutoRun label */}
+        <span
+          className="text-xs font-semibold shrink-0"
+          style={{ color: theme.colors.accent }}
+        >
+          {isStopping ? 'AutoRun Stopping...' : 'AutoRun'}
+        </span>
+
+        {/* Divider */}
+        <div
+          className="w-px h-4 shrink-0"
+          style={{ backgroundColor: theme.colors.border }}
+        />
+
+        {/* Task progress */}
+        <div className="flex items-center gap-1 shrink-0 text-xs" style={{ color: theme.colors.textDim }}>
+          <span>Tasks:</span>
+          <span className="font-medium" style={{ color: theme.colors.textMain }}>
+            {completedTasks}/{totalTasks}
+          </span>
+        </div>
+
+        {/* Divider */}
+        <div
+          className="w-px h-4 shrink-0"
+          style={{ backgroundColor: theme.colors.border }}
+        />
+
+        {/* Total elapsed time */}
+        <div className="flex items-center gap-1 shrink-0 text-xs" style={{ color: theme.colors.textDim }}>
+          <span>Elapsed:</span>
+          <ElapsedTimeDisplay
+            startTime={startTime}
+            textColor={theme.colors.textMain}
+          />
+        </div>
+      </div>
+    </div>
+  );
+});
+
+AutoRunPill.displayName = 'AutoRunPill';
+
+/**
  * ThinkingStatusPill Inner Component
  * Shows the primary thinking session with an expandable list when multiple sessions are thinking.
  * Features: pulsing indicator, session name, bytes/tokens, elapsed time, Claude session UUID.
+ *
+ * When AutoRun is active for the active session, shows AutoRunPill instead.
  */
-function ThinkingStatusPillInner({ sessions, theme, onSessionClick, namedSessions }: ThinkingStatusPillProps) {
+function ThinkingStatusPillInner({ sessions, theme, onSessionClick, namedSessions, autoRunState, activeSessionId }: ThinkingStatusPillProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+
+  // If AutoRun is active for the current session, show the AutoRun pill instead
+  if (autoRunState?.isRunning) {
+    return <AutoRunPill theme={theme} autoRunState={autoRunState} />;
+  }
 
   // Filter to only busy sessions with AI source
   const thinkingSessions = sessions.filter(
@@ -305,6 +389,25 @@ function ThinkingStatusPillInner({ sessions, theme, onSessionClick, namedSession
 
 // Memoized export
 export const ThinkingStatusPill = memo(ThinkingStatusPillInner, (prevProps, nextProps) => {
+  // Check autoRunState changes first (highest priority)
+  const prevAutoRun = prevProps.autoRunState;
+  const nextAutoRun = nextProps.autoRunState;
+
+  if (prevAutoRun?.isRunning !== nextAutoRun?.isRunning) return false;
+  if (nextAutoRun?.isRunning) {
+    // When AutoRun is active, check its properties
+    if (
+      prevAutoRun?.completedTasks !== nextAutoRun?.completedTasks ||
+      prevAutoRun?.totalTasks !== nextAutoRun?.totalTasks ||
+      prevAutoRun?.isStopping !== nextAutoRun?.isStopping ||
+      prevAutoRun?.startTime !== nextAutoRun?.startTime
+    ) {
+      return false;
+    }
+    // Don't need to check thinking sessions when AutoRun is active
+    return prevProps.theme === nextProps.theme;
+  }
+
   // Check if thinking sessions have changed
   const prevThinking = prevProps.sessions.filter(s => s.state === 'busy' && s.busySource === 'ai');
   const nextThinking = nextProps.sessions.filter(s => s.state === 'busy' && s.busySource === 'ai');

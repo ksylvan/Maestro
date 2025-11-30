@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { Terminal, Cpu, Keyboard, ImageIcon, X, ArrowUp, StopCircle, Eye, History, File, Folder } from 'lucide-react';
-import type { Session, Theme } from '../types';
+import type { Session, Theme, BatchRunState } from '../types';
 import type { TabCompletionSuggestion } from '../hooks/useTabCompletion';
 import { ThinkingStatusPill } from './ThinkingStatusPill';
 import { ExecutionQueueIndicator } from './ExecutionQueueIndicator';
@@ -53,6 +53,7 @@ interface InputAreaProps {
   sessions?: Session[];
   namedSessions?: Record<string, string>;
   onSessionClick?: (sessionId: string, tabId?: string) => void;
+  autoRunState?: BatchRunState;
   // ExecutionQueueIndicator props
   onOpenQueueBrowser?: () => void;
   // Read-only mode toggle (per-tab)
@@ -74,7 +75,7 @@ export function InputArea(props: InputAreaProps) {
     tabCompletionOpen = false, setTabCompletionOpen,
     tabCompletionSuggestions = [], selectedTabCompletionIndex = 0,
     setSelectedTabCompletionIndex,
-    sessions = [], namedSessions, onSessionClick,
+    sessions = [], namedSessions, onSessionClick, autoRunState,
     onOpenQueueBrowser,
     tabReadOnlyMode = false, onToggleTabReadOnlyMode
   } = props;
@@ -141,6 +142,8 @@ export function InputArea(props: InputAreaProps) {
           theme={theme}
           onSessionClick={onSessionClick}
           namedSessions={namedSessions}
+          autoRunState={autoRunState}
+          activeSessionId={session.id}
         />
       )}
 

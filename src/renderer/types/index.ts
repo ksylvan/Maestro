@@ -84,6 +84,7 @@ export interface HistoryEntry {
   usageStats?: UsageStats; // Token usage and cost at time of entry
   success?: boolean; // For AUTO entries: whether the task completed successfully (true) or failed (false)
   elapsedTimeMs?: number; // Time taken to complete this task in milliseconds
+  validated?: boolean; // For AUTO entries: whether a human has validated the task completion
 }
 
 // Batch processing state
@@ -97,6 +98,7 @@ export interface BatchRunState {
   originalContent: string; // Original scratchpad content for sync back
   customPrompt?: string; // User's custom prompt if modified
   sessionIds: string[]; // Claude session IDs from each iteration
+  startTime?: number; // Timestamp when batch run started
 }
 
 // Usage statistics from Claude Code CLI

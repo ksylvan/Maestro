@@ -806,6 +806,7 @@ export function MainPanel(props: MainPanelProps) {
                     onTabSelect(tabId);
                   }
                 }}
+                autoRunState={batchRunState}
                 onOpenQueueBrowser={onOpenQueueBrowser}
                 tabReadOnlyMode={activeTab?.readOnlyMode ?? false}
                 onToggleTabReadOnlyMode={props.onToggleTabReadOnlyMode}

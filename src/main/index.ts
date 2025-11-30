@@ -127,6 +127,7 @@ interface HistoryEntry {
   };
   success?: boolean; // For AUTO entries: whether the task completed successfully
   elapsedTimeMs?: number; // Time taken to complete this task in milliseconds
+  validated?: boolean; // For AUTO entries: whether a human has validated the task completion
 }
 
 interface HistoryData {
@@ -2316,6 +2317,21 @@ function setupIpcHandlers() {
     }
     historyStore.set('entries', filtered);
     logger.info(`Deleted history entry: ${entryId}`, 'History');
+    return true;
+  });
+
+  // Update a history entry (for setting validated flag, etc.)
+  ipcMain.handle('history:update', async (_event, entryId: string, updates: Partial<HistoryEntry>) => {
+    const entries = historyStore.get('entries', []);
+    const index = entries.findIndex(entry => entry.id === entryId);
+    if (index === -1) {
+      logger.warn(`History entry not found for update: ${entryId}`, 'History');
+      return false;
+    }
+    // Merge updates into the existing entry
+    entries[index] = { ...entries[index], ...updates };
+    historyStore.set('entries', entries);
+    logger.info(`Updated history entry: ${entryId}`, 'History', { updates });
     return true;
   });
 

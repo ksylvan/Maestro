@@ -1,7 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef, useMemo } from 'react';
-import { Bot, User, ExternalLink, Check, X, Clock } from 'lucide-react';
+import { Bot, User, ExternalLink, Check, X, Clock, HelpCircle } from 'lucide-react';
 import type { Session, Theme, HistoryEntry, HistoryEntryType } from '../types';
 import { HistoryDetailModal } from './HistoryDetailModal';
+import { HistoryHelpModal } from './HistoryHelpModal';
+
+// Double checkmark SVG component for validated entries
+const DoubleCheck = ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+  <svg className={className} style={style} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="18 6 9 17 4 12" />
+    <polyline points="22 6 13 17" />
+  </svg>
+);
 
 // Format elapsed time in human-readable format
 const formatElapsedTime = (ms: number): string => {
@@ -265,6 +274,7 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
   const [searchFilterOpen, setSearchFilterOpen] = useState(false);
   const [displayCount, setDisplayCount] = useState(INITIAL_DISPLAY_COUNT);
   const [graphReferenceTime, setGraphReferenceTime] = useState<number | undefined>(undefined);
+  const [helpModalOpen, setHelpModalOpen] = useState(false);
 
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Record<number, HTMLDivElement | null>>({});
@@ -499,7 +509,7 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
 
   return (
     <div className="flex flex-col h-full">
-      {/* Filter Pills + Activity Graph */}
+      {/* Filter Pills + Activity Graph + Help Button */}
       <div className="flex items-start gap-3 mb-4 pt-2">
         {/* Left-justified filter pills */}
         <div className="flex gap-2 flex-shrink-0">
@@ -530,6 +540,16 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
 
         {/* 24-hour activity bar graph */}
         <ActivityGraph entries={historyEntries} theme={theme} referenceTime={graphReferenceTime} />
+
+        {/* Help button */}
+        <button
+          onClick={() => setHelpModalOpen(true)}
+          className="flex-shrink-0 p-1.5 rounded-full transition-colors hover:bg-white/10"
+          style={{ color: theme.colors.textDim }}
+          title="History panel help"
+        >
+          <HelpCircle className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Search Filter */}
@@ -619,10 +639,16 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
                           backgroundColor: entry.success ? theme.colors.success + '20' : theme.colors.error + '20',
                           border: `1px solid ${entry.success ? theme.colors.success + '40' : theme.colors.error + '40'}`
                         }}
-                        title={entry.success ? 'Task completed successfully' : 'Task failed'}
+                        title={entry.success
+                          ? (entry.validated ? 'Task completed successfully and human-validated' : 'Task completed successfully')
+                          : 'Task failed'}
                       >
                         {entry.success ? (
-                          <Check className="w-3 h-3" style={{ color: theme.colors.success }} />
+                          entry.validated ? (
+                            <DoubleCheck className="w-3 h-3" style={{ color: theme.colors.success }} />
+                          ) : (
+                            <Check className="w-3 h-3" style={{ color: theme.colors.success }} />
+                          )
                         ) : (
                           <X className="w-3 h-3" style={{ color: theme.colors.error }} />
                         )}
@@ -734,6 +760,26 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
           onJumpToClaudeSession={onJumpToClaudeSession}
           onResumeSession={onResumeSession}
           onDelete={handleDeleteEntry}
+          onUpdate={async (entryId, updates) => {
+            const success = await window.maestro.history.update(entryId, updates);
+            if (success) {
+              // Update local state
+              setHistoryEntries(prev => prev.map(e =>
+                e.id === entryId ? { ...e, ...updates } : e
+              ));
+              // Update the modal entry state
+              setDetailModalEntry(prev => prev ? { ...prev, ...updates } : null);
+            }
+            return success;
+          }}
+        />
+      )}
+
+      {/* Help Modal */}
+      {helpModalOpen && (
+        <HistoryHelpModal
+          theme={theme}
+          onClose={() => setHelpModalOpen(false)}
         />
       )}
     </div>

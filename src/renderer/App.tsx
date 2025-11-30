@@ -2096,6 +2096,9 @@ export default function MaestroConsole() {
       // Refresh history panel to show the new entry
       rightPanelRef.current?.refreshHistoryPanel();
     },
+    // TTS settings for speaking synopsis after each auto-run task
+    audioFeedbackEnabled,
+    audioFeedbackCommand,
     onComplete: (info) => {
       // Find group name for the session
       const session = sessions.find(s => s.id === info.sessionId);

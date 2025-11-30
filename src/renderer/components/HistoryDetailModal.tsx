@@ -1,8 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { X, Bot, User, ExternalLink, Copy, Check, CheckCircle, XCircle, Trash2, Clock, Cpu, Zap, Play } from 'lucide-react';
+import { X, Bot, User, Copy, Check, CheckCircle, XCircle, Trash2, Clock, Cpu, Zap, Play } from 'lucide-react';
 import type { Theme, HistoryEntry } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
+
+// Double checkmark SVG component for validated entries
+const DoubleCheck = ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+  <svg className={className} style={style} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="18 6 9 17 4 12" />
+    <polyline points="22 6 13 17" />
+  </svg>
+);
 
 // Format elapsed time in human-readable format
 const formatElapsedTime = (ms: number): string => {
@@ -24,6 +32,7 @@ interface HistoryDetailModalProps {
   onJumpToClaudeSession?: (claudeSessionId: string) => void;
   onResumeSession?: (claudeSessionId: string) => void;
   onDelete?: (entryId: string) => void;
+  onUpdate?: (entryId: string, updates: { validated?: boolean }) => Promise<boolean>;
 }
 
 // Get context bar color based on usage percentage
@@ -39,7 +48,8 @@ export function HistoryDetailModal({
   onClose,
   onJumpToClaudeSession,
   onResumeSession,
-  onDelete
+  onDelete,
+  onUpdate
 }: HistoryDetailModalProps) {
   const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
   const layerIdRef = useRef<string>();
@@ -135,7 +145,7 @@ export function HistoryDetailModal({
           className="flex items-center justify-between px-6 py-4 border-b shrink-0"
           style={{ borderColor: theme.colors.border }}
         >
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             {/* Success/Failure Indicator for AUTO entries */}
             {entry.type === 'AUTO' && entry.success !== undefined && (
               <span
@@ -144,10 +154,16 @@ export function HistoryDetailModal({
                   backgroundColor: entry.success ? theme.colors.success + '20' : theme.colors.error + '20',
                   border: `1px solid ${entry.success ? theme.colors.success + '40' : theme.colors.error + '40'}`
                 }}
-                title={entry.success ? 'Task completed successfully' : 'Task failed'}
+                title={entry.success
+                  ? (entry.validated ? 'Task completed successfully and human-validated' : 'Task completed successfully')
+                  : 'Task failed'}
               >
                 {entry.success ? (
-                  <CheckCircle className="w-4 h-4" style={{ color: theme.colors.success }} />
+                  entry.validated ? (
+                    <DoubleCheck className="w-4 h-4" style={{ color: theme.colors.success }} />
+                  ) : (
+                    <CheckCircle className="w-4 h-4" style={{ color: theme.colors.success }} />
+                  )
                 ) : (
                   <XCircle className="w-4 h-4" style={{ color: theme.colors.error }} />
                 )}
@@ -167,9 +183,9 @@ export function HistoryDetailModal({
               {entry.type}
             </span>
 
-            {/* Session ID Octet - copyable with optional jump */}
+            {/* Session ID Octet - copyable */}
             {entry.claudeSessionId && (
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-2">
                 {/* Copy button */}
                 <button
                   onClick={async () => {
@@ -192,7 +208,7 @@ export function HistoryDetailModal({
                     <Copy className="w-2.5 h-2.5" />
                   )}
                 </button>
-                {/* Resume button */}
+                {/* Resume button - styled with same padding as other pills */}
                 {onResumeSession && (
                   <button
                     onClick={() => {
@@ -211,24 +227,6 @@ export function HistoryDetailModal({
                     Resume
                   </button>
                 )}
-                {/* Jump button */}
-                {onJumpToClaudeSession && (
-                  <button
-                    onClick={() => {
-                      onJumpToClaudeSession(entry.claudeSessionId!);
-                      onClose();
-                    }}
-                    className="p-1 rounded-full transition-colors hover:opacity-80"
-                    style={{
-                      backgroundColor: theme.colors.accent + '20',
-                      color: theme.colors.accent,
-                      border: `1px solid ${theme.colors.accent}40`
-                    }}
-                    title={`Jump to session ${entry.claudeSessionId}`}
-                  >
-                    <ExternalLink className="w-2.5 h-2.5" />
-                  </button>
-                )}
               </div>
             )}
 
@@ -236,6 +234,27 @@ export function HistoryDetailModal({
             <span className="text-xs" style={{ color: theme.colors.textDim }}>
               {formatTime(entry.timestamp)}
             </span>
+
+            {/* Validated toggle for AUTO entries */}
+            {entry.type === 'AUTO' && entry.success && onUpdate && (
+              <button
+                onClick={() => onUpdate(entry.id, { validated: !entry.validated })}
+                className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase transition-colors hover:opacity-80"
+                style={{
+                  backgroundColor: entry.validated ? theme.colors.success + '20' : theme.colors.bgActivity,
+                  color: entry.validated ? theme.colors.success : theme.colors.textDim,
+                  border: `1px solid ${entry.validated ? theme.colors.success + '40' : theme.colors.border}`
+                }}
+                title={entry.validated ? 'Mark as not validated' : 'Mark as human-validated'}
+              >
+                {entry.validated ? (
+                  <DoubleCheck className="w-3 h-3" />
+                ) : (
+                  <Check className="w-3 h-3" />
+                )}
+                Validated
+              </button>
+            )}
           </div>
 
           {/* Close button */}
@@ -248,14 +267,14 @@ export function HistoryDetailModal({
         </div>
 
         {/* Stats Panel - shown when we have usage stats */}
-        {(entry.usageStats || entry.contextUsage !== undefined || entry.elapsedTimeMs) && (
+        {(entry.usageStats || entry.elapsedTimeMs) && (
           <div
             className="px-6 py-4 border-b shrink-0"
             style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain + '40' }}
           >
             <div className="flex items-center gap-6 flex-wrap">
-              {/* Context Window Widget */}
-              {entry.contextUsage !== undefined && entry.usageStats && (
+              {/* Context Window Widget - calculated from usageStats */}
+              {entry.usageStats && entry.usageStats.contextWindow > 0 && (
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-1.5">
                     <Cpu className="w-4 h-4" style={{ color: theme.colors.textDim }} />
@@ -263,31 +282,37 @@ export function HistoryDetailModal({
                       Context
                     </span>
                   </div>
-                  <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <div className="w-32 h-2 rounded-full overflow-hidden" style={{ backgroundColor: theme.colors.border }}>
-                        <div
-                          className="h-full transition-all duration-500 ease-out"
-                          style={{
-                            width: `${entry.contextUsage}%`,
-                            backgroundColor: getContextColor(entry.contextUsage, theme)
-                          }}
-                        />
+                  {(() => {
+                    const totalTokens = entry.usageStats!.inputTokens + entry.usageStats!.outputTokens;
+                    const contextUsage = Math.min(100, Math.round((totalTokens / entry.usageStats!.contextWindow) * 100));
+                    return (
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                          <div className="w-32 h-2 rounded-full overflow-hidden" style={{ backgroundColor: theme.colors.border }}>
+                            <div
+                              className="h-full transition-all duration-500 ease-out"
+                              style={{
+                                width: `${contextUsage}%`,
+                                backgroundColor: getContextColor(contextUsage, theme)
+                              }}
+                            />
+                          </div>
+                          <span className="text-xs font-mono font-bold" style={{ color: getContextColor(contextUsage, theme) }}>
+                            {contextUsage}%
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-mono" style={{ color: theme.colors.textDim }}>
+                          {(totalTokens / 1000).toFixed(1)}k / {(entry.usageStats!.contextWindow / 1000).toFixed(0)}k tokens
+                        </span>
                       </div>
-                      <span className="text-xs font-mono font-bold" style={{ color: getContextColor(entry.contextUsage, theme) }}>
-                        {entry.contextUsage}%
-                      </span>
-                    </div>
-                    <span className="text-[10px] font-mono" style={{ color: theme.colors.textDim }}>
-                      {((entry.usageStats.inputTokens + entry.usageStats.outputTokens) / 1000).toFixed(1)}k / {(entry.usageStats.contextWindow / 1000).toFixed(0)}k tokens
-                    </span>
-                  </div>
+                    );
+                  })()}
                 </div>
               )}
 
-              {/* Token Breakdown */}
+              {/* Token Breakdown - hidden on small screens for responsive design */}
               {entry.usageStats && (
-                <div className="flex items-center gap-3">
+                <div className="hidden sm:flex items-center gap-3">
                   <div className="flex items-center gap-1.5">
                     <Zap className="w-4 h-4" style={{ color: theme.colors.textDim }} />
                     <span className="text-[10px] font-bold uppercase" style={{ color: theme.colors.textDim }}>

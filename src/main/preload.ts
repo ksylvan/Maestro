@@ -358,6 +358,8 @@ contextBridge.exposeInMainWorld('maestro', {
       ipcRenderer.invoke('history:clear', projectPath),
     delete: (entryId: string) =>
       ipcRenderer.invoke('history:delete', entryId),
+    update: (entryId: string, updates: { validated?: boolean }) =>
+      ipcRenderer.invoke('history:update', entryId, updates),
   },
 
   // Notification API
