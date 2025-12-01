@@ -1664,11 +1664,27 @@ export default function MaestroConsole() {
   const prevActiveTabIdRef = useRef<string | undefined>(activeTab?.id);
 
   // Sync local AI input with tab's persisted value when switching tabs
+  // Also clear the hasUnread indicator when a tab becomes active
   useEffect(() => {
     if (activeTab && activeTab.id !== prevActiveTabIdRef.current) {
       // Tab changed - load the new tab's persisted input value
       setAiInputValueLocal(activeTab.inputValue ?? '');
       prevActiveTabIdRef.current = activeTab.id;
+
+      // Clear hasUnread indicator on the newly active tab
+      // This is the central place that handles all tab switches regardless of how they happen
+      // (click, keyboard shortcut, programmatic, etc.)
+      if (activeTab.hasUnread && activeSession) {
+        setSessions(prev => prev.map(s => {
+          if (s.id !== activeSession.id) return s;
+          return {
+            ...s,
+            aiTabs: s.aiTabs.map(t =>
+              t.id === activeTab.id ? { ...t, hasUnread: false } : t
+            )
+          };
+        }));
+      }
     }
     // Note: We intentionally only depend on activeTab?.id, NOT activeTab?.inputValue
     // The inputValue changes when we blur (syncAiInputToSession), but we don't want
