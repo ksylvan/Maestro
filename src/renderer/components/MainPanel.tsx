@@ -121,6 +121,10 @@ interface MainPanelProps {
   onTabStar?: (tabId: string, starred: boolean) => void;
   onUpdateTabByClaudeSessionId?: (claudeSessionId: string, updates: { name?: string | null; starred?: boolean }) => void;
   onToggleTabReadOnlyMode?: () => void;
+  // Scroll position persistence
+  onScrollPositionChange?: (scrollTop: number) => void;
+  // Input blur handler for persisting AI input state
+  onInputBlur?: () => void;
 }
 
 export function MainPanel(props: MainPanelProps) {
@@ -227,8 +231,8 @@ export function MainPanel(props: MainPanelProps) {
     };
 
     fetchGitInfo();
-    // Refresh git info every 10 seconds
-    const interval = setInterval(fetchGitInfo, 10000);
+    // Refresh git info every 30 seconds (reduced from 10s for performance)
+    const interval = setInterval(fetchGitInfo, 30000);
     return () => clearInterval(interval);
   }, [activeSession?.id, activeSession?.isGitRepo, activeSession?.cwd, activeSession?.shellCwd, activeSession?.inputMode]);
 
@@ -245,12 +249,22 @@ export function MainPanel(props: MainPanelProps) {
   }, []);
 
   // Handler for input focus - select session in sidebar
-  const handleInputFocus = () => {
+  // Memoized to avoid recreating on every render
+  const handleInputFocus = useCallback(() => {
     if (activeSession) {
       setActiveSessionId(activeSession.id);
       setActiveFocus('main');
     }
-  };
+  }, [activeSession, setActiveSessionId, setActiveFocus]);
+
+  // Memoized session click handler for InputArea's ThinkingStatusPill
+  // Avoids creating new function reference on every render
+  const handleSessionClick = useCallback((sessionId: string, tabId?: string) => {
+    setActiveSessionId(sessionId);
+    if (tabId && onTabSelect) {
+      onTabSelect(tabId);
+    }
+  }, [setActiveSessionId, onTabSelect]);
 
   // Handler to view git diff
   const handleViewGitDiff = async () => {
@@ -412,22 +426,30 @@ export function MainPanel(props: MainPanelProps) {
                           <span className="text-sm font-mono font-medium" style={{ color: theme.colors.textMain }}>
                             {gitInfo.branch}
                           </span>
-                          {(gitInfo.ahead > 0 || gitInfo.behind > 0) && (
-                            <div className="flex items-center gap-2 ml-auto">
-                              {gitInfo.ahead > 0 && (
-                                <span className="flex items-center gap-0.5 text-xs text-green-500">
-                                  <ArrowUp className="w-3 h-3" />
-                                  {gitInfo.ahead}
-                                </span>
-                              )}
-                              {gitInfo.behind > 0 && (
-                                <span className="flex items-center gap-0.5 text-xs text-red-500">
-                                  <ArrowDown className="w-3 h-3" />
-                                  {gitInfo.behind}
-                                </span>
-                              )}
-                            </div>
-                          )}
+                          <div className="flex items-center gap-2 ml-auto">
+                            {gitInfo.ahead > 0 && (
+                              <span className="flex items-center gap-0.5 text-xs text-green-500">
+                                <ArrowUp className="w-3 h-3" />
+                                {gitInfo.ahead}
+                              </span>
+                            )}
+                            {gitInfo.behind > 0 && (
+                              <span className="flex items-center gap-0.5 text-xs text-red-500">
+                                <ArrowDown className="w-3 h-3" />
+                                {gitInfo.behind}
+                              </span>
+                            )}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                copyToClipboard(gitInfo.branch, `"${gitInfo.branch}" copied to clipboard`);
+                              }}
+                              className="p-1 rounded hover:bg-white/10 transition-colors shrink-0"
+                              title="Copy branch name"
+                            >
+                              <Copy className="w-3 h-3" style={{ color: theme.colors.textDim }} />
+                            </button>
+                          </div>
                         </div>
                       </div>
 
@@ -531,7 +553,7 @@ export function MainPanel(props: MainPanelProps) {
                 <button
                   className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border transition-colors hover:opacity-80"
                   style={{ backgroundColor: theme.colors.accent + '20', color: theme.colors.accent, borderColor: theme.colors.accent + '30' }}
-                  title={`Click to copy: ${activeTab.claudeSessionId}`}
+                  title={activeTab.name ? `${activeTab.name}\nClick to copy: ${activeTab.claudeSessionId}` : `Click to copy: ${activeTab.claudeSessionId}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     copyToClipboard(activeTab.claudeSessionId!, 'Session ID Copied to Clipboard');
@@ -759,6 +781,12 @@ export function MainPanel(props: MainPanelProps) {
                 onRemoveQueuedItem={onRemoveQueuedItem}
                 onInterrupt={handleInterrupt}
                 audioFeedbackCommand={props.audioFeedbackCommand}
+                onScrollPositionChange={props.onScrollPositionChange}
+                initialScrollTop={
+                  activeSession.inputMode === 'ai'
+                    ? activeTab?.scrollTop
+                    : activeSession.terminalScrollTop
+                }
               />
 
               {/* Input Area (hidden in mobile landscape for focused reading) */}
@@ -797,15 +825,12 @@ export function MainPanel(props: MainPanelProps) {
                 processInput={processInput}
                 handleInterrupt={handleInterrupt}
                 onInputFocus={handleInputFocus}
+                onInputBlur={props.onInputBlur}
                 isAutoModeActive={isAutoModeActive}
                 sessions={sessions}
-                onSessionClick={(sessionId, tabId) => {
-                  setActiveSessionId(sessionId);
-                  // Also switch to the busy tab if provided
-                  if (tabId && onTabSelect) {
-                    onTabSelect(tabId);
-                  }
-                }}
+                onSessionClick={handleSessionClick}
+                autoRunState={batchRunState}
+                onStopAutoRun={onStopBatchRun}
                 onOpenQueueBrowser={onOpenQueueBrowser}
                 tabReadOnlyMode={activeTab?.readOnlyMode ?? false}
                 onToggleTabReadOnlyMode={props.onToggleTabReadOnlyMode}

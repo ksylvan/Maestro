@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useMemo, forwardRef, useState, useCallback, memo } from 'react';
-import { Activity, X, ChevronDown, ChevronUp, Filter, PlusCircle, MinusCircle, Trash2, Copy, Volume2, Square, Check, ArrowDown } from 'lucide-react';
+import { Activity, X, ChevronDown, ChevronUp, Filter, PlusCircle, MinusCircle, Trash2, Copy, Volume2, Square, Check, ArrowDown, Eye } from 'lucide-react';
 import type { Session, Theme, LogEntry } from '../types';
 import Convert from 'ansi-to-html';
 import DOMPurify from 'dompurify';
@@ -329,7 +329,7 @@ const LogItemComponent = memo(({
            style={{ fontFamily, color: theme.colors.textDim, opacity: 0.6 }}>
         {new Date(log.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
       </div>
-      <div className={`flex-1 p-4 rounded-xl border ${isUserMessage ? 'rounded-tr-none' : 'rounded-tl-none'} relative`}
+      <div className={`flex-1 p-4 ${isUserMessage && log.readOnly ? 'pt-8' : ''} rounded-xl border ${isUserMessage ? 'rounded-tr-none' : 'rounded-tl-none'} relative`}
            style={{
              backgroundColor: isUserMessage
                ? isAIMode
@@ -342,6 +342,23 @@ const LogItemComponent = memo(({
                ? theme.colors.accent + '40'
                : log.source === 'stderr' ? theme.colors.error : theme.colors.border
            }}>
+        {/* Read-only badge - top right of message for user messages sent in read-only mode */}
+        {isUserMessage && log.readOnly && (
+          <div className="absolute top-2 right-2">
+            <span
+              className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full"
+              style={{
+                backgroundColor: `${theme.colors.warning}25`,
+                color: theme.colors.warning,
+                border: `1px solid ${theme.colors.warning}50`
+              }}
+              title="Sent in read-only mode (Claude won't modify files)"
+            >
+              <Eye className="w-3 h-3" />
+              <span>Read-only</span>
+            </span>
+          </div>
+        )}
         {/* Local filter icon for system output only */}
         {log.source !== 'user' && isTerminal && (
           <div className="absolute top-2 right-2 flex items-center gap-2">
@@ -688,6 +705,7 @@ const LogItemComponent = memo(({
     prevProps.log.id === nextProps.log.id &&
     prevProps.log.text === nextProps.log.text &&
     prevProps.log.delivered === nextProps.log.delivered &&
+    prevProps.log.readOnly === nextProps.log.readOnly &&
     prevProps.isExpanded === nextProps.isExpanded &&
     prevProps.localFilterQuery === nextProps.localFilterQuery &&
     prevProps.filterMode.mode === nextProps.filterMode.mode &&
@@ -759,6 +777,8 @@ interface TerminalOutputProps {
   onRemoveQueuedItem?: (itemId: string) => void; // Callback to remove a queued item from execution queue
   onInterrupt?: () => void; // Callback to interrupt the current process
   audioFeedbackCommand?: string; // TTS command for speech synthesis
+  onScrollPositionChange?: (scrollTop: number) => void; // Callback to save scroll position
+  initialScrollTop?: number; // Initial scroll position to restore
 }
 
 export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((props, ref) => {
@@ -766,7 +786,7 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
     session, theme, fontFamily, activeFocus, outputSearchOpen, outputSearchQuery,
     setOutputSearchOpen, setOutputSearchQuery, setActiveFocus, setLightboxImage,
     inputRef, logsEndRef, maxOutputLines, onDeleteLog, onRemoveQueuedItem, onInterrupt,
-    audioFeedbackCommand
+    audioFeedbackCommand, onScrollPositionChange, initialScrollTop
   } = props;
 
   // Use the forwarded ref if provided, otherwise create a local one
@@ -828,6 +848,11 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
   // Track read state per tab - stores the log count when user scrolled to bottom
   const tabReadStateRef = useRef<Map<string, number>>(new Map());
 
+  // Throttle timer ref for scroll position saves
+  const scrollSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track if initial scroll restore has been done
+  const hasRestoredScrollRef = useRef(false);
+
   // Get active tab ID for resetting state on tab switch
   const activeTabId = session.inputMode === 'ai' ? session.activeTabId : null;
 
@@ -883,6 +908,19 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
     // Always clear state after stopping
     setSpeakingLogId(null);
     setActiveTtsId(null);
+  }, [activeTtsId]);
+
+  // Listen for TTS completion events from main process
+  useEffect(() => {
+    const cleanup = window.maestro.notification.onTtsCompleted((completedTtsId: number) => {
+      console.log('[TTS] TTS completed event received for ID:', completedTtsId);
+      // Only clear if this is the currently active TTS
+      if (completedTtsId === activeTtsId) {
+        setSpeakingLogId(null);
+        setActiveTtsId(null);
+      }
+    });
+    return cleanup;
   }, [activeTtsId]);
 
   // Layer stack integration for search overlay
@@ -1006,11 +1044,10 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
     });
   }, [theme]);
 
-  // In AI mode, use the active tab's logs if tabs exist, otherwise fall back to session.aiLogs
-  // This supports the new multi-tab feature while maintaining backwards compatibility
+  // In AI mode, use the active tab's logs
   const activeTab = session.inputMode === 'ai' ? getActiveTab(session) : undefined;
   const activeLogs: LogEntry[] = session.inputMode === 'ai'
-    ? (activeTab?.logs ?? session.aiLogs)
+    ? (activeTab?.logs ?? [])
     : session.shellLogs;
 
   // In AI mode, collapse consecutive non-user entries into single response blocks
@@ -1062,7 +1099,7 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
     );
   }, [collapsedLogs, outputSearchQuery]);
 
-  // Handle scroll to detect if user is at bottom
+  // Handle scroll to detect if user is at bottom and save scroll position (throttled)
   const handleScroll = useCallback(() => {
     if (!scrollContainerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
@@ -1078,7 +1115,18 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
         tabReadStateRef.current.set(activeTabId, filteredLogs.length);
       }
     }
-  }, [activeTabId, filteredLogs.length]);
+
+    // Throttled scroll position save (200ms)
+    if (onScrollPositionChange) {
+      if (scrollSaveTimerRef.current) {
+        clearTimeout(scrollSaveTimerRef.current);
+      }
+      scrollSaveTimerRef.current = setTimeout(() => {
+        onScrollPositionChange(scrollTop);
+        scrollSaveTimerRef.current = null;
+      }, 200);
+    }
+  }, [activeTabId, filteredLogs.length, onScrollPositionChange]);
 
   // Restore read state when switching tabs
   useEffect(() => {
@@ -1145,6 +1193,38 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
     }
     lastLogCountRef.current = currentCount;
   }, [filteredLogs.length, isAtBottom, activeTabId]);
+
+  // Restore scroll position when component mounts or initialScrollTop changes
+  // Uses requestAnimationFrame to ensure DOM is ready
+  useEffect(() => {
+    // Only restore if we have a saved position and haven't restored yet for this mount
+    if (initialScrollTop !== undefined && initialScrollTop > 0 && !hasRestoredScrollRef.current) {
+      hasRestoredScrollRef.current = true;
+      requestAnimationFrame(() => {
+        if (scrollContainerRef.current) {
+          const { scrollHeight, clientHeight } = scrollContainerRef.current;
+          // Clamp to max scrollable area
+          const maxScroll = Math.max(0, scrollHeight - clientHeight);
+          const targetScroll = Math.min(initialScrollTop, maxScroll);
+          scrollContainerRef.current.scrollTop = targetScroll;
+        }
+      });
+    }
+  }, [initialScrollTop]);
+
+  // Reset restore flag when session/tab changes (handled by key prop on TerminalOutput)
+  useEffect(() => {
+    hasRestoredScrollRef.current = false;
+  }, [session.id, activeTabId]);
+
+  // Cleanup throttle timer on unmount
+  useEffect(() => {
+    return () => {
+      if (scrollSaveTimerRef.current) {
+        clearTimeout(scrollSaveTimerRef.current);
+      }
+    };
+  }, []);
 
   // Scroll to bottom function
   const scrollToBottom = useCallback(() => {

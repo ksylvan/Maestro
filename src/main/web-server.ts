@@ -152,9 +152,11 @@ export type WriteToSessionCallback = (sessionId: string, data: string) => boolea
 // Callback type for executing a command through the desktop's existing logic
 // This forwards the command to the renderer which handles spawn, state, and broadcasts
 // Returns true if command was accepted (session not busy)
+// inputMode is optional - if provided, the renderer will use it instead of querying session state
 export type ExecuteCommandCallback = (
   sessionId: string,
-  command: string
+  command: string,
+  inputMode?: 'ai' | 'terminal'
 ) => Promise<boolean>;
 
 // Callback type for interrupting a session through the desktop's existing logic
@@ -170,7 +172,8 @@ export type SwitchModeCallback = (
 
 // Callback type for selecting/switching to a session in the desktop app
 // This forwards to the renderer which handles state updates and broadcasts
-export type SelectSessionCallback = (sessionId: string) => Promise<boolean>;
+// Optional tabId to also switch to a specific tab within the session
+export type SelectSessionCallback = (sessionId: string, tabId?: string) => Promise<boolean>;
 
 // Tab operation callbacks for multi-tab support
 export type SelectTabCallback = (sessionId: string, tabId: string) => Promise<boolean>;
@@ -1072,6 +1075,8 @@ export class WebServer {
         // Send a command to a session (AI or terminal)
         const sessionId = message.sessionId as string;
         const command = message.command as string;
+        // inputMode from web client - use this instead of server state to avoid sync issues
+        const clientInputMode = message.inputMode as 'ai' | 'terminal' | undefined;
 
         if (!sessionId || !command) {
           client.socket.send(JSON.stringify({
@@ -1105,7 +1110,9 @@ export class WebServer {
           return;
         }
 
-        const isAiMode = sessionDetail.inputMode === 'ai';
+        // Use client's inputMode if provided, otherwise fall back to server state
+        const effectiveMode = clientInputMode || sessionDetail.inputMode;
+        const isAiMode = effectiveMode === 'ai';
         const mode = isAiMode ? 'AI' : 'CLI';
         const claudeId = sessionDetail.claudeSessionId || 'none';
 
@@ -1114,8 +1121,9 @@ export class WebServer {
 
         // Route ALL commands through the renderer for consistent handling
         // The renderer handles both AI and terminal modes, updating UI and state
+        // Pass clientInputMode so renderer uses the web's intended mode
         if (this.executeCommandCallback) {
-          this.executeCommandCallback(sessionId, command)
+          this.executeCommandCallback(sessionId, command, clientInputMode)
             .then((success) => {
               client.socket.send(JSON.stringify({
                 type: 'command_result',
@@ -1197,7 +1205,8 @@ export class WebServer {
       case 'select_session': {
         // Select/switch to a session in the desktop app
         const sessionId = message.sessionId as string;
-        logger.info(`[Web] Received select_session message: session=${sessionId}`, LOG_CONTEXT);
+        const tabId = message.tabId as string | undefined;
+        logger.info(`[Web] Received select_session message: session=${sessionId}, tab=${tabId || 'none'}`, LOG_CONTEXT);
 
         if (!sessionId) {
           client.socket.send(JSON.stringify({
@@ -1218,9 +1227,9 @@ export class WebServer {
           return;
         }
 
-        // Forward to desktop's session selection logic
-        logger.info(`[Web] Calling selectSessionCallback for session ${sessionId}`, LOG_CONTEXT);
-        this.selectSessionCallback(sessionId)
+        // Forward to desktop's session selection logic (include tabId if provided)
+        logger.info(`[Web] Calling selectSessionCallback for session ${sessionId}${tabId ? `, tab ${tabId}` : ''}`, LOG_CONTEXT);
+        this.selectSessionCallback(sessionId, tabId)
           .then((success) => {
             client.socket.send(JSON.stringify({
               type: 'select_session_result',

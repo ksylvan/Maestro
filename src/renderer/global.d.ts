@@ -77,7 +77,7 @@ interface MaestroAPI {
     onData: (callback: (sessionId: string, data: string) => void) => () => void;
     onExit: (callback: (sessionId: string, code: number) => void) => () => void;
     onSessionId: (callback: (sessionId: string, claudeSessionId: string) => void) => () => void;
-    onRemoteCommand: (callback: (sessionId: string, command: string) => void) => () => void;
+    onRemoteCommand: (callback: (sessionId: string, command: string, inputMode?: 'ai' | 'terminal') => void) => () => void;
     onRemoteSwitchMode: (callback: (sessionId: string, mode: 'ai' | 'terminal') => void) => () => void;
     onRemoteInterrupt: (callback: (sessionId: string) => void) => () => void;
     onRemoteSelectSession: (callback: (sessionId: string) => void) => () => void;
@@ -301,6 +301,7 @@ interface MaestroAPI {
     show: (title: string, body: string) => Promise<{ success: boolean; error?: string }>;
     speak: (text: string, command?: string) => Promise<{ success: boolean; ttsId?: number; error?: string }>;
     stopSpeak: (ttsId: number) => Promise<{ success: boolean; error?: string }>;
+    onTtsCompleted: (handler: (ttsId: number) => void) => () => void;
   };
   attachments: {
     save: (sessionId: string, base64Data: string, filename: string) => Promise<{ success: boolean; path?: string; filename?: string; error?: string }>;

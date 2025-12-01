@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import type { Session } from '../types';
 import type { FileNode } from './useFileExplorer';
 
@@ -16,9 +16,15 @@ export interface UseTabCompletionReturn {
  * Hook for providing tab completion suggestions from:
  * 1. Shell command history
  * 2. Current directory file tree
+ *
+ * Performance optimizations:
+ * - fileNames is memoized to avoid re-traversing tree on every render
+ * - shellHistory is memoized separately to avoid recreating on file tree changes
+ * - getSuggestions is wrapped in useCallback to maintain referential equality
  */
 export function useTabCompletion(session: Session | null): UseTabCompletionReturn {
   // Build a flat list of file/folder names from the file tree
+  // Only re-computed when fileTree actually changes
   const fileNames = useMemo(() => {
     if (!session?.fileTree) return [];
 
@@ -42,7 +48,13 @@ export function useTabCompletion(session: Session | null): UseTabCompletionRetur
     return names;
   }, [session?.fileTree]);
 
-  const getSuggestions = (input: string): TabCompletionSuggestion[] => {
+  // Memoize shell history reference to avoid unnecessary getSuggestions re-creation
+  const shellHistory = useMemo(() => {
+    return session?.shellCommandHistory || [];
+  }, [session?.shellCommandHistory]);
+
+  // Memoize getSuggestions to maintain stable function reference
+  const getSuggestions = useCallback((input: string): TabCompletionSuggestion[] => {
     if (!session || !input.trim()) return [];
 
     const suggestions: TabCompletionSuggestion[] = [];
@@ -57,8 +69,7 @@ export function useTabCompletion(session: Session | null): UseTabCompletionRetur
     const lastPartLower = lastPart.toLowerCase();
 
     // 1. Check shell command history for matches
-    const history = session.shellCommandHistory || [];
-    for (const cmd of history) {
+    for (const cmd of shellHistory) {
       if (cmd.toLowerCase().startsWith(inputLower) && !seenValues.has(cmd)) {
         seenValues.add(cmd);
         suggestions.push({
@@ -119,7 +130,7 @@ export function useTabCompletion(session: Session | null): UseTabCompletionRetur
 
     // Limit to reasonable number
     return suggestions.slice(0, 10);
-  };
+  }, [session, fileNames, shellHistory]);
 
   return { getSuggestions };
 }

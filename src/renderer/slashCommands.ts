@@ -20,26 +20,62 @@ export interface SlashCommandContext {
   fileTreeRef?: React.RefObject<HTMLDivElement>;
   // Optional properties for synopsis and new session
   sendPromptToAgent?: (prompt: string) => Promise<{ success: boolean; response?: string; claudeSessionId?: string }>;
-  addHistoryEntry?: (entry: { type: 'AUTO' | 'USER'; summary: string; claudeSessionId?: string }) => void;
+  addHistoryEntry?: (entry: { type: 'AUTO' | 'USER'; summary: string; fullResponse?: string; claudeSessionId?: string }) => void;
   startNewClaudeSession?: () => void;
   // Background synopsis - resumes old session without blocking
   spawnBackgroundSynopsis?: (sessionId: string, cwd: string, resumeClaudeSessionId: string, prompt: string) => Promise<{ success: boolean; response?: string; claudeSessionId?: string }>;
   // Toast notifications
-  addToast?: (toast: { type: 'success' | 'info' | 'warning' | 'error'; title: string; message: string; group?: string; project?: string; taskDuration?: number; duration?: number }) => void;
+  addToast?: (toast: { type: 'success' | 'info' | 'warning' | 'error'; title: string; message: string; group?: string; project?: string; taskDuration?: number; duration?: number; claudeSessionId?: string; sessionId?: string; tabId?: string; tabName?: string }) => void;
   // Refresh history panel after adding entries
   refreshHistoryPanel?: () => void;
+  // Add log entry to active tab
+  addLogToActiveTab?: (sessionId: string, logEntry: { source: 'user' | 'ai' | 'system' | 'shell'; text: string }) => void;
 }
 
 // Synopsis prompt for getting a summary of recent work
-const SYNOPSIS_PROMPT = 'Synopsize our recent work in 2-3 sentences max.';
+// Request structured format with short summary and detailed description
+const SYNOPSIS_PROMPT = `Provide a synopsis of what was accomplished since the last synopsis (or since the start of this session if no previous synopsis) using this exact format:
+
+**Summary:** [1-2 sentences describing the key outcome]
+
+**Details:** [A paragraph with more specifics about what was done, files changed, etc.]
+
+Be specific about what was actually accomplished. Focus on changes made since the last synopsis request.`;
+
+/**
+ * Parse a synopsis response into short summary and full synopsis
+ * Expected format:
+ *   **Summary:** Short 1-2 sentence summary
+ *   **Details:** Detailed paragraph...
+ */
+function parseSynopsis(response: string): { shortSummary: string; fullSynopsis: string } {
+  // Clean up ANSI codes and box drawing characters
+  const clean = response
+    .replace(/\x1b\[[0-9;]*m/g, '')
+    .replace(/─+/g, '')
+    .replace(/[│┌┐└┘├┤┬┴┼]/g, '')
+    .trim();
+
+  // Try to extract Summary and Details sections
+  const summaryMatch = clean.match(/\*\*Summary:\*\*\s*(.+?)(?=\*\*Details:\*\*|$)/is);
+  const detailsMatch = clean.match(/\*\*Details:\*\*\s*(.+?)$/is);
+
+  const shortSummary = summaryMatch?.[1]?.trim() || clean.split('\n')[0]?.trim() || 'Synopsis completed';
+  const details = detailsMatch?.[1]?.trim() || '';
+
+  // Full synopsis includes both parts
+  const fullSynopsis = details ? `${shortSummary}\n\n${details}` : shortSummary;
+
+  return { shortSummary, fullSynopsis };
+}
 
 export const slashCommands: SlashCommand[] = [
   {
     command: '/synopsis',
-    description: 'Get a synopsis of recent work and add to history',
+    description: 'Synopsize the active tab and add a user entry to history',
     aiOnly: true,
     execute: async (context: SlashCommandContext) => {
-      const { activeSessionId, sessions, setSessions, spawnBackgroundSynopsis, addHistoryEntry, refreshHistoryPanel } = context;
+      const { activeSessionId, sessions, setSessions, spawnBackgroundSynopsis, addHistoryEntry, refreshHistoryPanel, addLogToActiveTab } = context;
 
       const actualActiveId = activeSessionId || (sessions.length > 0 ? sessions[0].id : '');
       if (!actualActiveId) return;
@@ -49,6 +85,12 @@ export const slashCommands: SlashCommand[] = [
 
       // Need a claudeSessionId to resume the conversation
       if (!activeSession.claudeSessionId) return;
+
+      // Add /synopsis command to the tab's message history
+      addLogToActiveTab?.(actualActiveId, {
+        source: 'user',
+        text: '/synopsis'
+      });
 
       // Request synopsis from agent by resuming the existing session
       if (spawnBackgroundSynopsis && addHistoryEntry) {
@@ -72,9 +114,20 @@ export const slashCommands: SlashCommand[] = [
         }));
 
         if (result.success && result.response) {
+          // Add raw synopsis response to tab's message history
+          addLogToActiveTab?.(actualActiveId, {
+            source: 'ai',
+            text: result.response
+          });
+
+          // Parse the response into short summary and full synopsis
+          const parsed = parseSynopsis(result.response);
+
+          // Add history entry with short summary for list view and full response for detail view
           addHistoryEntry({
             type: 'USER',
-            summary: result.response,
+            summary: parsed.shortSummary,
+            fullResponse: parsed.fullSynopsis,
             claudeSessionId: activeSession.claudeSessionId
           });
           // Refresh history panel to show the new entry
@@ -108,6 +161,11 @@ export const slashCommands: SlashCommand[] = [
         const groupName = sessionGroup?.name || 'Ungrouped';
         const projectName = activeSession.name || sessionCwd.split('/').pop() || 'Unknown';
 
+        // Get tab info for toast navigation
+        const activeTab = activeSession.aiTabs?.find((t: any) => t.id === activeSession.activeTabId);
+        const tabName = activeTab?.name || (oldClaudeSessionId ? oldClaudeSessionId.substring(0, 8).toUpperCase() : undefined);
+        const tabId = activeTab?.id;
+
         // Step 1: Clear logs, start new session, show synopsizing status
         // User can immediately start typing in the new session
         setSessions(prev => prev.map(s => {
@@ -125,25 +183,32 @@ export const slashCommands: SlashCommand[] = [
           .then(result => {
             const duration = Date.now() - startTime;
             if (result.success && result.response) {
+              // Parse the response into short summary and full synopsis
+              const parsed = parseSynopsis(result.response);
+
               addHistoryEntry({
                 type: 'USER',
-                summary: result.response,
+                summary: parsed.shortSummary,
+                fullResponse: parsed.fullSynopsis,
                 claudeSessionId: oldClaudeSessionId
               });
 
               // Refresh history panel to show the new entry
               refreshHistoryPanel?.();
 
-              // Show toast notification
+              // Show toast notification with short summary
               if (addToast) {
                 addToast({
                   type: 'success',
                   title: 'Synopsis Complete',
-                  message: result.response,
+                  message: parsed.shortSummary,
                   group: groupName,
                   project: projectName,
                   taskDuration: duration,
                   claudeSessionId: oldClaudeSessionId,
+                  sessionId: actualActiveId,
+                  tabId,
+                  tabName,
                 });
               }
             }

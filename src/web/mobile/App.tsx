@@ -12,7 +12,6 @@ import { useWebSocket, type WebSocketState, type CustomCommand, type AutoRunStat
 import { useNotifications } from '../hooks/useNotifications';
 import { useUnreadBadge } from '../hooks/useUnreadBadge';
 import { useOfflineQueue } from '../hooks/useOfflineQueue';
-import { Badge, type BadgeVariant } from '../components/Badge';
 import { useOfflineStatus, useMaestroMode, useDesktopTheme } from '../main';
 import { buildApiUrl } from '../utils/config';
 import { triggerHaptic, HAPTIC_PATTERNS } from './constants';
@@ -32,47 +31,6 @@ import { AutoRunIndicator } from './AutoRunIndicator';
 import { TabBar } from './TabBar';
 import type { Session, LastResponsePreview } from '../hooks/useSessions';
 
-/**
- * Map WebSocket state to display properties
- */
-interface ConnectionStatusConfig {
-  label: string;
-  variant: BadgeVariant;
-  pulse: boolean;
-}
-
-const CONNECTION_STATUS_CONFIG: Record<WebSocketState | 'offline', ConnectionStatusConfig> = {
-  offline: {
-    label: 'Offline',
-    variant: 'error',
-    pulse: false,
-  },
-  disconnected: {
-    label: 'Disconnected',
-    variant: 'error',
-    pulse: false,
-  },
-  connecting: {
-    label: 'Connecting...',
-    variant: 'connecting',
-    pulse: true,
-  },
-  authenticating: {
-    label: 'Authenticating...',
-    variant: 'connecting',
-    pulse: true,
-  },
-  connected: {
-    label: 'Connected',
-    variant: 'success',
-    pulse: false,
-  },
-  authenticated: {
-    label: 'Connected',
-    variant: 'success',
-    pulse: false,
-  },
-};
 
 /**
  * Format cost in USD for display
@@ -108,19 +66,12 @@ function getActiveTabFromSession(session: Session | null | undefined): AITabData
  * Compact single-line header showing: Maestro | Session Name | Claude ID | Status | Cost | Context
  */
 interface MobileHeaderProps {
-  connectionState: WebSocketState;
-  isOffline: boolean;
-  onRetry?: () => void;
   activeSession?: Session | null;
 }
 
-function MobileHeader({ connectionState, isOffline, onRetry, activeSession }: MobileHeaderProps) {
+function MobileHeader({ activeSession }: MobileHeaderProps) {
   const colors = useThemeColors();
   const { isSession, goToDashboard } = useMaestroMode();
-
-  // Show offline status if device is offline, otherwise show connection state
-  const effectiveState = isOffline ? 'offline' : connectionState;
-  const statusConfig = CONNECTION_STATUS_CONFIG[effectiveState];
 
   // Get active tab for per-tab data (claudeSessionId, usageStats)
   const activeTab = getActiveTabFromSession(activeSession);
@@ -307,21 +258,6 @@ function MobileHeader({ connectionState, isOffline, onRetry, activeSession }: Mo
           )}
         </div>
       )}
-
-      {/* Right: Connection status */}
-      <Badge
-        variant={statusConfig.variant}
-        badgeStyle="subtle"
-        size="sm"
-        pulse={statusConfig.pulse}
-        onClick={!isOffline && connectionState === 'disconnected' ? onRetry : undefined}
-        style={{
-          cursor: !isOffline && connectionState === 'disconnected' ? 'pointer' : 'default',
-          flexShrink: 0,
-        }}
-      >
-        {statusConfig.label}
-      </Badge>
 
       {/* Pulse animation for thinking state */}
       <style>{`
@@ -791,8 +727,8 @@ export default function MobileApp() {
     setActiveSessionId(sessionId);
     setActiveTabId(session?.activeTabId || null);
     triggerHaptic(HAPTIC_PATTERNS.tap);
-    // Notify desktop to switch to this session
-    send({ type: 'select_session', sessionId });
+    // Notify desktop to switch to this session (include activeTabId if available)
+    send({ type: 'select_session', sessionId, tabId: session?.activeTabId || undefined });
   }, [sessions, send]);
 
   // Handle selecting a tab within a session
@@ -884,12 +820,15 @@ export default function MobileApp() {
       }
     } else {
       // Send the command to the active session immediately
+      // Include inputMode so the server uses the web's intended mode (not stale server state)
+      const currentMode = (session?.inputMode as InputMode) || 'ai';
       send({
         type: 'send_command',
         sessionId: activeSessionId,
         command,
+        inputMode: currentMode,
       });
-      webLogger.debug(`Command sent: ${command} to session: ${activeSessionId}`, 'Mobile');
+      webLogger.debug(`Command sent: ${command} (mode: ${currentMode}) to session: ${activeSessionId}`, 'Mobile');
     }
 
     // Clear the input
@@ -909,14 +848,7 @@ export default function MobileApp() {
     triggerHaptic(HAPTIC_PATTERNS.tap);
 
     // Send mode switch command via WebSocket
-    const message = {
-      type: 'switch_mode',
-      sessionId: activeSessionId,
-      mode,
-    };
-    console.log('[Mobile] Sending switch_mode message:', message);
-    const sent = send(message);
-    console.log('[Mobile] send() returned:', sent);
+    send({ type: 'switch_mode', sessionId: activeSessionId, mode });
 
     // Optimistically update local session state
     setSessions(prev => prev.map(s =>
@@ -1249,11 +1181,8 @@ export default function MobileApp() {
 
   return (
     <div style={containerStyle}>
-      {/* Header with connection status and session info */}
+      {/* Header with session info */}
       <MobileHeader
-        connectionState={connectionState}
-        isOffline={isOffline}
-        onRetry={handleRetry}
         activeSession={activeSession}
       />
 

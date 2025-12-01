@@ -79,10 +79,27 @@ export function AgentSessionsBrowser({
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
+  // Pagination state for sessions list
+  const [hasMoreSessions, setHasMoreSessions] = useState(false);
+  const [isLoadingMoreSessions, setIsLoadingMoreSessions] = useState(false);
+  const [totalSessionCount, setTotalSessionCount] = useState(0);
+  const nextCursorRef = useRef<string | null>(null);
+
+  // Aggregate stats for ALL sessions (calculated progressively)
+  const [aggregateStats, setAggregateStats] = useState<{
+    totalSessions: number;
+    totalMessages: number;
+    totalCostUsd: number;
+    totalSizeBytes: number;
+    oldestTimestamp: string | null;
+    isComplete: boolean;
+  }>({ totalSessions: 0, totalMessages: 0, totalCostUsd: 0, totalSizeBytes: 0, oldestTimestamp: null, isComplete: false });
+
   const inputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const selectedItemRef = useRef<HTMLButtonElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const sessionsContainerRef = useRef<HTMLDivElement>(null);
   const searchModeDropdownRef = useRef<HTMLDivElement>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const layerIdRef = useRef<string>();
@@ -200,6 +217,13 @@ export function AgentSessionsBrowser({
 
   // Load sessions on mount
   useEffect(() => {
+    // Reset pagination state
+    setSessions([]);
+    setHasMoreSessions(false);
+    setTotalSessionCount(0);
+    nextCursorRef.current = null;
+    setAggregateStats({ totalSessions: 0, totalMessages: 0, totalCostUsd: 0, totalSizeBytes: 0, oldestTimestamp: null, isComplete: false });
+
     const loadSessions = async () => {
       if (!activeSession?.cwd) {
         setLoading(false);
@@ -217,8 +241,15 @@ export function AgentSessionsBrowser({
         }
         setStarredSessions(starredFromOrigins);
 
-        const result = await window.maestro.claude.listSessions(activeSession.cwd);
-        setSessions(result);
+        // Use paginated API for better performance with many sessions
+        const result = await window.maestro.claude.listSessionsPaginated(activeSession.cwd, { limit: 100 });
+        setSessions(result.sessions);
+        setHasMoreSessions(result.hasMore);
+        setTotalSessionCount(result.totalCount);
+        nextCursorRef.current = result.nextCursor;
+
+        // Start fetching aggregate stats for ALL sessions (runs in background with progressive updates)
+        window.maestro.claude.getProjectStats(activeSession.cwd);
       } catch (error) {
         console.error('Failed to load sessions:', error);
       } finally {
@@ -228,6 +259,67 @@ export function AgentSessionsBrowser({
 
     loadSessions();
   }, [activeSession?.cwd]);
+
+  // Listen for progressive stats updates
+  useEffect(() => {
+    if (!activeSession?.cwd) return;
+
+    const unsubscribe = window.maestro.claude.onProjectStatsUpdate((stats) => {
+      // Only update if this is for our project
+      if (stats.projectPath === activeSession.cwd) {
+        setAggregateStats({
+          totalSessions: stats.totalSessions,
+          totalMessages: stats.totalMessages,
+          totalCostUsd: stats.totalCostUsd,
+          totalSizeBytes: stats.totalSizeBytes,
+          oldestTimestamp: stats.oldestTimestamp,
+          isComplete: stats.isComplete,
+        });
+      }
+    });
+
+    return unsubscribe;
+  }, [activeSession?.cwd]);
+
+  // Load more sessions when scrolling near bottom
+  const loadMoreSessions = useCallback(async () => {
+    if (!activeSession?.cwd || !hasMoreSessions || isLoadingMoreSessions || !nextCursorRef.current) return;
+
+    setIsLoadingMoreSessions(true);
+    try {
+      const result = await window.maestro.claude.listSessionsPaginated(activeSession.cwd, {
+        cursor: nextCursorRef.current,
+        limit: 100,
+      });
+
+      // Append new sessions, avoiding duplicates
+      setSessions(prev => {
+        const existingIds = new Set(prev.map(s => s.sessionId));
+        const newSessions = result.sessions.filter(s => !existingIds.has(s.sessionId));
+        return [...prev, ...newSessions];
+      });
+      setHasMoreSessions(result.hasMore);
+      nextCursorRef.current = result.nextCursor;
+    } catch (error) {
+      console.error('Failed to load more sessions:', error);
+    } finally {
+      setIsLoadingMoreSessions(false);
+    }
+  }, [activeSession?.cwd, hasMoreSessions, isLoadingMoreSessions]);
+
+  // Handle scroll for sessions list pagination - load more at 70% scroll
+  const handleSessionsScroll = useCallback(() => {
+    const container = sessionsContainerRef.current;
+    if (!container) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const scrollPercentage = (scrollTop + clientHeight) / scrollHeight;
+    const atSeventyPercent = scrollPercentage >= 0.7;
+
+    if (atSeventyPercent && hasMoreSessions && !isLoadingMoreSessions) {
+      loadMoreSessions();
+    }
+  }, [hasMoreSessions, isLoadingMoreSessions, loadMoreSessions]);
 
   // Toggle star status for a session
   const toggleStar = useCallback(async (sessionId: string, e: React.MouseEvent) => {
@@ -419,18 +511,31 @@ export function AgentSessionsBrowser({
     return !session.sessionId.startsWith('agent-');
   }, [showAllSessions, namedOnly]);
 
-  // Calculate stats from visible sessions
+  // Auto-load ALL remaining sessions in background after initial load
+  // This ensures full search capability and accurate stats
+  useEffect(() => {
+    if (!loading && !isLoadingMoreSessions && hasMoreSessions && sessions.length > 0) {
+      // Small delay to let UI render first, then continue loading
+      const timer = setTimeout(() => {
+        loadMoreSessions();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, isLoadingMoreSessions, hasMoreSessions, sessions.length, loadMoreSessions]);
+
+  // Stats always show totals for ALL sessions (fetched progressively from backend)
   const stats = useMemo(() => {
-    const visibleSessions = sessions.filter(isSessionVisible);
-    const totalSessions = visibleSessions.length;
-    const totalMessages = visibleSessions.reduce((sum, s) => sum + s.messageCount, 0);
-    const totalSize = visibleSessions.reduce((sum, s) => sum + s.sizeBytes, 0);
-    const totalCost = visibleSessions.reduce((sum, s) => sum + (s.costUsd || 0), 0);
-    const oldestSession = visibleSessions.length > 0
-      ? new Date(Math.min(...visibleSessions.map(s => new Date(s.timestamp).getTime())))
-      : null;
-    return { totalSessions, totalMessages, totalSize, totalCost, oldestSession };
-  }, [sessions, isSessionVisible]);
+    return {
+      totalSessions: aggregateStats.totalSessions,
+      totalMessages: aggregateStats.totalMessages,
+      totalSize: aggregateStats.totalSizeBytes,
+      totalCost: aggregateStats.totalCostUsd,
+      oldestSession: aggregateStats.oldestTimestamp
+        ? new Date(aggregateStats.oldestTimestamp)
+        : null,
+      isComplete: aggregateStats.isComplete,
+    };
+  }, [aggregateStats]);
 
   // Filter sessions by search - use different strategies based on search mode
   const filteredSessions = useMemo(() => {
@@ -569,11 +674,21 @@ export function AgentSessionsBrowser({
     onClose();
   }, [starredSessions, onResumeSession, onClose]);
 
-  // Format file size
+  // Format file size with proper KB/MB/GB/TB scaling
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    if (bytes < 1024 * 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+    return `${(bytes / (1024 * 1024 * 1024 * 1024)).toFixed(1)} TB`;
+  };
+
+  // Format large numbers with k/M/B suffixes
+  const formatNumber = (num: number): string => {
+    if (num < 1000) return num.toFixed(1);
+    if (num < 1000000) return `${(num / 1000).toFixed(1)}k`;
+    if (num < 1000000000) return `${(num / 1000000).toFixed(1)}M`;
+    return `${(num / 1000000000).toFixed(1)}B`;
   };
 
   // Format relative time
@@ -679,11 +794,12 @@ export function AgentSessionsBrowser({
                   </div>
                 ) : (
                   <div className="flex items-center gap-1.5">
+                    {/* Show full UUID as primary when no custom name */}
                     <span
-                      className="text-sm font-medium truncate max-w-md"
+                      className="text-sm font-mono font-medium truncate max-w-md"
                       style={{ color: theme.colors.textMain }}
                     >
-                      {viewingSession.firstMessage || `Session ${viewingSession.sessionId.slice(0, 8)}...`}
+                      {viewingSession.sessionId.toUpperCase()}
                     </span>
                     <button
                       onClick={(e) => {
@@ -699,14 +815,28 @@ export function AgentSessionsBrowser({
                     </button>
                   </div>
                 )}
-                {/* First message shown as subtitle if session has a name */}
+                {/* Show UUID underneath the custom name */}
                 {viewingSession.sessionName && (
-                  <div className="text-xs truncate max-w-md" style={{ color: theme.colors.textDim }}>
-                    {viewingSession.firstMessage || `Session ${viewingSession.sessionId.slice(0, 8)}...`}
+                  <div className="text-xs font-mono truncate max-w-md" style={{ color: theme.colors.textDim }}>
+                    {viewingSession.sessionId.toUpperCase()}
                   </div>
                 )}
-                <div className="text-xs" style={{ color: theme.colors.textDim }}>
-                  {totalMessages} messages • {formatRelativeTime(viewingSession.modifiedAt)}
+                {/* Stats row with relative time and started timestamp */}
+                <div className="text-xs flex items-center gap-1" style={{ color: theme.colors.textDim }}>
+                  <span>{totalMessages} messages</span>
+                  <span>•</span>
+                  <span
+                    className="relative group cursor-default"
+                    title={new Date(viewingSession.timestamp).toLocaleString()}
+                  >
+                    {formatRelativeTime(viewingSession.modifiedAt)}
+                    <span
+                      className="absolute left-0 top-0 opacity-0 group-hover:opacity-100 transition-opacity px-1 rounded whitespace-nowrap"
+                      style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textMain }}
+                    >
+                      {new Date(viewingSession.timestamp).toLocaleString()}
+                    </span>
+                  </span>
                 </div>
               </div>
             </>
@@ -782,7 +912,7 @@ export function AgentSessionsBrowser({
                   </span>
                 </div>
                 <span className="text-lg font-mono font-semibold" style={{ color: theme.colors.success }}>
-                  ${viewingSession.costUsd.toFixed(4)}
+                  ${viewingSession.costUsd.toFixed(2)}
                 </span>
               </div>
 
@@ -812,7 +942,7 @@ export function AgentSessionsBrowser({
                   </span>
                 </div>
                 <span className="text-lg font-mono font-semibold" style={{ color: theme.colors.textMain }}>
-                  {((viewingSession.inputTokens + viewingSession.outputTokens) / 1000).toFixed(1)}k
+                  {formatNumber(viewingSession.inputTokens + viewingSession.outputTokens)}
                 </span>
                 <span className="text-[10px]" style={{ color: theme.colors.textDim }}>
                   {((viewingSession.inputTokens + viewingSession.outputTokens) / 200000 * 100).toFixed(1)}% of 200k context
@@ -838,20 +968,20 @@ export function AgentSessionsBrowser({
               <div className="flex items-center gap-2">
                 <ArrowDownToLine className="w-3 h-3" style={{ color: theme.colors.textDim }} />
                 <span className="text-xs" style={{ color: theme.colors.textDim }}>
-                  Input: <span className="font-mono font-medium" style={{ color: theme.colors.textMain }}>{(viewingSession.inputTokens / 1000).toFixed(1)}k</span>
+                  Input: <span className="font-mono font-medium" style={{ color: theme.colors.textMain }}>{formatNumber(viewingSession.inputTokens)}</span>
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <ArrowUpFromLine className="w-3 h-3" style={{ color: theme.colors.textDim }} />
                 <span className="text-xs" style={{ color: theme.colors.textDim }}>
-                  Output: <span className="font-mono font-medium" style={{ color: theme.colors.textMain }}>{(viewingSession.outputTokens / 1000).toFixed(1)}k</span>
+                  Output: <span className="font-mono font-medium" style={{ color: theme.colors.textMain }}>{formatNumber(viewingSession.outputTokens)}</span>
                 </span>
               </div>
               {viewingSession.cacheReadTokens > 0 && (
                 <div className="flex items-center gap-2">
                   <Database className="w-3 h-3" style={{ color: theme.colors.success }} />
                   <span className="text-xs" style={{ color: theme.colors.textDim }}>
-                    Cache Read: <span className="font-mono font-medium" style={{ color: theme.colors.success }}>{(viewingSession.cacheReadTokens / 1000).toFixed(1)}k</span>
+                    Cache Read: <span className="font-mono font-medium" style={{ color: theme.colors.success }}>{formatNumber(viewingSession.cacheReadTokens)}</span>
                   </span>
                 </div>
               )}
@@ -859,7 +989,7 @@ export function AgentSessionsBrowser({
                 <div className="flex items-center gap-2">
                   <Hash className="w-3 h-3" style={{ color: theme.colors.warning }} />
                   <span className="text-xs" style={{ color: theme.colors.textDim }}>
-                    Cache Write: <span className="font-mono font-medium" style={{ color: theme.colors.warning }}>{(viewingSession.cacheCreationTokens / 1000).toFixed(1)}k</span>
+                    Cache Write: <span className="font-mono font-medium" style={{ color: theme.colors.warning }}>{formatNumber(viewingSession.cacheCreationTokens)}</span>
                   </span>
                 </div>
               )}
@@ -867,12 +997,6 @@ export function AgentSessionsBrowser({
                 <HardDrive className="w-3 h-3" style={{ color: theme.colors.textDim }} />
                 <span className="text-xs" style={{ color: theme.colors.textDim }}>
                   Size: <span className="font-mono font-medium" style={{ color: theme.colors.textMain }}>{formatSize(viewingSession.sizeBytes)}</span>
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Clock className="w-3 h-3" style={{ color: theme.colors.textDim }} />
-                <span className="text-xs" style={{ color: theme.colors.textDim }}>
-                  Started: <span className="font-medium" style={{ color: theme.colors.textMain }}>{new Date(viewingSession.timestamp).toLocaleString()}</span>
                 </span>
               </div>
             </div>
@@ -946,27 +1070,27 @@ export function AgentSessionsBrowser({
             >
               <div className="flex items-center gap-2">
                 <BarChart3 className="w-4 h-4" style={{ color: theme.colors.accent }} />
-                <span className="text-xs font-medium" style={{ color: theme.colors.textDim }}>
+                <span className={`text-xs font-medium ${!stats.isComplete ? 'animate-pulse' : ''}`} style={{ color: theme.colors.textDim }}>
                   {stats.totalSessions} {stats.totalSessions === 1 ? 'session' : 'sessions'}
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <MessageSquare className="w-4 h-4" style={{ color: theme.colors.success }} />
-                <span className="text-xs font-medium" style={{ color: theme.colors.textDim }}>
+                <span className={`text-xs font-medium ${!stats.isComplete ? 'animate-pulse' : ''}`} style={{ color: theme.colors.textDim }}>
                   {stats.totalMessages.toLocaleString()} messages
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <Database className="w-4 h-4" style={{ color: theme.colors.warning }} />
-                <span className="text-xs font-medium" style={{ color: theme.colors.textDim }}>
+                <span className={`text-xs font-medium ${!stats.isComplete ? 'animate-pulse' : ''}`} style={{ color: theme.colors.textDim }}>
                   {formatSize(stats.totalSize)}
                 </span>
               </div>
-              {stats.totalCost > 0 && (
+              {(stats.totalCost > 0 || !stats.isComplete) && (
                 <div className="flex items-center gap-2">
                   <DollarSign className="w-4 h-4" style={{ color: theme.colors.success }} />
-                  <span className="text-xs font-medium font-mono" style={{ color: theme.colors.success }}>
-                    ${stats.totalCost.toFixed(2)}
+                  <span className={`text-xs font-medium font-mono ${!stats.isComplete ? 'animate-pulse' : ''}`} style={{ color: theme.colors.success }}>
+                    ${stats.totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
               )}
@@ -977,6 +1101,9 @@ export function AgentSessionsBrowser({
                     Since {stats.oldestSession.toLocaleDateString()}
                   </span>
                 </div>
+              )}
+              {!stats.isComplete && (
+                <Loader2 className="w-3 h-3 animate-spin ml-auto" style={{ color: theme.colors.textDim }} />
               )}
             </div>
           )}
@@ -1085,7 +1212,11 @@ export function AgentSessionsBrowser({
           </div>
 
           {/* Session list */}
-          <div className="flex-1 overflow-y-auto scrollbar-thin">
+          <div
+            ref={sessionsContainerRef}
+            className="flex-1 overflow-y-auto scrollbar-thin"
+            onScroll={handleSessionsScroll}
+          >
             {loading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-6 h-6 animate-spin" style={{ color: theme.colors.textDim }} />
@@ -1105,11 +1236,11 @@ export function AgentSessionsBrowser({
                   const searchResultInfo = getSearchResultInfo(session.sessionId);
                   const isStarred = starredSessions.has(session.sessionId);
                   return (
-                    <button
+                    <div
                       key={session.sessionId}
                       ref={i === selectedIndex ? selectedItemRef : null}
                       onClick={() => handleViewSession(session)}
-                      className="w-full text-left px-6 py-4 flex items-start gap-4 hover:bg-white/5 transition-colors border-b group"
+                      className="w-full text-left px-6 py-4 flex items-start gap-4 hover:bg-white/5 transition-colors border-b group cursor-pointer"
                       style={{
                         backgroundColor: i === selectedIndex ? theme.colors.accent + '15' : 'transparent',
                         borderColor: theme.colors.border + '50',
@@ -1296,9 +1427,26 @@ export function AgentSessionsBrowser({
                           ACTIVE
                         </span>
                       )}
-                    </button>
+                    </div>
                   );
                 })}
+                {/* Pagination indicator */}
+                {(isLoadingMoreSessions || hasMoreSessions) && !search && (
+                  <div className="py-4 flex justify-center items-center">
+                    {isLoadingMoreSessions ? (
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" style={{ color: theme.colors.accent }} />
+                        <span className="text-xs" style={{ color: theme.colors.textDim }}>
+                          Loading more sessions...
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-xs" style={{ color: theme.colors.textDim }}>
+                        {sessions.length} of {totalSessionCount} sessions loaded
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>

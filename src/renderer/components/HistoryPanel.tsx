@@ -1,7 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef, useMemo } from 'react';
-import { Bot, User, ExternalLink, Check, X, Clock } from 'lucide-react';
+import { Bot, User, ExternalLink, Check, X, Clock, HelpCircle } from 'lucide-react';
 import type { Session, Theme, HistoryEntry, HistoryEntryType } from '../types';
 import { HistoryDetailModal } from './HistoryDetailModal';
+import { HistoryHelpModal } from './HistoryHelpModal';
+
+// Double checkmark SVG component for validated entries
+const DoubleCheck = ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+  <svg className={className} style={style} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="15 6 6 17 1 12" />
+    <polyline points="23 6 14 17 11 14" />
+  </svg>
+);
 
 // Format elapsed time in human-readable format
 const formatElapsedTime = (ms: number): string => {
@@ -21,9 +30,10 @@ interface ActivityGraphProps {
   entries: HistoryEntry[];
   theme: Theme;
   referenceTime?: number; // The "end" of the 24-hour window (defaults to now)
+  onBarClick?: (bucketStartTime: number, bucketEndTime: number) => void;
 }
 
-const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme, referenceTime }) => {
+const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme, referenceTime, onBarClick }) => {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   // Use referenceTime as the end of our window, or current time if not provided
@@ -91,6 +101,23 @@ const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme, reference
     return `${formatHour(bucketStart)} - ${formatHour(bucketEnd)}`;
   };
 
+  // Get bucket time range as timestamps for click handling
+  const getBucketTimeRange = (index: number): { start: number; end: number } => {
+    const hoursAgo = 23 - index;
+    const bucketEnd = endTime - (hoursAgo * 60 * 60 * 1000);
+    const bucketStart = bucketEnd - (60 * 60 * 1000);
+    return { start: bucketStart, end: bucketEnd };
+  };
+
+  // Handle bar click
+  const handleBarClick = (index: number) => {
+    const total = hourlyData[index].auto + hourlyData[index].user;
+    if (total > 0 && onBarClick) {
+      const { start, end } = getBucketTimeRange(index);
+      onBarClick(start, end);
+    }
+  };
+
   // Format the reference time for display (shows what time point we're viewing)
   const formatReferenceTime = () => {
     const now = Date.now();
@@ -126,6 +153,11 @@ const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme, reference
         >
           <div className="font-bold mb-1" style={{ color: theme.colors.textMain }}>
             {getTimeRangeLabel(hoveredIndex)}
+            {isHistorical && (
+              <span className="ml-2 font-normal" style={{ color: theme.colors.accent }}>
+                {formatReferenceTime()}
+              </span>
+            )}
           </div>
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center justify-between gap-3">
@@ -161,10 +193,12 @@ const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme, reference
                 opacity: total > 0 ? 1 : 0.15,
                 transform: isHovered ? 'scaleX(1.5)' : 'scaleX(1)',
                 zIndex: isHovered ? 10 : 1,
-                transition: 'transform 0.1s ease-out'
+                transition: 'transform 0.1s ease-out',
+                cursor: total > 0 ? 'pointer' : 'default'
               }}
               onMouseEnter={() => setHoveredIndex(index)}
               onMouseLeave={() => setHoveredIndex(null)}
+              onClick={() => handleBarClick(index)}
             >
               <div
                 className="w-full rounded-t-sm overflow-hidden flex flex-col justify-end"
@@ -207,7 +241,7 @@ const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme, reference
           );
         })}
       </div>
-      {/* Hour labels below + reference time indicator */}
+      {/* Hour labels below */}
       <div className="relative h-3 mt-0.5">
         {hourLabels.map(({ hour, index }) => (
           <span
@@ -223,15 +257,6 @@ const ActivityGraph: React.FC<ActivityGraphProps> = ({ entries, theme, reference
             {hour}h
           </span>
         ))}
-        {/* Show reference time indicator when viewing historical data */}
-        {isHistorical && (
-          <span
-            className="absolute right-0 text-[8px] font-mono font-bold"
-            style={{ color: theme.colors.accent, top: '-10px' }}
-          >
-            {formatReferenceTime()}
-          </span>
-        )}
       </div>
     </div>
   );
@@ -265,6 +290,7 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
   const [searchFilterOpen, setSearchFilterOpen] = useState(false);
   const [displayCount, setDisplayCount] = useState(INITIAL_DISPLAY_COUNT);
   const [graphReferenceTime, setGraphReferenceTime] = useState<number | undefined>(undefined);
+  const [helpModalOpen, setHelpModalOpen] = useState(false);
 
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Record<number, HTMLDivElement | null>>({});
@@ -346,6 +372,60 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
 
   // Check if there are more entries to load
   const hasMore = allFilteredEntries.length > displayCount;
+
+  // Handle graph bar click - scroll to first entry in that time range
+  const handleGraphBarClick = useCallback((bucketStart: number, bucketEnd: number) => {
+    // Find entries within this time bucket (entries are sorted newest first)
+    const entriesInBucket = historyEntries.filter(
+      entry => entry.timestamp >= bucketStart && entry.timestamp < bucketEnd
+    );
+
+    if (entriesInBucket.length === 0) return;
+
+    // Get the most recent entry in the bucket (first one since sorted by timestamp desc)
+    const targetEntry = entriesInBucket[0];
+
+    // Find its index in the filtered list
+    // We need to look at allFilteredEntries (not just currently displayed ones)
+    // and potentially expand displayCount to show it
+    const indexInAllFiltered = allFilteredEntries.findIndex(e => e.id === targetEntry.id);
+
+    if (indexInAllFiltered === -1) {
+      // Entry exists but is filtered out - try finding any entry from the bucket in filtered list
+      const anyMatch = allFilteredEntries.findIndex(e =>
+        e.timestamp >= bucketStart && e.timestamp < bucketEnd
+      );
+      if (anyMatch === -1) return;
+
+      // Expand display count if needed
+      if (anyMatch >= displayCount) {
+        setDisplayCount(Math.min(anyMatch + LOAD_MORE_COUNT, allFilteredEntries.length));
+      }
+
+      // Set selection and scroll after a brief delay for state to update
+      setTimeout(() => {
+        setSelectedIndex(anyMatch);
+        const itemEl = itemRefs.current[anyMatch];
+        if (itemEl) {
+          itemEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+      }, 50);
+    } else {
+      // Expand display count if needed
+      if (indexInAllFiltered >= displayCount) {
+        setDisplayCount(Math.min(indexInAllFiltered + LOAD_MORE_COUNT, allFilteredEntries.length));
+      }
+
+      // Set selection and scroll after a brief delay for state to update
+      setTimeout(() => {
+        setSelectedIndex(indexInAllFiltered);
+        const itemEl = itemRefs.current[indexInAllFiltered];
+        if (itemEl) {
+          itemEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+      }, 50);
+    }
+  }, [historyEntries, allFilteredEntries, displayCount]);
 
   // Handle scroll to load more entries AND update graph reference time
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
@@ -499,7 +579,7 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
 
   return (
     <div className="flex flex-col h-full">
-      {/* Filter Pills + Activity Graph */}
+      {/* Filter Pills + Activity Graph + Help Button */}
       <div className="flex items-start gap-3 mb-4 pt-2">
         {/* Left-justified filter pills */}
         <div className="flex gap-2 flex-shrink-0">
@@ -529,7 +609,17 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
         </div>
 
         {/* 24-hour activity bar graph */}
-        <ActivityGraph entries={historyEntries} theme={theme} referenceTime={graphReferenceTime} />
+        <ActivityGraph entries={historyEntries} theme={theme} referenceTime={graphReferenceTime} onBarClick={handleGraphBarClick} />
+
+        {/* Help button */}
+        <button
+          onClick={() => setHelpModalOpen(true)}
+          className="flex-shrink-0 p-1.5 rounded-full transition-colors hover:bg-white/10"
+          style={{ color: theme.colors.textDim }}
+          title="History panel help"
+        >
+          <HelpCircle className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Search Filter */}
@@ -616,13 +706,23 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
                       <span
                         className="flex items-center justify-center w-5 h-5 rounded-full"
                         style={{
-                          backgroundColor: entry.success ? theme.colors.success + '20' : theme.colors.error + '20',
-                          border: `1px solid ${entry.success ? theme.colors.success + '40' : theme.colors.error + '40'}`
+                          backgroundColor: entry.success
+                            ? theme.colors.success + (entry.validated ? '40' : '20')
+                            : theme.colors.error + '20',
+                          border: `1px solid ${entry.success
+                            ? theme.colors.success + (entry.validated ? '60' : '40')
+                            : theme.colors.error + '40'}`
                         }}
-                        title={entry.success ? 'Task completed successfully' : 'Task failed'}
+                        title={entry.success
+                          ? (entry.validated ? 'Task completed successfully and human-validated' : 'Task completed successfully')
+                          : 'Task failed'}
                       >
                         {entry.success ? (
-                          <Check className="w-3 h-3" style={{ color: theme.colors.success }} />
+                          entry.validated ? (
+                            <DoubleCheck className="w-3 h-3" style={{ color: theme.colors.success }} />
+                          ) : (
+                            <Check className="w-3 h-3" style={{ color: theme.colors.success }} />
+                          )
                         ) : (
                           <X className="w-3 h-3" style={{ color: theme.colors.error }} />
                         )}
@@ -642,22 +742,22 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
                       {entry.type}
                     </span>
 
-                    {/* Session ID Octet (clickable) - opens session as new tab */}
+                    {/* Session Name or ID Octet (clickable) - opens session as new tab */}
                     {entry.claudeSessionId && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           onOpenSessionAsTab?.(entry.claudeSessionId!);
                         }}
-                        className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase transition-colors hover:opacity-80"
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold transition-colors hover:opacity-80 ${entry.sessionName ? '' : 'font-mono uppercase'}`}
                         style={{
                           backgroundColor: theme.colors.accent + '20',
                           color: theme.colors.accent,
                           border: `1px solid ${theme.colors.accent}40`
                         }}
-                        title={`Open session ${entry.claudeSessionId.split('-')[0]} as new tab`}
+                        title={`Open session ${entry.sessionName || entry.claudeSessionId.split('-')[0]} as new tab`}
                       >
-                        {entry.claudeSessionId.split('-')[0].toUpperCase()}
+                        {entry.sessionName || entry.claudeSessionId.split('-')[0].toUpperCase()}
                         <ExternalLink className="w-2.5 h-2.5" />
                       </button>
                     )}
@@ -734,6 +834,26 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
           onJumpToClaudeSession={onJumpToClaudeSession}
           onResumeSession={onResumeSession}
           onDelete={handleDeleteEntry}
+          onUpdate={async (entryId, updates) => {
+            const success = await window.maestro.history.update(entryId, updates);
+            if (success) {
+              // Update local state
+              setHistoryEntries(prev => prev.map(e =>
+                e.id === entryId ? { ...e, ...updates } : e
+              ));
+              // Update the modal entry state
+              setDetailModalEntry(prev => prev ? { ...prev, ...updates } : null);
+            }
+            return success;
+          }}
+        />
+      )}
+
+      {/* Help Modal */}
+      {helpModalOpen && (
+        <HistoryHelpModal
+          theme={theme}
+          onClose={() => setHelpModalOpen(false)}
         />
       )}
     </div>

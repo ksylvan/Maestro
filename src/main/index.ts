@@ -10,6 +10,28 @@ import { detectShells } from './utils/shellDetector';
 import { getThemeById } from './themes';
 import Store from 'electron-store';
 
+// Constants for Claude session parsing
+const CLAUDE_SESSION_PARSE_LIMITS = {
+  /** Max lines to scan from start of file to find first user message */
+  FIRST_MESSAGE_SCAN_LINES: 20,
+  /** Max lines to scan from end of file to find last timestamp */
+  LAST_TIMESTAMP_SCAN_LINES: 10,
+  /** Max lines to scan for oldest timestamp in stats calculation */
+  OLDEST_TIMESTAMP_SCAN_LINES: 5,
+  /** Batch size for processing session files (allows UI updates) */
+  STATS_BATCH_SIZE: 20,
+  /** Max characters for first message preview */
+  FIRST_MESSAGE_PREVIEW_LENGTH: 200,
+};
+
+// Claude API pricing (per million tokens)
+const CLAUDE_PRICING = {
+  INPUT_PER_MILLION: 3,
+  OUTPUT_PER_MILLION: 15,
+  CACHE_READ_PER_MILLION: 0.30,
+  CACHE_CREATION_PER_MILLION: 3.75,
+};
+
 // Type definitions
 interface MaestroSettings {
   activeThemeId: string;
@@ -127,6 +149,7 @@ interface HistoryEntry {
   };
   success?: boolean; // For AUTO entries: whether the task completed successfully
   elapsedTimeMs?: number; // Time taken to complete this task in milliseconds
+  validated?: boolean; // For AUTO entries: whether a human has validated the task completion
 }
 
 interface HistoryData {
@@ -341,7 +364,7 @@ function createWebServer(): WebServer {
   // Set up callback for web server to execute commands through the desktop
   // This forwards AI commands to the renderer, ensuring single source of truth
   // The renderer handles all spawn logic, state management, and broadcasts
-  server.setExecuteCommandCallback(async (sessionId: string, command: string) => {
+  server.setExecuteCommandCallback(async (sessionId: string, command: string, inputMode?: 'ai' | 'terminal') => {
     if (!mainWindow) {
       logger.warn('mainWindow is null for executeCommand', 'WebServer');
       return false;
@@ -354,8 +377,9 @@ function createWebServer(): WebServer {
 
     // Forward to renderer - it will handle spawn, state, and everything else
     // This ensures web commands go through exact same code path as desktop commands
-    logger.info(`[Web → Renderer] Forwarding command | Maestro: ${sessionId} | Claude: ${claudeSessionId} | Command: ${command.substring(0, 100)}`, 'WebServer');
-    mainWindow.webContents.send('remote:executeCommand', sessionId, command);
+    // Pass inputMode so renderer uses the web's intended mode (avoids sync issues)
+    logger.info(`[Web → Renderer] Forwarding command | Maestro: ${sessionId} | Claude: ${claudeSessionId} | Mode: ${inputMode || 'auto'} | Command: ${command.substring(0, 100)}`, 'WebServer');
+    mainWindow.webContents.send('remote:executeCommand', sessionId, command, inputMode);
     return true;
   });
 
@@ -392,8 +416,9 @@ function createWebServer(): WebServer {
 
   // Set up callback for web server to select/switch to a session in the desktop
   // This forwards to the renderer which handles state updates and broadcasts
-  server.setSelectSessionCallback(async (sessionId: string) => {
-    logger.info(`[Web→Desktop] Session select callback invoked: session=${sessionId}`, 'WebServer');
+  // If tabId is provided, also switches to that tab within the session
+  server.setSelectSessionCallback(async (sessionId: string, tabId?: string) => {
+    logger.info(`[Web→Desktop] Session select callback invoked: session=${sessionId}, tab=${tabId || 'none'}`, 'WebServer');
     if (!mainWindow) {
       logger.warn('mainWindow is null for selectSession', 'WebServer');
       return false;
@@ -401,7 +426,7 @@ function createWebServer(): WebServer {
 
     // Forward to renderer - it will handle session selection and broadcasts
     logger.info(`[Web→Desktop] Sending IPC remote:selectSession to renderer`, 'WebServer');
-    mainWindow.webContents.send('remote:selectSession', sessionId);
+    mainWindow.webContents.send('remote:selectSession', sessionId, tabId);
     return true;
   });
 
@@ -1500,7 +1525,7 @@ function setupIpcHandlers() {
             const messageCount = userMessageCount + assistantMessageCount;
 
             // Extract first user message content - parse only first few lines
-            for (let i = 0; i < Math.min(lines.length, 20); i++) {
+            for (let i = 0; i < Math.min(lines.length, CLAUDE_SESSION_PARSE_LIMITS.FIRST_MESSAGE_SCAN_LINES); i++) {
               try {
                 const entry = JSON.parse(lines[i]);
                 if (entry.type === 'user' && entry.message?.content) {
@@ -1537,18 +1562,16 @@ function setupIpcHandlers() {
             const cacheCreationMatches = content.matchAll(/"cache_creation_input_tokens"\s*:\s*(\d+)/g);
             for (const m of cacheCreationMatches) totalCacheCreationTokens += parseInt(m[1], 10);
 
-            // Calculate cost estimate using Claude Sonnet 4 pricing:
-            // Input: $3 per million tokens, Output: $15 per million tokens
-            // Cache read: $0.30 per million, Cache creation: $3.75 per million
-            const inputCost = (totalInputTokens / 1_000_000) * 3;
-            const outputCost = (totalOutputTokens / 1_000_000) * 15;
-            const cacheReadCost = (totalCacheReadTokens / 1_000_000) * 0.30;
-            const cacheCreationCost = (totalCacheCreationTokens / 1_000_000) * 3.75;
+            // Calculate cost estimate using Claude Sonnet 4 pricing
+            const inputCost = (totalInputTokens / 1_000_000) * CLAUDE_PRICING.INPUT_PER_MILLION;
+            const outputCost = (totalOutputTokens / 1_000_000) * CLAUDE_PRICING.OUTPUT_PER_MILLION;
+            const cacheReadCost = (totalCacheReadTokens / 1_000_000) * CLAUDE_PRICING.CACHE_READ_PER_MILLION;
+            const cacheCreationCost = (totalCacheCreationTokens / 1_000_000) * CLAUDE_PRICING.CACHE_CREATION_PER_MILLION;
             const costUsd = inputCost + outputCost + cacheReadCost + cacheCreationCost;
 
             // Extract last timestamp from the session to calculate duration
             let lastTimestamp = timestamp;
-            for (let i = lines.length - 1; i >= Math.max(0, lines.length - 10); i--) {
+            for (let i = lines.length - 1; i >= Math.max(0, lines.length - CLAUDE_SESSION_PARSE_LIMITS.LAST_TIMESTAMP_SCAN_LINES); i--) {
               try {
                 const entry = JSON.parse(lines[i]);
                 if (entry.timestamp) {
@@ -1570,7 +1593,7 @@ function setupIpcHandlers() {
               projectPath,
               timestamp,
               modifiedAt: stats.mtime.toISOString(),
-              firstMessage: firstUserMessage.slice(0, 200), // Truncate for display
+              firstMessage: firstUserMessage.slice(0, CLAUDE_SESSION_PARSE_LIMITS.FIRST_MESSAGE_PREVIEW_LENGTH), // Truncate for display
               messageCount,
               sizeBytes: stats.size,
               costUsd,
@@ -1615,6 +1638,337 @@ function setupIpcHandlers() {
     } catch (error) {
       logger.error('Error listing Claude sessions', 'ClaudeSessions', error);
       return [];
+    }
+  });
+
+  // Paginated version of claude:listSessions for better performance with many sessions
+  // Returns sessions sorted by modifiedAt (most recent first) with cursor-based pagination
+  ipcMain.handle('claude:listSessionsPaginated', async (_event, projectPath: string, options?: {
+    cursor?: string;      // Last sessionId from previous page (null for first page)
+    limit?: number;       // Number of sessions to return (default 100)
+  }) => {
+    const { cursor, limit = 100 } = options || {};
+
+    try {
+      const os = await import('os');
+      const homeDir = os.default.homedir();
+      const claudeProjectsDir = path.join(homeDir, '.claude', 'projects');
+
+      // Encode the project path the same way Claude Code does
+      const encodedPath = projectPath.replace(/\//g, '-');
+      const projectDir = path.join(claudeProjectsDir, encodedPath);
+
+      // Check if the directory exists
+      try {
+        await fs.access(projectDir);
+      } catch {
+        return { sessions: [], hasMore: false, totalCount: 0, nextCursor: null };
+      }
+
+      // List all .jsonl files and get their stats (fast - no file content reading)
+      const files = await fs.readdir(projectDir);
+      const sessionFiles = files.filter(f => f.endsWith('.jsonl'));
+
+      // Get file stats for all sessions (just mtime for sorting, no content reading)
+      const fileStats = await Promise.all(
+        sessionFiles.map(async (filename) => {
+          const sessionId = filename.replace('.jsonl', '');
+          const filePath = path.join(projectDir, filename);
+          try {
+            const stats = await fs.stat(filePath);
+            return {
+              sessionId,
+              filename,
+              filePath,
+              modifiedAt: stats.mtime.getTime(),
+              sizeBytes: stats.size,
+            };
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      // Filter out nulls and sort by modified date (most recent first)
+      const sortedFiles = fileStats
+        .filter((s): s is NonNullable<typeof s> => s !== null)
+        .sort((a, b) => b.modifiedAt - a.modifiedAt);
+
+      const totalCount = sortedFiles.length;
+
+      // Find cursor position
+      let startIndex = 0;
+      if (cursor) {
+        const cursorIndex = sortedFiles.findIndex(f => f.sessionId === cursor);
+        startIndex = cursorIndex >= 0 ? cursorIndex + 1 : 0;
+      }
+
+      // Get the slice for this page
+      const pageFiles = sortedFiles.slice(startIndex, startIndex + limit);
+      const hasMore = startIndex + limit < totalCount;
+      const nextCursor = hasMore ? pageFiles[pageFiles.length - 1]?.sessionId : null;
+
+      // Get Maestro session origins
+      const origins = claudeSessionOriginsStore.get('origins', {});
+      const projectOrigins = origins[projectPath] || {};
+
+      // Now read full content only for the sessions in this page
+      const sessions = await Promise.all(
+        pageFiles.map(async (fileInfo) => {
+          try {
+            const content = await fs.readFile(fileInfo.filePath, 'utf-8');
+            const lines = content.split('\n').filter(l => l.trim());
+
+            let firstUserMessage = '';
+            let timestamp = new Date(fileInfo.modifiedAt).toISOString();
+
+            // Fast regex-based extraction
+            const userMessageCount = (content.match(/"type"\s*:\s*"user"/g) || []).length;
+            const assistantMessageCount = (content.match(/"type"\s*:\s*"assistant"/g) || []).length;
+            const messageCount = userMessageCount + assistantMessageCount;
+
+            // Extract first user message content - parse only first few lines
+            for (let i = 0; i < Math.min(lines.length, CLAUDE_SESSION_PARSE_LIMITS.FIRST_MESSAGE_SCAN_LINES); i++) {
+              try {
+                const entry = JSON.parse(lines[i]);
+                if (entry.type === 'user' && entry.message?.content) {
+                  firstUserMessage = typeof entry.message.content === 'string'
+                    ? entry.message.content
+                    : JSON.stringify(entry.message.content);
+                  timestamp = entry.timestamp || timestamp;
+                  break;
+                }
+              } catch {
+                // Skip malformed lines
+              }
+            }
+
+            // Fast regex-based token extraction for cost calculation
+            let totalInputTokens = 0;
+            let totalOutputTokens = 0;
+            let totalCacheReadTokens = 0;
+            let totalCacheCreationTokens = 0;
+
+            const inputMatches = content.matchAll(/"input_tokens"\s*:\s*(\d+)/g);
+            for (const m of inputMatches) totalInputTokens += parseInt(m[1], 10);
+
+            const outputMatches = content.matchAll(/"output_tokens"\s*:\s*(\d+)/g);
+            for (const m of outputMatches) totalOutputTokens += parseInt(m[1], 10);
+
+            const cacheReadMatches = content.matchAll(/"cache_read_input_tokens"\s*:\s*(\d+)/g);
+            for (const m of cacheReadMatches) totalCacheReadTokens += parseInt(m[1], 10);
+
+            const cacheCreationMatches = content.matchAll(/"cache_creation_input_tokens"\s*:\s*(\d+)/g);
+            for (const m of cacheCreationMatches) totalCacheCreationTokens += parseInt(m[1], 10);
+
+            // Calculate cost estimate
+            const inputCost = (totalInputTokens / 1_000_000) * CLAUDE_PRICING.INPUT_PER_MILLION;
+            const outputCost = (totalOutputTokens / 1_000_000) * CLAUDE_PRICING.OUTPUT_PER_MILLION;
+            const cacheReadCost = (totalCacheReadTokens / 1_000_000) * CLAUDE_PRICING.CACHE_READ_PER_MILLION;
+            const cacheCreationCost = (totalCacheCreationTokens / 1_000_000) * CLAUDE_PRICING.CACHE_CREATION_PER_MILLION;
+            const costUsd = inputCost + outputCost + cacheReadCost + cacheCreationCost;
+
+            // Extract last timestamp for duration
+            let lastTimestamp = timestamp;
+            for (let i = lines.length - 1; i >= Math.max(0, lines.length - CLAUDE_SESSION_PARSE_LIMITS.LAST_TIMESTAMP_SCAN_LINES); i--) {
+              try {
+                const entry = JSON.parse(lines[i]);
+                if (entry.timestamp) {
+                  lastTimestamp = entry.timestamp;
+                  break;
+                }
+              } catch {
+                // Skip malformed lines
+              }
+            }
+
+            const startTime = new Date(timestamp).getTime();
+            const endTime = new Date(lastTimestamp).getTime();
+            const durationSeconds = Math.max(0, Math.floor((endTime - startTime) / 1000));
+
+            // Get origin info
+            const originData = projectOrigins[fileInfo.sessionId];
+            const origin = typeof originData === 'string' ? originData : originData?.origin;
+            const sessionName = typeof originData === 'object' ? originData?.sessionName : undefined;
+
+            return {
+              sessionId: fileInfo.sessionId,
+              projectPath,
+              timestamp,
+              modifiedAt: new Date(fileInfo.modifiedAt).toISOString(),
+              firstMessage: firstUserMessage.slice(0, CLAUDE_SESSION_PARSE_LIMITS.FIRST_MESSAGE_PREVIEW_LENGTH),
+              messageCount,
+              sizeBytes: fileInfo.sizeBytes,
+              costUsd,
+              inputTokens: totalInputTokens,
+              outputTokens: totalOutputTokens,
+              cacheReadTokens: totalCacheReadTokens,
+              cacheCreationTokens: totalCacheCreationTokens,
+              durationSeconds,
+              origin: origin as ClaudeSessionOrigin | undefined,
+              sessionName,
+            };
+          } catch (error) {
+            logger.error(`Error reading session file: ${fileInfo.filename}`, 'ClaudeSessions', error);
+            return null;
+          }
+        })
+      );
+
+      const validSessions = sessions.filter((s): s is NonNullable<typeof s> => s !== null);
+
+      logger.info(`Paginated Claude sessions - returned ${validSessions.length} of ${totalCount} total`, 'ClaudeSessions', { projectPath, cursor, limit });
+
+      return {
+        sessions: validSessions,
+        hasMore,
+        totalCount,
+        nextCursor,
+      };
+    } catch (error) {
+      logger.error('Error listing Claude sessions (paginated)', 'ClaudeSessions', error);
+      return { sessions: [], hasMore: false, totalCount: 0, nextCursor: null };
+    }
+  });
+
+  // Get aggregate stats for ALL sessions in a project (streams updates as it calculates)
+  // This reads all session files to compute totals for messages, cost, size, etc.
+  ipcMain.handle('claude:getProjectStats', async (_event, projectPath: string) => {
+    // Helper to send progressive updates to renderer
+    const sendUpdate = (stats: {
+      totalSessions: number;
+      totalMessages: number;
+      totalCostUsd: number;
+      totalSizeBytes: number;
+      oldestTimestamp: string | null;
+      processedCount: number;
+      isComplete: boolean;
+    }) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('claude:projectStatsUpdate', { projectPath, ...stats });
+      }
+    };
+
+    try {
+      const os = await import('os');
+      const homeDir = os.default.homedir();
+      const claudeProjectsDir = path.join(homeDir, '.claude', 'projects');
+
+      // Encode the project path the same way Claude Code does
+      const encodedPath = projectPath.replace(/\//g, '-');
+      const projectDir = path.join(claudeProjectsDir, encodedPath);
+
+      // Check if the directory exists
+      try {
+        await fs.access(projectDir);
+      } catch {
+        return { totalSessions: 0, totalMessages: 0, totalCostUsd: 0, totalSizeBytes: 0, oldestTimestamp: null };
+      }
+
+      // List all .jsonl files
+      const files = await fs.readdir(projectDir);
+      const sessionFiles = files.filter(f => f.endsWith('.jsonl'));
+      const totalSessions = sessionFiles.length;
+
+      // Initialize stats
+      let totalMessages = 0;
+      let totalCostUsd = 0;
+      let totalSizeBytes = 0;
+      let oldestTimestamp: string | null = null;
+      let processedCount = 0;
+
+      // Process files in batches to allow UI updates
+      const batchSize = CLAUDE_SESSION_PARSE_LIMITS.STATS_BATCH_SIZE;
+
+      for (let i = 0; i < sessionFiles.length; i += batchSize) {
+        const batch = sessionFiles.slice(i, i + batchSize);
+
+        await Promise.all(
+          batch.map(async (filename) => {
+            const filePath = path.join(projectDir, filename);
+            try {
+              const stats = await fs.stat(filePath);
+              totalSizeBytes += stats.size;
+
+              const content = await fs.readFile(filePath, 'utf-8');
+
+              // Count messages using regex (fast)
+              const userMessageCount = (content.match(/"type"\s*:\s*"user"/g) || []).length;
+              const assistantMessageCount = (content.match(/"type"\s*:\s*"assistant"/g) || []).length;
+              totalMessages += userMessageCount + assistantMessageCount;
+
+              // Extract tokens for cost calculation
+              let inputTokens = 0;
+              let outputTokens = 0;
+              let cacheReadTokens = 0;
+              let cacheCreationTokens = 0;
+
+              const inputMatches = content.matchAll(/"input_tokens"\s*:\s*(\d+)/g);
+              for (const m of inputMatches) inputTokens += parseInt(m[1], 10);
+
+              const outputMatches = content.matchAll(/"output_tokens"\s*:\s*(\d+)/g);
+              for (const m of outputMatches) outputTokens += parseInt(m[1], 10);
+
+              const cacheReadMatches = content.matchAll(/"cache_read_input_tokens"\s*:\s*(\d+)/g);
+              for (const m of cacheReadMatches) cacheReadTokens += parseInt(m[1], 10);
+
+              const cacheCreationMatches = content.matchAll(/"cache_creation_input_tokens"\s*:\s*(\d+)/g);
+              for (const m of cacheCreationMatches) cacheCreationTokens += parseInt(m[1], 10);
+
+              // Calculate cost
+              const inputCost = (inputTokens / 1_000_000) * CLAUDE_PRICING.INPUT_PER_MILLION;
+              const outputCost = (outputTokens / 1_000_000) * CLAUDE_PRICING.OUTPUT_PER_MILLION;
+              const cacheReadCost = (cacheReadTokens / 1_000_000) * CLAUDE_PRICING.CACHE_READ_PER_MILLION;
+              const cacheCreationCost = (cacheCreationTokens / 1_000_000) * CLAUDE_PRICING.CACHE_CREATION_PER_MILLION;
+              totalCostUsd += inputCost + outputCost + cacheReadCost + cacheCreationCost;
+
+              // Find oldest timestamp
+              const lines = content.split('\n').filter(l => l.trim());
+              for (let j = 0; j < Math.min(lines.length, CLAUDE_SESSION_PARSE_LIMITS.OLDEST_TIMESTAMP_SCAN_LINES); j++) {
+                try {
+                  const entry = JSON.parse(lines[j]);
+                  if (entry.timestamp) {
+                    if (!oldestTimestamp || entry.timestamp < oldestTimestamp) {
+                      oldestTimestamp = entry.timestamp;
+                    }
+                    break;
+                  }
+                } catch {
+                  // Skip malformed lines
+                }
+              }
+            } catch {
+              // Skip files that can't be read
+            }
+          })
+        );
+
+        processedCount = Math.min(i + batchSize, sessionFiles.length);
+
+        // Send progressive update
+        sendUpdate({
+          totalSessions,
+          totalMessages,
+          totalCostUsd,
+          totalSizeBytes,
+          oldestTimestamp,
+          processedCount,
+          isComplete: processedCount >= totalSessions,
+        });
+      }
+
+      logger.info(`Computed project stats for ${totalSessions} sessions`, 'ClaudeSessions', { projectPath });
+
+      return {
+        totalSessions,
+        totalMessages,
+        totalCostUsd,
+        totalSizeBytes,
+        oldestTimestamp,
+      };
+    } catch (error) {
+      logger.error('Error computing project stats', 'ClaudeSessions', error);
+      return { totalSessions: 0, totalMessages: 0, totalCostUsd: 0, totalSizeBytes: 0, oldestTimestamp: null };
     }
   });
 
@@ -2275,8 +2629,8 @@ function setupIpcHandlers() {
     }
 
     if (sessionId) {
-      // Filter by session ID - only show entries from this session OR entries without a sessionId (legacy)
-      filteredEntries = filteredEntries.filter(entry => !entry.sessionId || entry.sessionId === sessionId);
+      // Filter by session ID, but also include legacy entries without a sessionId
+      filteredEntries = filteredEntries.filter(entry => entry.sessionId === sessionId || !entry.sessionId);
     }
 
     return filteredEntries;
@@ -2316,6 +2670,21 @@ function setupIpcHandlers() {
     }
     historyStore.set('entries', filtered);
     logger.info(`Deleted history entry: ${entryId}`, 'History');
+    return true;
+  });
+
+  // Update a history entry (for setting validated flag, etc.)
+  ipcMain.handle('history:update', async (_event, entryId: string, updates: Partial<HistoryEntry>) => {
+    const entries = historyStore.get('entries', []);
+    const index = entries.findIndex(entry => entry.id === entryId);
+    if (index === -1) {
+      logger.warn(`History entry not found for update: ${entryId}`, 'History');
+      return false;
+    }
+    // Merge updates into the existing entry
+    entries[index] = { ...entries[index], ...updates };
+    historyStore.set('entries', entries);
+    logger.info(`Updated history entry: ${entryId}`, 'History', { updates });
     return true;
   });
 
@@ -2477,6 +2846,10 @@ function setupIpcHandlers() {
           });
         }
         activeTtsProcesses.delete(ttsId);
+        // Notify renderer that TTS has completed
+        BrowserWindow.getAllWindows().forEach((win) => {
+          win.webContents.send('tts:completed', ttsId);
+        });
       });
 
       console.log('[TTS Main] Process spawned successfully with ID:', ttsId);
@@ -2656,8 +3029,9 @@ function setupProcessListeners() {
           return;
         }
 
-        const baseSessionId = sessionId.replace(/-ai$|-batch-\d+$|-synopsis-\d+$/, '');
-        const isAiOutput = sessionId.endsWith('-ai') || sessionId.includes('-batch-') || sessionId.includes('-synopsis-');
+        // Extract base session ID from formats: {id}-ai-{tabId}, {id}-batch-{timestamp}, {id}-synopsis-{timestamp}
+        const baseSessionId = sessionId.replace(/-ai-[^-]+$|-batch-\d+$|-synopsis-\d+$/, '');
+        const isAiOutput = sessionId.includes('-ai-') || sessionId.includes('-batch-') || sessionId.includes('-synopsis-');
         const msgId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         console.log(`[WebBroadcast] Broadcasting session_output: msgId=${msgId}, session=${baseSessionId}, source=${isAiOutput ? 'ai' : 'terminal'}, dataLen=${data.length}`);
         webServer.broadcastToSessionClients(baseSessionId, {
@@ -2676,7 +3050,8 @@ function setupProcessListeners() {
 
       // Broadcast exit to web clients
       if (webServer) {
-        const baseSessionId = sessionId.replace(/-ai$|-terminal$|-batch-\d+$|-synopsis-\d+$/, '');
+        // Extract base session ID from formats: {id}-ai-{tabId}, {id}-terminal, {id}-batch-{timestamp}, {id}-synopsis-{timestamp}
+        const baseSessionId = sessionId.replace(/-ai-[^-]+$|-terminal$|-batch-\d+$|-synopsis-\d+$/, '');
         webServer.broadcastToSessionClients(baseSessionId, {
           type: 'session_exit',
           sessionId: baseSessionId,

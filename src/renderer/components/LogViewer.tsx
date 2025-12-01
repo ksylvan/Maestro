@@ -3,6 +3,7 @@ import { Search, X, Trash2, Download, ChevronRight, ChevronDown, ChevronsDownUp,
 import type { Theme } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
+import { ConfirmModal } from './ConfirmModal';
 
 interface SystemLogEntry {
   timestamp: number;
@@ -47,6 +48,7 @@ export function LogViewer({ theme, onClose, logLevel = 'info' }: LogViewerProps)
     new Set(['debug', 'info', 'warn', 'error', 'toast'])
   );
   const [expandedData, setExpandedData] = useState<Set<number>>(new Set());
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -97,21 +99,34 @@ export function LogViewer({ theme, onClose, logLevel = 'info' }: LogViewerProps)
   }, []);
 
   // Filter logs whenever search query or selected levels changes
+  // Optimized: Uses lazy evaluation to avoid expensive JSON.stringify unless needed
   useEffect(() => {
-    let filtered = logs;
+    const query = searchQuery.trim().toLowerCase();
 
-    // Filter by levels (only show logs whose level is in the selectedLevels set)
-    filtered = filtered.filter(log => selectedLevels.has(log.level));
+    const filtered = logs.filter(log => {
+      // First check level filter (fast)
+      if (!selectedLevels.has(log.level)) return false;
 
-    // Filter by search query
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(log =>
-        log.message.toLowerCase().includes(query) ||
-        log.context?.toLowerCase().includes(query) ||
-        (log.data && JSON.stringify(log.data).toLowerCase().includes(query))
-      );
-    }
+      // If no search query, include all logs that pass level filter
+      if (!query) return true;
+
+      // Check message first (most likely to match, fast)
+      if (log.message.toLowerCase().includes(query)) return true;
+
+      // Check context if present
+      if (log.context?.toLowerCase().includes(query)) return true;
+
+      // Only stringify log.data as last resort (expensive operation)
+      if (log.data) {
+        try {
+          return JSON.stringify(log.data).toLowerCase().includes(query);
+        } catch {
+          return false;
+        }
+      }
+
+      return false;
+    });
 
     setFilteredLogs(filtered);
   }, [logs, searchQuery, selectedLevels]);
@@ -321,7 +336,7 @@ export function LogViewer({ theme, onClose, logLevel = 'info' }: LogViewerProps)
             <Download className="w-4 h-4" />
           </button>
           <button
-            onClick={handleClearLogs}
+            onClick={() => setShowClearConfirm(true)}
             className="p-2 rounded hover:bg-opacity-10 transition-all"
             style={{ color: theme.colors.textDim }}
             title="Clear logs"
@@ -569,6 +584,16 @@ export function LogViewer({ theme, onClose, logLevel = 'info' }: LogViewerProps)
         >
           Press <kbd className="px-1.5 py-0.5 rounded mx-1 font-bold" style={{ backgroundColor: theme.colors.bgActivity }}>/</kbd> to search
         </div>
+      )}
+
+      {/* Clear Logs Confirmation Modal */}
+      {showClearConfirm && (
+        <ConfirmModal
+          theme={theme}
+          message="Are you sure you want to clear all Maestro system logs? This action cannot be undone."
+          onConfirm={handleClearLogs}
+          onClose={() => setShowClearConfirm(false)}
+        />
       )}
     </div>
   );

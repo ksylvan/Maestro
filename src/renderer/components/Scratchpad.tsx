@@ -90,11 +90,43 @@ function AttachmentImage({
       setDataUrl(src);
       setFilename(null);
       setLoading(false);
-    } else {
+    } else if (src.startsWith('http://') || src.startsWith('https://')) {
       // External URL - just use it directly
       setDataUrl(src);
       setFilename(null);
       setLoading(false);
+    } else if (src.startsWith('/')) {
+      // Absolute file path - load via IPC
+      setFilename(src.split('/').pop() || null);
+      window.maestro.fs.readFile(src)
+        .then((result) => {
+          if (result.startsWith('data:')) {
+            setDataUrl(result);
+          } else {
+            setError('Invalid image data');
+          }
+          setLoading(false);
+        })
+        .catch((err) => {
+          setError(`Failed to load image: ${err.message || 'Unknown error'}`);
+          setLoading(false);
+        });
+    } else {
+      // Relative path or other - try to load as file (may fail if not an absolute path)
+      setFilename(src.split('/').pop() || null);
+      window.maestro.fs.readFile(src)
+        .then((result) => {
+          if (result.startsWith('data:')) {
+            setDataUrl(result);
+          } else {
+            setError('Invalid image data');
+          }
+          setLoading(false);
+        })
+        .catch((err) => {
+          setError(`Failed to load image: ${err.message || 'Unknown error'}`);
+          setLoading(false);
+        });
     }
   }, [src, sessionId]);
 
@@ -760,15 +792,8 @@ function ScratchpadInner({
     }
 
     // Command-F to open search in edit mode (without Shift)
-    // Cmd+Shift+F is reserved for global "Go to Files" shortcut, so we block it here
-    // to prevent confusion - user should use Cmd+F for scratchpad search
-    if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
-      if (e.shiftKey) {
-        // Block Cmd+Shift+F from propagating to avoid switching to Files tab while editing
-        e.preventDefault();
-        e.stopPropagation();
-        return;
-      }
+    // Cmd+Shift+F is allowed to propagate to the global handler for "Go to Files"
+    if ((e.metaKey || e.ctrlKey) && e.key === 'f' && !e.shiftKey) {
       e.preventDefault();
       e.stopPropagation();
       openSearch();
@@ -986,13 +1011,11 @@ function ScratchpadInner({
           toggleMode();
         }
         // CMD+F to open search (works in both modes from container)
-        // Block Cmd+Shift+F to prevent it from triggering "Go to Files" while in scratchpad
-        if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        // Only intercept Cmd+F (without Shift) - let Cmd+Shift+F propagate to global "Go to Files" handler
+        if ((e.metaKey || e.ctrlKey) && e.key === 'f' && !e.shiftKey) {
           e.preventDefault();
           e.stopPropagation();
-          if (!e.shiftKey) {
-            openSearch();
-          }
+          openSearch();
         }
       }}
     >
@@ -1280,7 +1303,8 @@ function ScratchpadInner({
           onClick={closeLightbox}
           onKeyDown={(e) => {
             e.stopPropagation();
-            if (e.key === 'ArrowLeft') { e.preventDefault(); goToPrevImage(); }
+            if (e.key === 'Escape') { e.preventDefault(); closeLightbox(); }
+            else if (e.key === 'ArrowLeft') { e.preventDefault(); goToPrevImage(); }
             else if (e.key === 'ArrowRight') { e.preventDefault(); goToNextImage(); }
             else if (e.key === 'Delete' || e.key === 'Backspace') {
               e.preventDefault();

@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { FileCode, X, Copy, FileText, Eye, ChevronUp, ChevronDown, Clipboard } from 'lucide-react';
+import { FileCode, X, Copy, FileText, Eye, ChevronUp, ChevronDown, Clipboard, Loader2, Image } from 'lucide-react';
 import { visit } from 'unist-util-visit';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
@@ -56,6 +56,127 @@ const isImageFile = (filename: string): boolean => {
   const imageExtensions = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'ico'];
   return imageExtensions.includes(ext || '');
 };
+
+// Helper to resolve image path relative to markdown file directory
+const resolveImagePath = (src: string, markdownFilePath: string): string => {
+  // If it's already a data URL or http(s) URL, return as-is
+  if (src.startsWith('data:') || src.startsWith('http://') || src.startsWith('https://')) {
+    return src;
+  }
+
+  // Get the directory containing the markdown file
+  const markdownDir = markdownFilePath.substring(0, markdownFilePath.lastIndexOf('/'));
+
+  // If the path is absolute, return as-is
+  if (src.startsWith('/')) {
+    return src;
+  }
+
+  // Resolve relative path
+  // Handle ./ prefix
+  let relativePath = src;
+  if (relativePath.startsWith('./')) {
+    relativePath = relativePath.substring(2);
+  }
+
+  // Simple path resolution (handles ../ by just concatenating - the file system will resolve it)
+  return `${markdownDir}/${relativePath}`;
+};
+
+// Custom image component for markdown that loads images from file paths
+function MarkdownImage({
+  src,
+  alt,
+  markdownFilePath,
+  theme
+}: {
+  src?: string;
+  alt?: string;
+  markdownFilePath: string;
+  theme: any;
+}) {
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!src) {
+      setLoading(false);
+      return;
+    }
+
+    // If it's already a data URL, use it directly
+    if (src.startsWith('data:')) {
+      setDataUrl(src);
+      setLoading(false);
+      return;
+    }
+
+    // If it's an HTTP(S) URL, use it directly
+    if (src.startsWith('http://') || src.startsWith('https://')) {
+      setDataUrl(src);
+      setLoading(false);
+      return;
+    }
+
+    // Resolve the path relative to the markdown file
+    const resolvedPath = resolveImagePath(src, markdownFilePath);
+
+    // Load the image via IPC
+    window.maestro.fs.readFile(resolvedPath)
+      .then((result) => {
+        // readFile returns a data URL for images
+        if (result.startsWith('data:')) {
+          setDataUrl(result);
+        } else {
+          // If it's not a data URL, something went wrong
+          setError('Invalid image data');
+        }
+        setLoading(false);
+      })
+      .catch((err) => {
+        setError(`Failed to load image: ${err.message || 'Unknown error'}`);
+        setLoading(false);
+      });
+  }, [src, markdownFilePath]);
+
+  if (loading) {
+    return (
+      <span
+        className="inline-flex items-center gap-2 px-3 py-2 rounded"
+        style={{ backgroundColor: theme.colors.bgActivity }}
+      >
+        <Loader2 className="w-4 h-4 animate-spin" style={{ color: theme.colors.textDim }} />
+        <span className="text-xs" style={{ color: theme.colors.textDim }}>Loading image...</span>
+      </span>
+    );
+  }
+
+  if (error) {
+    return (
+      <span
+        className="inline-flex items-center gap-2 px-3 py-2 rounded"
+        style={{ backgroundColor: theme.colors.bgActivity, border: `1px solid ${theme.colors.error}` }}
+      >
+        <Image className="w-4 h-4" style={{ color: theme.colors.error }} />
+        <span className="text-xs" style={{ color: theme.colors.error }}>{error}</span>
+      </span>
+    );
+  }
+
+  if (!dataUrl) {
+    return null;
+  }
+
+  return (
+    <img
+      src={dataUrl}
+      alt={alt || ''}
+      className="max-w-full rounded my-2"
+      style={{ border: `1px solid ${theme.colors.border}` }}
+    />
+  );
+}
 
 // Remark plugin to support ==highlighted text== syntax
 function remarkHighlight() {
@@ -709,7 +830,15 @@ export function FilePreview({ file, onClose, theme, markdownRawMode, setMarkdown
                       {children}
                     </code>
                   );
-                }
+                },
+                img: ({ node, src, alt, ...props }) => (
+                  <MarkdownImage
+                    src={src}
+                    alt={alt}
+                    markdownFilePath={file.path}
+                    theme={theme}
+                  />
+                )
               }}
             >
               {file.content}

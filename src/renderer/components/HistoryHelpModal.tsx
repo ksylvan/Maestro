@@ -1,0 +1,310 @@
+import React, { useEffect, useRef } from 'react';
+import { X, History, Play, Clock, DollarSign, BarChart2, CheckCircle, Bot, User, Eye } from 'lucide-react';
+import type { Theme } from '../types';
+import { useLayerStack } from '../contexts/LayerStackContext';
+import { MODAL_PRIORITIES } from '../constants/modalPriorities';
+
+interface HistoryHelpModalProps {
+  theme: Theme;
+  onClose: () => void;
+}
+
+export function HistoryHelpModal({ theme, onClose }: HistoryHelpModalProps) {
+  const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
+  const layerIdRef = useRef<string>();
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // Register layer on mount
+  useEffect(() => {
+    const id = registerLayer({
+      type: 'modal',
+      priority: MODAL_PRIORITIES.CONFIRM,
+      onEscape: () => {
+        onCloseRef.current();
+      }
+    });
+    layerIdRef.current = id;
+
+    return () => {
+      if (layerIdRef.current) {
+        unregisterLayer(layerIdRef.current);
+      }
+    };
+  }, [registerLayer, unregisterLayer]);
+
+  // Keep escape handler up to date
+  useEffect(() => {
+    if (layerIdRef.current) {
+      updateLayerHandler(layerIdRef.current, () => {
+        onCloseRef.current();
+      });
+    }
+  }, [onClose, updateLayerHandler]);
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center z-50">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/60"
+        onClick={onClose}
+      />
+
+      {/* Modal */}
+      <div
+        className="relative w-full max-w-2xl max-h-[80vh] overflow-hidden rounded-lg border shadow-2xl flex flex-col"
+        style={{
+          backgroundColor: theme.colors.bgSidebar,
+          borderColor: theme.colors.border
+        }}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-6 py-4 border-b"
+          style={{ borderColor: theme.colors.border }}
+        >
+          <h2 className="text-lg font-bold" style={{ color: theme.colors.textMain }}>
+            History Panel Guide
+          </h2>
+          <button
+            onClick={onClose}
+            className="p-1 rounded hover:bg-white/10 transition-colors"
+          >
+            <X className="w-5 h-5" style={{ color: theme.colors.textDim }} />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div
+          className="flex-1 overflow-y-auto px-6 py-5 space-y-6 scrollbar-thin"
+          style={{ color: theme.colors.textMain }}
+        >
+          {/* Introduction */}
+          <section>
+            <p className="text-sm leading-relaxed" style={{ color: theme.colors.textDim }}>
+              The History panel tracks a synopsis of your work sessions, providing a searchable
+              log of completed tasks with full context preservation.
+            </p>
+          </section>
+
+          {/* Entry Types */}
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <History className="w-5 h-5" style={{ color: theme.colors.accent }} />
+              <h3 className="font-bold">Entry Types</h3>
+            </div>
+            <div
+              className="text-sm space-y-3 pl-7"
+              style={{ color: theme.colors.textDim }}
+            >
+              <div className="flex items-start gap-3">
+                <span
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase shrink-0"
+                  style={{
+                    backgroundColor: theme.colors.accent + '20',
+                    color: theme.colors.accent,
+                    border: `1px solid ${theme.colors.accent}40`
+                  }}
+                >
+                  <User className="w-2.5 h-2.5" />
+                  USER
+                </span>
+                <p>
+                  Synopsis entries from your interactive work sessions. Created manually with{' '}
+                  <code className="px-1 rounded" style={{ backgroundColor: theme.colors.bgActivity }}>/synopsis</code>{' '}
+                  or automatically when using{' '}
+                  <code className="px-1 rounded" style={{ backgroundColor: theme.colors.bgActivity }}>/clear</code>.
+                </p>
+              </div>
+              <div className="flex items-start gap-3">
+                <span
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase shrink-0"
+                  style={{
+                    backgroundColor: theme.colors.warning + '20',
+                    color: theme.colors.warning,
+                    border: `1px solid ${theme.colors.warning}40`
+                  }}
+                >
+                  <Bot className="w-2.5 h-2.5" />
+                  AUTO
+                </span>
+                <p>
+                  Entries automatically generated by the Auto Runner after each task completes.
+                  These include success/failure indicators and human validation status.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          {/* Success Indicators */}
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <CheckCircle className="w-5 h-5" style={{ color: theme.colors.success }} />
+              <h3 className="font-bold">Status Indicators</h3>
+            </div>
+            <div
+              className="text-sm space-y-3 pl-7"
+              style={{ color: theme.colors.textDim }}
+            >
+              <p>
+                <span style={{ color: theme.colors.warning }}>AUTO</span> entries show a status indicator:
+              </p>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="flex items-center justify-center w-5 h-5 rounded-full"
+                    style={{
+                      backgroundColor: theme.colors.success + '20',
+                      border: `1px solid ${theme.colors.success}40`
+                    }}
+                  >
+                    <CheckCircle className="w-3 h-3" style={{ color: theme.colors.success }} />
+                  </span>
+                  <span>Task completed successfully</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="flex items-center justify-center w-5 h-5 rounded-full"
+                    style={{
+                      backgroundColor: theme.colors.success + '40',
+                      border: `1px solid ${theme.colors.success}60`
+                    }}
+                  >
+                    <svg className="w-3 h-3" style={{ color: theme.colors.success }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="15 6 6 17 1 12" />
+                      <polyline points="23 6 14 17 11 14" />
+                    </svg>
+                  </span>
+                  <span>Task completed successfully <strong style={{ color: theme.colors.textMain }}>and human-validated</strong></span>
+                </div>
+              </div>
+              <p className="mt-2">
+                You can validate auto tasks from the detail view by toggling the{' '}
+                <strong style={{ color: theme.colors.textMain }}>Validated</strong> option.
+              </p>
+            </div>
+          </section>
+
+          {/* Detail View */}
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <Eye className="w-5 h-5" style={{ color: theme.colors.accent }} />
+              <h3 className="font-bold">Viewing Details</h3>
+            </div>
+            <div
+              className="text-sm space-y-2 pl-7"
+              style={{ color: theme.colors.textDim }}
+            >
+              <p>
+                Click any history entry to open the full details view, which shows:
+              </p>
+              <ul className="list-disc list-inside space-y-1 ml-2">
+                <li>Complete synopsis text</li>
+                <li>Token usage (input/output counts)</li>
+                <li>Context window utilization</li>
+                <li>Total elapsed time</li>
+                <li>Cost for that task</li>
+              </ul>
+            </div>
+          </section>
+
+          {/* Resume Session */}
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <Play className="w-5 h-5" style={{ color: theme.colors.success }} />
+              <h3 className="font-bold">Resuming Sessions</h3>
+            </div>
+            <div
+              className="text-sm space-y-2 pl-7"
+              style={{ color: theme.colors.textDim }}
+            >
+              <p>
+                Each history entry preserves the Claude session ID. Click{' '}
+                <strong style={{ color: theme.colors.success }}>Resume</strong> to continue
+                that conversation with all its context intact.
+              </p>
+              <p>
+                This lets you pick up exactly where the task left off, make tweaks,
+                or continue building on the work that was done.
+              </p>
+            </div>
+          </section>
+
+          {/* Time and Cost */}
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-center gap-1">
+                <Clock className="w-5 h-5" style={{ color: theme.colors.accent }} />
+                <DollarSign className="w-5 h-5" style={{ color: theme.colors.success }} />
+              </div>
+              <h3 className="font-bold">Time & Cost Tracking</h3>
+            </div>
+            <div
+              className="text-sm space-y-2 pl-7"
+              style={{ color: theme.colors.textDim }}
+            >
+              <p>
+                Each entry displays the elapsed time and cost (when available), helping you
+                understand the resource usage of individual tasks.
+              </p>
+            </div>
+          </section>
+
+          {/* Activity Graph */}
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <BarChart2 className="w-5 h-5" style={{ color: theme.colors.accent }} />
+              <h3 className="font-bold">24-Hour Activity Graph</h3>
+            </div>
+            <div
+              className="text-sm space-y-2 pl-7"
+              style={{ color: theme.colors.textDim }}
+            >
+              <p>
+                The bar graph in the header shows your activity over the past 24 hours:
+              </p>
+              <div className="flex items-center gap-4 mt-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded" style={{ backgroundColor: theme.colors.warning }} />
+                  <span>Auto entries</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded" style={{ backgroundColor: theme.colors.accent }} />
+                  <span>User entries</span>
+                </div>
+              </div>
+              <p className="mt-2">
+                <strong style={{ color: theme.colors.textMain }}>Dynamic sliding window:</strong>{' '}
+                As you scroll through the history list, the graph updates to show the 24-hour
+                window relative to the topmost visible entry. This helps you visualize activity
+                patterns around specific points in time.
+              </p>
+              <p>
+                Hover over any bar to see the exact counts for that hour.
+              </p>
+            </div>
+          </section>
+        </div>
+
+        {/* Footer */}
+        <div
+          className="flex justify-end px-6 py-4 border-t"
+          style={{ borderColor: theme.colors.border }}
+        >
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded text-sm font-medium transition-colors hover:opacity-90"
+            style={{
+              backgroundColor: theme.colors.accent,
+              color: 'white'
+            }}
+          >
+            Got it
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

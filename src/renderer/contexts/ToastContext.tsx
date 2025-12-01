@@ -12,6 +12,9 @@ export interface Toast {
   claudeSessionId?: string; // Claude Code session UUID for traceability
   tabName?: string; // Tab name or short UUID for display
   timestamp: number;
+  // Session navigation - allows clicking toast to jump to session
+  sessionId?: string; // Maestro session ID for navigation
+  tabId?: string; // Tab ID within the session for navigation
 }
 
 interface ToastContextType {
@@ -23,6 +26,8 @@ interface ToastContextType {
   setDefaultDuration: (duration: number) => void;
   // Audio feedback configuration
   setAudioFeedback: (enabled: boolean, command: string) => void;
+  // OS notifications configuration
+  setOsNotifications: (enabled: boolean) => void;
 }
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
@@ -39,9 +44,15 @@ export function ToastProvider({ children, defaultDuration: initialDuration = 20 
 
   // Audio feedback state (configured from App.tsx via setAudioFeedback)
   const audioFeedbackRef = useRef({ enabled: false, command: '' });
+  // OS notifications state (configured from App.tsx via setOsNotifications)
+  const osNotificationsRef = useRef({ enabled: true }); // Default: on (matches useSettings default)
 
   const setAudioFeedback = useCallback((enabled: boolean, command: string) => {
     audioFeedbackRef.current = { enabled, command };
+  }, []);
+
+  const setOsNotifications = useCallback((enabled: boolean) => {
+    osNotificationsRef.current = { enabled };
   }, []);
 
   const addToast = useCallback((toast: Omit<Toast, 'id' | 'timestamp'>) => {
@@ -79,6 +90,13 @@ export function ToastProvider({ children, defaultDuration: initialDuration = 20 
       });
     }
 
+    // Show OS notification if enabled
+    if (osNotificationsRef.current.enabled) {
+      window.maestro.notification.show(toast.title, toast.message).catch(err => {
+        console.error('[ToastContext] Failed to show OS notification:', err);
+      });
+    }
+
     // Auto-remove after duration (only if duration > 0)
     if (durationMs > 0) {
       setTimeout(() => {
@@ -96,7 +114,7 @@ export function ToastProvider({ children, defaultDuration: initialDuration = 20 
   }, []);
 
   return (
-    <ToastContext.Provider value={{ toasts, addToast, removeToast, clearToasts, defaultDuration, setDefaultDuration, setAudioFeedback }}>
+    <ToastContext.Provider value={{ toasts, addToast, removeToast, clearToasts, defaultDuration, setDefaultDuration, setAudioFeedback, setOsNotifications }}>
       {children}
     </ToastContext.Provider>
   );

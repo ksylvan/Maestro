@@ -2,10 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Wand2, Plus, Settings, ChevronRight, ChevronDown, Activity, X, Keyboard,
   Radio, Copy, ExternalLink, PanelLeftClose, PanelLeftOpen, Folder, Info, FileText, GitBranch, Bot, Clock,
-  ScrollText, Cpu, Menu, Bookmark
+  ScrollText, Cpu, Menu, Bookmark, Trophy
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import type { Session, Group, Theme, Shortcut } from '../types';
+import type { Session, Group, Theme, Shortcut, AutoRunStats } from '../types';
+import { CONDUCTOR_BADGES, getBadgeForTime } from '../constants/conductorBadges';
 import { getStatusColor, getContextColor, formatActiveTime } from '../utils/theme';
 import { gitService } from '../services/git';
 
@@ -82,6 +83,13 @@ interface SessionListProps {
 
   // Auto mode props
   activeBatchSessionIds?: string[]; // Session IDs that are running in auto mode
+
+  // Session jump shortcut props (Opt+Cmd+NUMBER)
+  showSessionJumpNumbers?: boolean;
+  visibleSessions?: Session[];
+
+  // Achievement system props
+  autoRunStats?: AutoRunStats;
 }
 
 export function SessionList(props: SessionListProps) {
@@ -96,7 +104,10 @@ export function SessionList(props: SessionListProps) {
     handleDragStart, handleDragOver, handleDropOnGroup, handleDropOnUngrouped,
     finishRenamingGroup, finishRenamingSession, startRenamingGroup,
     startRenamingSession, showConfirmation, setGroups, setSessions, createNewGroup, addNewSession,
-    activeBatchSessionIds = []
+    activeBatchSessionIds = [],
+    showSessionJumpNumbers = false,
+    visibleSessions = [],
+    autoRunStats
   } = props;
 
   const [sessionFilter, setSessionFilter] = useState('');
@@ -174,27 +185,77 @@ export function SessionList(props: SessionListProps) {
   // Track git file change counts per session
   const [gitFileCounts, setGitFileCounts] = useState<Map<string, number>>(new Map());
 
-  // Poll git status for all Git sessions
+  // Poll git status for all Git sessions - optimized to reduce CPU usage
+  // - Only polls when app is visible (pauses when in background)
+  // - Uses 30-second interval instead of 10 seconds
+  // - Only polls sessions that are git repos
   useEffect(() => {
-    const pollGitStatus = async () => {
-      const newCounts = new Map<string, number>();
+    let intervalId: NodeJS.Timeout | null = null;
 
-      for (const session of sessions.filter(s => s.isGitRepo)) {
-        try {
-          const cwd = session.inputMode === 'terminal' ? (session.shellCwd || session.cwd) : session.cwd;
-          const status = await gitService.getStatus(cwd);
-          newCounts.set(session.id, status.files.length);
-        } catch (error) {
-          // Ignore errors, don't show indicator if we can't get status
+    const pollGitStatus = async () => {
+      // Skip polling if document is hidden (app in background)
+      if (document.hidden) return;
+
+      const gitSessions = sessions.filter(s => s.isGitRepo);
+      if (gitSessions.length === 0) return;
+
+      // Parallelize git status calls for better performance
+      // Sequential calls with 10 sessions = 1-2s, parallel = 200-300ms
+      const results = await Promise.all(
+        gitSessions.map(async (session) => {
+          try {
+            const cwd = session.inputMode === 'terminal' ? (session.shellCwd || session.cwd) : session.cwd;
+            const status = await gitService.getStatus(cwd);
+            return [session.id, status.files.length] as const;
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      const newCounts = new Map<string, number>();
+      for (const result of results) {
+        if (result) {
+          newCounts.set(result[0], result[1]);
         }
       }
 
       setGitFileCounts(newCounts);
     };
 
-    pollGitStatus();
-    const interval = setInterval(pollGitStatus, 10000); // Poll every 10 seconds
-    return () => clearInterval(interval);
+    const startPolling = () => {
+      pollGitStatus();
+      intervalId = setInterval(pollGitStatus, 30000); // Poll every 30 seconds (was 10)
+    };
+
+    const stopPolling = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    // Handle visibility changes - pause polling when app is in background
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        // Resume polling and immediately refresh when becoming visible
+        startPolling();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Start polling if document is visible
+    if (!document.hidden) {
+      startPolling();
+    }
+
+    return () => {
+      stopPolling();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [sessions]);
 
   // Filter sessions based on search query
@@ -236,6 +297,15 @@ export function SessionList(props: SessionListProps) {
       }
     }
   }, [sessionFilter, filteredSessions]);
+
+  // Get the jump number (1-9, 0=10th) for a session based on its position in visibleSessions
+  const getSessionJumpNumber = (sessionId: string): string | null => {
+    if (!showSessionJumpNumbers) return null;
+    const index = visibleSessions.findIndex(s => s.id === sessionId);
+    if (index < 0 || index >= 10) return null;
+    // Show 1-9 for positions 0-8, and 0 for position 9 (10th session)
+    return index === 9 ? '0' : String(index + 1);
+  };
 
   return (
     <div
@@ -292,6 +362,20 @@ export function SessionList(props: SessionListProps) {
             <div className="flex items-center gap-2">
               <Wand2 className="w-5 h-5" style={{ color: theme.colors.accent }} />
               <h1 className="font-bold tracking-widest text-lg" style={{ color: theme.colors.textMain }}>MAESTRO</h1>
+              {/* Badge Level Indicator */}
+              {autoRunStats && autoRunStats.currentBadgeLevel > 0 && (
+                <button
+                  onClick={() => setAboutModalOpen(true)}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors hover:bg-white/10"
+                  title={`${getBadgeForTime(autoRunStats.cumulativeTimeMs)?.name || 'Apprentice'} - Click to view achievements`}
+                  style={{
+                    color: autoRunStats.currentBadgeLevel >= 8 ? '#FFD700' : theme.colors.accent,
+                  }}
+                >
+                  <Trophy className="w-3 h-3" />
+                  <span>{autoRunStats.currentBadgeLevel}</span>
+                </button>
+              )}
               {/* Global LIVE Toggle */}
               <div className="ml-2 relative" ref={liveOverlayRef}>
                 <button
@@ -659,6 +743,18 @@ export function SessionList(props: SessionListProps) {
                             </div>
                           )}
                           <div className="flex items-center gap-2 text-[10px] mt-0.5 opacity-70">
+                            {/* Session Jump Number Badge (Opt+Cmd+NUMBER) */}
+                            {getSessionJumpNumber(session.id) && (
+                              <div
+                                className="w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold shrink-0"
+                                style={{
+                                  backgroundColor: theme.colors.accent,
+                                  color: theme.colors.bgMain
+                                }}
+                              >
+                                {getSessionJumpNumber(session.id)}
+                              </div>
+                            )}
                             <Activity className="w-3 h-3" /> {session.toolType}
                             {group && (
                               <span className="text-[9px] px-1 py-0.5 rounded" style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}>
@@ -920,6 +1016,18 @@ export function SessionList(props: SessionListProps) {
                               </span>
                             )}
                             <div className="flex items-center gap-2 text-[10px] mt-0.5 opacity-70">
+                              {/* Session Jump Number Badge (Opt+Cmd+NUMBER) */}
+                              {getSessionJumpNumber(session.id) && (
+                                <div
+                                  className="w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold shrink-0"
+                                  style={{
+                                    backgroundColor: theme.colors.accent,
+                                    color: theme.colors.bgMain
+                                  }}
+                                >
+                                  {getSessionJumpNumber(session.id)}
+                                </div>
+                              )}
                               <Activity className="w-3 h-3" /> {session.toolType}
                             </div>
                           </div>
@@ -1136,7 +1244,7 @@ export function SessionList(props: SessionListProps) {
               </button>
             </div>
 
-            {!ungroupedCollapsed && (
+            {!ungroupedCollapsed ? (
               <div className="flex flex-col border-l ml-4" style={{ borderColor: theme.colors.border }}>
                 {[...filteredSessions.filter(s => !s.groupId)].sort((a, b) => compareSessionNames(a.name, b.name)).map((session) => {
                   const globalIdx = sortedSessions.findIndex(s => s.id === session.id);
@@ -1177,6 +1285,18 @@ export function SessionList(props: SessionListProps) {
                       </span>
                     )}
                     <div className="flex items-center gap-2 text-[10px] mt-0.5 opacity-70">
+                      {/* Session Jump Number Badge (Opt+Cmd+NUMBER) */}
+                      {getSessionJumpNumber(session.id) && (
+                        <div
+                          className="w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold shrink-0"
+                          style={{
+                            backgroundColor: theme.colors.accent,
+                            color: theme.colors.bgMain
+                          }}
+                        >
+                          {getSessionJumpNumber(session.id)}
+                        </div>
+                      )}
                       <Activity className="w-3 h-3" /> {session.toolType}
                     </div>
                   </div>
@@ -1241,6 +1361,113 @@ export function SessionList(props: SessionListProps) {
                 </div>
                   );
                 })}
+              </div>
+            ) : (
+              /* Collapsed Ungrouped Palette */
+              <div
+                className="ml-8 mr-3 mt-1 mb-2 flex gap-1 h-1.5 cursor-pointer"
+                onClick={() => setUngroupedCollapsed(false)}
+              >
+                {[...filteredSessions.filter(s => !s.groupId)].sort((a, b) => compareSessionNames(a.name, b.name)).map(s => (
+                  <div
+                    key={s.id}
+                    className="group/indicator relative flex-1 rounded-full opacity-50 hover:opacity-100 transition-opacity"
+                    style={
+                      s.toolType === 'claude' && !s.claudeSessionId
+                        ? { border: `1px solid ${theme.colors.textDim}`, backgroundColor: 'transparent' }
+                        : { backgroundColor: getStatusColor(s.state, theme) }
+                    }
+                    onMouseEnter={(e) => setTooltipPosition({ x: e.clientX, y: e.clientY })}
+                    onMouseLeave={() => setTooltipPosition(null)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveSessionId(s.id);
+                    }}
+                  >
+                    {/* Hover Tooltip for Collapsed Ungrouped Indicator */}
+                    <div
+                      className="fixed rounded px-3 py-2 z-[100] opacity-0 group-hover/indicator:opacity-100 pointer-events-none transition-opacity shadow-xl"
+                      style={{
+                        minWidth: '240px',
+                        left: `${leftSidebarWidthState + 8}px`,
+                        top: tooltipPosition ? `${tooltipPosition.y}px` : undefined,
+                        backgroundColor: theme.colors.bgSidebar,
+                        border: `1px solid ${theme.colors.border}`
+                      }}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs font-bold" style={{ color: theme.colors.textMain }}>{s.name}</span>
+                        {s.toolType !== 'terminal' && (
+                          <span
+                            className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
+                            style={{
+                              backgroundColor: s.isGitRepo ? theme.colors.accent + '30' : theme.colors.textDim + '20',
+                              color: s.isGitRepo ? theme.colors.accent : theme.colors.textDim
+                            }}
+                          >
+                            {s.isGitRepo ? 'GIT' : 'LOCAL'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] capitalize mb-2" style={{ color: theme.colors.textDim }}>{s.state} • {s.toolType}</div>
+
+                      <div className="pt-2 mt-2 space-y-1.5" style={{ borderTop: `1px solid ${theme.colors.border}` }}>
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span style={{ color: theme.colors.textDim }}>Context Window</span>
+                          <span style={{ color: theme.colors.textMain }}>{s.contextUsage}%</span>
+                        </div>
+                        <div className="w-full h-1 rounded-full overflow-hidden" style={{ backgroundColor: theme.colors.border }}>
+                          <div
+                            className="h-full transition-all"
+                            style={{
+                              width: `${s.contextUsage}%`,
+                              backgroundColor: getContextColor(s.contextUsage, theme)
+                            }}
+                          />
+                        </div>
+
+                        {/* Git Status */}
+                        {s.isGitRepo && gitFileCounts.has(s.id) && gitFileCounts.get(s.id)! > 0 && (
+                          <div className="flex items-center justify-between text-[10px] pt-1">
+                            <span className="flex items-center gap-1" style={{ color: theme.colors.textDim }}>
+                              <GitBranch className="w-3 h-3" />
+                              Git Changes
+                            </span>
+                            <span style={{ color: theme.colors.warning }}>{gitFileCounts.get(s.id)} files</span>
+                          </div>
+                        )}
+
+                        {/* Session Cost */}
+                        {s.usageStats && s.usageStats.totalCostUsd > 0 && (
+                          <div className="flex items-center justify-between text-[10px] pt-1">
+                            <span style={{ color: theme.colors.textDim }}>Session Cost</span>
+                            <span className="font-mono font-bold" style={{ color: theme.colors.success }}>
+                              ${s.usageStats.totalCostUsd.toFixed(2)}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Active Time */}
+                        {s.activeTimeMs > 0 && (
+                          <div className="flex items-center justify-between text-[10px] pt-1">
+                            <span className="flex items-center gap-1" style={{ color: theme.colors.textDim }}>
+                              <Clock className="w-3 h-3" />
+                              Active Time
+                            </span>
+                            <span className="font-mono font-bold" style={{ color: theme.colors.accent }}>
+                              {formatActiveTime(s.activeTimeMs)}
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="flex items-center gap-1.5 text-[10px] font-mono pt-1" style={{ color: theme.colors.textDim }}>
+                          <Folder className="w-3 h-3 shrink-0" />
+                          <span className="truncate">{s.cwd}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>

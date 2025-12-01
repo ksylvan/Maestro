@@ -2,9 +2,11 @@
  * ThinkingStatusPill - Displays status when AI is actively processing/thinking.
  * Shows session name, bytes received, elapsed time, and Claude session ID.
  * Appears centered above the input area when the AI is busy.
+ *
+ * When AutoRun is active, shows a special AutoRun pill with total elapsed time instead.
  */
 import React, { memo, useState, useEffect } from 'react';
-import type { Session, Theme, AITab } from '../types';
+import type { Session, Theme, AITab, BatchRunState } from '../types';
 
 // Helper to get the write-mode (busy) tab from a session
 function getWriteModeTab(session: Session): AITab | undefined {
@@ -16,6 +18,11 @@ interface ThinkingStatusPillProps {
   theme: Theme;
   onSessionClick?: (sessionId: string, tabId?: string) => void;
   namedSessions?: Record<string, string>; // Claude session ID -> custom name
+  // AutoRun state for the active session - when provided and running, shows AutoRun pill instead
+  autoRunState?: BatchRunState;
+  activeSessionId?: string;
+  // Callback to stop auto-run (shows stop button in AutoRunPill when provided)
+  onStopAutoRun?: () => void;
 }
 
 // ElapsedTimeDisplay - shows time since thinking started
@@ -32,9 +39,18 @@ const ElapsedTimeDisplay = memo(({ startTime, textColor }: { startTime: number; 
   }, [startTime]);
 
   const formatTime = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+
+    if (days > 0) {
+      return `${days}d ${hours}h ${mins}m ${secs}s`;
+    } else if (hours > 0) {
+      return `${hours}h ${mins}m ${secs}s`;
+    } else {
+      return `${mins}m ${secs}s`;
+    }
   };
 
   return (
@@ -46,15 +62,31 @@ const ElapsedTimeDisplay = memo(({ startTime, textColor }: { startTime: number; 
 
 ElapsedTimeDisplay.displayName = 'ElapsedTimeDisplay';
 
-// Helper to get display name for a session
+// Helper to get display name for a session (used in thinking dropdown)
+// Priority: 1. namedSessions lookup, 2. tab name, 3. UUID octet
 function getSessionDisplayName(session: Session, namedSessions?: Record<string, string>): string {
-  // If session has a Claude session ID, show that (with custom name if available)
-  if (session.claudeSessionId) {
-    const customName = namedSessions?.[session.claudeSessionId];
+  // Get the write-mode (busy) tab for this session
+  const writeModeTab = getWriteModeTab(session);
+
+  // Use tab's claudeSessionId if available, fallback to session's (legacy)
+  const claudeSessionId = writeModeTab?.claudeSessionId || session.claudeSessionId;
+
+  // Priority 1: Named session from namedSessions lookup
+  if (claudeSessionId) {
+    const customName = namedSessions?.[claudeSessionId];
     if (customName) return customName;
-    // Show first segment of GUID in uppercase
-    return session.claudeSessionId.split('-')[0].toUpperCase();
   }
+
+  // Priority 2: Tab name if available
+  if (writeModeTab?.name) {
+    return writeModeTab.name;
+  }
+
+  // Priority 3: UUID octet (first 8 chars uppercase)
+  if (claudeSessionId) {
+    return claudeSessionId.substring(0, 8).toUpperCase();
+  }
+
   // Fall back to Maestro session name
   return session.name;
 }
@@ -79,7 +111,8 @@ const SessionRow = memo(({
   namedSessions?: Record<string, string>;
   onSessionClick?: (sessionId: string, tabId?: string) => void;
 }) => {
-  const displayName = getSessionDisplayName(session, namedSessions);
+  const tabDisplayName = getSessionDisplayName(session, namedSessions);
+  const maestroName = session.name; // The name from the left sidebar
   const tokens = session.currentCycleTokens || 0;
   const busyTab = getWriteModeTab(session);
 
@@ -95,7 +128,12 @@ const SessionRow = memo(({
           className="w-2 h-2 rounded-full shrink-0 animate-pulse"
           style={{ backgroundColor: theme.colors.warning }}
         />
-        <span className="text-xs font-mono truncate">{displayName}</span>
+        {/* Maestro session name (from left bar) + Tab name */}
+        <span className="text-xs truncate">
+          <span className="font-medium">{maestroName}</span>
+          <span style={{ color: theme.colors.textDim }}> / </span>
+          <span className="font-mono" style={{ color: theme.colors.textDim }}>{tabDisplayName}</span>
+        </span>
       </div>
       <div className="flex items-center gap-2 shrink-0 text-xs" style={{ color: theme.colors.textDim }}>
         {tokens > 0 && (
@@ -115,12 +153,128 @@ const SessionRow = memo(({
 SessionRow.displayName = 'SessionRow';
 
 /**
+ * AutoRunPill - Shows when AutoRun is active
+ * Displays total elapsed time since AutoRun started, with task progress.
+ * Includes a stop button when onStop callback is provided.
+ */
+const AutoRunPill = memo(({
+  theme,
+  autoRunState,
+  onStop
+}: {
+  theme: Theme;
+  autoRunState: BatchRunState;
+  onStop?: () => void;
+}) => {
+  const startTime = autoRunState.startTime || Date.now();
+  const { completedTasks, totalTasks, isStopping } = autoRunState;
+
+  return (
+    <div className="relative flex justify-center pb-2 -mt-2">
+      <div
+        className="flex items-center gap-2 px-4 py-1.5 rounded-full"
+        style={{
+          backgroundColor: theme.colors.accent + '20',
+          border: `1px solid ${theme.colors.accent}50`
+        }}
+      >
+        {/* Pulsing accent circle indicator */}
+        <div
+          className="w-2.5 h-2.5 rounded-full shrink-0 animate-pulse"
+          style={{ backgroundColor: theme.colors.accent }}
+        />
+
+        {/* AutoRun label */}
+        <span
+          className="text-xs font-semibold shrink-0"
+          style={{ color: theme.colors.accent }}
+        >
+          {isStopping ? 'AutoRun Stopping...' : 'AutoRun'}
+        </span>
+
+        {/* Divider */}
+        <div
+          className="w-px h-4 shrink-0"
+          style={{ backgroundColor: theme.colors.border }}
+        />
+
+        {/* Task progress */}
+        <div className="flex items-center gap-1 shrink-0 text-xs" style={{ color: theme.colors.textDim }}>
+          <span>Tasks:</span>
+          <span className="font-medium" style={{ color: theme.colors.textMain }}>
+            {completedTasks}/{totalTasks}
+          </span>
+        </div>
+
+        {/* Divider */}
+        <div
+          className="w-px h-4 shrink-0"
+          style={{ backgroundColor: theme.colors.border }}
+        />
+
+        {/* Total elapsed time */}
+        <div className="flex items-center gap-1 shrink-0 text-xs" style={{ color: theme.colors.textDim }}>
+          <span>Elapsed:</span>
+          <ElapsedTimeDisplay
+            startTime={startTime}
+            textColor={theme.colors.textMain}
+          />
+        </div>
+
+        {/* Stop button - only show when callback provided and not already stopping */}
+        {onStop && (
+          <>
+            <div
+              className="w-px h-4 shrink-0"
+              style={{ backgroundColor: theme.colors.border }}
+            />
+            <button
+              onClick={onStop}
+              disabled={isStopping}
+              className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                isStopping ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-80'
+              }`}
+              style={{
+                backgroundColor: theme.colors.error,
+                color: 'white'
+              }}
+              title={isStopping ? 'Stopping after current task...' : 'Stop auto-run after current task'}
+            >
+              {isStopping ? (
+                <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+                  <path d="M12 2a10 10 0 0 1 10 10" />
+                </svg>
+              ) : (
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="1" />
+                </svg>
+              )}
+              {isStopping ? 'Stopping' : 'Stop'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+});
+
+AutoRunPill.displayName = 'AutoRunPill';
+
+/**
  * ThinkingStatusPill Inner Component
  * Shows the primary thinking session with an expandable list when multiple sessions are thinking.
  * Features: pulsing indicator, session name, bytes/tokens, elapsed time, Claude session UUID.
+ *
+ * When AutoRun is active for the active session, shows AutoRunPill instead.
  */
-function ThinkingStatusPillInner({ sessions, theme, onSessionClick, namedSessions }: ThinkingStatusPillProps) {
+function ThinkingStatusPillInner({ sessions, theme, onSessionClick, namedSessions, autoRunState, activeSessionId, onStopAutoRun }: ThinkingStatusPillProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+
+  // If AutoRun is active for the current session, show the AutoRun pill instead
+  if (autoRunState?.isRunning) {
+    return <AutoRunPill theme={theme} autoRunState={autoRunState} onStop={onStopAutoRun} />;
+  }
 
   // Filter to only busy sessions with AI source
   const thinkingSessions = sessions.filter(
@@ -305,6 +459,25 @@ function ThinkingStatusPillInner({ sessions, theme, onSessionClick, namedSession
 
 // Memoized export
 export const ThinkingStatusPill = memo(ThinkingStatusPillInner, (prevProps, nextProps) => {
+  // Check autoRunState changes first (highest priority)
+  const prevAutoRun = prevProps.autoRunState;
+  const nextAutoRun = nextProps.autoRunState;
+
+  if (prevAutoRun?.isRunning !== nextAutoRun?.isRunning) return false;
+  if (nextAutoRun?.isRunning) {
+    // When AutoRun is active, check its properties
+    if (
+      prevAutoRun?.completedTasks !== nextAutoRun?.completedTasks ||
+      prevAutoRun?.totalTasks !== nextAutoRun?.totalTasks ||
+      prevAutoRun?.isStopping !== nextAutoRun?.isStopping ||
+      prevAutoRun?.startTime !== nextAutoRun?.startTime
+    ) {
+      return false;
+    }
+    // Don't need to check thinking sessions when AutoRun is active
+    return prevProps.theme === nextProps.theme;
+  }
+
   // Check if thinking sessions have changed
   const prevThinking = prevProps.sessions.filter(s => s.state === 'busy' && s.busySource === 'ai');
   const nextThinking = nextProps.sessions.filter(s => s.state === 'busy' && s.busySource === 'ai');

@@ -36,7 +36,7 @@ Download the latest release for your platform from the [Releases](https://github
 - 📝 **Scratchpad** - Built-in markdown editor with live preview for task management
 - ⚡ **Slash Commands** - Extensible command system with autocomplete
 - 📬 **Message Queueing** - Queue messages while AI is busy; they're sent automatically when ready
-- 🌐 **Mobile Remote Control** - Access sessions from your phone with QR codes, live sessions, and a mobile-optimized web interface
+- 🌐 **Mobile Remote Control** - Access agents from your phone with QR codes, live agents, and a mobile-optimized web interface
 - 💰 **Cost Tracking** - Real-time token usage and cost tracking per session
 
 > **Note**: Maestro currently supports Claude Code only. Support for other agentic coding tools may be added in future releases based on community demand.
@@ -55,15 +55,17 @@ Download the latest release for your platform from the [Releases](https://github
 
 Maestro features a three-panel layout:
 
-- **Left Bar** - Session list with grouping, filtering, bookmarks, and organization
+- **Left Bar** - Agent list with grouping, filtering, bookmarks, and organization
 - **Main Window** - Center workspace with two modes:
   - **AI Terminal** - Interact with Claude Code AI assistant
   - **Command Terminal** - Execute shell commands and scripts
+  - **Session Explorer** - Enumerate, search, star, rename, and resume past conversations
   - **File Preview** - View images and text documents with source highlighting and markdown rendering
-  - **Diff Preview** - View the current diff when working in Git repositories
-- **Right Bar** - File explorer, command history, and scratchpad
+  - **Git Diffs** - View the current diff when working in Git repositories
+  - **Git Logs** - Explore commit logs without leaving the app
+- **Right Bar** - File explorer, command history, and auto running capabilities
 
-### Session Status Indicators
+### Agent Status Indicators
 
 Each session shows a color-coded status indicator:
 
@@ -83,13 +85,14 @@ Each session shows a color-coded status indicator:
 | Toggle Right Panel | `Cmd+\` | `Ctrl+\` |
 | New Agent | `Cmd+N` | `Ctrl+N` |
 | Kill Agent | `Cmd+Shift+Backspace` | `Ctrl+Shift+Backspace` |
-| Move Session to Group | `Cmd+Shift+M` | `Ctrl+Shift+M` |
+| Move Agent to Group | `Cmd+Shift+M` | `Ctrl+Shift+M` |
 | Previous Agent | `Cmd+Shift+{` | `Ctrl+Shift+{` |
 | Next Agent | `Cmd+Shift+}` | `Ctrl+Shift+}` |
+| Jump to Agent (1-9, 0=10th) | `Opt+Cmd+NUMBER` | `Alt+Ctrl+NUMBER` |
 | Switch AI/Command Terminal | `Cmd+J` | `Ctrl+J` |
 | Show Shortcuts Help | `Cmd+/` | `Ctrl+/` |
 | Open Settings | `Cmd+,` | `Ctrl+,` |
-| View Agent Sessions | `Cmd+Shift+L` | `Ctrl+Shift+L` |
+| View All Agent Sessions | `Cmd+Shift+L` | `Ctrl+Shift+L` |
 | Jump to Bottom | `Cmd+Shift+J` | `Ctrl+Shift+J` |
 | Cycle Focus Areas | `Tab` | `Tab` |
 | Cycle Focus Backwards | `Shift+Tab` | `Shift+Tab` |
@@ -123,8 +126,8 @@ Each session shows a color-coded status indicator:
 
 | Action | Key |
 |--------|-----|
-| Navigate Sessions | `Up/Down Arrow` while in sidebar |
-| Select Session | `Enter` while in sidebar |
+| Navigate Agents | `Up/Down Arrow` while in sidebar |
+| Select Agent | `Enter` while in sidebar |
 | Open Session Filter | `/` while in sidebar |
 | Navigate Files | `Up/Down Arrow` while in file tree |
 | Open File Tree Filter | `/` while in file tree |

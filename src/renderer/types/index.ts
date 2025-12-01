@@ -39,6 +39,8 @@ export interface LogEntry {
   };
   // For user messages - tracks if message was successfully delivered to the agent
   delivered?: boolean;
+  // For user messages - tracks if message was sent in read-only mode
+  readOnly?: boolean;
 }
 
 // Queued item for the session-level execution queue
@@ -58,6 +60,8 @@ export interface QueuedItem {
   commandDescription?: string;       // Command description for display
   // Display metadata
   tabName?: string;                  // Tab name at time of queuing (for display)
+  // Read-only mode tracking (for parallel execution bypass)
+  readOnlyMode?: boolean;            // True if queued from a read-only tab
 }
 
 export interface WorkLogItem {
@@ -78,12 +82,14 @@ export interface HistoryEntry {
   summary: string;
   fullResponse?: string; // Complete agent response for expansion
   claudeSessionId?: string; // For clicking to jump to session
+  sessionName?: string; // Display name for the session (from active AI tab)
   projectPath: string; // For per-project filtering
   sessionId?: string; // Maestro session ID for isolation (interactive sessions exclude batch entries)
   contextUsage?: number; // Context window usage percentage at time of entry
   usageStats?: UsageStats; // Token usage and cost at time of entry
   success?: boolean; // For AUTO entries: whether the task completed successfully (true) or failed (false)
   elapsedTimeMs?: number; // Time taken to complete this task in milliseconds
+  validated?: boolean; // For AUTO entries: whether a human has validated the task completion
 }
 
 // Batch processing state
@@ -97,6 +103,7 @@ export interface BatchRunState {
   originalContent: string; // Original scratchpad content for sync back
   customPrompt?: string; // User's custom prompt if modified
   sessionIds: string[]; // Claude session IDs from each iteration
+  startTime?: number; // Timestamp when batch run started
 }
 
 // Usage statistics from Claude Code CLI
@@ -121,6 +128,23 @@ export interface GlobalStats {
   totalActiveTimeMs: number;
 }
 
+// Badge unlock record for history tracking
+export interface BadgeUnlockRecord {
+  level: number;
+  unlockedAt: number;  // Timestamp when badge was unlocked
+}
+
+// Auto-run achievement statistics (survives app restarts)
+export interface AutoRunStats {
+  cumulativeTimeMs: number;       // Total cumulative AutoRun time across all sessions
+  longestRunMs: number;           // Longest single AutoRun session
+  longestRunTimestamp: number;    // When the longest run occurred
+  totalRuns: number;              // Total number of AutoRun sessions completed
+  currentBadgeLevel: number;      // Current badge level (1-11)
+  lastBadgeUnlockLevel: number;   // Last badge level that triggered unlock notification
+  badgeHistory: BadgeUnlockRecord[]; // History of badge unlocks with timestamps
+}
+
 // AI Tab for multi-tab support within a Maestro session
 // Each tab represents a separate Claude Code conversation
 export interface AITab {
@@ -137,6 +161,7 @@ export interface AITab {
   readOnlyMode?: boolean;          // When true, Claude operates in plan/read-only mode
   awaitingSessionId?: boolean;     // True when this tab sent a message and is awaiting its session ID
   thinkingStartTime?: number;      // Timestamp when tab started thinking (for elapsed time display)
+  scrollTop?: number;              // Saved scroll position for this tab's output view
 }
 
 // Closed tab entry for undo functionality (Cmd+Shift+T)
@@ -226,6 +251,8 @@ export interface Session {
   activeTabId: string;
   // Stack of recently closed tabs for undo (max 25, runtime-only, not persisted)
   closedTabHistory: ClosedTab[];
+  // Saved scroll position for terminal/shell output view
+  terminalScrollTop?: number;
 }
 
 export interface Group {

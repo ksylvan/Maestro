@@ -14,6 +14,12 @@ interface ConfirmModalProps {
 export function ConfirmModal({ theme, message, onConfirm, onClose }: ConfirmModalProps) {
   const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
   const layerIdRef = useRef<string>();
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Focus confirm button on mount
+  useEffect(() => {
+    confirmButtonRef.current?.focus();
+  }, []);
 
   // Register layer on mount
   useEffect(() => {
@@ -49,18 +55,8 @@ export function ConfirmModal({ theme, message, onConfirm, onClose }: ConfirmModa
       aria-modal="true"
       aria-label="Confirm Action"
       tabIndex={-1}
-      ref={(el) => el?.focus()}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          e.stopPropagation();
-          if (onConfirm) {
-            onConfirm();
-          }
-          onClose();
-        } else {
-          e.stopPropagation();
-        }
+        e.stopPropagation();
       }}
     >
       <div className="w-[450px] border rounded-lg shadow-2xl overflow-hidden" style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.border }}>
@@ -83,13 +79,14 @@ export function ConfirmModal({ theme, message, onConfirm, onClose }: ConfirmModa
               Cancel
             </button>
             <button
+              ref={confirmButtonRef}
               onClick={() => {
                 if (onConfirm) {
                   onConfirm();
                 }
                 onClose();
               }}
-              className="px-4 py-2 rounded text-white"
+              className="px-4 py-2 rounded text-white outline-none focus:ring-2 focus:ring-offset-1"
               style={{ backgroundColor: theme.colors.error }}
             >
               Confirm
