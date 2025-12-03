@@ -24,6 +24,7 @@ import { PromptComposerModal } from './components/PromptComposerModal';
 import { ExecutionQueueBrowser } from './components/ExecutionQueueBrowser';
 import { StandingOvationOverlay } from './components/StandingOvationOverlay';
 import { PlaygroundPanel } from './components/PlaygroundPanel';
+import { AutoRunSetupModal } from './components/AutoRunSetupModal';
 import { CONDUCTOR_BADGES } from './constants/conductorBadges';
 
 // Import custom hooks
@@ -231,6 +232,9 @@ export default function MaestroConsole() {
 
   // Batch Runner Modal State
   const [batchRunnerModalOpen, setBatchRunnerModalOpen] = useState(false);
+
+  // Auto Run Setup Modal State
+  const [autoRunSetupModalOpen, setAutoRunSetupModalOpen] = useState(false);
 
   // Tab Switcher Modal State
   const [tabSwitcherOpen, setTabSwitcherOpen] = useState(false);
@@ -2322,6 +2326,33 @@ export default function MaestroConsole() {
     setBatchRunnerModalOpen(true);
   }, []);
 
+  // Handler for switching to autorun tab - shows setup modal if no folder configured
+  const handleSetActiveRightTab = useCallback((tab: RightPanelTab) => {
+    if (tab === 'autorun' && activeSession && !activeSession.autoRunFolderPath) {
+      // No folder configured - show setup modal
+      setAutoRunSetupModalOpen(true);
+      // Still switch to the tab (it will show an empty state or the modal)
+      setActiveRightTab(tab);
+    } else {
+      setActiveRightTab(tab);
+    }
+  }, [activeSession]);
+
+  // Handler for auto run folder selection from setup modal
+  const handleAutoRunFolderSelected = useCallback((folderPath: string) => {
+    if (!activeSession) return;
+    setSessions(prev => prev.map(s =>
+      s.id === activeSession.id
+        ? { ...s, autoRunFolderPath: folderPath }
+        : s
+    ));
+    setAutoRunSetupModalOpen(false);
+    // Switch to the autorun tab now that folder is configured
+    setActiveRightTab('autorun');
+    setRightPanelOpen(true);
+    setActiveFocus('right');
+  }, [activeSession]);
+
   // Handler to start batch run from modal
   // TODO: Update to read content from Auto Run file system once IPC handlers are implemented
   const handleStartBatchRun = useCallback((prompt: string) => {
@@ -3004,9 +3035,9 @@ export default function MaestroConsole() {
       }
       else if (ctx.isShortcut(e, 'help')) ctx.setShortcutsHelpOpen(true);
       else if (ctx.isShortcut(e, 'settings')) { ctx.setSettingsModalOpen(true); ctx.setSettingsTab('general'); }
-      else if (ctx.isShortcut(e, 'goToFiles')) { e.preventDefault(); ctx.setRightPanelOpen(true); ctx.setActiveRightTab('files'); ctx.setActiveFocus('right'); }
-      else if (ctx.isShortcut(e, 'goToHistory')) { e.preventDefault(); ctx.setRightPanelOpen(true); ctx.setActiveRightTab('history'); ctx.setActiveFocus('right'); }
-      else if (ctx.isShortcut(e, 'goToAutoRun')) { e.preventDefault(); ctx.setRightPanelOpen(true); ctx.setActiveRightTab('autorun'); ctx.setActiveFocus('right'); }
+      else if (ctx.isShortcut(e, 'goToFiles')) { e.preventDefault(); ctx.setRightPanelOpen(true); ctx.handleSetActiveRightTab('files'); ctx.setActiveFocus('right'); }
+      else if (ctx.isShortcut(e, 'goToHistory')) { e.preventDefault(); ctx.setRightPanelOpen(true); ctx.handleSetActiveRightTab('history'); ctx.setActiveFocus('right'); }
+      else if (ctx.isShortcut(e, 'goToAutoRun')) { e.preventDefault(); ctx.setRightPanelOpen(true); ctx.handleSetActiveRightTab('autorun'); ctx.setActiveFocus('right'); }
       else if (ctx.isShortcut(e, 'openImageCarousel')) {
         e.preventDefault();
         if (ctx.stagedImages.length > 0) {
@@ -3629,7 +3660,7 @@ export default function MaestroConsole() {
     bookmarksCollapsed, leftSidebarOpen, editingSessionId, editingGroupId,
     setLeftSidebarOpen, setRightPanelOpen, addNewSession, deleteSession, setQuickActionInitialMode,
     setQuickActionOpen, cycleSession, toggleInputMode, setShortcutsHelpOpen, setSettingsModalOpen,
-    setSettingsTab, setActiveRightTab, setActiveFocus, setBookmarksCollapsed, setGroups,
+    setSettingsTab, setActiveRightTab, handleSetActiveRightTab, setActiveFocus, setBookmarksCollapsed, setGroups,
     setSelectedSidebarIndex, setActiveSessionId, handleViewGitDiff, setGitLogOpen, setActiveClaudeSessionId,
     setAgentSessionsOpen, setLogViewerOpen, setProcessMonitorOpen, logsEndRef, inputRef, terminalOutputRef,
     setSessions, createTab, closeTab, reopenClosedTab, getActiveTab, setRenameTabId, setRenameTabInitialName,
@@ -6266,7 +6297,7 @@ export default function MaestroConsole() {
             rightPanelWidth={rightPanelWidth}
             setRightPanelWidthState={setRightPanelWidth}
             activeRightTab={activeRightTab}
-            setActiveRightTab={setActiveRightTab}
+            setActiveRightTab={handleSetActiveRightTab}
             activeFocus={activeFocus}
             setActiveFocus={setActiveFocus}
             fileTreeFilter={fileTreeFilter}
@@ -6296,6 +6327,16 @@ export default function MaestroConsole() {
             onOpenSessionAsTab={handleResumeSession}
           />
         </ErrorBoundary>
+      )}
+
+      {/* --- AUTO RUN SETUP MODAL --- */}
+      {autoRunSetupModalOpen && (
+        <AutoRunSetupModal
+          theme={theme}
+          onClose={() => setAutoRunSetupModalOpen(false)}
+          onFolderSelected={handleAutoRunFolderSelected}
+          currentFolder={activeSession?.autoRunFolderPath}
+        />
       )}
 
       {/* --- BATCH RUNNER MODAL --- */}
