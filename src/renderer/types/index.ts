@@ -261,6 +261,7 @@ export interface Session {
   state: SessionState;
   cwd: string;
   fullPath: string;
+  projectRoot: string; // The initial working directory (never changes, used for Claude session storage)
   aiLogs: LogEntry[];
   shellLogs: LogEntry[];
   workLog: WorkLogItem[];

@@ -337,6 +337,11 @@ export default function MaestroConsole() {
   // Restore a persisted session by respawning its process
   const restoreSession = async (session: Session): Promise<Session> => {
     try {
+      // Migration: ensure projectRoot is set (for sessions created before this field was added)
+      if (!session.projectRoot) {
+        session = { ...session, projectRoot: session.cwd };
+      }
+
       // Sessions must have aiTabs - if missing, this is a data corruption issue
       if (!session.aiTabs || session.aiTabs.length === 0) {
         console.error('[restoreSession] Session has no aiTabs - data corruption, skipping:', session.id);
@@ -3621,6 +3626,7 @@ export default function MaestroConsole() {
         state: 'idle',
         cwd: workingDir,
         fullPath: workingDir,
+        projectRoot: workingDir, // Store the initial directory (never changes)
         isGitRepo,
         gitBranches,
         gitTags,
@@ -3989,13 +3995,8 @@ export default function MaestroConsole() {
       return;
     }
 
-    // Block slash commands when agent is busy (in AI mode)
-    if (effectiveInputValue.trim().startsWith('/') && activeSession.state === 'busy' && activeSession.inputMode === 'ai') {
-      showFlashNotification('Commands disabled while agent is working');
-      return;
-    }
-
     // Handle slash commands (custom AI commands only - built-in commands have been removed)
+    // Note: slash commands are queued like regular messages when agent is busy
     if (effectiveInputValue.trim().startsWith('/')) {
       const commandText = effectiveInputValue.trim();
       const isTerminalMode = activeSession.inputMode === 'terminal';
@@ -5073,152 +5074,13 @@ export default function MaestroConsole() {
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         setSelectedSlashCommandIndex(prev => Math.max(prev - 1, 0));
-      } else if (e.key === 'Tab') {
-        // Tab just fills in the command text
+      } else if (e.key === 'Tab' || e.key === 'Enter') {
+        // Tab or Enter fills in the command text (user can then press Enter again to execute)
         e.preventDefault();
-        setInputValue(filteredCommands[selectedSlashCommandIndex]?.command || inputValue);
-        setSlashCommandOpen(false);
-      } else if (e.key === 'Enter' && filteredCommands.length > 0) {
-        // Enter executes the command directly
-        e.preventDefault();
-        const selectedCommand = filteredCommands[selectedSlashCommandIndex];
-        if (selectedCommand) {
+        if (filteredCommands[selectedSlashCommandIndex]) {
+          setInputValue(filteredCommands[selectedSlashCommandIndex].command);
           setSlashCommandOpen(false);
-          setInputValue('');
-          if (inputRef.current) inputRef.current.style.height = 'auto';
-
-          // Execute the custom AI command (substitute template variables and send to agent)
-          if ('prompt' in selectedCommand && selectedCommand.prompt) {
-            // Use the same spawn logic as processInput for proper tab-based session ID tracking
-            (async () => {
-              let gitBranch: string | undefined;
-              if (activeSession.isGitRepo) {
-                try {
-                  const status = await gitService.getStatus(activeSession.cwd);
-                  gitBranch = status.branch;
-                } catch {
-                  // Ignore git errors
-                }
-              }
-              const substitutedPrompt = substituteTemplateVariables(
-                selectedCommand.prompt,
-                { session: activeSession, gitBranch }
-              );
-
-              // Get the active tab for proper targeting
-              const activeTab = getActiveTab(activeSession);
-              if (!activeTab) {
-                console.error('[handleInputKeyDown] No active tab for slash command');
-                return;
-              }
-
-              // Build target session ID using tab ID (same pattern as processInput)
-              const targetSessionId = `${activeSessionId}-ai-${activeTab.id}`;
-              const isNewSession = !activeTab.claudeSessionId;
-
-              // Add user log showing the command with its interpolated prompt to active tab
-              const newEntry: LogEntry = {
-                id: generateId(),
-                timestamp: Date.now(),
-                source: 'user',
-                text: substitutedPrompt,
-                aiCommand: {
-                  command: selectedCommand.command,
-                  description: selectedCommand.description
-                }
-              };
-
-              // Update session state: add log, set busy, set awaitingSessionId for new sessions
-              setSessions(prev => prev.map(s => {
-                if (s.id !== activeSessionId) return s;
-
-                // Update the active tab's logs and state
-                const updatedAiTabs = s.aiTabs.map(tab =>
-                  tab.id === activeTab.id
-                    ? {
-                        ...tab,
-                        logs: [...tab.logs, newEntry],
-                        state: 'busy' as const,
-                        thinkingStartTime: Date.now(),
-                        awaitingSessionId: isNewSession ? true : tab.awaitingSessionId
-                      }
-                    : tab
-                );
-
-                return {
-                  ...s,
-                  state: 'busy' as SessionState,
-                  busySource: 'ai',
-                  thinkingStartTime: Date.now(),
-                  currentCycleTokens: 0,
-                  currentCycleBytes: 0,
-                  aiCommandHistory: Array.from(new Set([...(s.aiCommandHistory || []), selectedCommand.command])).slice(-50),
-                  pendingAICommandForSynopsis: selectedCommand.command,
-                  aiTabs: updatedAiTabs
-                };
-              }));
-
-              // Spawn the agent with proper session ID format (same as processInput)
-              try {
-                const agent = await window.maestro.agents.get('claude-code');
-                if (!agent) throw new Error('Claude Code agent not found');
-
-                // Get fresh session state to avoid stale closure
-                const freshSession = sessionsRef.current.find(s => s.id === activeSessionId);
-                if (!freshSession) throw new Error('Session not found');
-
-                const freshActiveTab = getActiveTab(freshSession);
-                const tabClaudeSessionId = freshActiveTab?.claudeSessionId;
-
-                // Build spawn args with resume if we have a session ID
-                const spawnArgs = [...(agent.args || [])];
-                if (tabClaudeSessionId) {
-                  spawnArgs.push('--resume', tabClaudeSessionId);
-                }
-
-                // Add read-only mode if tab has it enabled
-                if (freshActiveTab?.readOnlyMode) {
-                  spawnArgs.push('--permission-mode', 'plan');
-                }
-
-                const commandToUse = agent.path || agent.command;
-                await window.maestro.process.spawn({
-                  sessionId: targetSessionId,
-                  toolType: 'claude-code',
-                  cwd: freshSession.cwd,
-                  command: commandToUse,
-                  args: spawnArgs,
-                  prompt: substitutedPrompt
-                });
-              } catch (error: any) {
-                console.error('[handleInputKeyDown] Failed to spawn Claude for slash command:', error);
-                setSessions(prev => prev.map(s => {
-                  if (s.id !== activeSessionId) return s;
-                  const errorEntry: LogEntry = {
-                    id: generateId(),
-                    timestamp: Date.now(),
-                    source: 'system',
-                    text: `Error: Failed to run ${selectedCommand.command} - ${error.message}`
-                  };
-                  const updatedAiTabs = s.aiTabs.map(tab =>
-                    tab.id === activeTab.id
-                      ? { ...tab, state: 'idle' as const, logs: [...tab.logs, errorEntry] }
-                      : tab
-                  );
-                  return {
-                    ...s,
-                    state: 'idle' as SessionState,
-                    busySource: undefined,
-                    aiTabs: updatedAiTabs
-                  };
-                }));
-              }
-            })();
-          } else {
-            // Claude Code slash command (no prompt property) - send raw command text
-            // Claude Code will expand the command itself from .claude/commands/*.md
-            processInput(selectedCommand.command);
-          }
+          inputRef.current?.focus();
         }
       } else if (e.key === 'Escape') {
         e.preventDefault();
@@ -6579,7 +6441,7 @@ export default function MaestroConsole() {
           theme={theme}
           tabs={activeSession.aiTabs}
           activeTabId={activeSession.activeTabId}
-          cwd={activeSession.cwd}
+          projectRoot={activeSession.projectRoot}
           shortcut={TAB_SHORTCUTS.tabSwitcher}
           onTabSelect={(tabId) => {
             setSessions(prev => prev.map(s =>

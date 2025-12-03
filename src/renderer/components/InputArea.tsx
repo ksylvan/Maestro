@@ -154,7 +154,11 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
   );
 
   // Refs for slash command items to enable scroll-into-view
+  // Reset refs array length when filtered commands change to avoid stale refs
   const slashCommandItemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  if (slashCommandItemRefs.current.length !== filteredSlashCommands.length) {
+    slashCommandItemRefs.current = slashCommandItemRefs.current.slice(0, filteredSlashCommands.length);
+  }
 
   // Refs for tab completion items to enable scroll-into-view
   const tabCompletionItemRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -264,10 +268,10 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
       {/* Slash Command Autocomplete */}
       {slashCommandOpen && filteredSlashCommands.length > 0 && (
         <div
-          className="absolute bottom-full left-0 right-0 mb-2 border rounded-lg shadow-2xl max-h-64 overflow-hidden"
+          className="absolute bottom-full left-0 right-0 mb-2 border rounded-lg shadow-2xl overflow-hidden"
           style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.border }}
         >
-          <div className="overflow-y-auto max-h-64 scrollbar-thin">
+          <div className="overflow-y-auto max-h-64 scrollbar-thin" style={{ overscrollBehavior: 'contain' }}>
             {filteredSlashCommands.map((cmd, idx) => (
               <div
                 key={cmd.command}
@@ -280,11 +284,14 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
                   color: idx === safeSelectedIndex ? theme.colors.bgMain : theme.colors.textMain
                 }}
                 onClick={() => {
+                  // Single click just selects the item
+                  setSelectedSlashCommandIndex(idx);
+                }}
+                onDoubleClick={() => {
+                  // Double click fills in the command text
                   setInputValue(cmd.command);
                   setSlashCommandOpen(false);
                   inputRef.current?.focus();
-                  // Execute the command after a brief delay to let state update
-                  setTimeout(() => processInput(), 10);
                 }}
                 onMouseEnter={() => setSelectedSlashCommandIndex(idx)}
               >
@@ -555,9 +562,12 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 
                 // Show slash command autocomplete when typing /
                 if (value.startsWith('/') && !value.includes(' ')) {
+                  // Only reset selection when modal first opens, not on every keystroke
+                  if (!slashCommandOpen) {
+                    setSelectedSlashCommandIndex(0);
+                  }
                   setSlashCommandOpen(true);
-                  // Always reset selection to first item when filter changes
-                  setSelectedSlashCommandIndex(0);
+                  // Clamp selection if filtered list shrinks (handled by safeSelectedIndex in render)
                 } else {
                   setSlashCommandOpen(false);
                 }

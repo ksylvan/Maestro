@@ -3187,23 +3187,40 @@ function setupIpcHandlers() {
 
   // Get all named sessions across all projects (for Tab Switcher "All Named" view)
   ipcMain.handle('claude:getAllNamedSessions', async () => {
+    const os = await import('os');
+    const homeDir = os.default.homedir();
+    const claudeProjectsDir = path.join(homeDir, '.claude', 'projects');
+
     const allOrigins = claudeSessionOriginsStore.get('origins', {});
     const namedSessions: Array<{
       claudeSessionId: string;
       projectPath: string;
       sessionName: string;
       starred?: boolean;
+      lastActivityAt?: number;
     }> = [];
 
     for (const [projectPath, sessions] of Object.entries(allOrigins)) {
       for (const [claudeSessionId, info] of Object.entries(sessions)) {
         // Handle both old string format and new object format
         if (typeof info === 'object' && info.sessionName) {
+          // Try to get last activity time from the session file
+          let lastActivityAt: number | undefined;
+          try {
+            const encodedPath = encodeClaudeProjectPath(projectPath);
+            const sessionFile = path.join(claudeProjectsDir, encodedPath, `${claudeSessionId}.jsonl`);
+            const stats = await fs.stat(sessionFile);
+            lastActivityAt = stats.mtime.getTime();
+          } catch {
+            // Session file may not exist or be inaccessible
+          }
+
           namedSessions.push({
             claudeSessionId,
             projectPath,
             sessionName: info.sessionName,
             starred: info.starred,
+            lastActivityAt,
           });
         }
       }

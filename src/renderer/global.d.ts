@@ -308,6 +308,7 @@ interface MaestroAPI {
       projectPath: string;
       sessionName: string;
       starred?: boolean;
+      lastActivityAt?: number;
     }>>;
     deleteMessagePair: (projectPath: string, sessionId: string, userMessageUuid: string, fallbackContent?: string) => Promise<{ success: boolean; linesRemoved?: number; error?: string }>;
   };

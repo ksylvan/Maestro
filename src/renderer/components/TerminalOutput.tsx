@@ -578,7 +578,7 @@ const LogItemComponent = memo(({
               ) : isAIMode && !markdownRawMode ? (
                 // Collapsed markdown preview with rendered markdown
                 // Note: prose styles are injected once at TerminalOutput container level for performance
-                <div className="prose prose-sm max-w-none" style={{ color: theme.colors.textMain, lineHeight: 1.4 }}>
+                <div className="prose prose-sm max-w-none" style={{ color: theme.colors.textMain, lineHeight: 1.4, paddingLeft: '0.5em' }}>
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
@@ -703,7 +703,7 @@ const LogItemComponent = memo(({
               ) : isAIMode && !markdownRawMode ? (
                 // Expanded markdown rendering
                 // Note: prose styles are injected once at TerminalOutput container level for performance
-                <div className="prose prose-sm max-w-none text-sm" style={{ color: theme.colors.textMain, lineHeight: 1.4 }}>
+                <div className="prose prose-sm max-w-none text-sm" style={{ color: theme.colors.textMain, lineHeight: 1.4, paddingLeft: '0.5em' }}>
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
@@ -810,7 +810,7 @@ const LogItemComponent = memo(({
             ) : isAIMode && !markdownRawMode ? (
               // Rendered markdown for AI responses
               // Note: prose styles are injected once at TerminalOutput container level for performance
-              <div className="prose prose-sm max-w-none text-sm" style={{ color: theme.colors.textMain, lineHeight: 1.4 }}>
+              <div className="prose prose-sm max-w-none text-sm" style={{ color: theme.colors.textMain, lineHeight: 1.4, paddingLeft: '0.5em' }}>
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
@@ -1567,8 +1567,8 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
     .prose p { color: ${theme.colors.textMain}; margin: 0 !important; line-height: 1.4; }
     .prose p + p { margin-top: 0.5em !important; }
     .prose p:empty { display: none; }
-    .prose > ul, .prose > ol { color: ${theme.colors.textMain}; margin: 0.25em 0 !important; padding-left: 0.5em; list-style-position: inside; }
-    .prose li ul, .prose li ol { margin: 0 !important; padding-left: 1em; list-style-position: inside; }
+    .prose > ul, .prose > ol { color: ${theme.colors.textMain}; margin: 0.25em 0 !important; padding-left: 2em; list-style-position: outside; }
+    .prose li ul, .prose li ol { margin: 0 !important; padding-left: 1.5em; list-style-position: outside; }
     .prose li { margin: 0 !important; padding: 0; line-height: 1.4; display: list-item; }
     .prose li > p { margin: 0 !important; display: contents !important; }
     .prose li > p + ul, .prose li > p + ol { margin-top: 0 !important; }

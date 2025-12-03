@@ -418,6 +418,7 @@ contextBridge.exposeInMainWorld('maestro', {
         projectPath: string;
         sessionName: string;
         starred?: boolean;
+        lastActivityAt?: number;
       }>>,
     deleteMessagePair: (projectPath: string, sessionId: string, userMessageUuid: string, fallbackContent?: string) =>
       ipcRenderer.invoke('claude:deleteMessagePair', projectPath, sessionId, userMessageUuid, fallbackContent),

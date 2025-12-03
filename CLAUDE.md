@@ -172,7 +172,8 @@ interface Session {
   toolType: ToolType;           // 'claude-code' | 'aider' | 'terminal' | etc.
   state: SessionState;          // 'idle' | 'busy' | 'error' | 'connecting'
   inputMode: 'ai' | 'terminal'; // Which process receives input
-  cwd: string;                  // Working directory
+  cwd: string;                  // Current working directory (can change via cd)
+  projectRoot: string;          // Initial working directory (never changes, used for Claude session storage)
   aiPid: number;                // AI process ID
   terminalPid: number;          // Terminal process ID
   aiLogs: LogEntry[];           // AI output history
