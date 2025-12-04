@@ -4183,6 +4183,8 @@ export default function MaestroConsole() {
             // If session is busy, just add to queue - it will be processed when current item finishes
             if (sessionIsIdle) {
               // Set up session and tab state for immediate processing
+              // NOTE: Don't add to executionQueue when processing immediately - it's not actually queued,
+              // and adding it would cause duplicate display (once as sent message, once in queue section)
               setSessions(prev => prev.map(s => {
                 if (s.id !== activeSessionId) return s;
 
@@ -4201,8 +4203,7 @@ export default function MaestroConsole() {
                   currentCycleTokens: 0,
                   currentCycleBytes: 0,
                   aiTabs: updatedAiTabs,
-                  // Add to queue - it will be removed by exit handler or stay for display
-                  executionQueue: [...s.executionQueue, queuedItem],
+                  // Don't add to queue - we're processing immediately, not queuing
                   aiCommandHistory: Array.from(new Set([...(s.aiCommandHistory || []), commandText])).slice(-50),
                 };
               }));
