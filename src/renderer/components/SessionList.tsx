@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Wand2, Plus, Settings, ChevronRight, ChevronDown, Activity, X, Keyboard,
   Radio, Copy, ExternalLink, PanelLeftClose, PanelLeftOpen, Folder, Info, FileText, GitBranch, Bot, Clock,
-  ScrollText, Cpu, Menu, Bookmark, Trophy, Trash2, Edit3, FolderInput
+  ScrollText, Cpu, Menu, Bookmark, Trophy, Trash2, Edit3, FolderInput, Download
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { Session, Group, Theme, Shortcut, AutoRunStats } from '../types';
@@ -253,6 +253,7 @@ interface SessionListProps {
   setSettingsModalOpen: (open: boolean) => void;
   setSettingsTab: (tab: string) => void;
   setAboutModalOpen: (open: boolean) => void;
+  setUpdateCheckModalOpen: (open: boolean) => void;
   setLogViewerOpen: (open: boolean) => void;
   setProcessMonitorOpen: (open: boolean) => void;
   toggleGroup: (groupId: string) => void;
@@ -294,7 +295,7 @@ export function SessionList(props: SessionListProps) {
     isLiveMode, webInterfaceUrl, toggleGlobalLive,
     bookmarksCollapsed, setBookmarksCollapsed,
     setActiveFocus, setActiveSessionId, setLeftSidebarOpen, setLeftSidebarWidthState,
-    setShortcutsHelpOpen, setSettingsModalOpen, setSettingsTab, setAboutModalOpen, setLogViewerOpen, setProcessMonitorOpen, toggleGroup,
+    setShortcutsHelpOpen, setSettingsModalOpen, setSettingsTab, setAboutModalOpen, setUpdateCheckModalOpen, setLogViewerOpen, setProcessMonitorOpen, toggleGroup,
     handleDragStart, handleDragOver, handleDropOnGroup, handleDropOnUngrouped,
     finishRenamingGroup, finishRenamingSession, startRenamingGroup,
     startRenamingSession, showConfirmation, setGroups, setSessions, createNewGroup, addNewSession,
@@ -1094,6 +1095,16 @@ export function SessionList(props: SessionListProps) {
                     </button>
                     <div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
                     <button
+                      onClick={() => { setUpdateCheckModalOpen(true); setMenuOpen(false); }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-white/10 transition-colors text-left"
+                    >
+                      <Download className="w-5 h-5" style={{ color: theme.colors.accent }} />
+                      <div className="flex-1">
+                        <div className="text-sm font-medium" style={{ color: theme.colors.textMain }}>Check for Updates</div>
+                        <div className="text-xs" style={{ color: theme.colors.textDim }}>Get the latest version</div>
+                      </div>
+                    </button>
+                    <button
                       onClick={() => { setAboutModalOpen(true); setMenuOpen(false); }}
                       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-white/10 transition-colors text-left"
                     >
@@ -1180,6 +1191,16 @@ export function SessionList(props: SessionListProps) {
                     </span>
                   </button>
                   <div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
+                  <button
+                    onClick={() => { setUpdateCheckModalOpen(true); setMenuOpen(false); }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-white/10 transition-colors text-left"
+                  >
+                    <Download className="w-5 h-5" style={{ color: theme.colors.accent }} />
+                    <div className="flex-1">
+                      <div className="text-sm font-medium" style={{ color: theme.colors.textMain }}>Check for Updates</div>
+                      <div className="text-xs" style={{ color: theme.colors.textDim }}>Get the latest version</div>
+                    </div>
+                  </button>
                   <button
                     onClick={() => { setAboutModalOpen(true); setMenuOpen(false); }}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-white/10 transition-colors text-left"
@@ -1756,8 +1777,131 @@ export function SessionList(props: SessionListProps) {
             );
           })}
 
-          {/* UNGROUPED SESSIONS (as collapsible group) - only show when sessions exist */}
-          {sessions.length > 0 && (
+          {/* SESSIONS - Flat list when no groups exist, otherwise show Ungrouped folder */}
+          {sessions.length > 0 && groups.length === 0 ? (
+            /* FLAT LIST - No groups exist yet, show sessions directly */
+            <div className="flex flex-col">
+              {[...filteredSessions].sort((a, b) => compareSessionNames(a.name, b.name)).map((session) => {
+                const globalIdx = sortedSessions.findIndex(s => s.id === session.id);
+                const isKeyboardSelected = activeFocus === 'sidebar' && globalIdx === selectedSidebarIndex;
+                return (
+                  <div
+                    key={`flat-${session.id}`}
+                    draggable
+                    onDragStart={() => handleDragStart(session.id)}
+                    onDragOver={handleDragOver}
+                    onDrop={handleDropOnUngrouped}
+                    onClick={() => setActiveSessionId(session.id)}
+                    onContextMenu={(e) => handleContextMenu(e, session.id)}
+                    className={`mx-3 px-3 py-2 rounded cursor-move flex items-center justify-between mb-1 hover:bg-opacity-50 border-l-2 transition-all group ${draggingSessionId === session.id ? 'opacity-50' : ''}`}
+                    style={{
+                      borderColor: (activeSessionId === session.id || isKeyboardSelected) ? theme.colors.accent : 'transparent',
+                      backgroundColor: activeSessionId === session.id ? theme.colors.bgActivity : (isKeyboardSelected ? theme.colors.bgActivity + '40' : 'transparent')
+                    }}
+                  >
+                    <div className="min-w-0 flex-1">
+                      {editingSessionId === `flat-${session.id}` ? (
+                        <input
+                          autoFocus
+                          className="bg-transparent text-sm font-medium outline-none w-full border-b"
+                          style={{ borderColor: theme.colors.accent }}
+                          defaultValue={session.name}
+                          onClick={e => e.stopPropagation()}
+                          onBlur={e => finishRenamingSession(session.id, e.target.value)}
+                          onKeyDown={e => {
+                            e.stopPropagation();
+                            if (e.key === 'Enter') finishRenamingSession(session.id, e.currentTarget.value);
+                          }}
+                        />
+                      ) : (
+                        <span
+                          className="text-sm font-medium truncate"
+                          style={{ color: activeSessionId === session.id ? theme.colors.textMain : theme.colors.textDim }}
+                          onDoubleClick={() => startRenamingSession(`flat-${session.id}`)}
+                        >
+                          {session.name}
+                        </span>
+                      )}
+                      <div className="flex items-center gap-2 text-[10px] mt-0.5 opacity-70">
+                        {/* Session Jump Number Badge (Opt+Cmd+NUMBER) */}
+                        {getSessionJumpNumber(session.id) && (
+                          <div
+                            className="w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold shrink-0"
+                            style={{
+                              backgroundColor: theme.colors.accent,
+                              color: theme.colors.bgMain
+                            }}
+                          >
+                            {getSessionJumpNumber(session.id)}
+                          </div>
+                        )}
+                        <Activity className="w-3 h-3" /> {session.toolType}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 ml-2">
+                      {/* Bookmark toggle - show outline on hover for non-bookmarked */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleBookmark(session.id);
+                        }}
+                        className={`p-0.5 rounded hover:bg-white/10 transition-all ${session.bookmarked ? '' : 'opacity-0 group-hover:opacity-100'}`}
+                        title={session.bookmarked ? "Remove bookmark" : "Add bookmark"}
+                      >
+                        <Bookmark
+                          className="w-3 h-3"
+                          style={{ color: theme.colors.accent }}
+                          fill={session.bookmarked ? theme.colors.accent : 'none'}
+                        />
+                      </button>
+                      {/* Git Dirty Indicator (only in wide mode) */}
+                      {leftSidebarOpen && session.isGitRepo && gitFileCounts.has(session.id) && gitFileCounts.get(session.id)! > 0 && (
+                        <div className="flex items-center gap-0.5 text-[10px]" style={{ color: theme.colors.warning }}>
+                          <GitBranch className="w-2.5 h-2.5" />
+                          <span>{gitFileCounts.get(session.id)}</span>
+                        </div>
+                      )}
+                      {/* Git vs Local Indicator */}
+                      {session.toolType !== 'terminal' && (
+                        <div
+                          className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
+                          style={{
+                            backgroundColor: session.isGitRepo ? theme.colors.accent + '30' : theme.colors.textDim + '20',
+                            color: session.isGitRepo ? theme.colors.accent : theme.colors.textDim
+                          }}
+                          title={session.isGitRepo ? 'Git repository' : 'Local directory (not a git repo)'}
+                        >
+                          {session.isGitRepo ? 'GIT' : 'LOCAL'}
+                        </div>
+                      )}
+                      {/* AUTO Mode Indicator */}
+                      {activeBatchSessionIds.includes(session.id) && (
+                        <div
+                          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase animate-pulse"
+                          style={{ backgroundColor: theme.colors.warning + '30', color: theme.colors.warning }}
+                          title="Auto Run active"
+                        >
+                          <Bot className="w-2.5 h-2.5" />
+                          AUTO
+                        </div>
+                      )}
+                      {/* AI Status Indicator */}
+                      <div
+                        className={`w-2 h-2 rounded-full ${session.state === 'busy' ? 'animate-pulse' : ''}`}
+                        style={
+                          session.toolType === 'claude' && !session.claudeSessionId
+                            ? { border: `1.5px solid ${theme.colors.textDim}`, backgroundColor: 'transparent' }
+                            : { backgroundColor: getStatusColor(session.state, theme) }
+                        }
+                        title={session.toolType === 'claude' && !session.claudeSessionId ? 'No active Claude session' : undefined}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : groups.length > 0 && (
+          /* UNGROUPED FOLDER - Groups exist, show as collapsible folder */
           <div className="mb-1 mt-4">
             <div
               className="px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-opacity-50 group"

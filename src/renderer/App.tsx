@@ -8,6 +8,7 @@ import { LightboxModal } from './components/LightboxModal';
 import { ShortcutsHelpModal } from './components/ShortcutsHelpModal';
 import { slashCommands } from './slashCommands';
 import { AboutModal } from './components/AboutModal';
+import { UpdateCheckModal } from './components/UpdateCheckModal';
 import { CreateGroupModal } from './components/CreateGroupModal';
 import { RenameSessionModal } from './components/RenameSessionModal';
 import { RenameTabModal } from './components/RenameTabModal';
@@ -224,6 +225,7 @@ export default function MaestroConsole() {
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [lightboxImages, setLightboxImages] = useState<string[]>([]); // Context images for navigation
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
+  const [updateCheckModalOpen, setUpdateCheckModalOpen] = useState(false);
   const [standingOvationData, setStandingOvationData] = useState<{
     badge: typeof CONDUCTOR_BADGES[number];
     isNewRecord: boolean;
@@ -6081,6 +6083,7 @@ export default function MaestroConsole() {
           }}
           markdownRawMode={markdownRawMode}
           onToggleMarkdownRawMode={() => setMarkdownRawMode(!markdownRawMode)}
+          setUpdateCheckModalOpen={setUpdateCheckModalOpen}
         />
       )}
       {lightboxImage && (
@@ -6132,6 +6135,14 @@ export default function MaestroConsole() {
           sessions={sessions}
           autoRunStats={autoRunStats}
           onClose={() => setAboutModalOpen(false)}
+        />
+      )}
+
+      {/* --- UPDATE CHECK MODAL --- */}
+      {updateCheckModalOpen && (
+        <UpdateCheckModal
+          theme={theme}
+          onClose={() => setUpdateCheckModalOpen(false)}
         />
       )}
 
@@ -6305,6 +6316,7 @@ export default function MaestroConsole() {
             setSettingsModalOpen={setSettingsModalOpen}
             setSettingsTab={setSettingsTab}
             setAboutModalOpen={setAboutModalOpen}
+            setUpdateCheckModalOpen={setUpdateCheckModalOpen}
             setLogViewerOpen={setLogViewerOpen}
             setProcessMonitorOpen={setProcessMonitorOpen}
             toggleGroup={toggleGroup}

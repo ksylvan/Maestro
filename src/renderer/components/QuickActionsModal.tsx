@@ -60,6 +60,7 @@ interface QuickActionsModalProps {
   onDebugReleaseQueuedItem?: () => void;
   markdownRawMode?: boolean;
   onToggleMarkdownRawMode?: () => void;
+  setUpdateCheckModalOpen?: (open: boolean) => void;
 }
 
 export function QuickActionsModal(props: QuickActionsModalProps) {
@@ -74,7 +75,7 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
     setShortcutsHelpOpen, setAboutModalOpen, setLogViewerOpen, setProcessMonitorOpen,
     setAgentSessionsOpen, setActiveClaudeSessionId, setGitDiffPreview, setGitLogOpen,
     onRenameTab, onToggleReadOnlyMode, onOpenTabSwitcher, tabShortcuts, isAiMode, setPlaygroundOpen, onRefreshGitFileState,
-    onDebugReleaseQueuedItem, markdownRawMode, onToggleMarkdownRawMode
+    onDebugReleaseQueuedItem, markdownRawMode, onToggleMarkdownRawMode, setUpdateCheckModalOpen
   } = props;
 
   const [search, setSearch] = useState('');
@@ -249,6 +250,7 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
     } }] : []),
     { id: 'devtools', label: 'Toggle JavaScript Console', action: () => { window.maestro.devtools.toggle(); setQuickActionOpen(false); } },
     { id: 'about', label: 'About Maestro', action: () => { setAboutModalOpen(true); setQuickActionOpen(false); } },
+    ...(setUpdateCheckModalOpen ? [{ id: 'updateCheck', label: 'Check for Updates', action: () => { setUpdateCheckModalOpen(true); setQuickActionOpen(false); } }] : []),
     { id: 'goToFiles', label: 'Go to Files Tab', action: () => { setRightPanelOpen(true); setActiveRightTab('files'); setQuickActionOpen(false); } },
     { id: 'goToHistory', label: 'Go to History Tab', action: () => { setRightPanelOpen(true); setActiveRightTab('history'); setQuickActionOpen(false); } },
     { id: 'goToAutoRun', label: 'Go to Auto Run Tab', action: () => { setRightPanelOpen(true); setActiveRightTab('autorun'); setQuickActionOpen(false); } },

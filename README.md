@@ -4,7 +4,9 @@
 
 > A unified, highly-responsive developer command center for managing your fleet of AI coding agents.
 
-Maestro is a desktop application for **spec-driven development** with AI coding agents. Collaborate with AI to create detailed specification documents, then let Auto Run execute them automatically—each task in a fresh session with clean context. Run multiple agents in parallel with a Linear/Superhuman-level responsive interface. Currently supporting Claude Code with plans for additional agentic coding tools (OpenAI Codex, Gemini CLI, Qwen3 Coder) based on user demand.
+Maestro is a cross-platform desktop app for orchestrating your fleet of AI agents and projects. It's a high-velocity solution for hackers who are juggling multiple projects in parallel. Designed for power users who live on the keyboard and rarely touch the mouse.
+
+Collaborate with AI to create detailed specification documents, then let Auto Run execute them automatically - each task in a fresh session with clean context. Run multiple agents in parallel with a Linear/Superhuman-level responsive interface. Currently supporting Claude Code with plans for additional agentic coding tools (OpenAI Codex, Gemini CLI, Qwen3 Coder) based on user demand.
 
 **[Watch the Introduction Video](https://youtu.be/fmwwTOg7cyA?si=dJ89K54tGflKa5G4)**
 
@@ -17,6 +19,7 @@ Download the latest release for your platform from the [Releases](https://github
 - **macOS**: `.dmg` or `.zip`
 - **Windows**: `.exe` installer
 - **Linux**: `.AppImage`, `.deb`, or `.rpm`
+- **Upgrading**: Simply replace the old binary with the new one. All your data (sessions, settings, playbooks, history) persists in your [config directory](#configuration).
 
 NOTE: On macOS you may need to clear the quarantine label to successfully launch: `xattr -dr com.apple.quarantine Maestro.app`
 

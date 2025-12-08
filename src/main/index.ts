@@ -16,6 +16,7 @@ import { detectShells } from './utils/shellDetector';
 import { isCloudflaredInstalled } from './utils/cliDetection';
 import { tunnelManager } from './tunnel-manager';
 import { getThemeById } from './themes';
+import { checkForUpdates } from './update-checker';
 import Store from 'electron-store';
 
 // Demo mode: use a separate data directory for fresh demos
@@ -2052,6 +2053,12 @@ function setupIpcHandlers() {
         mainWindow.webContents.openDevTools();
       }
     }
+  });
+
+  // Update check
+  ipcMain.handle('updates:check', async () => {
+    const currentVersion = app.getVersion();
+    return checkForUpdates(currentVersion);
   });
 
   // Logger operations

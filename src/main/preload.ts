@@ -356,6 +356,25 @@ contextBridge.exposeInMainWorld('maestro', {
     toggle: () => ipcRenderer.invoke('devtools:toggle'),
   },
 
+  // Updates API
+  updates: {
+    check: () => ipcRenderer.invoke('updates:check') as Promise<{
+      currentVersion: string;
+      latestVersion: string;
+      updateAvailable: boolean;
+      versionsBehind: number;
+      releases: Array<{
+        tag_name: string;
+        name: string;
+        body: string;
+        html_url: string;
+        published_at: string;
+      }>;
+      releasesUrl: string;
+      error?: string;
+    }>,
+  },
+
   // Logger API
   logger: {
     log: (level: string, message: string, context?: string, data?: unknown) =>
@@ -775,6 +794,23 @@ export interface MaestroAPI {
     open: () => Promise<void>;
     close: () => Promise<void>;
     toggle: () => Promise<void>;
+  };
+  updates: {
+    check: () => Promise<{
+      currentVersion: string;
+      latestVersion: string;
+      updateAvailable: boolean;
+      versionsBehind: number;
+      releases: Array<{
+        tag_name: string;
+        name: string;
+        body: string;
+        html_url: string;
+        published_at: string;
+      }>;
+      releasesUrl: string;
+      error?: string;
+    }>;
   };
   logger: {
     log: (level: string, message: string, context?: string, data?: unknown) => Promise<void>;

@@ -16,8 +16,7 @@ interface ExecutionQueueIndicatorProps {
 export function ExecutionQueueIndicator({ session, theme, onClick }: ExecutionQueueIndicatorProps) {
   const queue = session.executionQueue || [];
   const containerRef = useRef<HTMLButtonElement>(null);
-  const pillsContainerRef = useRef<HTMLDivElement>(null);
-  const [maxVisiblePills, setMaxVisiblePills] = useState(2);
+  const [maxVisiblePills, setMaxVisiblePills] = useState(3);
 
   // Count items by type
   const messageCount = queue.filter(item => item.type === 'message').length;
@@ -34,39 +33,30 @@ export function ExecutionQueueIndicator({ session, theme, onClick }: ExecutionQu
 
   // Calculate how many pills we can show based on available space
   const calculateMaxPills = useCallback(() => {
-    if (!containerRef.current || !pillsContainerRef.current) return;
+    if (!containerRef.current) return;
 
-    const container = containerRef.current;
-    const pillsContainer = pillsContainerRef.current;
+    const containerWidth = containerRef.current.clientWidth;
 
-    // Get total container width
-    const containerWidth = container.clientWidth;
+    // Fixed elements take roughly:
+    // - Icon: ~20px
+    // - "X items queued": ~100px
+    // - Tab count icon: ~30px
+    // - Type breakdown: ~60px
+    // - "Click to view": ~80px
+    // - Gaps and padding: ~50px
+    // Total fixed: ~340px
+    const fixedWidth = 340;
 
-    // Calculate space used by other elements (left side + type counts + "Click to view")
-    // We need to measure everything except the pills container
-    const containerStyle = getComputedStyle(container);
-    const containerPadding = parseFloat(containerStyle.paddingLeft) + parseFloat(containerStyle.paddingRight);
-    const containerGap = 8; // gap-2 = 0.5rem = 8px
+    // Each pill is roughly 100px (text + padding + count)
+    // "+N" indicator is roughly 30px
+    const avgPillWidth = 100;
+    const plusIndicatorWidth = 30;
 
-    // Measure left side elements (icon + "X items queued" text)
-    const leftElements = container.querySelectorAll(':scope > *:not([data-pills-container])');
-    let usedWidth = containerPadding;
+    const availableWidth = containerWidth - fixedWidth - plusIndicatorWidth;
+    const calculatedMax = Math.floor(availableWidth / avgPillWidth);
 
-    leftElements.forEach((el) => {
-      if (el !== pillsContainer) {
-        const rect = el.getBoundingClientRect();
-        usedWidth += rect.width + containerGap;
-      }
-    });
-
-    // Available space for pills (leave some buffer for the +N indicator and spacing)
-    const availableWidth = containerWidth - usedWidth - 80; // 80px buffer for +N and spacing
-
-    // Estimate pill width (approximately 80-100px per pill depending on content)
-    const avgPillWidth = 90;
-    const pillGap = 4; // gap-1 = 0.25rem = 4px
-
-    const maxPills = Math.min(5, Math.max(1, Math.floor(availableWidth / (avgPillWidth + pillGap))));
+    // Clamp between 1 and 5, but prefer showing at least 3 when space allows
+    const maxPills = Math.min(5, Math.max(1, calculatedMax));
     setMaxVisiblePills(maxPills);
   }, []);
 
@@ -129,7 +119,7 @@ export function ExecutionQueueIndicator({ session, theme, onClick }: ExecutionQu
       <div className="flex-1" />
 
       {/* Tab pills - dynamically show as many as fit, then +N more */}
-      <div ref={pillsContainerRef} data-pills-container className="flex items-center gap-1 flex-shrink-0">
+      <div className="flex items-center gap-1 flex-shrink-0">
         {tabNames.slice(0, maxVisiblePills).map(tabName => (
           <span
             key={tabName}

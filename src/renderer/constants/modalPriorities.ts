@@ -71,6 +71,9 @@ export const MODAL_PRIORITIES = {
   /** About/info modal */
   ABOUT: 600,
 
+  /** Update check modal */
+  UPDATE_CHECK: 610,
+
   /** Process monitor modal */
   PROCESS_MONITOR: 550,
 
