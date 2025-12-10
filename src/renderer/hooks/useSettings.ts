@@ -155,6 +155,8 @@ export interface UseSettingsReturn {
   setWizardCompleted: (value: boolean) => void;
   tourCompleted: boolean;
   setTourCompleted: (value: boolean) => void;
+  firstAutoRunCompleted: boolean;
+  setFirstAutoRunCompleted: (value: boolean) => void;
 }
 
 export function useSettings(): UseSettingsReturn {
@@ -226,6 +228,7 @@ export function useSettings(): UseSettingsReturn {
   // Onboarding settings (persistent)
   const [wizardCompleted, setWizardCompletedState] = useState(false);
   const [tourCompleted, setTourCompletedState] = useState(false);
+  const [firstAutoRunCompleted, setFirstAutoRunCompletedState] = useState(false);
 
   // Wrapper functions that persist to electron-store
   const setLlmProvider = (value: LLMProvider) => {
@@ -558,6 +561,11 @@ export function useSettings(): UseSettingsReturn {
     window.maestro.settings.set('tourCompleted', value);
   };
 
+  const setFirstAutoRunCompleted = (value: boolean) => {
+    setFirstAutoRunCompletedState(value);
+    window.maestro.settings.set('firstAutoRunCompleted', value);
+  };
+
   // Load settings from electron-store on mount
   useEffect(() => {
     const loadSettings = async () => {
@@ -594,6 +602,7 @@ export function useSettings(): UseSettingsReturn {
       const savedAutoRunStats = await window.maestro.settings.get('autoRunStats');
       const savedWizardCompleted = await window.maestro.settings.get('wizardCompleted');
       const savedTourCompleted = await window.maestro.settings.get('tourCompleted');
+      const savedFirstAutoRunCompleted = await window.maestro.settings.get('firstAutoRunCompleted');
 
       if (savedEnterToSendAI !== undefined) setEnterToSendAIState(savedEnterToSendAI);
       if (savedEnterToSendTerminal !== undefined) setEnterToSendTerminalState(savedEnterToSendTerminal);
@@ -658,6 +667,7 @@ export function useSettings(): UseSettingsReturn {
       // Load onboarding settings
       if (savedWizardCompleted !== undefined) setWizardCompletedState(savedWizardCompleted);
       if (savedTourCompleted !== undefined) setTourCompletedState(savedTourCompleted);
+      if (savedFirstAutoRunCompleted !== undefined) setFirstAutoRunCompletedState(savedFirstAutoRunCompleted);
 
       // Mark settings as loaded
       setSettingsLoaded(true);
@@ -741,5 +751,7 @@ export function useSettings(): UseSettingsReturn {
     setWizardCompleted,
     tourCompleted,
     setTourCompleted,
+    firstAutoRunCompleted,
+    setFirstAutoRunCompleted,
   };
 }

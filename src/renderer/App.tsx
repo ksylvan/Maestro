@@ -24,6 +24,7 @@ import { TabSwitcherModal } from './components/TabSwitcherModal';
 import { PromptComposerModal } from './components/PromptComposerModal';
 import { ExecutionQueueBrowser } from './components/ExecutionQueueBrowser';
 import { StandingOvationOverlay } from './components/StandingOvationOverlay';
+import { FirstRunCelebration } from './components/FirstRunCelebration';
 import { PlaygroundPanel } from './components/PlaygroundPanel';
 import { AutoRunSetupModal } from './components/AutoRunSetupModal';
 import { MaestroWizard, useWizard } from './components/Wizard';
@@ -161,6 +162,7 @@ export default function MaestroConsole() {
     globalStats, updateGlobalStats,
     autoRunStats, recordAutoRunComplete, updateAutoRunProgress, acknowledgeBadge, getUnacknowledgedBadgeLevel,
     tourCompleted, setTourCompleted,
+    firstAutoRunCompleted, setFirstAutoRunCompleted,
   } = settings;
 
   // --- STATE ---
@@ -240,6 +242,11 @@ export default function MaestroConsole() {
     badge: typeof CONDUCTOR_BADGES[number];
     isNewRecord: boolean;
     recordTimeMs?: number;
+  } | null>(null);
+  const [firstRunCelebrationData, setFirstRunCelebrationData] = useState<{
+    elapsedTimeMs: number;
+    completedTasks: number;
+    totalTasks: number;
   } | null>(null);
   const [logViewerOpen, setLogViewerOpen] = useState(false);
   const [processMonitorOpen, setProcessMonitorOpen] = useState(false);
@@ -2591,8 +2598,21 @@ export default function MaestroConsole() {
       if (info.elapsedTimeMs > 0) {
         const { newBadgeLevel, isNewRecord } = recordAutoRunComplete(info.elapsedTimeMs);
 
-        // Show Standing Ovation overlay for new badges or records
-        if (newBadgeLevel !== null || isNewRecord) {
+        // Check for first Auto Run celebration (takes priority over standing ovation)
+        if (!firstAutoRunCompleted) {
+          // This is the user's first Auto Run completion!
+          setFirstAutoRunCompleted(true);
+          // Small delay to let the toast appear first
+          setTimeout(() => {
+            setFirstRunCelebrationData({
+              elapsedTimeMs: info.elapsedTimeMs,
+              completedTasks: info.completedTasks,
+              totalTasks: info.totalTasks,
+            });
+          }, 500);
+        }
+        // Show Standing Ovation overlay for new badges or records (only if not showing first run)
+        else if (newBadgeLevel !== null || isNewRecord) {
           const badge = newBadgeLevel !== null
             ? CONDUCTOR_BADGES.find(b => b.level === newBadgeLevel)
             : CONDUCTOR_BADGES.find(b => b.level === autoRunStats.currentBadgeLevel);
@@ -6297,6 +6317,17 @@ export default function MaestroConsole() {
         <UpdateCheckModal
           theme={theme}
           onClose={() => setUpdateCheckModalOpen(false)}
+        />
+      )}
+
+      {/* --- FIRST RUN CELEBRATION OVERLAY --- */}
+      {firstRunCelebrationData && (
+        <FirstRunCelebration
+          theme={theme}
+          elapsedTimeMs={firstRunCelebrationData.elapsedTimeMs}
+          completedTasks={firstRunCelebrationData.completedTasks}
+          totalTasks={firstRunCelebrationData.totalTasks}
+          onClose={() => setFirstRunCelebrationData(null)}
         />
       )}
 
