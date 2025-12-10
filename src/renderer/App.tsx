@@ -5289,6 +5289,34 @@ export default function MaestroConsole() {
     return () => window.removeEventListener('maestro:remoteCommand', handleRemoteCommand);
   }, []);
 
+  // Listen for tour UI actions to control right panel state
+  useEffect(() => {
+    const handleTourAction = (event: Event) => {
+      const customEvent = event as CustomEvent<{ type: string; value?: string }>;
+      const { type, value } = customEvent.detail;
+
+      switch (type) {
+        case 'setRightTab':
+          if (value === 'files' || value === 'history' || value === 'autorun') {
+            setActiveRightTab(value as RightPanelTab);
+          }
+          break;
+        case 'openRightPanel':
+          setRightPanelOpen(true);
+          break;
+        case 'closeRightPanel':
+          setRightPanelOpen(false);
+          break;
+        // hamburger menu actions are handled by SessionList.tsx
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener('tour:action', handleTourAction);
+    return () => window.removeEventListener('tour:action', handleTourAction);
+  }, []);
+
   // Process a queued item (called from onExit when queue has items)
   // Handles both 'message' and 'command' types
   const processQueuedItem = async (sessionId: string, item: QueuedItem) => {

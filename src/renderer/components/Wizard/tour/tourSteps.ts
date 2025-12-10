@@ -45,6 +45,7 @@ export const tourSteps: TourStepConfig[] = [
     position: 'left',
     uiActions: [
       { type: 'setRightTab', value: 'autorun' },
+      { type: 'openRightPanel' },
     ],
   },
   {
@@ -52,10 +53,11 @@ export const tourSteps: TourStepConfig[] = [
     title: 'File Explorer',
     description:
       'The Files tab shows your project\'s file structure. As the AI creates and modifies files, you\'ll see them appear here in real-time. Click any file to preview its contents.',
-    selector: '[data-tour="files-tab"]',
+    selector: '[data-tour="files-panel"]',
     position: 'left',
     uiActions: [
       { type: 'setRightTab', value: 'files' },
+      { type: 'openRightPanel' },
     ],
   },
   {
@@ -63,10 +65,11 @@ export const tourSteps: TourStepConfig[] = [
     title: 'History & Tracking',
     description:
       'The History tab tracks all changes made during your session. Auto Run entries are marked automatically, while manual changes you make are tracked separately. Great for reviewing what happened!',
-    selector: '[data-tour="history-tab"]',
+    selector: '[data-tour="history-panel"]',
     position: 'left',
     uiActions: [
       { type: 'setRightTab', value: 'history' },
+      { type: 'openRightPanel' },
     ],
   },
   {

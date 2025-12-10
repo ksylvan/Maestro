@@ -483,6 +483,28 @@ export function SessionList(props: SessionListProps) {
     }
   }, [liveOverlayOpen, menuOpen]);
 
+  // Listen for tour UI actions to control hamburger menu state
+  useEffect(() => {
+    const handleTourAction = (event: Event) => {
+      const customEvent = event as CustomEvent<{ type: string; value?: string }>;
+      const { type } = customEvent.detail;
+
+      switch (type) {
+        case 'openHamburgerMenu':
+          setMenuOpen(true);
+          break;
+        case 'closeHamburgerMenu':
+          setMenuOpen(false);
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener('tour:action', handleTourAction);
+    return () => window.removeEventListener('tour:action', handleTourAction);
+  }, []);
+
   // Track git file change counts per session
   const [gitFileCounts, setGitFileCounts] = useState<Map<string, number>>(new Map());
 
@@ -1056,8 +1078,8 @@ export function SessionList(props: SessionListProps) {
                       >
                         <Wand2 className="w-5 h-5" style={{ color: theme.colors.accent }} />
                         <div className="flex-1">
-                          <div className="text-sm font-medium" style={{ color: theme.colors.textMain }}>New Project Wizard...</div>
-                          <div className="text-xs" style={{ color: theme.colors.textDim }}>Set up a new project with AI</div>
+                          <div className="text-sm font-medium" style={{ color: theme.colors.textMain }}>New Agent Wizard</div>
+                          <div className="text-xs" style={{ color: theme.colors.textDim }}>Get started with AI</div>
                         </div>
                         <span className="text-xs font-mono px-1.5 py-0.5 rounded" style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}>
                           {shortcuts.openWizard ? formatShortcutKeys(shortcuts.openWizard.keys) : '⇧⌘N'}
@@ -1181,8 +1203,8 @@ export function SessionList(props: SessionListProps) {
                     >
                       <Wand2 className="w-5 h-5" style={{ color: theme.colors.accent }} />
                       <div className="flex-1">
-                        <div className="text-sm font-medium" style={{ color: theme.colors.textMain }}>New Project Wizard...</div>
-                        <div className="text-xs" style={{ color: theme.colors.textDim }}>Set up a new project with AI</div>
+                        <div className="text-sm font-medium" style={{ color: theme.colors.textMain }}>New Agent Wizard</div>
+                        <div className="text-xs" style={{ color: theme.colors.textDim }}>Get started with AI</div>
                       </div>
                       <span className="text-xs font-mono px-1.5 py-0.5 rounded" style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}>
                         {shortcuts.openWizard ? formatShortcutKeys(shortcuts.openWizard.keys) : '⇧⌘N'}

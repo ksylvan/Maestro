@@ -193,7 +193,7 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
   const mainActions: QuickAction[] = [
     ...sessionActions,
     { id: 'new', label: 'Create New Agent', shortcut: shortcuts.newInstance, action: addNewSession },
-    ...(openWizard ? [{ id: 'wizard', label: 'New Project Wizard', shortcut: shortcuts.openWizard, action: () => { openWizard(); setQuickActionOpen(false); } }] : []),
+    ...(openWizard ? [{ id: 'wizard', label: 'New Agent Wizard', shortcut: shortcuts.openWizard, action: () => { openWizard(); setQuickActionOpen(false); } }] : []),
     ...(activeSession ? [{ id: 'rename', label: `Rename Agent: ${activeSession.name}`, action: () => {
       setRenameInstanceValue(activeSession.name);
       setRenameInstanceModalOpen(true);

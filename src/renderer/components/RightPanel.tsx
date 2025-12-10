@@ -259,43 +259,47 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
         }}
       >
         {activeRightTab === 'files' && (
-          <FileExplorerPanel
-            session={session}
-            theme={theme}
-            fileTreeFilter={fileTreeFilter}
-            setFileTreeFilter={setFileTreeFilter}
-            fileTreeFilterOpen={fileTreeFilterOpen}
-            setFileTreeFilterOpen={setFileTreeFilterOpen}
-            filteredFileTree={filteredFileTree}
-            selectedFileIndex={selectedFileIndex}
-            setSelectedFileIndex={setSelectedFileIndex}
-            activeFocus={activeFocus}
-            activeRightTab={activeRightTab}
-            previewFile={previewFile}
-            setActiveFocus={setActiveFocus}
-            fileTreeContainerRef={fileTreeContainerRef}
-            fileTreeFilterInputRef={fileTreeFilterInputRef}
-            toggleFolder={toggleFolder}
-            handleFileClick={handleFileClick}
-            expandAllFolders={expandAllFolders}
-            collapseAllFolders={collapseAllFolders}
-            updateSessionWorkingDirectory={updateSessionWorkingDirectory}
-            refreshFileTree={refreshFileTree}
-            setSessions={setSessions}
-            onAutoRefreshChange={onAutoRefreshChange}
-            onShowFlash={onShowFlash}
-          />
+          <div data-tour="files-panel" className="h-full">
+            <FileExplorerPanel
+              session={session}
+              theme={theme}
+              fileTreeFilter={fileTreeFilter}
+              setFileTreeFilter={setFileTreeFilter}
+              fileTreeFilterOpen={fileTreeFilterOpen}
+              setFileTreeFilterOpen={setFileTreeFilterOpen}
+              filteredFileTree={filteredFileTree}
+              selectedFileIndex={selectedFileIndex}
+              setSelectedFileIndex={setSelectedFileIndex}
+              activeFocus={activeFocus}
+              activeRightTab={activeRightTab}
+              previewFile={previewFile}
+              setActiveFocus={setActiveFocus}
+              fileTreeContainerRef={fileTreeContainerRef}
+              fileTreeFilterInputRef={fileTreeFilterInputRef}
+              toggleFolder={toggleFolder}
+              handleFileClick={handleFileClick}
+              expandAllFolders={expandAllFolders}
+              collapseAllFolders={collapseAllFolders}
+              updateSessionWorkingDirectory={updateSessionWorkingDirectory}
+              refreshFileTree={refreshFileTree}
+              setSessions={setSessions}
+              onAutoRefreshChange={onAutoRefreshChange}
+              onShowFlash={onShowFlash}
+            />
+          </div>
         )}
 
         {activeRightTab === 'history' && (
-          <HistoryPanel
-            ref={historyPanelRef}
-            session={session}
-            theme={theme}
-            onJumpToClaudeSession={onJumpToClaudeSession}
-            onResumeSession={onResumeSession}
-            onOpenSessionAsTab={onOpenSessionAsTab}
-          />
+          <div data-tour="history-panel" className="h-full">
+            <HistoryPanel
+              ref={historyPanelRef}
+              session={session}
+              theme={theme}
+              onJumpToClaudeSession={onJumpToClaudeSession}
+              onResumeSession={onResumeSession}
+              onOpenSessionAsTab={onOpenSessionAsTab}
+            />
+          </div>
         )}
 
         {activeRightTab === 'autorun' && (

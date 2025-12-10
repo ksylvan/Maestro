@@ -414,8 +414,8 @@ openWizard();
 Cmd+Shift+N  // Opens wizard
 
 // Also available in:
-// - Command K menu: "New Project Wizard"
-// - Hamburger menu: "New Project Wizard..."
+// - Command K menu: "New Agent Wizard"
+// - Hamburger menu: "New Agent Wizard"
 ```
 
 ### State Persistence (Resume)
