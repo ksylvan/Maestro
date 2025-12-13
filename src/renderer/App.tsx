@@ -51,6 +51,7 @@ import { useGroupManagement } from './hooks/useGroupManagement';
 import { useWebBroadcasting } from './hooks/useWebBroadcasting';
 import { useCliActivityMonitoring } from './hooks/useCliActivityMonitoring';
 import { useThemeStyles } from './hooks/useThemeStyles';
+import { useSortedSessions, compareNamesIgnoringEmojis } from './hooks/useSortedSessions';
 
 // Import contexts
 import { useLayerStack } from './contexts/LayerStackContext';
@@ -73,21 +74,6 @@ import { TAB_SHORTCUTS } from './constants/shortcuts';
 import { shouldOpenExternally, getAllFolderPaths, flattenTree } from './utils/fileExplorer';
 import { substituteTemplateVariables } from './utils/templateVariables';
 import { validateNewSession } from './utils/sessionValidation';
-
-// Strip leading emojis from a string for alphabetical sorting
-// Matches common emoji patterns at the start of the string
-const stripLeadingEmojis = (str: string): string => {
-  // Match emojis at the start: emoji characters, variation selectors, ZWJ sequences, etc.
-  const emojiRegex = /^(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F?|\p{Emoji_Modifier_Base}\p{Emoji_Modifier}?)+\s*/gu;
-  return str.replace(emojiRegex, '').trim();
-};
-
-// Compare two names, ignoring leading emojis for alphabetization
-const compareNamesIgnoringEmojis = (a: string, b: string): number => {
-  const aStripped = stripLeadingEmojis(a);
-  const bStripped = stripLeadingEmojis(b);
-  return aStripped.localeCompare(bStripped);
-};
 
 // Get description for Claude Code slash commands
 // Built-in commands have known descriptions, custom ones use a generic description
@@ -2270,53 +2256,13 @@ export default function MaestroConsole() {
     setLightboxImages(contextImages || []);
   }, []);
 
-  // Create sorted sessions array that matches visual display order (includes ALL sessions)
-  // Note: sorting ignores leading emojis for proper alphabetization
-  const sortedSessions = useMemo(() => {
-    const sorted: Session[] = [];
-
-    // First, add sessions from sorted groups (ignoring leading emojis)
-    const sortedGroups = [...groups].sort((a, b) => compareNamesIgnoringEmojis(a.name, b.name));
-    sortedGroups.forEach(group => {
-      const groupSessions = sessions
-        .filter(s => s.groupId === group.id)
-        .sort((a, b) => compareNamesIgnoringEmojis(a.name, b.name));
-      sorted.push(...groupSessions);
-    });
-
-    // Then, add ungrouped sessions (sorted alphabetically, ignoring leading emojis)
-    const ungroupedSessions = sessions
-      .filter(s => !s.groupId)
-      .sort((a, b) => compareNamesIgnoringEmojis(a.name, b.name));
-    sorted.push(...ungroupedSessions);
-
-    return sorted;
-  }, [sessions, groups]);
-
-  // Create visible sessions array for session jump shortcuts (Opt+Cmd+NUMBER)
-  // Order: Bookmarked sessions first (if bookmarks folder expanded), then groups/ungrouped
-  // Note: A session can appear twice if it's both bookmarked and in an expanded group
-  const visibleSessions = useMemo(() => {
-    const result: Session[] = [];
-
-    // Add bookmarked sessions first (if bookmarks folder is expanded)
-    if (!bookmarksCollapsed) {
-      const bookmarkedSessions = sessions
-        .filter(s => s.bookmarked)
-        .sort((a, b) => compareNamesIgnoringEmojis(a.name, b.name));
-      result.push(...bookmarkedSessions);
-    }
-
-    // Add sessions from expanded groups and ungrouped sessions
-    const groupAndUngrouped = sortedSessions.filter(session => {
-      if (!session.groupId) return true; // Ungrouped sessions always visible
-      const group = groups.find(g => g.id === session.groupId);
-      return group && !group.collapsed; // Only show if group is expanded
-    });
-    result.push(...groupAndUngrouped);
-
-    return result;
-  }, [sortedSessions, groups, sessions, bookmarksCollapsed]);
+  // --- SESSION SORTING ---
+  // Extracted hook for sorted and visible session lists (ignores leading emojis for alphabetization)
+  const { sortedSessions, visibleSessions } = useSortedSessions({
+    sessions,
+    groups,
+    bookmarksCollapsed,
+  });
 
   // --- KEYBOARD NAVIGATION ---
   // Extracted hook for sidebar navigation, panel focus, and related keyboard handlers

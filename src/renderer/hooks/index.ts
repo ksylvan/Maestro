@@ -28,6 +28,7 @@ export { useGroupManagement } from './useGroupManagement';
 export { useWebBroadcasting } from './useWebBroadcasting';
 export { useCliActivityMonitoring } from './useCliActivityMonitoring';
 export { useThemeStyles } from './useThemeStyles';
+export { useSortedSessions, stripLeadingEmojis, compareNamesIgnoringEmojis } from './useSortedSessions';
 
 export type { UseSettingsReturn } from './useSettings';
 export type { UseSessionManagerReturn } from './useSessionManager';
@@ -100,3 +101,7 @@ export type {
   UseThemeStylesReturn,
   ThemeColors,
 } from './useThemeStyles';
+export type {
+  UseSortedSessionsDeps,
+  UseSortedSessionsReturn,
+} from './useSortedSessions';
