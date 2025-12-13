@@ -11,36 +11,13 @@ import { tunnelManager } from './tunnel-manager';
 import { getThemeById } from './themes';
 import Store from 'electron-store';
 import { registerGitHandlers, registerAutorunHandlers, registerHistoryHandlers, registerAgentsHandlers, registerProcessHandlers, registerPersistenceHandlers, registerSystemHandlers, setupLoggerEventForwarding } from './ipc/handlers';
+import { DEMO_MODE, DEMO_DATA_PATH, CLAUDE_SESSION_PARSE_LIMITS, CLAUDE_PRICING } from './constants';
 
 // Demo mode: use a separate data directory for fresh demos
-const DEMO_MODE = process.argv.includes('--demo') || !!process.env.MAESTRO_DEMO_DIR;
 if (DEMO_MODE) {
-  const demoPath = process.env.MAESTRO_DEMO_DIR || path.join(os.tmpdir(), 'maestro-demo');
-  app.setPath('userData', demoPath);
-  console.log(`[DEMO MODE] Using data directory: ${demoPath}`);
+  app.setPath('userData', DEMO_DATA_PATH);
+  console.log(`[DEMO MODE] Using data directory: ${DEMO_DATA_PATH}`);
 }
-
-// Constants for Claude session parsing
-const CLAUDE_SESSION_PARSE_LIMITS = {
-  /** Max lines to scan from start of file to find first user message */
-  FIRST_MESSAGE_SCAN_LINES: 20,
-  /** Max lines to scan from end of file to find last timestamp */
-  LAST_TIMESTAMP_SCAN_LINES: 10,
-  /** Max lines to scan for oldest timestamp in stats calculation */
-  OLDEST_TIMESTAMP_SCAN_LINES: 5,
-  /** Batch size for processing session files (allows UI updates) */
-  STATS_BATCH_SIZE: 20,
-  /** Max characters for first message preview */
-  FIRST_MESSAGE_PREVIEW_LENGTH: 200,
-};
-
-// Claude API pricing (per million tokens)
-const CLAUDE_PRICING = {
-  INPUT_PER_MILLION: 3,
-  OUTPUT_PER_MILLION: 15,
-  CACHE_READ_PER_MILLION: 0.30,
-  CACHE_CREATION_PER_MILLION: 3.75,
-};
 
 // Type definitions
 interface MaestroSettings {
