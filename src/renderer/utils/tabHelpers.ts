@@ -15,6 +15,37 @@ function hasDraft(tab: AITab): boolean {
 }
 
 /**
+ * Get the list of navigable tabs based on filter settings.
+ * When showUnreadOnly is true, only returns unread tabs and tabs with unsent drafts/staged images.
+ * When false (default), returns all tabs.
+ *
+ * This helper consolidates the tab filtering logic used by navigation functions.
+ *
+ * @param session - The Maestro session containing tabs
+ * @param showUnreadOnly - If true, filter to only unread tabs and tabs with drafts
+ * @returns Array of navigable AITabs (may be empty if session has no tabs or filter excludes all)
+ *
+ * @example
+ * // Get all tabs
+ * const tabs = getNavigableTabs(session);
+ *
+ * @example
+ * // Get only unread tabs and tabs with draft content
+ * const unreadTabs = getNavigableTabs(session, true);
+ */
+export function getNavigableTabs(session: Session, showUnreadOnly = false): AITab[] {
+  if (!session.aiTabs || session.aiTabs.length === 0) {
+    return [];
+  }
+
+  if (showUnreadOnly) {
+    return session.aiTabs.filter(tab => tab.hasUnread || hasDraft(tab));
+  }
+
+  return session.aiTabs;
+}
+
+/**
  * Get the currently active AI tab for a session.
  * Returns the tab matching activeTabId, or the first tab if not found.
  * Returns undefined if the session has no tabs.
@@ -412,11 +443,7 @@ export function navigateToNextTab(session: Session, showUnreadOnly = false): Set
     return null;
   }
 
-  // Get the list of tabs to navigate through
-  // When filtering, include unread tabs and tabs with drafts (unsent input or staged images)
-  const navigableTabs = showUnreadOnly
-    ? session.aiTabs.filter(tab => tab.hasUnread || hasDraft(tab))
-    : session.aiTabs;
+  const navigableTabs = getNavigableTabs(session, showUnreadOnly);
 
   if (navigableTabs.length === 0) {
     return null;
@@ -475,11 +502,7 @@ export function navigateToPrevTab(session: Session, showUnreadOnly = false): Set
     return null;
   }
 
-  // Get the list of tabs to navigate through
-  // When filtering, include unread tabs and tabs with drafts (unsent input or staged images)
-  const navigableTabs = showUnreadOnly
-    ? session.aiTabs.filter(tab => tab.hasUnread || hasDraft(tab))
-    : session.aiTabs;
+  const navigableTabs = getNavigableTabs(session, showUnreadOnly);
 
   if (navigableTabs.length === 0) {
     return null;
@@ -540,11 +563,7 @@ export function navigateToTabByIndex(session: Session, index: number, showUnread
     return null;
   }
 
-  // Get the list of tabs to navigate through
-  // When filtering, include unread tabs and tabs with drafts (unsent input or staged images)
-  const navigableTabs = showUnreadOnly
-    ? session.aiTabs.filter(tab => tab.hasUnread || hasDraft(tab))
-    : session.aiTabs;
+  const navigableTabs = getNavigableTabs(session, showUnreadOnly);
 
   // Check if index is within bounds
   if (index < 0 || index >= navigableTabs.length) {
@@ -586,14 +605,7 @@ export function navigateToTabByIndex(session: Session, index: number, showUnread
  * }
  */
 export function navigateToLastTab(session: Session, showUnreadOnly = false): SetActiveTabResult | null {
-  if (!session.aiTabs || session.aiTabs.length === 0) {
-    return null;
-  }
-
-  // When filtering, include unread tabs and tabs with drafts (unsent input or staged images)
-  const navigableTabs = showUnreadOnly
-    ? session.aiTabs.filter(tab => tab.hasUnread || hasDraft(tab))
-    : session.aiTabs;
+  const navigableTabs = getNavigableTabs(session, showUnreadOnly);
 
   if (navigableTabs.length === 0) {
     return null;

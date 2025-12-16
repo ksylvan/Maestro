@@ -9,6 +9,7 @@
  * - setActiveTab
  * - getWriteModeTab
  * - getBusyTabs
+ * - getNavigableTabs
  * - navigateToNextTab
  * - navigateToPrevTab
  * - navigateToTabByIndex
@@ -24,6 +25,7 @@ import {
   setActiveTab,
   getWriteModeTab,
   getBusyTabs,
+  getNavigableTabs,
   navigateToNextTab,
   navigateToPrevTab,
   navigateToTabByIndex,
@@ -555,6 +557,108 @@ describe('tabHelpers', () => {
       expect(result).toHaveLength(2);
       expect(result).toContain(tab1);
       expect(result).toContain(tab3);
+    });
+  });
+
+  describe('getNavigableTabs', () => {
+    it('returns empty array for session with no tabs', () => {
+      const session = createMockSession({ aiTabs: [] });
+      expect(getNavigableTabs(session)).toEqual([]);
+    });
+
+    it('returns empty array for session with undefined aiTabs', () => {
+      const session = createMockSession();
+      (session as any).aiTabs = undefined;
+      expect(getNavigableTabs(session)).toEqual([]);
+    });
+
+    it('returns all tabs when showUnreadOnly is false', () => {
+      const tab1 = createMockTab({ id: 'tab-1', hasUnread: false });
+      const tab2 = createMockTab({ id: 'tab-2', hasUnread: true });
+      const tab3 = createMockTab({ id: 'tab-3', hasUnread: false });
+      const session = createMockSession({ aiTabs: [tab1, tab2, tab3] });
+
+      const result = getNavigableTabs(session, false);
+
+      expect(result).toHaveLength(3);
+      expect(result).toContain(tab1);
+      expect(result).toContain(tab2);
+      expect(result).toContain(tab3);
+    });
+
+    it('returns same array as session.aiTabs when showUnreadOnly is false', () => {
+      const tab1 = createMockTab({ id: 'tab-1' });
+      const tab2 = createMockTab({ id: 'tab-2' });
+      const session = createMockSession({ aiTabs: [tab1, tab2] });
+
+      const result = getNavigableTabs(session, false);
+
+      expect(result).toBe(session.aiTabs);
+    });
+
+    it('returns only unread tabs when showUnreadOnly is true', () => {
+      const tab1 = createMockTab({ id: 'tab-1', hasUnread: false });
+      const tab2 = createMockTab({ id: 'tab-2', hasUnread: true });
+      const tab3 = createMockTab({ id: 'tab-3', hasUnread: true });
+      const session = createMockSession({ aiTabs: [tab1, tab2, tab3] });
+
+      const result = getNavigableTabs(session, true);
+
+      expect(result).toHaveLength(2);
+      expect(result).toContain(tab2);
+      expect(result).toContain(tab3);
+    });
+
+    it('includes tabs with draft input when showUnreadOnly is true', () => {
+      const tab1 = createMockTab({ id: 'tab-1', hasUnread: false, inputValue: '' });
+      const tab2 = createMockTab({ id: 'tab-2', hasUnread: false, inputValue: 'draft text' });
+      const tab3 = createMockTab({ id: 'tab-3', hasUnread: false, inputValue: '   ' });
+      const session = createMockSession({ aiTabs: [tab1, tab2, tab3] });
+
+      const result = getNavigableTabs(session, true);
+
+      expect(result).toHaveLength(1);
+      expect(result).toContain(tab2);
+    });
+
+    it('includes tabs with staged images when showUnreadOnly is true', () => {
+      const tab1 = createMockTab({ id: 'tab-1', hasUnread: false, stagedImages: [] });
+      const tab2 = createMockTab({ id: 'tab-2', hasUnread: false, stagedImages: ['image-data'] });
+      const session = createMockSession({ aiTabs: [tab1, tab2] });
+
+      const result = getNavigableTabs(session, true);
+
+      expect(result).toHaveLength(1);
+      expect(result).toContain(tab2);
+    });
+
+    it('includes tabs that have both unread and draft', () => {
+      const tab1 = createMockTab({ id: 'tab-1', hasUnread: true, inputValue: 'draft' });
+      const session = createMockSession({ aiTabs: [tab1] });
+
+      const result = getNavigableTabs(session, true);
+
+      expect(result).toHaveLength(1);
+      expect(result).toContain(tab1);
+    });
+
+    it('returns empty array when no tabs match filter criteria', () => {
+      const tab1 = createMockTab({ id: 'tab-1', hasUnread: false, inputValue: '' });
+      const tab2 = createMockTab({ id: 'tab-2', hasUnread: false, inputValue: '' });
+      const session = createMockSession({ aiTabs: [tab1, tab2] });
+
+      expect(getNavigableTabs(session, true)).toEqual([]);
+    });
+
+    it('defaults showUnreadOnly to false', () => {
+      const tab1 = createMockTab({ id: 'tab-1', hasUnread: false });
+      const tab2 = createMockTab({ id: 'tab-2', hasUnread: false });
+      const session = createMockSession({ aiTabs: [tab1, tab2] });
+
+      // Called without second argument
+      const result = getNavigableTabs(session);
+
+      expect(result).toHaveLength(2);
     });
   });
 
