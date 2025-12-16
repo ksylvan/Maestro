@@ -369,6 +369,10 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
           e.preventDefault();
           ctx.toggleUnreadFilter();
         }
+        if (ctx.isTabShortcut(e, 'toggleTabUnread')) {
+          e.preventDefault();
+          ctx.toggleTabUnread();
+        }
         if (ctx.isTabShortcut(e, 'nextTab')) {
           e.preventDefault();
           const result = ctx.navigateToNextTab(ctx.activeSession, ctx.showUnreadOnly);

@@ -3005,6 +3005,23 @@ export default function MaestroConsole() {
     }));
   }, [activeSession]);
 
+  // Toggle unread status on the current active tab
+  const toggleTabUnread = useCallback(() => {
+    if (!activeSession) return;
+    const tab = getActiveTab(activeSession);
+    if (!tab) return;
+
+    setSessions(prev => prev.map(s => {
+      if (s.id !== activeSession.id) return s;
+      return {
+        ...s,
+        aiTabs: s.aiTabs.map(t =>
+          t.id === tab.id ? { ...t, hasUnread: !t.hasUnread } : t
+        )
+      };
+    }));
+  }, [activeSession]);
+
   // Toggle global live mode (enables web interface for all sessions)
   const toggleGlobalLive = async () => {
     try {
@@ -4201,7 +4218,7 @@ export default function MaestroConsole() {
     setRenameTabModalOpen, navigateToNextTab, navigateToPrevTab, navigateToTabByIndex, navigateToLastTab,
     setFileTreeFilterOpen, isShortcut, isTabShortcut, handleNavBack, handleNavForward, toggleUnreadFilter,
     setTabSwitcherOpen, showUnreadOnly, stagedImages, handleSetLightboxImage, setMarkdownEditMode,
-    toggleTabStar, setPromptComposerOpen, openWizardModal, rightPanelRef, setFuzzyFileSearchOpen,
+    toggleTabStar, toggleTabUnread, setPromptComposerOpen, openWizardModal, rightPanelRef, setFuzzyFileSearchOpen,
     // Navigation handlers from useKeyboardNavigation hook
     handleSidebarNavigation, handleTabNavigation, handleEnterToActivate, handleEscapeInMain
   };
