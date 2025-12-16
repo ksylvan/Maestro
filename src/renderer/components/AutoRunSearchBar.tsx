@@ -1,6 +1,8 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import { Search, ChevronUp, ChevronDown, X } from 'lucide-react';
 import type { Theme } from '../types';
+import { useLayerStack } from '../contexts/LayerStackContext';
+import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 
 export interface AutoRunSearchBarProps {
   theme: Theme;
@@ -35,6 +37,19 @@ export function AutoRunSearchBar({
   onClose,
 }: AutoRunSearchBarProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const { registerLayer, unregisterLayer } = useLayerStack();
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // Register with layer stack so Escape closes search before modal
+  useEffect(() => {
+    const id = registerLayer({
+      type: 'modal',
+      priority: MODAL_PRIORITIES.AUTORUN_SEARCH,
+      onEscape: () => onCloseRef.current(),
+    });
+    return () => unregisterLayer(id);
+  }, [registerLayer, unregisterLayer]);
 
   // Auto-focus the search input when the component mounts
   useEffect(() => {
@@ -42,19 +57,16 @@ export function AutoRunSearchBar({
   }, []);
 
   // Handle keyboard navigation within the search input
+  // Note: Escape is now handled by the layer stack, not here
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      onClose();
-    } else if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       onNextMatch();
     } else if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault();
       onPrevMatch();
     }
-  }, [onClose, onNextMatch, onPrevMatch]);
+  }, [onNextMatch, onPrevMatch]);
 
   return (
     <div

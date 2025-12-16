@@ -66,6 +66,7 @@ interface QuickActionsModalProps {
   wizardGoToStep?: (step: WizardStep) => void;
   setDebugWizardModalOpen?: (open: boolean) => void;
   startTour?: () => void;
+  setFuzzyFileSearchOpen?: (open: boolean) => void;
 }
 
 export function QuickActionsModal(props: QuickActionsModalProps) {
@@ -80,7 +81,7 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
     setShortcutsHelpOpen, setAboutModalOpen, setLogViewerOpen, setProcessMonitorOpen,
     setAgentSessionsOpen, setActiveClaudeSessionId, setGitDiffPreview, setGitLogOpen,
     onRenameTab, onToggleReadOnlyMode, onOpenTabSwitcher, tabShortcuts, isAiMode, setPlaygroundOpen, onRefreshGitFileState,
-    onDebugReleaseQueuedItem, markdownEditMode, onToggleMarkdownEditMode, setUpdateCheckModalOpen, openWizard, wizardGoToStep, setDebugWizardModalOpen, startTour
+    onDebugReleaseQueuedItem, markdownEditMode, onToggleMarkdownEditMode, setUpdateCheckModalOpen, openWizard, wizardGoToStep, setDebugWizardModalOpen, startTour, setFuzzyFileSearchOpen
   } = props;
 
   const [search, setSearch] = useState('');
@@ -269,6 +270,7 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
     { id: 'goToFiles', label: 'Go to Files Tab', shortcut: shortcuts.goToFiles, action: () => { setRightPanelOpen(true); setActiveRightTab('files'); setQuickActionOpen(false); } },
     { id: 'goToHistory', label: 'Go to History Tab', shortcut: shortcuts.goToHistory, action: () => { setRightPanelOpen(true); setActiveRightTab('history'); setQuickActionOpen(false); } },
     { id: 'goToAutoRun', label: 'Go to Auto Run Tab', shortcut: shortcuts.goToAutoRun, action: () => { setRightPanelOpen(true); setActiveRightTab('autorun'); setQuickActionOpen(false); } },
+    ...(setFuzzyFileSearchOpen ? [{ id: 'fuzzyFileSearch', label: 'Fuzzy File Search', shortcut: shortcuts.fuzzyFileSearch, action: () => { setFuzzyFileSearchOpen(true); setQuickActionOpen(false); } }] : []),
     // Debug commands - only visible when user types "debug"
     { id: 'debugResetBusy', label: 'Debug: Reset Busy State', subtext: 'Clear stuck thinking/busy state for all sessions', action: () => {
       // Reset all sessions and tabs to idle state

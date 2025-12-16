@@ -4543,6 +4543,7 @@ export default function MaestroConsole() {
             setTourFromWizard(false);
             setTourOpen(true);
           }}
+          setFuzzyFileSearchOpen={setFuzzyFileSearchOpen}
         />
       )}
       {lightboxImage && (
