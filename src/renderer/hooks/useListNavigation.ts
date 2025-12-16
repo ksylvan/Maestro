@@ -221,7 +221,7 @@ export function useListNavigation(
   const navigatePageUp = useCallback(() => {
     if (listLength === 0) return;
     setSelectedIndex((prev) => Math.max(prev - pageSize, 0));
-  }, [pageSize]);
+  }, [listLength, pageSize]);
 
   const navigateToStart = useCallback(() => {
     setSelectedIndex(0);

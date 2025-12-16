@@ -5,6 +5,7 @@ import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { Diff, Hunk } from 'react-diff-view';
 import { parseGitDiff } from '../utils/gitDiffParser';
+import { useListNavigation } from '../hooks';
 import 'react-diff-view/style/index.css';
 
 interface GitLogEntry {
@@ -29,12 +30,20 @@ export const GitLogViewer = memo(function GitLogViewer({ cwd, theme, onClose }: 
   const [totalCommits, setTotalCommits] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedIndex, setSelectedIndex] = useState(0);
   const [selectedCommitDiff, setSelectedCommitDiff] = useState<string | null>(null);
   const [loadingDiff, setLoadingDiff] = useState(false);
 
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // Keyboard navigation via shared hook
+  const { selectedIndex, setSelectedIndex, handleKeyDown } = useListNavigation({
+    listLength: entries.length,
+    onSelect: () => {}, // Click-only selection in GitLogViewer
+    enableVimKeys: true,
+    enablePageNavigation: true,
+    pageSize: 10,
+  });
 
   const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
   const layerIdRef = useRef<string>();
@@ -129,34 +138,20 @@ export const GitLogViewer = memo(function GitLogViewer({ cwd, theme, onClose }: 
     }
   }, [selectedIndex]);
 
-  // Handle keyboard navigation
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Navigate with arrow keys and j/k
-      if (e.key === 'ArrowDown' || e.key === 'j') {
-        e.preventDefault();
-        setSelectedIndex(prev => Math.min(prev + 1, entries.length - 1));
-      } else if (e.key === 'ArrowUp' || e.key === 'k') {
-        e.preventDefault();
-        setSelectedIndex(prev => Math.max(prev - 1, 0));
-      } else if (e.key === 'PageDown') {
-        e.preventDefault();
-        setSelectedIndex(prev => Math.min(prev + 10, entries.length - 1));
-      } else if (e.key === 'PageUp') {
-        e.preventDefault();
-        setSelectedIndex(prev => Math.max(prev - 10, 0));
-      } else if (e.key === 'Home') {
-        e.preventDefault();
-        setSelectedIndex(0);
-      } else if (e.key === 'End') {
-        e.preventDefault();
-        setSelectedIndex(entries.length - 1);
-      }
-    };
+  // Handle keyboard navigation via global listener
+  // Store handleKeyDown in a ref to avoid stale closure issues
+  // The ref is updated synchronously on every render, before any events can fire
+  const handleKeyDownRef = useRef(handleKeyDown);
+  handleKeyDownRef.current = handleKeyDown;
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [entries.length]);
+  useEffect(() => {
+    // Wrapper function that always calls the current handler from the ref
+    const handler = (e: KeyboardEvent) => {
+      handleKeyDownRef.current(e);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []); // Empty deps - handler wrapper never changes, but it reads current value from ref
 
   // Format date for display - time for today, full date for older commits
   const formatDate = (dateStr: string) => {
