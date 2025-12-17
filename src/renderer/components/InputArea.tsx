@@ -259,8 +259,8 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
         </div>
       )}
 
-      {/* Slash Command Autocomplete */}
-      {slashCommandOpen && filteredSlashCommands.length > 0 && (
+      {/* Slash Command Autocomplete - only show if agent supports slash commands */}
+      {slashCommandOpen && filteredSlashCommands.length > 0 && hasCapability('supportsSlashCommands') && (
         <div
           className="absolute bottom-full left-0 right-0 mb-2 border rounded-lg shadow-2xl overflow-hidden"
           style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.border }}
@@ -556,7 +556,8 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 
                 // Show slash command autocomplete when typing /
                 // Close when there's a space or newline (user is adding arguments or multiline content)
-                if (value.startsWith('/') && !value.includes(' ') && !value.includes('\n')) {
+                // Only show if agent supports slash commands
+                if (value.startsWith('/') && !value.includes(' ') && !value.includes('\n') && hasCapability('supportsSlashCommands')) {
                   // Only reset selection when modal first opens, not on every keystroke
                   if (!slashCommandOpen) {
                     setSelectedSlashCommandIndex(0);
