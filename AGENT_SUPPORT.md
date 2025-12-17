@@ -574,6 +574,19 @@ describe('YourAgentOutputParser', () => {
 | Read-only | `--agent plan` |
 | Session ID Field | `sessionID` (camelCase) |
 | Session Storage | Server-managed |
+| YOLO Mode | ✅ Auto-enabled in batch mode |
+
+**YOLO Mode (Auto-Approval) Details:**
+
+OpenCode automatically approves all tool operations in batch mode (`opencode run`). Per [official documentation](https://opencode.ai/docs/permissions/):
+
+- **Batch mode behavior:** "All permissions are auto-approved for the session" when running non-interactively
+- **No explicit flag needed:** Unlike Claude Code's `--dangerously-skip-permissions`, OpenCode's `run` subcommand inherently auto-approves
+- **Permission defaults:** Most tools run without approval by default; only `doom_loop` and `external_directory` require explicit approval in interactive mode
+- **Configurable permissions:** Advanced users can customize via `opencode.json` with granular tool-level controls (`allow`, `ask`, `deny`)
+- **Read-only operations:** Tools like `view`, `glob`, `grep`, `ls`, and `diagnostics` never require approval
+
+This makes OpenCode suitable for Maestro's batch processing use case without additional configuration.
 
 **Implementation Status:**
 - ✅ Output Parser: `src/main/parsers/opencode-output-parser.ts` (based on expected format)
