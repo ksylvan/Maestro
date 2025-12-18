@@ -44,6 +44,18 @@ export const MODAL_PRIORITIES = {
   /** Create new group modal */
   CREATE_GROUP: 800,
 
+  /** Delete group chat confirmation */
+  DELETE_GROUP_CHAT: 660,
+
+  /** New group chat creation modal */
+  NEW_GROUP_CHAT: 650,
+
+  /** Rename group chat modal */
+  RENAME_GROUP_CHAT: 640,
+
+  /** Group chat info overlay */
+  GROUP_CHAT_INFO: 630,
+
   /** Wizard exit confirmation dialog - appears above wizard when exiting mid-flow */
   WIZARD_EXIT_CONFIRM: 770,
 

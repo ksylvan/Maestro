@@ -25,7 +25,7 @@ interface AgentSelectionScreenProps {
 /**
  * Agent tile data for display
  */
-interface AgentTile {
+export interface AgentTile {
   id: string;
   name: string;
   supported: boolean; // Whether Maestro supports this agent (only Claude for now)
@@ -38,7 +38,7 @@ interface AgentTile {
  * Supported agents: Claude Code, Codex, OpenCode (shown first)
  * Unsupported agents: shown ghosted with "Coming soon" (at bottom)
  */
-const AGENT_TILES: AgentTile[] = [
+export const AGENT_TILES: AgentTile[] = [
   // Supported agents first
   {
     id: 'claude-code',
@@ -92,7 +92,7 @@ const GRID_ROWS = 2;
 /**
  * Get SVG logo for an agent with brand colors
  */
-function AgentLogo({ agentId, supported, detected, brandColor, theme }: {
+export function AgentLogo({ agentId, supported, detected, brandColor, theme }: {
   agentId: string;
   supported: boolean;
   detected: boolean;
