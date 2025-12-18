@@ -5,16 +5,17 @@
  * Log format: TIMESTAMP|FROM|CONTENT
  * - TIMESTAMP: ISO 8601 format (e.g., 2024-01-15T10:30:00.000Z)
  * - FROM: Participant name (user, moderator, or agent name)
- * - CONTENT: Message content with escaped newlines and pipes
+ * - CONTENT: Message content with escaped characters
  *
- * Escaping rules:
- * - Newlines (\n) -> \\n
- * - Pipes (|) -> \\|
- * - Backslashes before n or | are doubled for proper escaping
+ * Escaping rules (order matters for escaping: backslashes first, then pipes, then newlines):
+ * - Backslashes (\) -> \\
+ * - Pipes (|) -> \|
+ * - Newlines (\n) -> \n
  */
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Message structure for parsed log entries.
@@ -27,30 +28,49 @@ export interface GroupChatMessage {
 
 /**
  * Escapes content for storage in the pipe-delimited log format.
- * - Newlines are escaped as \\n
+ * - Backslashes are escaped as \\\\
  * - Pipes are escaped as \\|
+ * - Newlines are escaped as \\n
+ *
+ * Order matters: escape backslashes first, then pipes, then newlines.
  *
  * @param content - Raw content to escape
  * @returns Escaped content safe for log storage
  */
 export function escapeContent(content: string): string {
-  // First escape backslashes that precede n or |, then escape newlines and pipes
   return content
-    .replace(/\n/g, '\\n')
-    .replace(/\|/g, '\\|');
+    .replace(/\\/g, '\\\\')
+    .replace(/\|/g, '\\|')
+    .replace(/\n/g, '\\n');
 }
 
 /**
  * Reverses escaping to restore original content from log format.
  *
+ * Uses a single pass with alternation to correctly handle all escape sequences.
+ * This prevents issues where \\n (escaped backslash + n) would be incorrectly
+ * interpreted as an escaped newline.
+ *
  * @param escaped - Escaped content from log
  * @returns Original unescaped content
  */
 export function unescapeContent(escaped: string): string {
-  // Unescape in reverse order
-  return escaped
-    .replace(/\\\|/g, '|')
-    .replace(/\\n/g, '\n');
+  // Use a single regex with alternation to handle all escapes correctly.
+  // \\\\  matches escaped backslash
+  // \\n   matches escaped newline
+  // \\|   matches escaped pipe (note: \| in regex is just |, but \\| is backslash-pipe)
+  return escaped.replace(/\\\\|\\n|\\\|/g, (match) => {
+    switch (match) {
+      case '\\\\':
+        return '\\';
+      case '\\n':
+        return '\n';
+      case '\\|':
+        return '|';
+      default:
+        return match;
+    }
+  });
 }
 
 /**
@@ -130,4 +150,28 @@ export async function readLog(logPath: string): Promise<GroupChatMessage[]> {
     }
     throw error;
   }
+}
+
+/**
+ * Save an image to the group chat's images directory.
+ * Returns the filename for reference in chat log.
+ *
+ * @param imagesDir - Path to the images directory
+ * @param imageBuffer - The image data as a Buffer
+ * @param originalFilename - Original filename to extract extension from
+ * @returns The generated filename for the saved image
+ */
+export async function saveImage(
+  imagesDir: string,
+  imageBuffer: Buffer,
+  originalFilename: string
+): Promise<string> {
+  const ext = path.extname(originalFilename) || '.png';
+  const filename = `image-${uuidv4().slice(0, 8)}${ext}`;
+  const filepath = path.join(imagesDir, filename);
+
+  await fs.mkdir(imagesDir, { recursive: true });
+  await fs.writeFile(filepath, imageBuffer);
+
+  return filename;
 }

@@ -19,6 +19,7 @@ import {
   unescapeContent,
   appendToLog,
   readLog,
+  saveImage,
 } from '../../../main/group-chat/group-chat-log';
 
 describe('group-chat-log', () => {
@@ -73,6 +74,21 @@ describe('group-chat-log', () => {
     it('handles multiple consecutive pipes', () => {
       expect(escapeContent('a|||b')).toBe('a\\|\\|\\|b');
     });
+
+    it('escapes backslashes', () => {
+      expect(escapeContent('a\\b')).toBe('a\\\\b');
+    });
+
+    it('escapes backslash followed by n (literal, not newline)', () => {
+      // String with literal backslash-n (not a newline character)
+      const input = 'foo' + String.fromCharCode(92) + 'nbar';
+      expect(escapeContent(input)).toBe('foo\\\\nbar');
+    });
+
+    it('escapes backslash followed by pipe', () => {
+      const input = 'a' + String.fromCharCode(92) + '|b';
+      expect(escapeContent(input)).toBe('a\\\\\\|b');
+    });
   });
 
   // ===========================================================================
@@ -93,6 +109,27 @@ describe('group-chat-log', () => {
 
     it('reverses escapeContent', () => {
       const original = 'Hello\nWorld|Test';
+      const escaped = escapeContent(original);
+      expect(unescapeContent(escaped)).toBe(original);
+    });
+
+    it('unescapes backslashes', () => {
+      expect(unescapeContent('a\\\\b')).toBe('a\\b');
+    });
+
+    it('correctly handles escaped backslash followed by n', () => {
+      // \\n in file should become backslash-n (not newline)
+      expect(unescapeContent('foo\\\\nbar')).toBe('foo\\nbar');
+    });
+
+    it('correctly handles escaped newline', () => {
+      // \n in file should become actual newline
+      expect(unescapeContent('foo\\nbar')).toBe('foo\nbar');
+    });
+
+    it('round-trips complex content with backslashes', () => {
+      // String with literal backslash-n (not a newline character)
+      const original = 'foo' + String.fromCharCode(92) + 'nbar';
       const escaped = escapeContent(original);
       expect(unescapeContent(escaped)).toBe(original);
     });
@@ -229,6 +266,73 @@ describe('group-chat-log', () => {
       expect(messages).toHaveLength(1);
       expect(messages[0].from).toBe('user');
       expect(messages[0].content).toBe(testContent);
+    });
+  });
+
+  // ===========================================================================
+  // Test 1.5: saveImage saves images to the images directory
+  // ===========================================================================
+  describe('saveImage', () => {
+    it('saves image and returns filename', async () => {
+      const imagesDir = path.join(testDir, 'images');
+      const imageBuffer = Buffer.from('fake-png-data');
+
+      const filename = await saveImage(imagesDir, imageBuffer, 'screenshot.png');
+
+      expect(filename).toMatch(/^image-[a-f0-9]{8}\.png$/);
+
+      // Verify file was written
+      const savedPath = path.join(imagesDir, filename);
+      const exists = await fs.access(savedPath).then(() => true).catch(() => false);
+      expect(exists).toBe(true);
+
+      // Verify content
+      const content = await fs.readFile(savedPath);
+      expect(content.toString()).toBe('fake-png-data');
+    });
+
+    it('creates images directory if it does not exist', async () => {
+      const imagesDir = path.join(testDir, 'nested', 'images', 'dir');
+      const imageBuffer = Buffer.from('data');
+
+      await saveImage(imagesDir, imageBuffer, 'test.jpg');
+
+      const exists = await fs.access(imagesDir).then(() => true).catch(() => false);
+      expect(exists).toBe(true);
+    });
+
+    it('preserves original file extension', async () => {
+      const imagesDir = path.join(testDir, 'images');
+
+      const jpgFilename = await saveImage(imagesDir, Buffer.from('jpg'), 'photo.jpg');
+      expect(jpgFilename).toMatch(/\.jpg$/);
+
+      const gifFilename = await saveImage(imagesDir, Buffer.from('gif'), 'animation.gif');
+      expect(gifFilename).toMatch(/\.gif$/);
+
+      const webpFilename = await saveImage(imagesDir, Buffer.from('webp'), 'image.webp');
+      expect(webpFilename).toMatch(/\.webp$/);
+    });
+
+    it('defaults to .png if no extension in original filename', async () => {
+      const imagesDir = path.join(testDir, 'images');
+
+      const filename = await saveImage(imagesDir, Buffer.from('data'), 'noextension');
+      expect(filename).toMatch(/\.png$/);
+    });
+
+    it('generates unique filenames for each image', async () => {
+      const imagesDir = path.join(testDir, 'images');
+      const imageBuffer = Buffer.from('data');
+
+      const filenames = new Set<string>();
+      for (let i = 0; i < 5; i++) {
+        const filename = await saveImage(imagesDir, imageBuffer, 'image.png');
+        filenames.add(filename);
+      }
+
+      // All filenames should be unique
+      expect(filenames.size).toBe(5);
     });
   });
 });
