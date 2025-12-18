@@ -5,11 +5,12 @@ import {
   ScrollText, Cpu, Menu, Bookmark, Trophy, Trash2, Edit3, FolderInput, Download, Compass, Globe
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import type { Session, Group, Theme, Shortcut, AutoRunStats } from '../types';
+import type { Session, Group, Theme, Shortcut, AutoRunStats, GroupChat } from '../types';
 import { CONDUCTOR_BADGES, getBadgeForTime } from '../constants/conductorBadges';
 import { getStatusColor, getContextColor, formatActiveTime } from '../utils/theme';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { SessionItem } from './SessionItem';
+import { GroupChatList } from './GroupChatList';
 import { useLiveOverlay, useClickOutside } from '../hooks';
 import { useGitStatus } from '../contexts/GitStatusContext';
 
@@ -317,6 +318,14 @@ interface SessionListProps {
 
   // Ref for the sidebar container (for focus management)
   sidebarContainerRef?: React.RefObject<HTMLDivElement>;
+
+  // Group Chat props
+  groupChats?: GroupChat[];
+  activeGroupChatId?: string | null;
+  onOpenGroupChat?: (id: string) => void;
+  onNewGroupChat?: () => void;
+  onRenameGroupChat?: (id: string) => void;
+  onDeleteGroupChat?: (id: string) => void;
 }
 
 export function SessionList(props: SessionListProps) {
@@ -343,7 +352,14 @@ export function SessionList(props: SessionListProps) {
     autoRunStats,
     openWizard,
     startTour,
-    sidebarContainerRef
+    sidebarContainerRef,
+    // Group Chat props
+    groupChats = [],
+    activeGroupChatId = null,
+    onOpenGroupChat,
+    onNewGroupChat,
+    onRenameGroupChat,
+    onDeleteGroupChat
   } = props;
 
   const [sessionFilter, setSessionFilter] = useState('');
@@ -1936,6 +1952,19 @@ export function SessionList(props: SessionListProps) {
               </div>
             )}
           </div>
+          )}
+
+          {/* GROUP CHATS SECTION */}
+          {onNewGroupChat && onOpenGroupChat && onRenameGroupChat && onDeleteGroupChat && (
+            <GroupChatList
+              theme={theme}
+              groupChats={groupChats}
+              activeGroupChatId={activeGroupChatId}
+              onOpenGroupChat={onOpenGroupChat}
+              onNewGroupChat={onNewGroupChat}
+              onRenameGroupChat={onRenameGroupChat}
+              onDeleteGroupChat={onDeleteGroupChat}
+            />
           )}
         </div>
       ) : (
