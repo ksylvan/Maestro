@@ -154,7 +154,6 @@ export default function MaestroConsole() {
     llmProvider, setLlmProvider,
     modelSlug, setModelSlug,
     apiKey, setApiKey,
-    defaultAgent, setDefaultAgent,
     defaultShell, setDefaultShell,
     ghPath, setGhPath,
     fontFamily, setFontFamily,
@@ -464,10 +463,10 @@ export default function MaestroConsole() {
       let correctedSession = { ...session };
       let aiAgentType = correctedSession.toolType;
 
-      // If toolType is 'terminal', use the default agent instead for AI process
+      // If toolType is 'terminal', use claude-code instead for AI process
       if (aiAgentType === 'terminal') {
-        console.warn(`[restoreSession] Session has toolType='terminal', using default agent for AI process`);
-        aiAgentType = defaultAgent as ToolType;
+        console.warn(`[restoreSession] Session has toolType='terminal', using claude-code for AI process`);
+        aiAgentType = 'claude-code' as ToolType;
 
         // Add warning to the active tab's logs
         const warningLog: LogEntry = {
@@ -5901,7 +5900,6 @@ export default function MaestroConsole() {
         onClose={() => setNewInstanceModalOpen(false)}
         onCreate={createNewSession}
         theme={theme}
-        defaultAgent={defaultAgent}
         existingSessions={sessionsForValidation}
       />
 
@@ -5943,8 +5941,6 @@ export default function MaestroConsole() {
         setApiKey={setApiKey}
         shortcuts={shortcuts}
         setShortcuts={setShortcuts}
-        defaultAgent={defaultAgent}
-        setDefaultAgent={setDefaultAgent}
         defaultShell={defaultShell}
         setDefaultShell={setDefaultShell}
         ghPath={ghPath}

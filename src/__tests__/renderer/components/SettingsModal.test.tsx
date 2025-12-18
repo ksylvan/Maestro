@@ -147,8 +147,6 @@ const createDefaultProps = (overrides = {}) => ({
   setApiKey: vi.fn(),
   shortcuts: mockShortcuts,
   setShortcuts: vi.fn(),
-  defaultAgent: 'claude-code',
-  setDefaultAgent: vi.fn(),
   fontFamily: 'Menlo',
   setFontFamily: vi.fn(),
   fontSize: 14,
@@ -1707,81 +1705,6 @@ describe('SettingsModal', () => {
       expect(setShortcuts).not.toHaveBeenCalled();
       // Should still be in recording mode
       expect(screen.getByText('Press keys...')).toBeInTheDocument();
-    });
-  });
-
-  describe('Agent configuration options', () => {
-    it('should render checkbox config options for selected agent', async () => {
-      vi.mocked(window.maestro.agents.detect).mockResolvedValue([
-        {
-          id: 'claude-code',
-          name: 'Claude Code',
-          available: true,
-          path: '/usr/local/bin/claude',
-          hidden: false,
-          configOptions: [
-            {
-              key: 'dangerMode',
-              label: 'Danger Mode',
-              description: 'Enable dangerous operations',
-              type: 'checkbox' as const,
-              default: false,
-            },
-          ],
-        },
-      ] as AgentConfig[]);
-
-      render(<SettingsModal {...createDefaultProps({ defaultAgent: 'claude-code' })} />);
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(100);
-      });
-
-      expect(screen.getByText('Claude Code Configuration')).toBeInTheDocument();
-      expect(screen.getByText('Danger Mode')).toBeInTheDocument();
-      expect(screen.getByText('Enable dangerous operations')).toBeInTheDocument();
-    });
-
-    it('should update agent config when checkbox is changed', async () => {
-      vi.mocked(window.maestro.agents.detect).mockResolvedValue([
-        {
-          id: 'claude-code',
-          name: 'Claude Code',
-          available: true,
-          path: '/usr/local/bin/claude',
-          hidden: false,
-          configOptions: [
-            {
-              key: 'dangerMode',
-              label: 'Danger Mode',
-              description: 'Enable dangerous operations',
-              type: 'checkbox' as const,
-              default: false,
-            },
-          ],
-        },
-      ] as AgentConfig[]);
-
-      render(<SettingsModal {...createDefaultProps({ defaultAgent: 'claude-code' })} />);
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(100);
-      });
-
-      // Find the checkbox in the config section
-      const checkbox = screen.getByText('Danger Mode').closest('label')?.querySelector('input[type="checkbox"]');
-      expect(checkbox).toBeDefined();
-
-      fireEvent.click(checkbox!);
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(50);
-      });
-
-      expect((window.maestro as any).agents.setConfig).toHaveBeenCalledWith(
-        'claude-code',
-        expect.objectContaining({ dangerMode: true })
-      );
     });
   });
 

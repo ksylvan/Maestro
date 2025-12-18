@@ -26,7 +26,6 @@ interface NewInstanceModalProps {
   onClose: () => void;
   onCreate: (agentId: string, workingDir: string, name: string, nudgeMessage?: string) => void;
   theme: any;
-  defaultAgent: string;
   existingSessions: Session[];
 }
 
@@ -42,9 +41,9 @@ interface EditAgentModalProps {
 // Supported agents that are fully implemented
 const SUPPORTED_AGENTS = ['claude-code', 'opencode', 'codex'];
 
-export function NewInstanceModal({ isOpen, onClose, onCreate, theme, defaultAgent, existingSessions }: NewInstanceModalProps) {
+export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSessions }: NewInstanceModalProps) {
   const [agents, setAgents] = useState<AgentConfig[]>([]);
-  const [selectedAgent, setSelectedAgent] = useState(defaultAgent);
+  const [selectedAgent, setSelectedAgent] = useState('');
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [workingDir, setWorkingDir] = useState('');
   const [instanceName, setInstanceName] = useState('');
@@ -103,13 +102,9 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, defaultAgen
       }
       setAgentConfigs(configs);
 
-      // Set default or first available
-      const defaultAvailable = detectedAgents.find((a: AgentConfig) => a.id === defaultAgent && a.available);
+      // Select first available agent
       const firstAvailable = detectedAgents.find((a: AgentConfig) => a.available);
-
-      if (defaultAvailable) {
-        setSelectedAgent(defaultAgent);
-      } else if (firstAvailable) {
+      if (firstAvailable) {
         setSelectedAgent(firstAvailable.id);
       }
     } catch (error) {
@@ -205,7 +200,7 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, defaultAgen
       // Keep all agents collapsed by default
       setExpandedAgent(null);
     }
-  }, [isOpen, defaultAgent]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

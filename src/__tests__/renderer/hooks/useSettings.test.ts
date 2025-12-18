@@ -49,11 +49,10 @@ describe('useSettings', () => {
       expect(result.current.apiKey).toBe('');
     });
 
-    it('should have correct default values for agent settings', async () => {
+    it('should have correct default values for shell settings', async () => {
       const { result } = renderHook(() => useSettings());
       await waitForSettingsLoaded(result);
 
-      expect(result.current.defaultAgent).toBe('claude-code');
       expect(result.current.defaultShell).toBe('zsh');
       expect(result.current.ghPath).toBe('');
     });
@@ -369,19 +368,7 @@ describe('useSettings', () => {
     });
   });
 
-  describe('setter functions - agent settings', () => {
-    it('should update defaultAgent and persist to settings', async () => {
-      const { result } = renderHook(() => useSettings());
-      await waitForSettingsLoaded(result);
-
-      act(() => {
-        result.current.setDefaultAgent('aider');
-      });
-
-      expect(result.current.defaultAgent).toBe('aider');
-      expect(window.maestro.settings.set).toHaveBeenCalledWith('defaultAgent', 'aider');
-    });
-
+  describe('setter functions - shell settings', () => {
     it('should update defaultShell and persist to settings', async () => {
       const { result } = renderHook(() => useSettings());
       await waitForSettingsLoaded(result);

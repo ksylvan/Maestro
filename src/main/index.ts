@@ -57,7 +57,6 @@ interface MaestroSettings {
   modelSlug: string;
   apiKey: string;
   shortcuts: Record<string, any>;
-  defaultAgent: string;
   fontSize: number;
   fontFamily: string;
   customFonts: string[];
@@ -79,7 +78,6 @@ const store = new Store<MaestroSettings>({
     modelSlug: 'anthropic/claude-3.5-sonnet',
     apiKey: '',
     shortcuts: {},
-    defaultAgent: 'claude-code',
     fontSize: 14,
     fontFamily: 'Roboto Mono, Menlo, "Courier New", monospace',
     customFonts: [],

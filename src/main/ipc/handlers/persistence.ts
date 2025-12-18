@@ -27,7 +27,6 @@ export interface MaestroSettings {
   modelSlug: string;
   apiKey: string;
   shortcuts: Record<string, any>;
-  defaultAgent: string;
   fontSize: number;
   fontFamily: string;
   customFonts: string[];

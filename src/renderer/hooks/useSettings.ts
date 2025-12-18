@@ -82,10 +82,6 @@ export interface UseSettingsReturn {
   setModelSlug: (value: string) => void;
   setApiKey: (value: string) => void;
 
-  // Agent settings
-  defaultAgent: string;
-  setDefaultAgent: (value: string) => void;
-
   // Shell settings
   defaultShell: string;
   setDefaultShell: (value: string) => void;
@@ -231,9 +227,6 @@ export function useSettings(): UseSettingsReturn {
   const [modelSlug, setModelSlugState] = useState('anthropic/claude-3.5-sonnet');
   const [apiKey, setApiKeyState] = useState('');
 
-  // Agent Config
-  const [defaultAgent, setDefaultAgentState] = useState('claude-code');
-
   // Shell Config
   const [defaultShell, setDefaultShellState] = useState('zsh');
 
@@ -327,11 +320,6 @@ export function useSettings(): UseSettingsReturn {
   const setApiKey = useCallback((value: string) => {
     setApiKeyState(value);
     window.maestro.settings.set('apiKey', value);
-  }, []);
-
-  const setDefaultAgent = useCallback((value: string) => {
-    setDefaultAgentState(value);
-    window.maestro.settings.set('defaultAgent', value);
   }, []);
 
   const setDefaultShell = useCallback((value: string) => {
@@ -876,7 +864,6 @@ export function useSettings(): UseSettingsReturn {
       const savedLlmProvider = await window.maestro.settings.get('llmProvider');
       const savedModelSlug = await window.maestro.settings.get('modelSlug');
       const savedApiKey = await window.maestro.settings.get('apiKey');
-      const savedDefaultAgent = await window.maestro.settings.get('defaultAgent');
       const savedDefaultShell = await window.maestro.settings.get('defaultShell');
       const savedGhPath = await window.maestro.settings.get('ghPath');
       const savedFontSize = await window.maestro.settings.get('fontSize');
@@ -920,7 +907,6 @@ export function useSettings(): UseSettingsReturn {
       if (savedLlmProvider !== undefined) setLlmProviderState(savedLlmProvider);
       if (savedModelSlug !== undefined) setModelSlugState(savedModelSlug);
       if (savedApiKey !== undefined) setApiKeyState(savedApiKey);
-      if (savedDefaultAgent !== undefined) setDefaultAgentState(savedDefaultAgent);
       if (savedDefaultShell !== undefined) setDefaultShellState(savedDefaultShell);
       if (savedGhPath !== undefined) setGhPathState(savedGhPath);
       if (savedFontSize !== undefined) setFontSizeState(savedFontSize);
@@ -1077,8 +1063,6 @@ export function useSettings(): UseSettingsReturn {
     setLlmProvider,
     setModelSlug,
     setApiKey,
-    defaultAgent,
-    setDefaultAgent,
     defaultShell,
     setDefaultShell,
     ghPath,
@@ -1175,7 +1159,6 @@ export function useSettings(): UseSettingsReturn {
     llmProvider,
     modelSlug,
     apiKey,
-    defaultAgent,
     defaultShell,
     ghPath,
     fontFamily,
@@ -1215,7 +1198,6 @@ export function useSettings(): UseSettingsReturn {
     setLlmProvider,
     setModelSlug,
     setApiKey,
-    setDefaultAgent,
     setDefaultShell,
     setGhPath,
     setFontFamily,

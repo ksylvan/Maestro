@@ -120,7 +120,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -138,7 +137,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -156,7 +154,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -172,7 +169,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -193,7 +189,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -215,7 +210,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -242,7 +236,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -264,7 +257,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -286,7 +278,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -309,7 +300,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -332,7 +322,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="unavailable-agent"
         existingSessions={[]}
         />
       );
@@ -357,7 +346,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent=""
         existingSessions={[]}
         />
       );
@@ -382,7 +370,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent=""
         existingSessions={[]}
         />
       );
@@ -409,7 +396,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -442,7 +428,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -484,7 +469,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -530,7 +514,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -568,7 +551,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -593,7 +575,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -618,7 +599,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -643,7 +623,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -676,7 +655,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -710,7 +688,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -745,7 +722,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -780,7 +756,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -816,7 +791,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -851,7 +825,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -879,7 +852,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -903,7 +875,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -930,7 +901,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -957,7 +927,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -981,7 +950,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1005,7 +973,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1032,7 +999,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1062,7 +1028,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1091,7 +1056,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1126,7 +1090,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1154,7 +1117,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1188,7 +1150,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1215,7 +1176,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1228,7 +1188,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1247,7 +1206,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1259,7 +1217,6 @@ describe('NewInstanceModal', () => {
           onClose={newOnClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1280,7 +1237,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1311,7 +1267,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1339,7 +1294,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1378,7 +1332,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1411,7 +1364,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1452,7 +1404,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1477,7 +1428,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1511,7 +1461,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1533,7 +1482,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1555,7 +1503,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1579,7 +1526,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1600,7 +1546,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1622,7 +1567,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1642,7 +1586,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1666,7 +1609,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1692,7 +1634,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1716,7 +1657,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
@@ -1754,7 +1694,6 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-          defaultAgent="claude-code"
         existingSessions={[]}
         />
       );
