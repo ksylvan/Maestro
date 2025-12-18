@@ -208,6 +208,10 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
         e.preventDefault();
         ctx.openWizardModal();
       }
+      else if (ctx.isShortcut(e, 'newGroupChat')) {
+        e.preventDefault();
+        ctx.setShowNewGroupChatModal(true);
+      }
       else if (ctx.isShortcut(e, 'focusInput')) {
         e.preventDefault();
         // Toggle between input and main panel output for keyboard scrolling

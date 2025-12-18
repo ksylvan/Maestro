@@ -4555,6 +4555,7 @@ export default function MaestroConsole() {
     setFileTreeFilterOpen, isShortcut, isTabShortcut, handleNavBack, handleNavForward, toggleUnreadFilter,
     setTabSwitcherOpen, showUnreadOnly, stagedImages, handleSetLightboxImage, setMarkdownEditMode,
     toggleTabStar, toggleTabUnread, setPromptComposerOpen, openWizardModal, rightPanelRef, setFuzzyFileSearchOpen,
+    setShowNewGroupChatModal,
     // Navigation handlers from useKeyboardNavigation hook
     handleSidebarNavigation, handleTabNavigation, handleEnterToActivate, handleEscapeInMain
   };
@@ -4885,6 +4886,9 @@ export default function MaestroConsole() {
             setEditAgentSession(session);
             setEditAgentModalOpen(true);
           }}
+          onNewGroupChat={() => setShowNewGroupChatModal(true)}
+          onCloseGroupChat={handleCloseGroupChat}
+          activeGroupChatId={activeGroupChatId}
           isLiveMode={isLiveMode}
           onToggleRemoteControl={async () => {
             await toggleGlobalLive();

@@ -69,6 +69,10 @@ interface QuickActionsModalProps {
   startTour?: () => void;
   setFuzzyFileSearchOpen?: (open: boolean) => void;
   onEditAgent?: (session: Session) => void;
+  // Group Chat
+  onNewGroupChat?: () => void;
+  onCloseGroupChat?: () => void;
+  activeGroupChatId?: string | null;
 }
 
 export function QuickActionsModal(props: QuickActionsModalProps) {
@@ -83,7 +87,8 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
     setShortcutsHelpOpen, setAboutModalOpen, setLogViewerOpen, setProcessMonitorOpen,
     setAgentSessionsOpen, setActiveAgentSessionId, setGitDiffPreview, setGitLogOpen,
     onRenameTab, onToggleReadOnlyMode, onOpenTabSwitcher, tabShortcuts, isAiMode, setPlaygroundOpen, onRefreshGitFileState,
-    onDebugReleaseQueuedItem, markdownEditMode, onToggleMarkdownEditMode, setUpdateCheckModalOpen, openWizard, wizardGoToStep, setDebugWizardModalOpen, startTour, setFuzzyFileSearchOpen, onEditAgent
+    onDebugReleaseQueuedItem, markdownEditMode, onToggleMarkdownEditMode, setUpdateCheckModalOpen, openWizard, wizardGoToStep, setDebugWizardModalOpen, startTour, setFuzzyFileSearchOpen, onEditAgent,
+    onNewGroupChat, onCloseGroupChat, activeGroupChatId
   } = props;
 
   const [search, setSearch] = useState('');
@@ -282,6 +287,9 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
     { id: 'goToHistory', label: 'Go to History Tab', shortcut: shortcuts.goToHistory, action: () => { setRightPanelOpen(true); setActiveRightTab('history'); setQuickActionOpen(false); } },
     { id: 'goToAutoRun', label: 'Go to Auto Run Tab', shortcut: shortcuts.goToAutoRun, action: () => { setRightPanelOpen(true); setActiveRightTab('autorun'); setQuickActionOpen(false); } },
     ...(setFuzzyFileSearchOpen ? [{ id: 'fuzzyFileSearch', label: 'Fuzzy File Search', shortcut: shortcuts.fuzzyFileSearch, action: () => { setFuzzyFileSearchOpen(true); setQuickActionOpen(false); } }] : []),
+    // Group Chat commands
+    ...(onNewGroupChat ? [{ id: 'newGroupChat', label: 'New Group Chat', shortcut: shortcuts.newGroupChat, action: () => { onNewGroupChat(); setQuickActionOpen(false); } }] : []),
+    ...(activeGroupChatId && onCloseGroupChat ? [{ id: 'closeGroupChat', label: 'Close Group Chat', action: () => { onCloseGroupChat(); setQuickActionOpen(false); } }] : []),
     // Debug commands - only visible when user types "debug"
     { id: 'debugResetBusy', label: 'Debug: Reset Busy State', subtext: 'Clear stuck thinking/busy state for all sessions', action: () => {
       // Reset all sessions and tabs to idle state
