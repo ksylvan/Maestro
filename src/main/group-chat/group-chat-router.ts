@@ -112,15 +112,27 @@ export async function routeUserMessage(
       // Get the base args from the agent configuration
       const args = [...agent.args];
 
+      // Build participant context
+      const participantContext = chat.participants.length > 0
+        ? chat.participants.map(p => `- @${p.name} (${p.agentId} session)`).join('\n')
+        : '(No agents currently in this group chat)';
+
       // Build the prompt with context
       const chatHistory = await readLog(chat.logPath);
       const historyContext = chatHistory.slice(-20).map(m =>
         `[${m.from}]: ${m.content}`
       ).join('\n');
 
-      const fullPrompt = readOnly
-        ? `${MODERATOR_SYSTEM_PROMPT}\n\n## Chat History:\n${historyContext}\n\n## User Request (READ-ONLY MODE - do not make changes):\n${message}`
-        : `${MODERATOR_SYSTEM_PROMPT}\n\n## Chat History:\n${historyContext}\n\n## User Request:\n${message}`;
+      const fullPrompt = `${MODERATOR_SYSTEM_PROMPT}
+
+## Available Agents (Maestro Sessions):
+${participantContext}
+
+## Chat History:
+${historyContext}
+
+## User Request${readOnly ? ' (READ-ONLY MODE - do not make changes)' : ''}:
+${message}`;
 
       // Spawn the moderator process in batch mode
       try {

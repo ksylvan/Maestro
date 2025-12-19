@@ -23,6 +23,9 @@ import commitCommandPrompt from './commit-command.md?raw';
 // Group Chat prompts
 import groupChatModeratorPrompt from './group-chat-moderator.md?raw';
 
+// Maestro system prompt (injected at agent startup)
+import maestroSystemPrompt from './maestro-system-prompt.md?raw';
+
 export {
   // Wizard
   wizardSystemPrompt,
@@ -41,4 +44,7 @@ export {
 
   // Group Chat
   groupChatModeratorPrompt,
+
+  // Maestro system prompt
+  maestroSystemPrompt,
 };

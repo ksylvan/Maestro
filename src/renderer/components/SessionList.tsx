@@ -46,7 +46,9 @@ function SessionContextMenu({
   onDismiss
 }: SessionContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const moveToGroupRef = useRef<HTMLDivElement>(null);
   const [showMoveSubmenu, setShowMoveSubmenu] = useState(false);
+  const [submenuPosition, setSubmenuPosition] = useState<{ vertical: 'below' | 'above'; horizontal: 'right' | 'left' }>({ vertical: 'below', horizontal: 'right' });
 
   // Close on click outside
   useClickOutside(menuRef, onDismiss);
@@ -66,6 +68,29 @@ function SessionContextMenu({
   const adjustedPosition = {
     left: Math.min(x, window.innerWidth - 200),
     top: Math.min(y, window.innerHeight - 250)
+  };
+
+  // Calculate submenu position when showing
+  const handleMoveToGroupHover = () => {
+    setShowMoveSubmenu(true);
+
+    if (moveToGroupRef.current) {
+      const rect = moveToGroupRef.current.getBoundingClientRect();
+      // Estimate submenu height: ~28px per item + 8px padding + divider
+      const itemHeight = 28;
+      const submenuHeight = (groups.length + 1) * itemHeight + 16 + (groups.length > 0 ? 8 : 0);
+      const submenuWidth = 160; // minWidth + some padding
+      const spaceBelow = window.innerHeight - rect.top;
+      const spaceRight = window.innerWidth - rect.right;
+
+      // Determine vertical position
+      const vertical = (spaceBelow < submenuHeight && rect.top > submenuHeight) ? 'above' : 'below';
+
+      // Determine horizontal position
+      const horizontal = (spaceRight < submenuWidth && rect.left > submenuWidth) ? 'left' : 'right';
+
+      setSubmenuPosition({ vertical, horizontal });
+    }
   };
 
   return (
@@ -124,8 +149,9 @@ function SessionContextMenu({
 
       {/* Move to Group - with submenu */}
       <div
+        ref={moveToGroupRef}
         className="relative"
-        onMouseEnter={() => setShowMoveSubmenu(true)}
+        onMouseEnter={handleMoveToGroupHover}
         onMouseLeave={() => setShowMoveSubmenu(false)}
       >
         <button
@@ -142,11 +168,13 @@ function SessionContextMenu({
         {/* Submenu */}
         {showMoveSubmenu && (
           <div
-            className="absolute left-full top-0 ml-1 py-1 rounded-md shadow-xl border"
+            className="absolute py-1 rounded-md shadow-xl border"
             style={{
               backgroundColor: theme.colors.bgSidebar,
               borderColor: theme.colors.border,
-              minWidth: '140px'
+              minWidth: '140px',
+              ...(submenuPosition.vertical === 'above' ? { bottom: 0 } : { top: 0 }),
+              ...(submenuPosition.horizontal === 'left' ? { right: '100%', marginRight: 4 } : { left: '100%', marginLeft: 4 })
             }}
           >
             {/* No Group option */}

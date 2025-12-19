@@ -9,12 +9,22 @@
  * - Custom path input
  * - Custom arguments input
  * - Environment variables (key-value pairs)
+ * - Built-in environment variables (MAESTRO_SESSION_RESUMED)
  * - Agent-specific config options (contextWindow, model, etc.)
  */
 
-import React from 'react';
-import { RefreshCw, Plus, Trash2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { RefreshCw, Plus, Trash2, HelpCircle } from 'lucide-react';
 import type { Theme, AgentConfig } from '../../types';
+
+// Built-in environment variables that Maestro sets automatically
+const BUILT_IN_ENV_VARS: { key: string; description: string; value: string }[] = [
+  {
+    key: 'MAESTRO_SESSION_RESUMED',
+    description: 'Set to "1" when resuming an existing session. Not set for new sessions. Use this in your agent hooks to skip initialization on resumed sessions.',
+    value: '1 (when resuming)',
+  },
+];
 
 export interface AgentConfigPanelProps {
   theme: Theme;
@@ -49,6 +59,8 @@ export interface AgentConfigPanelProps {
   refreshingAgent?: boolean;
   // Optional: compact mode for wizard (less padding)
   compact?: boolean;
+  // Show built-in environment variables section
+  showBuiltInEnvVars?: boolean;
 }
 
 export function AgentConfigPanel({
@@ -77,9 +89,12 @@ export function AgentConfigPanel({
   onRefreshAgent,
   refreshingAgent = false,
   compact = false,
+  showBuiltInEnvVars = false,
 }: AgentConfigPanelProps): JSX.Element {
   const padding = compact ? 'p-2' : 'p-3';
   const spacing = compact ? 'space-y-2' : 'space-y-3';
+  // Track which built-in env var tooltip is showing
+  const [showingTooltip, setShowingTooltip] = useState<string | null>(null);
 
   return (
     <div className={spacing}>
@@ -188,7 +203,61 @@ export function AgentConfigPanel({
           Environment Variables (optional)
         </label>
         <div className="space-y-2">
-          {/* Existing env vars */}
+          {/* Built-in env vars (read-only, shown when showBuiltInEnvVars is true) */}
+          {showBuiltInEnvVars && BUILT_IN_ENV_VARS.map((envVar) => (
+            <div key={envVar.key} className="relative">
+              <div
+                className="flex gap-2 rounded px-2 py-1.5"
+                style={{ backgroundColor: theme.colors.bgActivity }}
+              >
+                <div
+                  className="flex-1 p-2 rounded text-xs font-mono flex items-center gap-1"
+                  style={{ color: theme.colors.textDim }}
+                >
+                  <span>{envVar.key}</span>
+                  <div className="relative inline-block">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowingTooltip(showingTooltip === envVar.key ? null : envVar.key);
+                      }}
+                      onBlur={() => setTimeout(() => setShowingTooltip(null), 150)}
+                      className="p-0.5 rounded hover:bg-white/10 transition-colors"
+                      title="What is this?"
+                      style={{ color: theme.colors.accent }}
+                    >
+                      <HelpCircle className="w-3 h-3" />
+                    </button>
+                    {/* Tooltip */}
+                    {showingTooltip === envVar.key && (
+                      <div
+                        className="absolute left-0 bottom-full mb-1 z-50 p-2 rounded shadow-lg text-xs max-w-xs whitespace-normal"
+                        style={{
+                          backgroundColor: theme.colors.bgMain,
+                          border: `1px solid ${theme.colors.border}`,
+                          color: theme.colors.textMain,
+                        }}
+                      >
+                        {envVar.description}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <span className="flex items-center text-xs" style={{ color: theme.colors.textDim }}>=</span>
+                <div
+                  className="flex-[2] p-2 rounded text-xs font-mono italic"
+                  style={{ color: theme.colors.textDim }}
+                >
+                  {envVar.value}
+                </div>
+                <div className="w-8" /> {/* Spacer to align with delete button column */}
+              </div>
+              <span className="text-[10px] ml-2" style={{ color: theme.colors.textDim }}>
+                Built-in (set by Maestro)
+              </span>
+            </div>
+          ))}
+          {/* User-defined env vars */}
           {Object.entries(customEnvVars).map(([key, value]) => (
             <div key={key} className="flex gap-2">
               <input

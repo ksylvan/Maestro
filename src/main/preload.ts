@@ -443,6 +443,23 @@ contextBridge.exposeInMainWorld('maestro', {
     getStatus: () => ipcRenderer.invoke('tunnel:getStatus'),
   },
 
+  // Sync API (custom storage location for cross-device sync)
+  sync: {
+    getDefaultPath: () => ipcRenderer.invoke('sync:getDefaultPath') as Promise<string>,
+    getSettings: () => ipcRenderer.invoke('sync:getSettings') as Promise<{
+      customSyncPath?: string;
+    }>,
+    getCurrentStoragePath: () => ipcRenderer.invoke('sync:getCurrentStoragePath') as Promise<string>,
+    selectSyncFolder: () => ipcRenderer.invoke('sync:selectSyncFolder') as Promise<string | null>,
+    setCustomPath: (customPath: string | null) => ipcRenderer.invoke('sync:setCustomPath', customPath) as Promise<{
+      success: boolean;
+      migrated?: number;
+      errors?: string[];
+      requiresRestart?: boolean;
+      error?: string;
+    }>,
+  },
+
   // DevTools API
   devtools: {
     open: () => ipcRenderer.invoke('devtools:open'),
@@ -1161,6 +1178,21 @@ export interface MaestroAPI {
     start: () => Promise<{ success: boolean; url?: string; error?: string }>;
     stop: () => Promise<{ success: boolean }>;
     getStatus: () => Promise<{ isRunning: boolean; url: string | null; error: string | null }>;
+  };
+  sync: {
+    getDefaultPath: () => Promise<string>;
+    getSettings: () => Promise<{
+      customSyncPath?: string;
+    }>;
+    getCurrentStoragePath: () => Promise<string>;
+    selectSyncFolder: () => Promise<string | null>;
+    setCustomPath: (customPath: string | null) => Promise<{
+      success: boolean;
+      migrated?: number;
+      errors?: string[];
+      requiresRestart?: boolean;
+      error?: string;
+    }>;
   };
   devtools: {
     open: () => Promise<void>;

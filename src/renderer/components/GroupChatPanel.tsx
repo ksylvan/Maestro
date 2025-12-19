@@ -44,6 +44,8 @@ interface GroupChatPanelProps {
   // Markdown toggle (Cmd+E)
   markdownEditMode?: boolean;
   onToggleMarkdownEditMode?: () => void;
+  // Output collapsing
+  maxOutputLines?: number;
 }
 
 export function GroupChatPanel({
@@ -73,6 +75,7 @@ export function GroupChatPanel({
   onReorderQueuedItems,
   markdownEditMode,
   onToggleMarkdownEditMode,
+  maxOutputLines,
 }: GroupChatPanelProps): JSX.Element {
   return (
     <div
@@ -98,6 +101,7 @@ export function GroupChatPanel({
         state={state}
         markdownEditMode={markdownEditMode}
         onToggleMarkdownEditMode={onToggleMarkdownEditMode}
+        maxOutputLines={maxOutputLines}
       />
 
       <GroupChatInput

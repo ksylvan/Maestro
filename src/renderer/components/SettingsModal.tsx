@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
-import { X, Key, Moon, Sun, Keyboard, Check, Terminal, Bell, Cpu, Settings, Palette, Sparkles, History, Download, Bug } from 'lucide-react';
+import { X, Key, Moon, Sun, Keyboard, Check, Terminal, Bell, Cpu, Settings, Palette, Sparkles, History, Download, Bug, Cloud, FolderSync, RotateCcw, Folder } from 'lucide-react';
 import type { Theme, ThemeColors, ThemeId, Shortcut, ShellInfo, CustomAICommand } from '../types';
 import { CustomThemeBuilder } from './CustomThemeBuilder';
 import { useLayerStack } from '../contexts/LayerStackContext';
@@ -92,6 +92,15 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
   const [shellsLoading, setShellsLoading] = useState(false);
   const [shellsLoaded, setShellsLoaded] = useState(false);
 
+  // Sync/storage location state
+  const [defaultStoragePath, setDefaultStoragePath] = useState<string>('');
+  const [currentStoragePath, setCurrentStoragePath] = useState<string>('');
+  const [customSyncPath, setCustomSyncPath] = useState<string | undefined>(undefined);
+  const [syncRestartRequired, setSyncRestartRequired] = useState(false);
+  const [syncMigrating, setSyncMigrating] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [syncMigratedCount, setSyncMigratedCount] = useState<number | null>(null);
+
   // Layer stack integration
   const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
   const layerIdRef = useRef<string>();
@@ -103,6 +112,23 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
       // Don't load fonts immediately - only when user interacts with font selector
       // Set initial tab if provided, otherwise default to 'general'
       setActiveTab(initialTab || 'general');
+
+      // Load sync settings
+      Promise.all([
+        window.maestro.sync.getDefaultPath(),
+        window.maestro.sync.getSettings(),
+        window.maestro.sync.getCurrentStoragePath(),
+      ]).then(([defaultPath, settings, currentPath]) => {
+        setDefaultStoragePath(defaultPath);
+        setCustomSyncPath(settings.customSyncPath);
+        setCurrentStoragePath(currentPath);
+        setSyncRestartRequired(false);
+        setSyncError(null);
+        setSyncMigratedCount(null);
+      }).catch((err) => {
+        console.error('Failed to load sync settings:', err);
+        setSyncError('Failed to load storage settings');
+      });
     }
   }, [isOpen, initialTab]);
 
@@ -839,6 +865,171 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
                 onChange={props.setCrashReportingEnabled}
                 theme={theme}
               />
+
+              {/* Settings Storage Location */}
+              <div
+                className="flex items-start gap-3 p-4 rounded-xl border"
+                style={{ backgroundColor: theme.colors.bgMain, borderColor: theme.colors.border }}
+              >
+                <div
+                  className="p-2 rounded-lg flex-shrink-0"
+                  style={{ backgroundColor: theme.colors.accent + '20' }}
+                >
+                  <FolderSync className="w-5 h-5" style={{ color: theme.colors.accent }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] uppercase font-bold opacity-50 mb-1">Storage Location</p>
+                  <p className="font-semibold mb-1">Settings folder</p>
+                  <p className="text-xs opacity-60 mb-4">
+                    Choose where Maestro stores settings, sessions, and groups. Use a synced folder (iCloud Drive, Dropbox, OneDrive) to share across devices.
+                  </p>
+
+                  {/* Default Location */}
+                  <div className="mb-3">
+                    <p className="text-[10px] uppercase font-bold opacity-40 mb-1">Default Location</p>
+                    <div
+                      className="text-xs p-2 rounded font-mono truncate"
+                      style={{ backgroundColor: theme.colors.bgPanel }}
+                      title={defaultStoragePath}
+                    >
+                      {defaultStoragePath || 'Loading...'}
+                    </div>
+                  </div>
+
+                  {/* Current Location (if different) */}
+                  {customSyncPath && (
+                    <div className="mb-3">
+                      <p className="text-[10px] uppercase font-bold opacity-40 mb-1">Current Location (Custom)</p>
+                      <div
+                        className="text-xs p-2 rounded font-mono truncate flex items-center gap-2"
+                        style={{ backgroundColor: theme.colors.accent + '15', border: `1px solid ${theme.colors.accent}40` }}
+                        title={customSyncPath}
+                      >
+                        <Cloud className="w-3 h-3 flex-shrink-0" style={{ color: theme.colors.accent }} />
+                        <span className="truncate">{customSyncPath}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Action Buttons */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={async () => {
+                        const folder = await window.maestro.sync.selectSyncFolder();
+                        if (folder) {
+                          setSyncMigrating(true);
+                          setSyncError(null);
+                          setSyncMigratedCount(null);
+                          try {
+                            const result = await window.maestro.sync.setCustomPath(folder);
+                            if (result.success) {
+                              setCustomSyncPath(folder);
+                              setCurrentStoragePath(folder);
+                              setSyncRestartRequired(true);
+                              if (result.migrated !== undefined) {
+                                setSyncMigratedCount(result.migrated);
+                              }
+                            } else {
+                              setSyncError(result.error || 'Failed to change storage location');
+                            }
+                            if (result.errors && result.errors.length > 0) {
+                              setSyncError(result.errors.join(', '));
+                            }
+                          } finally {
+                            setSyncMigrating(false);
+                          }
+                        }
+                      }}
+                      disabled={syncMigrating}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-colors disabled:opacity-50"
+                      style={{
+                        backgroundColor: theme.colors.accent,
+                        color: theme.colors.bgMain,
+                      }}
+                    >
+                      <Folder className="w-3 h-3" />
+                      {syncMigrating ? 'Migrating...' : (customSyncPath ? 'Change Folder...' : 'Choose Folder...')}
+                    </button>
+
+                    {customSyncPath && (
+                      <button
+                        onClick={async () => {
+                          setSyncMigrating(true);
+                          setSyncError(null);
+                          setSyncMigratedCount(null);
+                          try {
+                            const result = await window.maestro.sync.setCustomPath(null);
+                            if (result.success) {
+                              setCustomSyncPath(undefined);
+                              setCurrentStoragePath(defaultStoragePath);
+                              setSyncRestartRequired(true);
+                              if (result.migrated !== undefined) {
+                                setSyncMigratedCount(result.migrated);
+                              }
+                            } else {
+                              setSyncError(result.error || 'Failed to reset storage location');
+                            }
+                          } finally {
+                            setSyncMigrating(false);
+                          }
+                        }}
+                        disabled={syncMigrating}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-colors disabled:opacity-50"
+                        style={{
+                          backgroundColor: theme.colors.border,
+                          color: theme.colors.textMain,
+                        }}
+                        title="Reset to default location"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        Use Default
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Success Message */}
+                  {syncMigratedCount !== null && syncMigratedCount > 0 && !syncError && (
+                    <div
+                      className="mt-3 p-2 rounded text-xs flex items-center gap-2"
+                      style={{
+                        backgroundColor: theme.colors.success + '20',
+                        color: theme.colors.success,
+                      }}
+                    >
+                      <Check className="w-3 h-3" />
+                      Migrated {syncMigratedCount} settings file{syncMigratedCount !== 1 ? 's' : ''}
+                    </div>
+                  )}
+
+                  {/* Error Message */}
+                  {syncError && (
+                    <div
+                      className="mt-3 p-2 rounded text-xs flex items-start gap-2"
+                      style={{
+                        backgroundColor: theme.colors.error + '20',
+                        color: theme.colors.error,
+                      }}
+                    >
+                      <X className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                      <span>{syncError}</span>
+                    </div>
+                  )}
+
+                  {/* Restart Required Warning */}
+                  {syncRestartRequired && !syncError && (
+                    <div
+                      className="mt-3 p-2 rounded text-xs flex items-center gap-2"
+                      style={{
+                        backgroundColor: theme.colors.warning + '20',
+                        color: theme.colors.warning,
+                      }}
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      Restart Maestro for changes to take effect
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 

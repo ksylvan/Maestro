@@ -612,10 +612,14 @@ export function EditAgentModal({ isOpen, onClose, onSave, theme, session, existi
   const [agentConfig, setAgentConfig] = useState<Record<string, any>>({});
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
+  const [customPath, setCustomPath] = useState('');
+  const [customArgs, setCustomArgs] = useState('');
+  const [customEnvVars, setCustomEnvVars] = useState<Record<string, string>>({});
+  const [refreshingAgent, setRefreshingAgent] = useState(false);
 
   const nameInputRef = useRef<HTMLInputElement>(null);
 
-  // Load agent info, config, and models when modal opens
+  // Load agent info, config, custom settings, and models when modal opens
   useEffect(() => {
     if (isOpen && session) {
       // Load agent definition to get configOptions
@@ -634,6 +638,12 @@ export function EditAgentModal({ isOpen, onClose, onSave, theme, session, existi
       });
       // Load agent config
       window.maestro.agents.getConfig(session.toolType).then(setAgentConfig);
+      // Load custom path
+      window.maestro.agents.getCustomPath(session.toolType).then((path) => setCustomPath(path || ''));
+      // Load custom args
+      window.maestro.agents.getCustomArgs(session.toolType).then((args) => setCustomArgs(args || ''));
+      // Load custom env vars
+      window.maestro.agents.getCustomEnvVars(session.toolType).then((vars) => setCustomEnvVars(vars || {}));
     }
   }, [isOpen, session]);
 
@@ -680,6 +690,21 @@ export function EditAgentModal({ isOpen, onClose, onSave, theme, session, existi
       setLoadingModels(false);
     }
   }, [session, agent]);
+
+  // Refresh agent detection
+  const handleRefreshAgent = useCallback(async () => {
+    if (!session) return;
+    setRefreshingAgent(true);
+    try {
+      const result = await window.maestro.agents.refresh(session.toolType);
+      const foundAgent = result.agents.find((a: AgentConfig) => a.id === session.toolType);
+      setAgent(foundAgent || null);
+    } catch (error) {
+      console.error('Failed to refresh agent:', error);
+    } finally {
+      setRefreshingAgent(false);
+    }
+  }, [session]);
 
   // Check if form is valid for submission
   const isFormValid = useMemo(() => {
@@ -806,118 +831,83 @@ export function EditAgentModal({ isOpen, onClose, onSave, theme, session, existi
             </p>
           </div>
 
-          {/* Agent-specific configuration options (contextWindow, model, etc.) */}
-          {agent?.configOptions && agent.configOptions.length > 0 && (
+          {/* Agent Configuration (custom path, args, env vars, agent-specific settings) */}
+          {agent && (
             <div>
               <label className="block text-xs font-bold opacity-70 uppercase mb-2" style={{ color: theme.colors.textMain }}>
                 {agentName} Settings
               </label>
-              <div className="space-y-3">
-                {agent.configOptions.map((option: any) => (
-                  <div
-                    key={option.key}
-                    className="p-3 rounded border"
-                    style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
-                  >
-                    <label className="block text-xs font-medium mb-2" style={{ color: theme.colors.textDim }}>
-                      {option.label}
-                    </label>
-                    {option.type === 'number' && (
-                      <input
-                        type="number"
-                        value={agentConfig[option.key] ?? option.default}
-                        onChange={(e) => {
-                          const value = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
-                          setAgentConfig(prev => ({
-                            ...prev,
-                            [option.key]: isNaN(value) ? 0 : value
-                          }));
-                        }}
-                        onBlur={() => {
-                          window.maestro.agents.setConfig(session.toolType, agentConfig);
-                        }}
-                        placeholder={option.default?.toString() || '0'}
-                        min={0}
-                        className="w-full p-2 rounded border bg-transparent outline-none text-xs font-mono"
-                        style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
-                      />
-                    )}
-                    {option.type === 'text' && (
-                      <>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            list={option.key === 'model' ? `edit-models-${session.toolType}` : undefined}
-                            value={agentConfig[option.key] ?? option.default}
-                            onChange={(e) => {
-                              setAgentConfig(prev => ({
-                                ...prev,
-                                [option.key]: e.target.value
-                              }));
-                            }}
-                            onBlur={() => {
-                              window.maestro.agents.setConfig(session.toolType, agentConfig);
-                            }}
-                            placeholder={option.default || ''}
-                            className="flex-1 p-2 rounded border bg-transparent outline-none text-xs font-mono"
-                            style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
-                          />
-                          {option.key === 'model' && agent?.capabilities?.supportsModelSelection && (
-                            <button
-                              onClick={refreshModels}
-                              className="p-2 rounded border hover:bg-white/10 transition-colors"
-                              title="Refresh available models"
-                              style={{ borderColor: theme.colors.border, color: theme.colors.textDim }}
-                            >
-                              <RefreshCw className={`w-3 h-3 ${loadingModels ? 'animate-spin' : ''}`} />
-                            </button>
-                          )}
-                        </div>
-                        {/* Datalist for model autocomplete */}
-                        {option.key === 'model' && availableModels.length > 0 && (
-                          <datalist id={`edit-models-${session.toolType}`}>
-                            {availableModels.map((model) => (
-                              <option key={model} value={model} />
-                            ))}
-                          </datalist>
-                        )}
-                        {option.key === 'model' && loadingModels && (
-                          <p className="text-xs mt-1" style={{ color: theme.colors.textDim }}>
-                            Loading available models...
-                          </p>
-                        )}
-                        {option.key === 'model' && !loadingModels && availableModels.length > 0 && (
-                          <p className="text-xs mt-1" style={{ color: theme.colors.textDim }}>
-                            {availableModels.length} model{availableModels.length !== 1 ? 's' : ''} available
-                          </p>
-                        )}
-                      </>
-                    )}
-                    {option.type === 'checkbox' && (
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={agentConfig[option.key] ?? option.default}
-                          onChange={(e) => {
-                            const newConfig = {
-                              ...agentConfig,
-                              [option.key]: e.target.checked
-                            };
-                            setAgentConfig(newConfig);
-                            window.maestro.agents.setConfig(session.toolType, newConfig);
-                          }}
-                          className="w-4 h-4"
-                          style={{ accentColor: theme.colors.accent }}
-                        />
-                        <span className="text-xs" style={{ color: theme.colors.textMain }}>Enabled</span>
-                      </label>
-                    )}
-                    <p className="text-xs opacity-50 mt-2">
-                      {option.description}
-                    </p>
-                  </div>
-                ))}
-              </div>
+              <AgentConfigPanel
+                theme={theme}
+                agent={agent}
+                customPath={customPath}
+                onCustomPathChange={setCustomPath}
+                onCustomPathBlur={async () => {
+                  const path = customPath.trim() || null;
+                  await window.maestro.agents.setCustomPath(session.toolType, path);
+                }}
+                onCustomPathClear={async () => {
+                  setCustomPath('');
+                  await window.maestro.agents.setCustomPath(session.toolType, null);
+                }}
+                customArgs={customArgs}
+                onCustomArgsChange={setCustomArgs}
+                onCustomArgsBlur={async () => {
+                  const args = customArgs.trim() || null;
+                  await window.maestro.agents.setCustomArgs(session.toolType, args);
+                }}
+                onCustomArgsClear={async () => {
+                  setCustomArgs('');
+                  await window.maestro.agents.setCustomArgs(session.toolType, null);
+                }}
+                customEnvVars={customEnvVars}
+                onEnvVarKeyChange={(oldKey, newKey, value) => {
+                  const newVars = { ...customEnvVars };
+                  delete newVars[oldKey];
+                  newVars[newKey] = value;
+                  setCustomEnvVars(newVars);
+                }}
+                onEnvVarValueChange={(key, value) => {
+                  setCustomEnvVars(prev => ({ ...prev, [key]: value }));
+                }}
+                onEnvVarRemove={async (key) => {
+                  const newVars = { ...customEnvVars };
+                  delete newVars[key];
+                  setCustomEnvVars(newVars);
+                  if (Object.keys(newVars).length > 0) {
+                    await window.maestro.agents.setCustomEnvVars(session.toolType, newVars);
+                  } else {
+                    await window.maestro.agents.setCustomEnvVars(session.toolType, null);
+                  }
+                }}
+                onEnvVarAdd={() => {
+                  let newKey = 'NEW_VAR';
+                  let counter = 1;
+                  while (customEnvVars[newKey]) {
+                    newKey = `NEW_VAR_${counter}`;
+                    counter++;
+                  }
+                  setCustomEnvVars(prev => ({ ...prev, [newKey]: '' }));
+                }}
+                onEnvVarsBlur={async () => {
+                  if (Object.keys(customEnvVars).length > 0) {
+                    await window.maestro.agents.setCustomEnvVars(session.toolType, customEnvVars);
+                  }
+                }}
+                agentConfig={agentConfig}
+                onConfigChange={(key, value) => {
+                  setAgentConfig(prev => ({ ...prev, [key]: value }));
+                }}
+                onConfigBlur={() => {
+                  window.maestro.agents.setConfig(session.toolType, agentConfig);
+                }}
+                availableModels={availableModels}
+                loadingModels={loadingModels}
+                onRefreshModels={refreshModels}
+                onRefreshAgent={handleRefreshAgent}
+                refreshingAgent={refreshingAgent}
+                showBuiltInEnvVars
+              />
             </div>
           )}
         </div>

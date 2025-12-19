@@ -4,7 +4,7 @@ import { getActiveTab } from '../utils/tabHelpers';
 import { generateId } from '../utils/ids';
 import { substituteTemplateVariables } from '../utils/templateVariables';
 import { gitService } from '../services/git';
-import { imageOnlyDefaultPrompt } from '../../prompts';
+import { imageOnlyDefaultPrompt, maestroSystemPrompt } from '../../prompts';
 
 /**
  * Default prompt used when user sends only an image without text.
@@ -580,8 +580,33 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
           // If user sends only an image without text, inject the default image-only prompt
           const hasImages = capturedImages.length > 0;
           const hasNoText = !capturedInputValue.trim();
-          const effectivePrompt =
+          let effectivePrompt =
             hasImages && hasNoText ? DEFAULT_IMAGE_ONLY_PROMPT : capturedInputValue;
+
+          // For NEW sessions (no agentSessionId), prepend Maestro system prompt
+          // This introduces Maestro and sets directory restrictions for the agent
+          const isNewSession = !tabAgentSessionId;
+          if (isNewSession && maestroSystemPrompt) {
+            // Get git branch for template substitution
+            let gitBranch: string | undefined;
+            if (freshSession.isGitRepo) {
+              try {
+                const status = await gitService.getStatus(freshSession.cwd);
+                gitBranch = status.branch;
+              } catch {
+                // Ignore git errors
+              }
+            }
+
+            // Substitute template variables in the system prompt
+            const substitutedSystemPrompt = substituteTemplateVariables(maestroSystemPrompt, {
+              session: freshSession,
+              gitBranch,
+            });
+
+            // Prepend system prompt to user's message
+            effectivePrompt = `${substitutedSystemPrompt}\n\n---\n\n# User Request\n\n${effectivePrompt}`;
+          }
 
           // Spawn agent with generic config - the main process will use agent-specific
           // argument builders (resumeArgs, readOnlyArgs, etc.) to construct the final args

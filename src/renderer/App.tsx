@@ -76,7 +76,7 @@ import { ToastContainer } from './components/Toast';
 import { gitService } from './services/git';
 
 // Import prompts and synopsis parsing
-import { autorunSynopsisPrompt } from '../prompts';
+import { autorunSynopsisPrompt, maestroSystemPrompt } from '../prompts';
 import { parseSynopsis } from '../shared/synopsis';
 
 // Import types and constants
@@ -3965,7 +3965,32 @@ export default function MaestroConsole() {
       if (item.type === 'message' && (hasText || isImageOnlyMessage)) {
         // Process a message - spawn agent with the message text
         // If user sends only an image without text, inject the default image-only prompt
-        const effectivePrompt = isImageOnlyMessage ? DEFAULT_IMAGE_ONLY_PROMPT : item.text!;
+        let effectivePrompt = isImageOnlyMessage ? DEFAULT_IMAGE_ONLY_PROMPT : item.text!;
+
+        // For NEW sessions (no agentSessionId), prepend Maestro system prompt
+        // This introduces Maestro and sets directory restrictions for the agent
+        const isNewSession = !tabAgentSessionId;
+        if (isNewSession && maestroSystemPrompt) {
+          // Get git branch for template substitution
+          let gitBranch: string | undefined;
+          if (session.isGitRepo) {
+            try {
+              const status = await gitService.getStatus(session.cwd);
+              gitBranch = status.branch;
+            } catch {
+              // Ignore git errors
+            }
+          }
+
+          // Substitute template variables in the system prompt
+          const substitutedSystemPrompt = substituteTemplateVariables(maestroSystemPrompt, {
+            session,
+            gitBranch,
+          });
+
+          // Prepend system prompt to user's message
+          effectivePrompt = `${substitutedSystemPrompt}\n\n---\n\n# User Request\n\n${effectivePrompt}`;
+        }
 
         console.log('[processQueuedItem] Spawning agent with queued message:', {
           sessionId: targetSessionId,
@@ -4005,10 +4030,24 @@ export default function MaestroConsole() {
               // Ignore git errors
             }
           }
-          const substitutedPrompt = substituteTemplateVariables(
+          let substitutedPrompt = substituteTemplateVariables(
             matchingCommand.prompt,
             { session, gitBranch }
           );
+
+          // For NEW sessions (no agentSessionId), prepend Maestro system prompt
+          // This introduces Maestro and sets directory restrictions for the agent
+          const isNewSessionForCommand = !tabAgentSessionId;
+          if (isNewSessionForCommand && maestroSystemPrompt) {
+            // Substitute template variables in the system prompt
+            const substitutedSystemPrompt = substituteTemplateVariables(maestroSystemPrompt, {
+              session,
+              gitBranch,
+            });
+
+            // Prepend system prompt to command's prompt
+            substitutedPrompt = `${substitutedSystemPrompt}\n\n---\n\n# User Request\n\n${substitutedPrompt}`;
+          }
 
           // Add user log showing the command with its interpolated prompt
           // Use target tab (from queued item), not active tab
@@ -5569,6 +5608,7 @@ export default function MaestroConsole() {
               onReorderQueuedItems={handleReorderGroupChatQueueItems}
               markdownEditMode={markdownEditMode}
               onToggleMarkdownEditMode={() => setMarkdownEditMode(!markdownEditMode)}
+              maxOutputLines={maxOutputLines}
             />
           </div>
           <GroupChatParticipants

@@ -20,6 +20,48 @@ import { initializeOutputParsers } from './parsers';
 import { DEMO_MODE, DEMO_DATA_PATH } from './constants';
 import { initAutoUpdater } from './auto-updater';
 
+// ============================================================================
+// Custom Storage Location Configuration
+// ============================================================================
+// This bootstrap store is ALWAYS local - it tells us where to find the main data
+// Users can choose a custom folder (e.g., iCloud Drive, Dropbox, OneDrive) to sync settings
+interface BootstrapSettings {
+  customSyncPath?: string;
+  iCloudSyncEnabled?: boolean; // Legacy - kept for backwards compatibility during migration
+}
+
+const bootstrapStore = new Store<BootstrapSettings>({
+  name: 'maestro-bootstrap',
+  defaults: {},
+});
+
+/**
+ * Get the custom sync path if configured.
+ * Returns undefined if using default path.
+ */
+function getSyncPath(): string | undefined {
+  const customPath = bootstrapStore.get('customSyncPath');
+
+  if (customPath) {
+    // Ensure the directory exists
+    if (!fsSync.existsSync(customPath)) {
+      try {
+        fsSync.mkdirSync(customPath, { recursive: true });
+      } catch {
+        // If we can't create the directory, fall back to default
+        console.error(`Failed to create custom sync path: ${customPath}, using default`);
+        return undefined;
+      }
+    }
+    return customPath;
+  }
+
+  return undefined; // Use default path
+}
+
+// Get the sync path once at startup
+const syncPath = getSyncPath();
+
 // Initialize Sentry for crash reporting (before app.ready)
 // Check if crash reporting is enabled (default: true for opt-out behavior)
 const crashReportingStore = new Store<{ crashReportingEnabled: boolean }>({
@@ -74,6 +116,7 @@ interface MaestroSettings {
 
 const store = new Store<MaestroSettings>({
   name: 'maestro-settings',
+  cwd: syncPath, // Use iCloud/custom sync path if configured
   defaults: {
     activeThemeId: 'dracula',
     llmProvider: 'openrouter',
@@ -99,6 +142,7 @@ interface SessionsData {
 
 const sessionsStore = new Store<SessionsData>({
   name: 'maestro-sessions',
+  cwd: syncPath, // Use iCloud/custom sync path if configured
   defaults: {
     sessions: [],
   },
@@ -111,6 +155,7 @@ interface GroupsData {
 
 const groupsStore = new Store<GroupsData>({
   name: 'maestro-groups',
+  cwd: syncPath, // Use iCloud/custom sync path if configured
   defaults: {
     groups: [],
   },
@@ -122,12 +167,14 @@ interface AgentConfigsData {
 
 const agentConfigsStore = new Store<AgentConfigsData>({
   name: 'maestro-agent-configs',
+  cwd: syncPath, // Use iCloud/custom sync path if configured
   defaults: {
     configs: {},
   },
 });
 
 // Window state store (for remembering window size/position)
+// NOTE: This is intentionally NOT synced - window state is per-device
 interface WindowState {
   x?: number;
   y?: number;
@@ -139,6 +186,7 @@ interface WindowState {
 
 const windowStateStore = new Store<WindowState>({
   name: 'maestro-window-state',
+  // No cwd - always local, not synced (window position is device-specific)
   defaults: {
     width: 1400,
     height: 900,
@@ -166,6 +214,7 @@ interface ClaudeSessionOriginsData {
 
 const claudeSessionOriginsStore = new Store<ClaudeSessionOriginsData>({
   name: 'maestro-claude-session-origins',
+  cwd: syncPath, // Use iCloud/custom sync path if configured
   defaults: {
     origins: {},
   },
@@ -829,6 +878,7 @@ function setupIpcHandlers() {
     settingsStore: store,
     tunnelManager,
     getWebServer: () => webServer,
+    bootstrapStore, // For iCloud/sync settings
   });
 
   // Claude Code sessions - extracted to src/main/ipc/handlers/claude.ts

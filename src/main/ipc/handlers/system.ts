@@ -9,11 +9,14 @@
  * - DevTools: developer tools control
  * - Updates: update checking
  * - Logger: logging operations
+ * - Sync: iCloud/custom sync path management
  *
  * Extracted from main/index.ts to improve code organization.
  */
 
 import { ipcMain, dialog, shell, BrowserWindow, App } from 'electron';
+import * as path from 'path';
+import * as fsSync from 'fs';
 import Store from 'electron-store';
 import { execFileNoThrow } from '../../utils/execFile';
 import { logger } from '../../utils/logger';
@@ -36,6 +39,14 @@ interface MaestroSettings {
 }
 
 /**
+ * Interface for bootstrap settings (custom storage location)
+ */
+interface BootstrapSettings {
+  customSyncPath?: string;
+  iCloudSyncEnabled?: boolean; // Legacy - kept for backwards compatibility
+}
+
+/**
  * Dependencies required for system handlers
  */
 export interface SystemHandlerDependencies {
@@ -44,6 +55,7 @@ export interface SystemHandlerDependencies {
   settingsStore: Store<MaestroSettings>;
   tunnelManager: TunnelManagerType;
   getWebServer: () => WebServer | null;
+  bootstrapStore?: Store<BootstrapSettings>;
 }
 
 /**
@@ -261,6 +273,142 @@ export function registerSystemHandlers(deps: SystemHandlerDependencies): void {
 
   ipcMain.handle('logger:getMaxLogBuffer', async () => {
     return logger.getMaxLogBuffer();
+  });
+
+  // ============ Sync (Custom Storage Location) Handlers ============
+
+  // List of settings files that should be migrated
+  const SETTINGS_FILES = [
+    'maestro-settings.json',
+    'maestro-sessions.json',
+    'maestro-groups.json',
+    'maestro-agent-configs.json',
+    'maestro-claude-session-origins.json',
+  ];
+
+  // Get the default storage path
+  ipcMain.handle('sync:getDefaultPath', async () => {
+    return app.getPath('userData');
+  });
+
+  // Get current sync settings
+  ipcMain.handle('sync:getSettings', async () => {
+    if (!deps.bootstrapStore) {
+      return { customSyncPath: undefined };
+    }
+    return {
+      customSyncPath: deps.bootstrapStore.get('customSyncPath') || undefined,
+    };
+  });
+
+  // Get current storage location (either custom or default)
+  ipcMain.handle('sync:getCurrentStoragePath', async () => {
+    if (!deps.bootstrapStore) {
+      return app.getPath('userData');
+    }
+    const customPath = deps.bootstrapStore.get('customSyncPath');
+    return customPath || app.getPath('userData');
+  });
+
+  // Select custom sync folder via dialog
+  ipcMain.handle('sync:selectSyncFolder', async () => {
+    const mainWindow = getMainWindow();
+    if (!mainWindow) return null;
+
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory', 'createDirectory'],
+      title: 'Select Settings Folder',
+      message: 'Choose a folder for Maestro settings. Use a synced folder (iCloud Drive, Dropbox, OneDrive) to share settings across devices.',
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+
+    return result.filePaths[0];
+  });
+
+  // Set custom sync path and migrate settings
+  ipcMain.handle('sync:setCustomPath', async (_event, newPath: string | null) => {
+    if (!deps.bootstrapStore) {
+      return { success: false, error: 'Bootstrap store not available' };
+    }
+
+    const defaultPath = app.getPath('userData');
+    const currentCustomPath = deps.bootstrapStore.get('customSyncPath');
+    const currentPath = currentCustomPath || defaultPath;
+    const targetPath = newPath || defaultPath;
+
+    // Don't do anything if paths are the same
+    if (currentPath === targetPath) {
+      return { success: true, migrated: 0 };
+    }
+
+    // Ensure target directory exists
+    if (!fsSync.existsSync(targetPath)) {
+      try {
+        fsSync.mkdirSync(targetPath, { recursive: true });
+      } catch (error) {
+        return { success: false, error: `Cannot create directory: ${targetPath}` };
+      }
+    }
+
+    // Migrate settings files
+    let migratedCount = 0;
+    const errors: string[] = [];
+
+    for (const file of SETTINGS_FILES) {
+      const sourcePath = path.join(currentPath, file);
+      const destPath = path.join(targetPath, file);
+
+      try {
+        if (fsSync.existsSync(sourcePath)) {
+          // Check if destination already exists
+          if (fsSync.existsSync(destPath)) {
+            // Read both files to compare
+            const sourceContent = fsSync.readFileSync(sourcePath, 'utf-8');
+            const destContent = fsSync.readFileSync(destPath, 'utf-8');
+
+            if (sourceContent !== destContent) {
+              // Backup existing destination file
+              const backupPath = destPath + '.backup.' + Date.now();
+              fsSync.copyFileSync(destPath, backupPath);
+              logger.info(`Backed up existing ${file} to ${backupPath}`, 'Sync');
+            }
+          }
+
+          // Copy file to new location
+          fsSync.copyFileSync(sourcePath, destPath);
+          migratedCount++;
+          logger.info(`Migrated ${file} to ${targetPath}`, 'Sync');
+        }
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        errors.push(`Failed to migrate ${file}: ${errMsg}`);
+        logger.error(`Failed to migrate ${file}`, 'Sync', error);
+      }
+    }
+
+    // Update bootstrap store
+    if (newPath) {
+      deps.bootstrapStore.set('customSyncPath', newPath);
+    } else {
+      deps.bootstrapStore.delete('customSyncPath' as keyof BootstrapSettings);
+    }
+
+    // Clear the old iCloudSyncEnabled flag if it exists (legacy cleanup)
+    if (deps.bootstrapStore.get('iCloudSyncEnabled')) {
+      deps.bootstrapStore.delete('iCloudSyncEnabled' as keyof BootstrapSettings);
+    }
+
+    logger.info(`Storage location changed to ${targetPath}, migrated ${migratedCount} files`, 'Sync');
+
+    return {
+      success: errors.length === 0,
+      migrated: migratedCount,
+      errors: errors.length > 0 ? errors : undefined,
+      requiresRestart: true,
+    };
   });
 }
 
