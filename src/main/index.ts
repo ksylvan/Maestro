@@ -1754,9 +1754,18 @@ function extractTextFromAgentOutput(rawOutput: string, agentType: string): strin
     return extractTextGeneric(rawOutput);
   }
 
+  const lines = rawOutput.split('\n');
+
+  // Check if this looks like JSONL output (first non-empty line starts with '{')
+  // If not JSONL, return the raw output as-is (it's already parsed text from process-manager)
+  const firstNonEmptyLine = lines.find(line => line.trim());
+  if (firstNonEmptyLine && !firstNonEmptyLine.trim().startsWith('{')) {
+    logger.debug(`[GroupChat] Input is not JSONL, returning as plain text (len=${rawOutput.length})`, '[GroupChat]');
+    return rawOutput;
+  }
+
   const textParts: string[] = [];
   let resultText: string | null = null;
-  const lines = rawOutput.split('\n');
   let resultMessageCount = 0;
   let textMessageCount = 0;
 
@@ -1779,23 +1788,14 @@ function extractTextFromAgentOutput(rawOutput: string, agentType: string): strin
     }
   }
 
-  // Debug logging to understand what's being extracted
-  const extractedText = resultText || textParts.join('');
-  const newlineCount = (extractedText.match(/\n/g) || []).length;
-  logger.info(`[GroupChat] extractTextFromAgentOutput: agentType=${agentType}, resultMsgs=${resultMessageCount}, textMsgs=${textMessageCount}, hasResult=${!!resultText}, newlines=${newlineCount}, totalLen=${extractedText.length}`, '[GroupChat]');
-  if (newlineCount === 0 && extractedText.length > 100) {
-    // Log a sample if no newlines found in long text (likely a bug)
-    logger.warn(`[GroupChat] No newlines found in long response! First 200 chars: ${extractedText.substring(0, 200)}`, '[GroupChat]');
-  }
-
   // Prefer result message if available (it contains the complete formatted response)
   if (resultText) {
     return resultText;
   }
 
-  // Fallback: if no result message, concatenate streaming text parts
-  // This preserves the original streaming text which should contain embedded newlines
-  return textParts.join('');
+  // Fallback: if no result message, concatenate streaming text parts with newlines
+  // to preserve paragraph structure from partial streaming events
+  return textParts.join('\n');
 }
 
 /**
@@ -1815,8 +1815,16 @@ function extractTextFromStreamJson(rawOutput: string, agentType?: string): strin
  * Tries common patterns for JSON output.
  */
 function extractTextGeneric(rawOutput: string): string {
-  const textParts: string[] = [];
   const lines = rawOutput.split('\n');
+
+  // Check if this looks like JSONL output (first non-empty line starts with '{')
+  // If not JSONL, return the raw output as-is (it's already parsed text)
+  const firstNonEmptyLine = lines.find(line => line.trim());
+  if (firstNonEmptyLine && !firstNonEmptyLine.trim().startsWith('{')) {
+    return rawOutput;
+  }
+
+  const textParts: string[] = [];
 
   for (const line of lines) {
     if (!line.trim()) continue;
@@ -1842,7 +1850,8 @@ function extractTextGeneric(rawOutput: string): string {
     }
   }
 
-  return textParts.join('');
+  // Join with newlines to preserve paragraph structure
+  return textParts.join('\n');
 }
 
 // Handle process output streaming (set up after initialization)

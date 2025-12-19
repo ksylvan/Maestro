@@ -44,7 +44,7 @@ interface GroupChatInputProps {
   // Image paste handler from App
   handlePaste?: (e: React.ClipboardEvent) => void;
   // Image lightbox handler
-  onOpenLightbox?: (image: string, contextImages?: string[]) => void;
+  onOpenLightbox?: (image: string, contextImages?: string[], source?: 'staged' | 'history') => void;
   // Execution queue props
   executionQueue?: QueuedItem[];
   onRemoveQueuedItem?: (itemId: string) => void;
@@ -177,7 +177,7 @@ export function GroupChatInput({
       if (e.key === 'y' && stagedImages.length > 0 && onOpenLightbox) {
         e.preventDefault();
         e.stopPropagation();
-        onOpenLightbox(stagedImages[0], stagedImages);
+        onOpenLightbox(stagedImages[0], stagedImages, 'staged');
         return;
       }
       // Cmd+Enter: Send message (when enterToSend is false) or ignore (when enterToSend is true)
@@ -376,7 +376,7 @@ export function GroupChatInput({
                 alt={`Staged ${index + 1}`}
                 className="w-16 h-16 object-cover rounded border cursor-pointer hover:opacity-80 transition-opacity"
                 style={{ borderColor: theme.colors.border }}
-                onClick={() => onOpenLightbox?.(img, stagedImages)}
+                onClick={() => onOpenLightbox?.(img, stagedImages, 'staged')}
               />
               <button
                 onClick={() => removeImage(index)}

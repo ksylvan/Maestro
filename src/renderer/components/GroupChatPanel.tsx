@@ -36,7 +36,7 @@ interface GroupChatPanelProps {
   // Image paste handler from App
   handlePaste?: (e: React.ClipboardEvent) => void;
   // Image lightbox handler
-  onOpenLightbox?: (image: string, contextImages?: string[]) => void;
+  onOpenLightbox?: (image: string, contextImages?: string[], source?: 'staged' | 'history') => void;
   // Execution queue props
   executionQueue?: QueuedItem[];
   onRemoveQueuedItem?: (itemId: string) => void;

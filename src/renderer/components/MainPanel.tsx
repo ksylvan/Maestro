@@ -87,7 +87,7 @@ interface MainPanelProps {
   setEnterToSendAI: (value: boolean) => void;
   setEnterToSendTerminal: (value: boolean) => void;
   setStagedImages: (images: string[]) => void;
-  setLightboxImage: (image: string | null, contextImages?: string[]) => void;
+  setLightboxImage: (image: string | null, contextImages?: string[], source?: 'staged' | 'history') => void;
   setCommandHistoryOpen: (open: boolean) => void;
   setCommandHistoryFilter: (filter: string) => void;
   setCommandHistorySelectedIndex: (index: number) => void;

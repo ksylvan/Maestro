@@ -301,6 +301,7 @@ export default function MaestroConsole() {
   const [settingsTab, setSettingsTab] = useState<'general' | 'shortcuts' | 'theme' | 'notifications' | 'aicommands'>('general');
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [lightboxImages, setLightboxImages] = useState<string[]>([]); // Context images for navigation
+  const [lightboxSource, setLightboxSource] = useState<'staged' | 'history'>('history'); // Track source for delete permission
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
   const [updateCheckModalOpen, setUpdateCheckModalOpen] = useState(false);
   const [leaderboardRegistrationOpen, setLeaderboardRegistrationOpen] = useState(false);
@@ -2691,9 +2692,11 @@ export default function MaestroConsole() {
   }, [setActiveSessionId]);
 
   // Handler to open lightbox with optional context images for navigation
-  const handleSetLightboxImage = useCallback((image: string | null, contextImages?: string[]) => {
+  // source: 'staged' allows deletion, 'history' is read-only
+  const handleSetLightboxImage = useCallback((image: string | null, contextImages?: string[], source: 'staged' | 'history' = 'history') => {
     setLightboxImage(image);
     setLightboxImages(contextImages || []);
+    setLightboxSource(source);
   }, []);
 
   // --- GROUP CHAT HANDLERS ---
@@ -5311,13 +5314,13 @@ export default function MaestroConsole() {
           onClose={() => {
             setLightboxImage(null);
             setLightboxImages([]);
+            setLightboxSource('history');
             // Return focus to input after closing carousel
             setTimeout(() => inputRef.current?.focus(), 0);
           }}
           onNavigate={(img) => setLightboxImage(img)}
-          // Only allow delete when viewing staged images (not past message images)
-          // lightboxImages.length > 0 means we're viewing context images from a past message
-          onDelete={lightboxImages.length === 0 ? (img) => {
+          // Only allow delete when viewing staged images (source='staged'), not history
+          onDelete={lightboxSource === 'staged' ? (img) => {
             setStagedImages(prev => prev.filter(i => i !== img));
           } : undefined}
           theme={theme}

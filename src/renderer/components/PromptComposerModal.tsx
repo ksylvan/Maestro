@@ -15,7 +15,7 @@ interface PromptComposerModalProps {
   // Image attachment props
   stagedImages?: string[];
   setStagedImages?: React.Dispatch<React.SetStateAction<string[]>>;
-  onOpenLightbox?: (image: string, contextImages?: string[]) => void;
+  onOpenLightbox?: (image: string, contextImages?: string[], source?: 'staged' | 'history') => void;
   // Bottom bar toggles
   tabSaveToHistory?: boolean;
   onToggleTabSaveToHistory?: () => void;
@@ -131,7 +131,7 @@ export function PromptComposerModal({
     if (e.key === 'l' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
       e.preventDefault();
       if (stagedImages.length > 0 && onOpenLightbox) {
-        onOpenLightbox(stagedImages[0], stagedImages);
+        onOpenLightbox(stagedImages[0], stagedImages, 'staged');
       }
       return;
     }
@@ -250,7 +250,7 @@ export function PromptComposerModal({
                   src={img}
                   className="h-16 rounded border cursor-pointer hover:opacity-80 transition-opacity"
                   style={{ borderColor: theme.colors.border, objectFit: 'contain', maxWidth: '200px' }}
-                  onClick={() => onOpenLightbox?.(img, stagedImages)}
+                  onClick={() => onOpenLightbox?.(img, stagedImages, 'staged')}
                   title="Click to view (⌘+Shift+L)"
                 />
                 {setStagedImages && (

@@ -6,11 +6,10 @@
  * History entries are logged by the moderator when agents complete tasks.
  */
 
-import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Check } from 'lucide-react';
 import type { Theme } from '../types';
-import type { GroupChatHistoryEntry, GroupChatHistoryEntryType } from '../../shared/group-chat-types';
-import { GroupChatHistoryDetailModal } from './GroupChatHistoryDetailModal';
+import type { GroupChatHistoryEntry } from '../../shared/group-chat-types';
 
 // Lookback period options for the activity graph
 type LookbackPeriod = {
@@ -388,6 +387,7 @@ interface GroupChatHistoryPanelProps {
   participantColors: Record<string, string>;
   onRefresh: () => void;
   onDelete: (entryId: string) => Promise<boolean>;
+  onJumpToMessage?: (timestamp: number) => void;
 }
 
 export function GroupChatHistoryPanel({
@@ -397,10 +397,10 @@ export function GroupChatHistoryPanel({
   isLoading,
   participantColors,
   onRefresh: _onRefresh,
-  onDelete,
+  onDelete: _onDelete,
+  onJumpToMessage,
 }: GroupChatHistoryPanelProps): JSX.Element {
   const [lookbackHours, setLookbackHours] = useState<number | null>(24);
-  const [selectedEntry, setSelectedEntry] = useState<GroupChatHistoryEntry | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   // Load lookback preference
@@ -416,14 +416,14 @@ export function GroupChatHistoryPanel({
   }, [groupChatId]);
 
   // Handler to update lookback and persist
-  const handleLookbackChange = useCallback((hours: number | null) => {
+  const handleLookbackChange = (hours: number | null) => {
     setLookbackHours(hours);
     const settingsKey = `groupChatHistoryLookback:${groupChatId}`;
     window.maestro.settings.set(settingsKey, hours);
-  }, [groupChatId]);
+  };
 
   // Handle bar click - scroll to entries in that time range
-  const handleBarClick = useCallback((bucketStart: number, bucketEnd: number) => {
+  const handleBarClick = (bucketStart: number, bucketEnd: number) => {
     const entriesInBucket = entries.filter(
       e => e.timestamp >= bucketStart && e.timestamp < bucketEnd
     );
@@ -435,7 +435,7 @@ export function GroupChatHistoryPanel({
         element.scrollIntoView({ block: 'center', behavior: 'smooth' });
       }
     }
-  }, [entries]);
+  };
 
   // Format timestamp
   const formatTime = (timestamp: number) => {
@@ -450,39 +450,6 @@ export function GroupChatHistoryPanel({
         ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
   };
-
-  // Get type label and color
-  const getTypeStyle = (type: GroupChatHistoryEntryType) => {
-    switch (type) {
-      case 'response':
-        return { label: 'Response', color: theme.colors.success };
-      case 'delegation':
-        return { label: 'Delegated', color: theme.colors.warning };
-      case 'synthesis':
-        return { label: 'Synthesis', color: theme.colors.accent };
-      case 'error':
-        return { label: 'Error', color: theme.colors.error };
-      default:
-        return { label: type, color: theme.colors.textDim };
-    }
-  };
-
-  // Handle delete and close modal
-  const handleDelete = useCallback(async (entryId: string) => {
-    const success = await onDelete(entryId);
-    if (success) {
-      setSelectedEntry(null);
-    }
-    return success;
-  }, [onDelete]);
-
-  // Navigate to next/prev entry in modal
-  const handleNavigate = useCallback((entry: GroupChatHistoryEntry) => {
-    setSelectedEntry(entry);
-  }, []);
-
-  // Get current index for navigation
-  const currentIndex = selectedEntry ? entries.findIndex(e => e.id === selectedEntry.id) : -1;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden p-3">
@@ -513,57 +480,42 @@ export function GroupChatHistoryPanel({
           </div>
         ) : (
           entries.map((entry) => {
-            const typeStyle = getTypeStyle(entry.type);
+            const participantColor = entry.participantColor || participantColors[entry.participantName] || theme.colors.accent;
             return (
               <div
                 key={entry.id}
                 data-entry-id={entry.id}
-                onClick={() => setSelectedEntry(entry)}
+                onClick={() => onJumpToMessage?.(entry.timestamp)}
                 className="p-2.5 rounded border transition-colors cursor-pointer hover:bg-white/5"
                 style={{
                   borderColor: theme.colors.border,
                   borderLeftWidth: '3px',
-                  borderLeftColor: entry.participantColor || participantColors[entry.participantName] || theme.colors.border,
+                  borderLeftColor: participantColor,
                 }}
               >
                 {/* Header Row */}
                 <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-2">
-                    {/* Participant Name */}
-                    <span
-                      className="text-xs font-medium"
-                      style={{ color: entry.participantColor || participantColors[entry.participantName] || theme.colors.textMain }}
-                    >
-                      {entry.participantName}
-                    </span>
-                    {/* Type Pill */}
-                    <span
-                      className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
-                      style={{
-                        backgroundColor: typeStyle.color + '20',
-                        color: typeStyle.color,
-                        border: `1px solid ${typeStyle.color}40`,
-                      }}
-                    >
-                      {typeStyle.label}
-                    </span>
-                  </div>
+                  {/* Participant Name Pill */}
+                  <span
+                    className="px-2 py-0.5 rounded text-[10px] font-bold"
+                    style={{
+                      backgroundColor: participantColor + '25',
+                      color: participantColor,
+                      border: `1px solid ${participantColor}50`,
+                    }}
+                  >
+                    {entry.participantName}
+                  </span>
                   {/* Timestamp */}
                   <span className="text-[10px]" style={{ color: theme.colors.textDim }}>
                     {formatTime(entry.timestamp)}
                   </span>
                 </div>
 
-                {/* Summary - 2 lines max */}
+                {/* Summary - full text */}
                 <p
                   className="text-xs leading-relaxed"
-                  style={{
-                    color: theme.colors.textMain,
-                    display: '-webkit-box',
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: 'vertical' as const,
-                    overflow: 'hidden',
-                  }}
+                  style={{ color: theme.colors.textMain }}
                 >
                   {entry.summary}
                 </p>
@@ -588,20 +540,6 @@ export function GroupChatHistoryPanel({
           })
         )}
       </div>
-
-      {/* Detail Modal */}
-      {selectedEntry && (
-        <GroupChatHistoryDetailModal
-          theme={theme}
-          entry={selectedEntry}
-          entries={entries}
-          currentIndex={currentIndex}
-          participantColors={participantColors}
-          onClose={() => setSelectedEntry(null)}
-          onDelete={handleDelete}
-          onNavigate={handleNavigate}
-        />
-      )}
     </div>
   );
 }
