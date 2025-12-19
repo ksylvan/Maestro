@@ -1,7 +1,7 @@
 import { ipcMain, BrowserWindow, App } from 'electron';
 import fs from 'fs/promises';
-import fsSync from 'fs';
 import path from 'path';
+import chokidar, { FSWatcher } from 'chokidar';
 import { logger } from '../../utils/logger';
 import { createIpcHandler, CreateHandlerOptions } from '../../utils/ipcHandler';
 
@@ -15,7 +15,7 @@ const handlerOpts = (operation: string, logSuccess = true): CreateHandlerOptions
 });
 
 // State managed by this module
-const autoRunWatchers = new Map<string, fsSync.FSWatcher>();
+const autoRunWatchers = new Map<string, FSWatcher>();
 let autoRunWatchDebounceTimer: NodeJS.Timeout | null = null;
 
 // Tree node interface for directory scanning
@@ -410,12 +410,23 @@ export function registerAutorunHandlers(deps: {
         throw new Error('Path is not a directory');
       }
 
-      // Start watching the folder recursively
-      const watcher = fsSync.watch(folderPath, { recursive: true }, (eventType, filename) => {
+      // Start watching the folder recursively using chokidar (cross-platform)
+      const watcher = chokidar.watch(folderPath, {
+        ignored: /(^|[/\\])\../, // Ignore dotfiles
+        persistent: true,
+        ignoreInitial: true, // Don't emit events for existing files on startup
+        depth: 99, // Recursive watching
+      });
+
+      // Handler for file changes
+      const handleFileChange = (eventType: string) => (filePath: string) => {
         // Only care about .md files
-        if (!filename || !filename.toLowerCase().endsWith('.md')) {
+        if (!filePath.toLowerCase().endsWith('.md')) {
           return;
         }
+
+        // Get filename relative to watch folder
+        const filename = path.relative(folderPath, filePath);
 
         // Debounce to avoid flooding with events during rapid saves
         if (autoRunWatchDebounceTimer) {
@@ -432,12 +443,16 @@ export function registerAutorunHandlers(deps: {
             mainWindow.webContents.send('autorun:fileChanged', {
               folderPath,
               filename: filenameWithoutExt,
-              eventType, // 'rename' or 'change'
+              eventType,
             });
             logger.info(`Auto Run file changed: ${filename} (${eventType})`, LOG_CONTEXT);
           }
         }, 300); // 300ms debounce
-      });
+      };
+
+      watcher.on('add', handleFileChange('rename'));
+      watcher.on('change', handleFileChange('change'));
+      watcher.on('unlink', handleFileChange('rename'));
 
       autoRunWatchers.set(folderPath, watcher);
 

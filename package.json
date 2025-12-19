@@ -159,6 +159,7 @@
     "ansi-to-html": "^0.7.2",
     "archiver": "^7.0.1",
     "canvas-confetti": "^1.9.4",
+    "chokidar": "^5.0.0",
     "commander": "^14.0.2",
     "diff": "^8.0.2",
     "dompurify": "^3.3.0",

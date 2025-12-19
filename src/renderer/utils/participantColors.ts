@@ -37,20 +37,40 @@ export function mentionMatches(mentionedName: string, actualName: string): boole
  * @param theme - The current theme
  * @returns HSL color string
  */
-export function generateParticipantColor(index: number, theme: Theme): string {
-  // Base hues that work well together (golden ratio distribution)
-  const baseHues = [210, 150, 30, 270, 0, 180, 60, 300, 120, 330];
-  const hue = baseHues[index % baseHues.length];
+// Base hues that work well together (golden ratio distribution)
+// Index 0 (hue 210, blue) is reserved for the Moderator
+const BASE_HUES = [210, 150, 30, 270, 0, 180, 60, 300, 120, 330];
 
+/** The color index reserved for the Moderator (always blue-ish) */
+export const MODERATOR_COLOR_INDEX = 0;
+
+/** Number of unique base colors in the palette */
+export const COLOR_PALETTE_SIZE = BASE_HUES.length;
+
+export function generateParticipantColor(index: number, theme: Theme): string {
   // Detect if theme is light or dark based on background color
   const bgHex = theme.colors.bgMain.match(/^#([0-9a-f]{2})/i)?.[1];
   const bgBrightness = bgHex ? parseInt(bgHex, 16) : 20;
   const isLightTheme = bgBrightness > 128;
 
-  // For light themes: more saturated, darker colors
-  // For dark themes: slightly desaturated, brighter colors
-  const saturation = isLightTheme ? 65 : 55;
-  const lightness = isLightTheme ? 45 : 60;
+  // Base saturation and lightness
+  const baseSaturation = isLightTheme ? 65 : 55;
+  const baseLightness = isLightTheme ? 45 : 60;
+
+  // Calculate which "round" we're on (for when we exceed palette size)
+  const round = Math.floor(index / BASE_HUES.length);
+  const hueIndex = index % BASE_HUES.length;
+  const hue = BASE_HUES[hueIndex];
+
+  // Vary saturation and lightness for subsequent rounds to differentiate
+  // Round 0: base values, Round 1: slightly different, Round 2: more different, etc.
+  const saturationVariation = round * 10; // Reduce saturation each round
+  const lightnessVariation = round * 8;   // Adjust lightness each round
+
+  const saturation = Math.max(25, baseSaturation - saturationVariation);
+  const lightness = isLightTheme
+    ? Math.min(70, baseLightness + lightnessVariation)  // Lighter for light themes
+    : Math.max(40, baseLightness - lightnessVariation); // Darker for dark themes
 
   return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
 }
@@ -133,24 +153,34 @@ export function buildParticipantColorMapWithPreferences(
   const usedIndices = new Set<number>();
   const newPreferences: Record<string, number> = {};
 
+  // Reserve index 0 for the Moderator (always blue)
+  // The Moderator is identified by name "Moderator" with no sessionPath
+  const moderator = participants.find(p => p.name === 'Moderator' && !p.sessionPath);
+  if (moderator) {
+    colors['Moderator'] = generateParticipantColor(MODERATOR_COLOR_INDEX, theme);
+    usedIndices.add(MODERATOR_COLOR_INDEX);
+  }
+
   // First pass: assign colors to participants with existing preferences
   for (const participant of participants) {
+    if (colors[participant.name]) continue; // Already assigned (e.g., Moderator)
     if (participant.sessionPath && preferences[participant.sessionPath] !== undefined) {
       const preferredIndex = preferences[participant.sessionPath];
-      if (!usedIndices.has(preferredIndex)) {
+      // Don't allow non-moderators to claim the moderator's reserved index
+      if (!usedIndices.has(preferredIndex) && preferredIndex !== MODERATOR_COLOR_INDEX) {
         colors[participant.name] = generateParticipantColor(preferredIndex, theme);
         usedIndices.add(preferredIndex);
       }
     }
   }
 
-  // Second pass: assign colors to remaining participants
-  let nextIndex = 0;
+  // Second pass: assign colors to remaining participants (skip index 0, reserved for Moderator)
+  let nextIndex = 1; // Start at 1, not 0
   for (const participant of participants) {
     if (colors[participant.name]) continue; // Already assigned
 
-    // Find next available index
-    while (usedIndices.has(nextIndex)) {
+    // Find next available index (skip 0)
+    while (usedIndices.has(nextIndex) || nextIndex === MODERATOR_COLOR_INDEX) {
       nextIndex++;
     }
 
