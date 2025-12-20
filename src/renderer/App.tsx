@@ -2840,6 +2840,19 @@ export default function MaestroConsole() {
       const messages = await window.maestro.groupChat.getMessages(id);
       setGroupChatMessages(messages);
 
+      // Restore the state for this specific chat from the per-chat state map
+      // This prevents state from one chat bleeding into another when switching
+      setGroupChatState(prev => {
+        const savedState = groupChatStates.get(id);
+        return savedState ?? 'idle';
+      });
+
+      // Restore participant states for this chat
+      setParticipantStates(prev => {
+        const savedParticipantStates = allGroupChatParticipantStates.get(id);
+        return savedParticipantStates ?? new Map();
+      });
+
       // Load saved right tab preference for this group chat
       const savedTab = await window.maestro.settings.get(`groupChatRightTab:${id}`);
       if (savedTab === 'participants' || savedTab === 'history') {
@@ -2857,7 +2870,7 @@ export default function MaestroConsole() {
         groupChatInputRef.current?.focus();
       }, 100);
     }
-  }, []);
+  }, [groupChatStates, allGroupChatParticipantStates]);
 
   const handleCloseGroupChat = useCallback(() => {
     setActiveGroupChatId(null);
@@ -3321,7 +3334,10 @@ export default function MaestroConsole() {
         setActiveGroupChatId(null);
         setActiveSessionIdInternal(firstItem.id);
       } else {
+        // When switching to a group chat via cycling, restore its state from the per-chat maps
         setActiveGroupChatId(firstItem.id);
+        setGroupChatState(groupChatStates.get(firstItem.id) ?? 'idle');
+        setParticipantStates(allGroupChatParticipantStates.get(firstItem.id) ?? new Map());
       }
       return;
     }
@@ -3340,7 +3356,10 @@ export default function MaestroConsole() {
       setActiveGroupChatId(null);
       setActiveSessionIdInternal(nextItem.id);
     } else {
+      // When switching to a group chat via cycling, restore its state from the per-chat maps
       setActiveGroupChatId(nextItem.id);
+      setGroupChatState(groupChatStates.get(nextItem.id) ?? 'idle');
+      setParticipantStates(allGroupChatParticipantStates.get(nextItem.id) ?? new Map());
     }
   };
 
@@ -5798,7 +5817,10 @@ export default function MaestroConsole() {
             }
           }}
           onNavigateToGroupChat={(groupChatId) => {
+            // Restore state for this group chat when navigating from ProcessMonitor
             setActiveGroupChatId(groupChatId);
+            setGroupChatState(groupChatStates.get(groupChatId) ?? 'idle');
+            setParticipantStates(allGroupChatParticipantStates.get(groupChatId) ?? new Map());
             setProcessMonitorOpen(false);
           }}
         />
