@@ -315,6 +315,7 @@ export default function MaestroConsole() {
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [lightboxImages, setLightboxImages] = useState<string[]>([]); // Context images for navigation
   const [lightboxSource, setLightboxSource] = useState<'staged' | 'history'>('history'); // Track source for delete permission
+  const [lightboxDeleteHandler, setLightboxDeleteHandler] = useState<((img: string) => void) | null>(null); // Captured delete handler
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
   const [updateCheckModalOpen, setUpdateCheckModalOpen] = useState(false);
   const [leaderboardRegistrationOpen, setLeaderboardRegistrationOpen] = useState(false);
@@ -2954,11 +2955,27 @@ export default function MaestroConsole() {
 
   // Handler to open lightbox with optional context images for navigation
   // source: 'staged' allows deletion, 'history' is read-only
+  // When source is 'staged', we capture the appropriate delete handler at call time
   const handleSetLightboxImage = useCallback((image: string | null, contextImages?: string[], source: 'staged' | 'history' = 'history') => {
     setLightboxImage(image);
     setLightboxImages(contextImages || []);
     setLightboxSource(source);
-  }, []);
+    // Capture the delete handler at the moment the lightbox opens
+    // This ensures we use the correct setter based on the current context (group chat vs single chat)
+    if (source === 'staged') {
+      // Capture currentActiveGroupChatId at call time via closure
+      const isGroupChat = activeGroupChatId !== null;
+      setLightboxDeleteHandler(() => (img: string) => {
+        if (isGroupChat) {
+          setGroupChatStagedImages(prev => prev.filter(i => i !== img));
+        } else {
+          setStagedImages(prev => prev.filter(i => i !== img));
+        }
+      });
+    } else {
+      setLightboxDeleteHandler(null);
+    }
+  }, [activeGroupChatId]);
 
   // --- GROUP CHAT HANDLERS ---
 
@@ -5801,19 +5818,13 @@ export default function MaestroConsole() {
             setLightboxImage(null);
             setLightboxImages([]);
             setLightboxSource('history');
+            setLightboxDeleteHandler(null);
             // Return focus to input after closing carousel
             setTimeout(() => inputRef.current?.focus(), 0);
           }}
           onNavigate={(img) => setLightboxImage(img)}
-          // Only allow delete when viewing staged images (source='staged'), not history
-          // Use the correct setter based on whether we're in group chat mode
-          onDelete={lightboxSource === 'staged' ? (img) => {
-            if (activeGroupChatId) {
-              setGroupChatStagedImages(prev => prev.filter(i => i !== img));
-            } else {
-              setStagedImages(prev => prev.filter(i => i !== img));
-            }
-          } : undefined}
+          // Use the captured delete handler (set when lightbox opened with source='staged')
+          onDelete={lightboxDeleteHandler ?? undefined}
           theme={theme}
         />
       )}
