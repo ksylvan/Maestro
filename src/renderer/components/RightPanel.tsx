@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useImperativeHandle, forwardRef, useState, useCallback } from 'react';
 import { PanelRightClose, PanelRightOpen, Loader2, GitBranch } from 'lucide-react';
-import type { Session, Theme, RightPanelTab, Shortcut, BatchRunState } from '../types';
+import type { Session, Theme, RightPanelTab, Shortcut, BatchRunState, FocusArea } from '../types';
 import type { FileTreeChanges } from '../utils/fileExplorer';
 import { FileExplorerPanel } from './FileExplorerPanel';
 import { HistoryPanel, HistoryPanelHandle } from './HistoryPanel';
@@ -32,8 +32,8 @@ interface RightPanelProps {
   setActiveRightTab: (tab: RightPanelTab) => void;
 
   // Focus management
-  activeFocus: string;
-  setActiveFocus: (focus: string) => void;
+  activeFocus: FocusArea;
+  setActiveFocus: (focus: FocusArea) => void;
 
   // File explorer state & handlers
   fileTreeFilter: string;

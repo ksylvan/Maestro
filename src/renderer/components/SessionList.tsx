@@ -5,7 +5,7 @@ import {
   ScrollText, Cpu, Menu, Bookmark, Trophy, Trash2, Edit3, FolderInput, Download, Compass, Globe
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import type { Session, Group, Theme, Shortcut, AutoRunStats, GroupChat, GroupChatState } from '../types';
+import type { Session, Group, Theme, Shortcut, AutoRunStats, GroupChat, GroupChatState, SettingsTab, FocusArea } from '../types';
 import { getBadgeForTime } from '../constants/conductorBadges';
 import { getStatusColor, getContextColor, formatActiveTime } from '../utils/theme';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
@@ -248,7 +248,7 @@ interface HamburgerMenuContentProps {
   startTour?: () => void;
   setShortcutsHelpOpen: (open: boolean) => void;
   setSettingsModalOpen: (open: boolean) => void;
-  setSettingsTab: (tab: string) => void;
+  setSettingsTab: (tab: SettingsTab) => void;
   setLogViewerOpen: (open: boolean) => void;
   setProcessMonitorOpen: (open: boolean) => void;
   setUpdateCheckModalOpen: (open: boolean) => void;
@@ -543,13 +543,13 @@ interface SessionListProps {
   setUngroupedCollapsed: (collapsed: boolean) => void;
 
   // Handlers
-  setActiveFocus: (focus: string) => void;
+  setActiveFocus: (focus: FocusArea) => void;
   setActiveSessionId: (id: string) => void;
   setLeftSidebarOpen: (open: boolean) => void;
   setLeftSidebarWidthState: (width: number) => void;
   setShortcutsHelpOpen: (open: boolean) => void;
   setSettingsModalOpen: (open: boolean) => void;
-  setSettingsTab: (tab: string) => void;
+  setSettingsTab: (tab: SettingsTab) => void;
   setAboutModalOpen: (open: boolean) => void;
   setUpdateCheckModalOpen: (open: boolean) => void;
   setLogViewerOpen: (open: boolean) => void;

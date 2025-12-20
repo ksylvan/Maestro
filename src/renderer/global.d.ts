@@ -70,7 +70,7 @@ interface AgentConfig {
   binaryName?: string;
   available: boolean;
   path?: string;
-  command?: string;
+  command: string;
   args?: string[];
   hidden?: boolean;
   configOptions?: AgentConfigOption[];

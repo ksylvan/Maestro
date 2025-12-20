@@ -85,7 +85,7 @@ import { parseSynopsis } from '../shared/synopsis';
 
 // Import types and constants
 import type {
-  ToolType, SessionState, RightPanelTab,
+  ToolType, SessionState, RightPanelTab, SettingsTab,
   FocusArea, LogEntry, Session, Group, AITab, UsageStats, QueuedItem, BatchRunConfig,
   AgentError, BatchRunState, GroupChat, GroupChatMessage, GroupChatState
 } from './types';
@@ -95,6 +95,7 @@ import { getContextColor } from './utils/theme';
 import { setActiveTab, createTab, closeTab, reopenClosedTab, getActiveTab, getWriteModeTab, navigateToNextTab, navigateToPrevTab, navigateToTabByIndex, navigateToLastTab, getInitialRenameValue } from './utils/tabHelpers';
 import { TAB_SHORTCUTS } from './constants/shortcuts';
 import { shouldOpenExternally, getAllFolderPaths, flattenTree } from './utils/fileExplorer';
+import type { FileNode } from './hooks/useFileExplorer';
 import { substituteTemplateVariables } from './utils/templateVariables';
 import { validateNewSession } from './utils/sessionValidation';
 
@@ -312,7 +313,7 @@ export default function MaestroConsole() {
   const [shortcutsSearchQuery, setShortcutsSearchQuery] = useState('');
   const [quickActionOpen, setQuickActionOpen] = useState(false);
   const [quickActionInitialMode, setQuickActionInitialMode] = useState<'main' | 'move-to-group'>('main');
-  const [settingsTab, setSettingsTab] = useState<'general' | 'shortcuts' | 'theme' | 'notifications' | 'aicommands'>('general');
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [lightboxImages, setLightboxImages] = useState<string[]>([]); // Context images for navigation
   const [lightboxSource, setLightboxSource] = useState<'staged' | 'history'>('history'); // Track source for delete permission
@@ -1519,7 +1520,7 @@ export default function MaestroConsole() {
         totalInputTokens: usageStats.inputTokens,
         totalOutputTokens: usageStats.outputTokens,
         totalCacheReadTokens: usageStats.cacheReadInputTokens,
-        totalCacheCreationInputTokens: usageStats.cacheCreationInputTokens,
+        totalCacheCreationTokens: usageStats.cacheCreationInputTokens,
         totalCostUsd: usageStats.totalCostUsd,
       });
     });
@@ -2690,7 +2691,7 @@ export default function MaestroConsole() {
 
         // Add to history
         addHistoryEntry({
-          type: 'USER',
+          type: 'AUTO',
           summary: parsed.shortSummary,
           fullResponse: parsed.fullSynopsis,
           agentSessionId: agentSessionId,
@@ -3565,7 +3566,11 @@ export default function MaestroConsole() {
     const validation = validateNewSession(name, workingDir, agentId as ToolType, sessions);
     if (!validation.valid) {
       console.error(`Session validation failed: ${validation.error}`);
-      showToast(validation.error || 'Cannot create duplicate session', 'error');
+      addToast({
+        type: 'error',
+        title: 'Session Creation Failed',
+        message: validation.error || 'Cannot create duplicate session',
+      });
       return;
     }
 
@@ -3695,7 +3700,11 @@ export default function MaestroConsole() {
     const validation = validateNewSession(sessionName, directoryPath, selectedAgent as ToolType, sessions);
     if (!validation.valid) {
       console.error(`Wizard session validation failed: ${validation.error}`);
-      showToast(validation.error || 'Cannot create duplicate session', 'error');
+      addToast({
+        type: 'error',
+        title: 'Session Creation Failed',
+        message: validation.error || 'Cannot create duplicate session',
+      });
       throw new Error(validation.error || 'Session validation failed');
     }
 
@@ -4172,12 +4181,13 @@ export default function MaestroConsole() {
         // (they would override the read-only mode we're requesting)
         // - Claude Code: --dangerously-skip-permissions
         // - Codex: --dangerously-bypass-approvals-and-sandbox
+        const agentArgs = agent.args ?? [];
         const spawnArgs = isReadOnly
-          ? agent.args.filter(arg =>
+          ? agentArgs.filter(arg =>
               arg !== '--dangerously-skip-permissions' &&
               arg !== '--dangerously-bypass-approvals-and-sandbox'
             )
-          : [...agent.args];
+          : [...agentArgs];
 
         // Note: agentSessionId and readOnlyMode are passed to spawn() config below.
         // The main process uses agent-specific argument builders (resumeArgs, readOnlyArgs)
@@ -4185,7 +4195,7 @@ export default function MaestroConsole() {
 
         // Include tab ID in targetSessionId for proper output routing
         const targetSessionId = `${sessionId}-ai-${activeTab?.id || 'default'}`;
-        const commandToUse = agent.path || agent.command;
+        const commandToUse = agent.path ?? agent.command;
 
         console.log('[Remote] Spawning agent:', {
           maestroSessionId: sessionId,
@@ -4251,7 +4261,7 @@ export default function MaestroConsole() {
           args: spawnArgs,
           prompt: promptToSend,
           // Generic spawn options - main process builds agent-specific args
-          agentSessionId: tabAgentSessionId,
+          agentSessionId: tabAgentSessionId ?? undefined,
           readOnlyMode: isReadOnly,
           // Per-session config overrides (if set)
           sessionCustomPath: session.customPath,
@@ -4262,13 +4272,14 @@ export default function MaestroConsole() {
         });
 
         console.log(`[Remote] ${session.toolType} spawn initiated successfully`);
-      } catch (error) {
+      } catch (error: unknown) {
         console.error('[Remote] Failed to spawn Claude:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
         const errorLogEntry: LogEntry = {
           id: generateId(),
           timestamp: Date.now(),
           source: 'system',
-          text: `Error: Failed to process remote command - ${error.message}`
+          text: `Error: Failed to process remote command - ${errorMessage}`
         };
         setSessions(prev => prev.map(s => {
           if (s.id !== sessionId) return s;
@@ -4370,7 +4381,7 @@ export default function MaestroConsole() {
       // The main process uses agent-specific argument builders (resumeArgs, readOnlyArgs)
       // to construct the correct CLI args for each agent type.
 
-      const commandToUse = agent.path || agent.command;
+      const commandToUse = agent.path ?? agent.command;
 
       // Check if this is a message with images but no text
       const hasImages = item.images && item.images.length > 0;
@@ -4428,7 +4439,7 @@ export default function MaestroConsole() {
           prompt: effectivePrompt,
           images: hasImages ? item.images : undefined,
           // Generic spawn options - main process builds agent-specific args
-          agentSessionId: tabAgentSessionId,
+          agentSessionId: tabAgentSessionId ?? undefined,
           readOnlyMode: isReadOnly,
           // Per-session config overrides (if set)
           sessionCustomPath: session.customPath,
@@ -4501,7 +4512,7 @@ export default function MaestroConsole() {
             args: spawnArgs,
             prompt: promptForAgent,
             // Generic spawn options - main process builds agent-specific args
-            agentSessionId: tabAgentSessionId,
+            agentSessionId: tabAgentSessionId ?? undefined,
             readOnlyMode: isReadOnly,
             // Per-session config overrides (if set)
             sessionCustomPath: session.customPath,
@@ -4876,13 +4887,14 @@ export default function MaestroConsole() {
               processQueuedItem(queuedItemAfterKill!.sessionId, queuedItemAfterKill!.item);
             }, 0);
           }
-        } catch (killError) {
+        } catch (killError: unknown) {
           console.error('Failed to kill process:', killError);
+          const killErrorMessage = killError instanceof Error ? killError.message : String(killError);
           const errorLog: LogEntry = {
             id: generateId(),
             timestamp: Date.now(),
             source: 'system',
-            text: `Error: Failed to terminate process - ${killError.message}`
+            text: `Error: Failed to terminate process - ${killErrorMessage}`
           };
           setSessions(prev => prev.map(s => {
             if (s.id !== activeSession.id) return s;
@@ -6420,6 +6432,7 @@ export default function MaestroConsole() {
         setMarkdownEditMode={setMarkdownEditMode}
         setAboutModalOpen={setAboutModalOpen}
         setRightPanelOpen={setRightPanelOpen}
+        setGitLogOpen={setGitLogOpen}
         inputRef={inputRef}
         logsEndRef={logsEndRef}
         terminalOutputRef={terminalOutputRef}

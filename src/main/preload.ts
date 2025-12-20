@@ -43,6 +43,8 @@ interface AgentCapabilities {
 interface AgentConfig {
   id: string;
   name: string;
+  command: string;
+  args?: string[];
   available: boolean;
   path?: string;
   capabilities?: AgentCapabilities;
