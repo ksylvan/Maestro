@@ -49,6 +49,8 @@ export function EditGroupChatModal({
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [refreshingAgent, setRefreshingAgent] = useState(false);
+  // Track if user has visited/modified the config panel (agent-level settings like model)
+  const [configWasModified, setConfigWasModified] = useState(false);
 
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -86,6 +88,7 @@ export function EditGroupChatModal({
     setAvailableModels([]);
     setLoadingModels(false);
     setRefreshingAgent(false);
+    setConfigWasModified(false);
   }, []);
 
   // Detect agents on mount
@@ -150,8 +153,9 @@ export function EditGroupChatModal({
     const originalEnvVars = groupChat.moderatorConfig?.customEnvVars || {};
     const envVarsChanged = JSON.stringify(customEnvVars) !== JSON.stringify(originalEnvVars);
 
-    return nameChanged || agentChanged || pathChanged || argsChanged || envVarsChanged;
-  }, [groupChat, name, selectedAgent, customPath, customArgs, customEnvVars]);
+    // Also consider changes if user modified agent-level config (model, etc.)
+    return nameChanged || agentChanged || pathChanged || argsChanged || envVarsChanged || configWasModified;
+  }, [groupChat, name, selectedAgent, customPath, customArgs, customEnvVars, configWasModified]);
 
   const canSave = name.trim().length > 0 && selectedAgent !== null && hasChanges();
 
@@ -332,10 +336,12 @@ export function EditGroupChatModal({
             agentConfig={agentConfig}
             onConfigChange={(key, value) => {
               setAgentConfig(prev => ({ ...prev, [key]: value }));
+              setConfigWasModified(true);
             }}
             onConfigBlur={async () => {
               if (selectedAgent) {
                 await window.maestro.agents.setConfig(selectedAgent, agentConfig);
+                setConfigWasModified(true);
               }
             }}
             availableModels={availableModels}

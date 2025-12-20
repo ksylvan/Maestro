@@ -919,7 +919,8 @@ export default function MaestroConsole() {
         if (currentSession) {
           // Check if there are queued items to process next
           // We still want to show a toast for this tab's completion even if other tabs have work queued
-          if (currentSession.executionQueue.length > 0) {
+          // BUT don't process queue if there's an active error - wait for error resolution
+          if (currentSession.executionQueue.length > 0 && !(currentSession.state === 'error' && currentSession.agentError)) {
             queuedItemToProcess = {
               sessionId: actualSessionId,
               item: currentSession.executionQueue[0]
@@ -1023,6 +1024,29 @@ export default function MaestroConsole() {
         if (s.id !== actualSessionId) return s;
 
         if (isFromAi) {
+          // Don't process queue if session is in error state - preserve error
+          // Queue will be processed after error is resolved
+          if (s.state === 'error' && s.agentError) {
+            // Set the specific tab to idle but preserve session error state
+            const updatedAiTabs = s.aiTabs?.length > 0
+              ? s.aiTabs.map(tab => {
+                  if (tabIdFromSession) {
+                    return tab.id === tabIdFromSession ? { ...tab, state: 'idle' as const, thinkingStartTime: undefined } : tab;
+                  } else {
+                    return tab.state === 'busy' ? { ...tab, state: 'idle' as const, thinkingStartTime: undefined } : tab;
+                  }
+                })
+              : s.aiTabs;
+
+            return {
+              ...s,
+              state: 'error' as SessionState,  // Preserve error state
+              busySource: undefined,
+              thinkingStartTime: undefined,
+              aiTabs: updatedAiTabs
+            };
+          }
+
           // Check if there are queued items in the execution queue
           if (s.executionQueue.length > 0) {
             const [nextItem, ...remainingQueue] = s.executionQueue;
@@ -1107,8 +1131,11 @@ export default function MaestroConsole() {
 
           // Check if ANY other tabs are still busy (for parallel read-only execution)
           // Only set session to idle if no tabs are busy
+          // IMPORTANT: Preserve 'error' state if session has an active agentError - don't overwrite with 'idle'
           const anyTabStillBusy = updatedAiTabs.some(tab => tab.state === 'busy');
-          const newState = anyTabStillBusy ? 'busy' as SessionState : 'idle' as SessionState;
+          const newState = s.state === 'error' && s.agentError
+            ? 'error' as SessionState  // Preserve error state
+            : (anyTabStillBusy ? 'busy' as SessionState : 'idle' as SessionState);
           const newBusySource = anyTabStillBusy ? s.busySource : undefined;
 
           // Log state transition for debugging thinking pill issues
