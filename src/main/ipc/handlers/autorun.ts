@@ -18,11 +18,20 @@ const handlerOpts = (operation: string, logSuccess = true): CreateHandlerOptions
 const autoRunWatchers = new Map<string, FSWatcher>();
 let autoRunWatchDebounceTimer: NodeJS.Timeout | null = null;
 
-// Tree node interface for directory scanning
+/**
+ * Tree node interface for autorun directory scanning.
+ *
+ * Note: This is intentionally different from shared/treeUtils.TreeNode:
+ * - Includes a `path` property (pre-computed relative path from scanDirectory)
+ * - shared TreeNode has only `name` and constructs paths during traversal
+ *
+ * @internal
+ */
 interface TreeNode {
   name: string;
   type: 'file' | 'folder';
-  path: string; // Relative path from root folder
+  /** Pre-computed relative path from root folder */
+  path: string;
   children?: TreeNode[];
 }
 
@@ -71,7 +80,14 @@ async function scanDirectory(dirPath: string, relativePath: string = ''): Promis
 }
 
 /**
- * Flatten tree structure to flat list of paths
+ * Flatten tree structure to flat list of paths.
+ *
+ * Note: This is intentionally NOT using shared/treeUtils.getAllFilePaths because:
+ * - autorun.ts TreeNode has a pre-computed `path` property from scanDirectory
+ * - shared TreeNode builds paths on-the-fly from `name` properties
+ * The shared utility would re-construct paths we already have, duplicating work.
+ *
+ * @internal
  */
 function flattenTree(nodes: TreeNode[]): string[] {
   const files: string[] = [];

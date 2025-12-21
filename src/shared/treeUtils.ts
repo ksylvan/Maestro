@@ -178,6 +178,9 @@ export function walkTreePartitioned<N extends TreeNode = TreeNode>(
  * walkTree(nodes, { onFile: (_, path) => path })
  * ```
  *
+ * Note: This is a public convenience wrapper, though currently only used in tests.
+ * Kept for API completeness alongside getAllFolderPaths.
+ *
  * @param nodes - Array of tree nodes
  * @param basePath - Optional initial path prefix
  * @returns Array of file paths
