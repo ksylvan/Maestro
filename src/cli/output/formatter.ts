@@ -443,6 +443,11 @@ export interface AgentDetailDisplay {
   }[];
 }
 
+/**
+ * Format token count for CLI display (decimal format with K/M suffixes).
+ * Note: This differs from shared/formatters.ts which uses integer rounding
+ * and ~prefix for approximation. This version uses decimal for precision.
+ */
 function formatTokens(count: number): string {
   if (count >= 1_000_000) {
     return `${(count / 1_000_000).toFixed(1)}M`;
@@ -452,6 +457,12 @@ function formatTokens(count: number): string {
   return count.toString();
 }
 
+/**
+ * Format duration for CLI display (decimal format with ms/s/m/h suffixes).
+ * Note: This differs from shared/formatters.ts formatElapsedTime which
+ * shows combined units like "5m 12s". This version uses single decimals
+ * like "5.2m" for compact CLI output.
+ */
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
