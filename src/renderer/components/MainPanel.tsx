@@ -453,7 +453,7 @@ export const MainPanel = forwardRef<MainPanelHandle, MainPanelProps>(function Ma
                       e.stopPropagation();
                       if (activeSession.isGitRepo) {
                         refreshGitStatus(); // Refresh git info immediately on click
-                        setGitLogOpen(true);
+                        setGitLogOpen?.(true);
                       }
                     }}
                   >

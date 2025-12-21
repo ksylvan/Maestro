@@ -604,6 +604,19 @@ export class ProcessManager extends EventEmitter {
           hasStderr: childProcess.stderr ? 'exists' : 'null'
         });
 
+        // Handle stdin errors (EPIPE when process closes before we finish writing)
+        if (childProcess.stdin) {
+          childProcess.stdin.on('error', (err) => {
+            // EPIPE is expected when process terminates while we're writing - log but don't crash
+            const errorCode = (err as NodeJS.ErrnoException).code;
+            if (errorCode === 'EPIPE') {
+              logger.debug('[ProcessManager] stdin EPIPE - process closed before write completed', 'ProcessManager', { sessionId });
+            } else {
+              logger.error('[ProcessManager] stdin error', 'ProcessManager', { sessionId, error: String(err), code: errorCode });
+            }
+          });
+        }
+
         // Handle stdout
         if (childProcess.stdout) {
           logger.debug('[ProcessManager] Attaching stdout data listener', 'ProcessManager', { sessionId });

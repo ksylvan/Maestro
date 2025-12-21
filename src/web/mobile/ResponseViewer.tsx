@@ -158,7 +158,7 @@ function parseTextWithCodeBlocks(text: string): TextSegment[] {
 
   // Regex to match code blocks: ```language\ncode\n```
   // Supports optional language identifier after opening backticks
-  const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/g;
+  const codeBlockRegex = /```([^\n\r`]*)\n?([\s\S]*?)```/g;
 
   let lastIndex = 0;
   let match;
@@ -176,7 +176,7 @@ function parseTextWithCodeBlocks(text: string): TextSegment[] {
     }
 
     // Add the code block
-    const language = match[1] || '';
+    const language = (match[1] || '').trim();
     const code = match[2] || '';
 
     // Only add non-empty code blocks

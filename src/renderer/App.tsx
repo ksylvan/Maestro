@@ -6589,7 +6589,7 @@ export default function MaestroConsole() {
           // Use functional setState to compute from fresh state (avoids stale closure issues)
           setSessions(prev => prev.map(s => {
             if (s.id !== activeSession.id) return s;
-            const result = closeTab(s, tabId);
+            const result = closeTab(s, tabId, showUnreadOnly);
             return result ? result.session : s;
           }));
         }}
