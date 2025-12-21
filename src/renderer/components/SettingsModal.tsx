@@ -6,7 +6,7 @@ import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { AICommandsPanel } from './AICommandsPanel';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
-import { ToggleButtonGroup, ToggleButtonOption } from './ToggleButtonGroup';
+import { ToggleButtonGroup } from './ToggleButtonGroup';
 import { SettingCheckbox } from './SettingCheckbox';
 import { FontConfigurationPanel } from './FontConfigurationPanel';
 import { NotificationsPanel } from './NotificationsPanel';
