@@ -121,15 +121,24 @@
       "target": [
         {
           "target": "AppImage",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         },
         {
           "target": "deb",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         },
         {
           "target": "rpm",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "category": "Development",
@@ -198,6 +207,7 @@
     "electron-updater": "^6.6.2",
     "fastify": "^4.25.2",
     "js-tiktoken": "^1.0.21",
+    "marked": "^17.0.1",
     "mermaid": "^11.12.1",
     "node-pty": "^1.0.0",
     "qrcode": "^1.5.4",

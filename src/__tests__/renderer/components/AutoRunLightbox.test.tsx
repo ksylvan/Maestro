@@ -147,8 +147,8 @@ describe('AutoRunLightbox', () => {
       const props = createDefaultProps();
       renderWithProviders(<AutoRunLightbox {...props} />);
 
-      // Should render the backdrop container
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
+      // Should render the backdrop container (rendered via portal to document.body)
+      const backdrop = document.querySelector('.fixed.inset-0.z-\\[9999\\]');
       expect(backdrop).toBeInTheDocument();
     });
 
@@ -341,7 +341,7 @@ describe('AutoRunLightbox', () => {
       const props = createDefaultProps({ onNavigate });
       renderWithProviders(<AutoRunLightbox {...props} />);
 
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
+      const backdrop = document.querySelector('.fixed.inset-0.z-\\[9999\\]');
       fireEvent.keyDown(backdrop!, { key: 'ArrowRight' });
 
       expect(onNavigate).toHaveBeenCalledWith('image2.png');
@@ -355,7 +355,7 @@ describe('AutoRunLightbox', () => {
       });
       renderWithProviders(<AutoRunLightbox {...props} />);
 
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
+      const backdrop = document.querySelector('.fixed.inset-0.z-\\[9999\\]');
       fireEvent.keyDown(backdrop!, { key: 'ArrowLeft' });
 
       expect(onNavigate).toHaveBeenCalledWith('image1.png');
@@ -365,7 +365,7 @@ describe('AutoRunLightbox', () => {
       const props = createDefaultProps();
       renderWithProviders(<AutoRunLightbox {...props} />);
 
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
+      const backdrop = document.querySelector('.fixed.inset-0.z-\\[9999\\]');
       const event = fireEvent.keyDown(backdrop!, { key: 'ArrowRight' });
 
       // fireEvent.keyDown returns false when preventDefault is called
@@ -376,7 +376,7 @@ describe('AutoRunLightbox', () => {
       const props = createDefaultProps();
       renderWithProviders(<AutoRunLightbox {...props} />);
 
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
+      const backdrop = document.querySelector('.fixed.inset-0.z-\\[9999\\]');
       const event = fireEvent.keyDown(backdrop!, { key: 'ArrowLeft' });
 
       expect(event).toBe(false);
@@ -390,7 +390,7 @@ describe('AutoRunLightbox', () => {
       });
       renderWithProviders(<AutoRunLightbox {...props} />);
 
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
+      const backdrop = document.querySelector('.fixed.inset-0.z-\\[9999\\]');
       fireEvent.keyDown(backdrop!, { key: 'ArrowRight' });
 
       expect(onNavigate).not.toHaveBeenCalled();
@@ -406,7 +406,7 @@ describe('AutoRunLightbox', () => {
       });
       renderWithProviders(<AutoRunLightbox {...props} />);
 
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
+      const backdrop = document.querySelector('.fixed.inset-0.z-\\[9999\\]');
       fireEvent.keyDown(backdrop!, { key: 'ArrowRight' });
 
       expect(onNavigate).not.toHaveBeenCalled();
@@ -450,7 +450,7 @@ describe('AutoRunLightbox', () => {
       const props = createDefaultProps({ onDelete });
       renderWithProviders(<AutoRunLightbox {...props} />);
 
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
+      const backdrop = document.querySelector('.fixed.inset-0.z-\\[9999\\]');
       fireEvent.keyDown(backdrop!, { key: 'Delete' });
 
       // Confirm modal should appear
@@ -469,7 +469,7 @@ describe('AutoRunLightbox', () => {
       const props = createDefaultProps({ onDelete });
       renderWithProviders(<AutoRunLightbox {...props} />);
 
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
+      const backdrop = document.querySelector('.fixed.inset-0.z-\\[9999\\]');
       fireEvent.keyDown(backdrop!, { key: 'Backspace' });
 
       // Confirm modal should appear
@@ -486,7 +486,7 @@ describe('AutoRunLightbox', () => {
       const props = createDefaultProps();
       renderWithProviders(<AutoRunLightbox {...props} />);
 
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
+      const backdrop = document.querySelector('.fixed.inset-0.z-\\[9999\\]');
       const event = fireEvent.keyDown(backdrop!, { key: 'Delete' });
 
       expect(event).toBe(false);
@@ -500,7 +500,7 @@ describe('AutoRunLightbox', () => {
       });
       renderWithProviders(<AutoRunLightbox {...props} />);
 
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
+      const backdrop = document.querySelector('.fixed.inset-0.z-\\[9999\\]');
       fireEvent.keyDown(backdrop!, { key: 'Delete' });
 
       expect(onDelete).not.toHaveBeenCalled();
@@ -510,7 +510,7 @@ describe('AutoRunLightbox', () => {
       const props = createDefaultProps({ onDelete: undefined });
       renderWithProviders(<AutoRunLightbox {...props} />);
 
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
+      const backdrop = document.querySelector('.fixed.inset-0.z-\\[9999\\]');
       // This should not throw or cause issues
       fireEvent.keyDown(backdrop!, { key: 'Delete' });
       // No assertion needed - just verifying it doesn't throw
@@ -750,7 +750,7 @@ describe('AutoRunLightbox', () => {
       const props = createDefaultProps({ onClose });
       renderWithProviders(<AutoRunLightbox {...props} />);
 
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
+      const backdrop = document.querySelector('.fixed.inset-0.z-\\[9999\\]');
       fireEvent.click(backdrop!);
 
       expect(onClose).toHaveBeenCalled();
@@ -871,7 +871,7 @@ describe('AutoRunLightbox', () => {
       const props = createDefaultProps();
       renderWithProviders(<AutoRunLightbox {...props} />);
 
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
+      const backdrop = document.querySelector('.fixed.inset-0.z-\\[9999\\]');
       expect(backdrop).toHaveAttribute('tabIndex', '-1');
       // The ref={(el) => el?.focus()} should focus the element
       expect(document.activeElement).toBe(backdrop);
@@ -951,7 +951,7 @@ describe('AutoRunLightbox', () => {
       const props = createDefaultProps();
       renderWithProviders(<AutoRunLightbox {...props} />);
 
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
+      const backdrop = document.querySelector('.fixed.inset-0.z-\\[9999\\]');
       expect(backdrop).toHaveClass('bg-black/90');
     });
 
@@ -959,7 +959,7 @@ describe('AutoRunLightbox', () => {
       const props = createDefaultProps();
       renderWithProviders(<AutoRunLightbox {...props} />);
 
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
+      const backdrop = document.querySelector('.fixed.inset-0.z-\\[9999\\]');
       expect(backdrop).toHaveClass('flex');
       expect(backdrop).toHaveClass('items-center');
       expect(backdrop).toHaveClass('justify-center');
@@ -1034,7 +1034,7 @@ describe('AutoRunLightbox', () => {
       const props = createDefaultProps({ onNavigate });
       renderWithProviders(<AutoRunLightbox {...props} />);
 
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
+      const backdrop = document.querySelector('.fixed.inset-0.z-\\[9999\\]');
 
       // Rapid arrow key presses
       for (let i = 0; i < 10; i++) {
@@ -1101,7 +1101,7 @@ describe('AutoRunLightbox', () => {
       const props = createDefaultProps();
       renderWithProviders(<AutoRunLightbox {...props} />);
 
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
+      const backdrop = document.querySelector('.fixed.inset-0.z-\\[9999\\]');
       expect(backdrop).toHaveAttribute('tabIndex', '-1');
     });
   });

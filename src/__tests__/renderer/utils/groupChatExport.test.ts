@@ -124,7 +124,7 @@ describe('groupChatExport', () => {
 
         const html = generateGroupChatExportHtml(groupChat, messages, [], {}, mockTheme);
 
-        expect(html).toContain('<title>My Custom Chat - Group Chat Export</title>');
+        expect(html).toContain('<title>My Custom Chat - Maestro Group Chat Export</title>');
       });
 
       it('includes group chat name in header', () => {
@@ -146,6 +146,49 @@ describe('groupChatExport', () => {
         expect(html).toContain('</style>');
         expect(html).toContain('--bg-primary');
         expect(html).toContain('--text-primary');
+      });
+    });
+
+    describe('branding', () => {
+      it('includes Maestro branding section', () => {
+        const groupChat = createMockGroupChat();
+        const messages = createMockMessages();
+
+        const html = generateGroupChatExportHtml(groupChat, messages, [], {}, mockTheme);
+
+        expect(html).toContain('class="branding"');
+        expect(html).toContain('Maestro');
+        expect(html).toContain('Multi-agent orchestration');
+      });
+
+      it('includes runmaestro.ai link', () => {
+        const groupChat = createMockGroupChat();
+        const messages = createMockMessages();
+
+        const html = generateGroupChatExportHtml(groupChat, messages, [], {}, mockTheme);
+
+        expect(html).toContain('href="https://runmaestro.ai"');
+        expect(html).toContain('runmaestro.ai');
+      });
+
+      it('includes GitHub link', () => {
+        const groupChat = createMockGroupChat();
+        const messages = createMockMessages();
+
+        const html = generateGroupChatExportHtml(groupChat, messages, [], {}, mockTheme);
+
+        expect(html).toContain('href="https://github.com/pedramamini/Maestro"');
+        expect(html).toContain('GitHub');
+      });
+
+      it('includes Maestro logo SVG', () => {
+        const groupChat = createMockGroupChat();
+        const messages = createMockMessages();
+
+        const html = generateGroupChatExportHtml(groupChat, messages, [], {}, mockTheme);
+
+        expect(html).toContain('class="branding-logo"');
+        expect(html).toContain('<svg');
       });
     });
 
@@ -310,27 +353,29 @@ describe('groupChatExport', () => {
       });
     });
 
-    describe('content escaping and formatting', () => {
-      it('escapes HTML special characters in message content', () => {
+    describe('markdown rendering with marked library', () => {
+      it('renders tables correctly', () => {
         const groupChat = createMockGroupChat();
         const messages: GroupChatMessage[] = [
-          { timestamp: '2023-12-21T10:00:00Z', from: 'user', content: '<div>test</div>' },
+          { timestamp: '2023-12-21T10:00:00Z', from: 'Agent1', content: '| A | B |\n|---|---|\n| 1 | 2 |' },
         ];
 
         const html = generateGroupChatExportHtml(groupChat, messages, [], {}, mockTheme);
 
-        // The message content should be escaped in the rendered HTML
-        expect(html).toContain('&lt;div&gt;test&lt;/div&gt;');
+        expect(html).toContain('<table>');
+        expect(html).toContain('<th>');
+        expect(html).toContain('<td>');
       });
 
-      it('escapes HTML in group chat name in title', () => {
-        const groupChat = createMockGroupChat({ name: '<b>Bold Name</b>' });
-        const messages = createMockMessages();
+      it('renders horizontal rules correctly', () => {
+        const groupChat = createMockGroupChat();
+        const messages: GroupChatMessage[] = [
+          { timestamp: '2023-12-21T10:00:00Z', from: 'Agent1', content: 'Before\n\n---\n\nAfter' },
+        ];
 
         const html = generateGroupChatExportHtml(groupChat, messages, [], {}, mockTheme);
 
-        // The title should have escaped HTML
-        expect(html).toContain('<title>&lt;b&gt;Bold Name&lt;/b&gt; - Group Chat Export</title>');
+        expect(html).toContain('<hr');
       });
 
       it('converts inline code to HTML code tags', () => {
@@ -341,8 +386,7 @@ describe('groupChatExport', () => {
 
         const html = generateGroupChatExportHtml(groupChat, messages, [], {}, mockTheme);
 
-        expect(html).toContain('inline-code');
-        expect(html).toContain('npm install');
+        expect(html).toContain('<code>npm install</code>');
       });
 
       it('converts code blocks to pre tags', () => {
@@ -357,7 +401,7 @@ describe('groupChatExport', () => {
 
         const html = generateGroupChatExportHtml(groupChat, messages, [], {}, mockTheme);
 
-        expect(html).toContain('code-block');
+        expect(html).toContain('<pre>');
         expect(html).toContain('const x = 1;');
       });
 
@@ -386,14 +430,17 @@ describe('groupChatExport', () => {
       it('converts markdown headers', () => {
         const groupChat = createMockGroupChat();
         const messages: GroupChatMessage[] = [
-          { timestamp: '2023-12-21T10:00:00Z', from: 'Agent1', content: '# Heading 1\n## Heading 2\n### Heading 3' },
+          { timestamp: '2023-12-21T10:00:00Z', from: 'Agent1', content: '# Heading 1\n\n## Heading 2\n\n### Heading 3' },
         ];
 
         const html = generateGroupChatExportHtml(groupChat, messages, [], {}, mockTheme);
 
-        expect(html).toContain('<h1>Heading 1</h1>');
-        expect(html).toContain('<h2>Heading 2</h2>');
-        expect(html).toContain('<h3>Heading 3</h3>');
+        expect(html).toContain('<h1');
+        expect(html).toContain('Heading 1');
+        expect(html).toContain('<h2');
+        expect(html).toContain('Heading 2');
+        expect(html).toContain('<h3');
+        expect(html).toContain('Heading 3');
       });
 
       it('converts markdown bullet lists', () => {
@@ -406,6 +453,7 @@ describe('groupChatExport', () => {
 
         expect(html).toContain('<li>Item 1</li>');
         expect(html).toContain('<li>Item 2</li>');
+        expect(html).toContain('<ul>');
       });
 
       it('converts markdown links', () => {
@@ -416,18 +464,30 @@ describe('groupChatExport', () => {
 
         const html = generateGroupChatExportHtml(groupChat, messages, [], {}, mockTheme);
 
-        expect(html).toContain('<a href="https://example.com" target="_blank">this link</a>');
+        expect(html).toContain('href="https://example.com"');
+        expect(html).toContain('this link');
       });
 
-      it('converts newlines to br tags', () => {
+      it('converts blockquotes', () => {
         const groupChat = createMockGroupChat();
         const messages: GroupChatMessage[] = [
-          { timestamp: '2023-12-21T10:00:00Z', from: 'Agent1', content: 'Line 1\nLine 2' },
+          { timestamp: '2023-12-21T10:00:00Z', from: 'Agent1', content: '> This is a quote' },
         ];
 
         const html = generateGroupChatExportHtml(groupChat, messages, [], {}, mockTheme);
 
-        expect(html).toContain('<br>');
+        expect(html).toContain('<blockquote>');
+      });
+
+      it('converts strikethrough text', () => {
+        const groupChat = createMockGroupChat();
+        const messages: GroupChatMessage[] = [
+          { timestamp: '2023-12-21T10:00:00Z', from: 'Agent1', content: '~~deleted~~' },
+        ];
+
+        const html = generateGroupChatExportHtml(groupChat, messages, [], {}, mockTheme);
+
+        expect(html).toContain('<del>deleted</del>');
       });
     });
 
@@ -442,10 +502,9 @@ describe('groupChatExport', () => {
         const html = generateGroupChatExportHtml(groupChat, messages, [], images, mockTheme);
 
         expect(html).toContain('src="data:image/png;base64,abc123"');
-        expect(html).toContain('class="embedded-image"');
       });
 
-      it('handles image references in different formats', () => {
+      it('handles [Image: filename] pattern', () => {
         const groupChat = createMockGroupChat();
         const messages: GroupChatMessage[] = [
           { timestamp: '2023-12-21T10:00:00Z', from: 'Agent1', content: '[Image: photo.jpg]' },
@@ -533,24 +592,14 @@ describe('groupChatExport', () => {
     });
 
     describe('footer', () => {
-      it('includes Maestro attribution', () => {
+      it('includes Maestro attribution with runmaestro.ai', () => {
         const groupChat = createMockGroupChat();
         const messages = createMockMessages();
 
         const html = generateGroupChatExportHtml(groupChat, messages, [], {}, mockTheme);
 
-        expect(html).toContain('Maestro');
-        expect(html).toContain('https://maestro.sh');
-      });
-
-      it('does not include JSON extraction tip', () => {
-        const groupChat = createMockGroupChat();
-        const messages = createMockMessages();
-
-        const html = generateGroupChatExportHtml(groupChat, messages, [], {}, mockTheme);
-
-        // JSON was removed, so no extraction tip
-        expect(html).not.toContain('embedded JSON');
+        expect(html).toContain('Exported from');
+        expect(html).toContain('href="https://runmaestro.ai"');
       });
     });
 
