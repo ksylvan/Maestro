@@ -336,4 +336,83 @@ index 1234567..abcdefg 100644
       expect(result).toBe(false);
     });
   });
+
+  describe('git:numstat', () => {
+    it('should return parsed numstat output for changed files', async () => {
+      const numstatOutput = `10\t5\tfile1.ts
+3\t0\tfile2.ts
+0\t20\tfile3.ts`;
+
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: numstatOutput,
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:numstat');
+      const result = await handler!({} as any, '/test/repo');
+
+      expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
+        'git',
+        ['diff', '--numstat'],
+        '/test/repo'
+      );
+      expect(result).toEqual({
+        stdout: numstatOutput,
+        stderr: '',
+      });
+    });
+
+    it('should return empty stdout when no changes exist', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:numstat');
+      const result = await handler!({} as any, '/test/repo');
+
+      expect(result).toEqual({
+        stdout: '',
+        stderr: '',
+      });
+    });
+
+    it('should return stderr when not a git repo', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: 'fatal: not a git repository',
+        exitCode: 128,
+      });
+
+      const handler = handlers.get('git:numstat');
+      const result = await handler!({} as any, '/not/a/repo');
+
+      expect(result).toEqual({
+        stdout: '',
+        stderr: 'fatal: not a git repository',
+      });
+    });
+
+    it('should handle binary files in numstat output', async () => {
+      // Git uses "-\t-\t" for binary files
+      const numstatOutput = `10\t5\tfile1.ts
+-\t-\timage.png`;
+
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: numstatOutput,
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:numstat');
+      const result = await handler!({} as any, '/test/repo');
+
+      expect(result).toEqual({
+        stdout: numstatOutput,
+        stderr: '',
+      });
+    });
+  });
 });
