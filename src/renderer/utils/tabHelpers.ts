@@ -662,6 +662,57 @@ export function navigateToLastTab(session: Session, showUnreadOnly = false): Set
 }
 
 /**
+ * Options for creating a new AI tab at a specific position.
+ */
+export interface CreateTabAtPositionOptions extends CreateTabOptions {
+  /** Insert the new tab after this tab ID */
+  afterTabId: string;
+}
+
+/**
+ * Create a new AI tab at a specific position in the session's tab list.
+ * The new tab is inserted immediately after the specified tab.
+ *
+ * @param session - The Maestro session to add the tab to
+ * @param options - Tab configuration including position (afterTabId)
+ * @returns Object containing the new tab and updated session, or null on error
+ *
+ * @example
+ * // Create a compacted tab right after the source tab
+ * const result = createTabAtPosition(session, {
+ *   afterTabId: sourceTab.id,
+ *   name: 'Session Compacted 2024-01-15',
+ *   logs: summarizedLogs,
+ * });
+ */
+export function createTabAtPosition(
+  session: Session,
+  options: CreateTabAtPositionOptions
+): CreateTabResult | null {
+  const result = createTab(session, options);
+  if (!result) return null;
+
+  // Find the index of the afterTabId
+  const afterIndex = result.session.aiTabs.findIndex(t => t.id === options.afterTabId);
+  if (afterIndex === -1) return result;
+
+  // Move the new tab to be right after afterTabId
+  const tabs = [...result.session.aiTabs];
+  const newTabIndex = tabs.findIndex(t => t.id === result.tab.id);
+
+  // Only move if the new tab isn't already in the right position
+  if (newTabIndex !== afterIndex + 1) {
+    const [newTab] = tabs.splice(newTabIndex, 1);
+    tabs.splice(afterIndex + 1, 0, newTab);
+  }
+
+  return {
+    tab: result.tab,
+    session: { ...result.session, aiTabs: tabs },
+  };
+}
+
+/**
  * Options for creating a merged session from multiple context sources.
  */
 export interface CreateMergedSessionOptions {

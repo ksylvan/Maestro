@@ -97,3 +97,48 @@ export interface DuplicateDetectionResult {
   /** Estimated token savings from removing duplicates */
   estimatedSavings: number;
 }
+
+/**
+ * Request to summarize and continue a conversation in a new tab.
+ */
+export interface SummarizeRequest {
+  /** The Maestro session ID containing the source tab */
+  sourceSessionId: string;
+  /** The ID of the tab to summarize */
+  sourceTabId: string;
+  /** Project root path for context */
+  projectRoot: string;
+  /** The agent type for the session */
+  agentType: ToolType;
+}
+
+/**
+ * Result of a summarization operation.
+ */
+export interface SummarizeResult {
+  /** Whether the summarization completed successfully */
+  success: boolean;
+  /** ID of the newly created tab (on success) */
+  newTabId?: string;
+  /** Estimated tokens in the original context */
+  originalTokens: number;
+  /** Estimated tokens in the compacted context */
+  compactedTokens: number;
+  /** Percentage reduction in token count */
+  reductionPercent: number;
+  /** Error message if summarization failed */
+  error?: string;
+}
+
+/**
+ * Progress information during a summarization operation.
+ * Used to update the UI during the summarization process.
+ */
+export interface SummarizeProgress {
+  /** Current stage of the summarization process */
+  stage: 'extracting' | 'summarizing' | 'creating' | 'complete';
+  /** Progress percentage (0-100) */
+  progress: number;
+  /** Human-readable status message */
+  message: string;
+}

@@ -25,3 +25,7 @@ export type { IpcMethodOptions } from './ipcWrapper';
 // Context grooming service
 export { ContextGroomingService, contextGroomingService } from './contextGroomer';
 export type { GroomingResult, GroomingConfig } from './contextGroomer';
+
+// Context summarization service
+export { ContextSummarizationService, contextSummarizationService } from './contextSummarizer';
+export type { SummarizationConfig } from './contextSummarizer';

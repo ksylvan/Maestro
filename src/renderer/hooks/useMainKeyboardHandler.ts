@@ -446,6 +446,13 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
           e.preventDefault();
           ctx.toggleTabUnread();
         }
+        if (ctx.isTabShortcut(e, 'summarizeAndContinue')) {
+          e.preventDefault();
+          // Only trigger if summarization is available for the current tab
+          if (ctx.canSummarizeActiveTab && ctx.summarizeAndContinue) {
+            ctx.summarizeAndContinue();
+          }
+        }
         if (ctx.isTabShortcut(e, 'nextTab')) {
           e.preventDefault();
           const result = ctx.navigateToNextTab(ctx.activeSession, ctx.showUnreadOnly);

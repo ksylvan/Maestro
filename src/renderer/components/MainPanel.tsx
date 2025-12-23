@@ -189,6 +189,9 @@ interface MainPanelProps {
   onOpenCreatePR?: () => void;
   /** True if this session is a worktree child (has parentSessionId) */
   isWorktreeChild?: boolean;
+
+  // Context summarization
+  onSummarizeAndContinue?: (tabId: string) => void;
 }
 
 export const MainPanel = forwardRef<MainPanelHandle, MainPanelProps>(function MainPanel(props, ref) {
@@ -215,6 +218,7 @@ export const MainPanel = forwardRef<MainPanelHandle, MainPanelProps>(function Ma
     onOpenWorktreeConfig,
     onOpenCreatePR,
     isWorktreeChild,
+    onSummarizeAndContinue,
   } = props;
 
   // isCurrentSessionAutoMode: THIS session has active batch run (for all UI indicators)
@@ -833,6 +837,7 @@ export const MainPanel = forwardRef<MainPanelHandle, MainPanelProps>(function Ma
               onTabReorder={onTabReorder}
               onTabStar={onTabStar}
               onTabMarkUnread={onTabMarkUnread}
+              onSummarizeAndContinue={onSummarizeAndContinue}
               showUnreadOnly={showUnreadOnly}
               onToggleUnreadFilter={onToggleUnreadFilter}
               onOpenTabSearch={onOpenTabSearch}

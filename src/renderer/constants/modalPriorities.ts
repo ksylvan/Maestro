@@ -128,6 +128,9 @@ export const MODAL_PRIORITIES = {
   /** Transfer error modal (appears when cross-agent transfer fails) */
   TRANSFER_ERROR: 682,
 
+  /** Summarization progress modal (appears during context compaction) */
+  SUMMARIZE_PROGRESS: 681,
+
   /** Agent sessions browser (Cmd+Shift+L) */
   AGENT_SESSIONS: 680,
 

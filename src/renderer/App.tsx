@@ -45,6 +45,7 @@ import { MergeSessionModal } from './components/MergeSessionModal';
 import { MergeProgressModal } from './components/MergeProgressModal';
 import { SendToAgentModal } from './components/SendToAgentModal';
 import { TransferProgressModal } from './components/TransferProgressModal';
+import { SummarizeProgressModal } from './components/SummarizeProgressModal';
 
 // Group Chat Components
 import { GroupChatPanel } from './components/GroupChatPanel';
@@ -79,6 +80,7 @@ import { useAgentErrorRecovery } from './hooks/useAgentErrorRecovery';
 import { useAgentCapabilities } from './hooks/useAgentCapabilities';
 import { useMergeSessionWithSessions } from './hooks/useMergeSession';
 import { useSendToAgentWithSessions } from './hooks/useSendToAgent';
+import { useSummarizeAndContinue } from './hooks/useSummarizeAndContinue';
 
 // Import contexts
 import { useLayerStack } from './contexts/LayerStackContext';
@@ -2666,6 +2668,56 @@ export default function MaestroConsole() {
       }, 1500);
     },
   });
+
+  // Summarize & Continue hook for context compaction
+  const {
+    summarizeState,
+    progress: summarizeProgress,
+    result: summarizeResult,
+    error: summarizeError,
+    startSummarize,
+    cancel: cancelSummarize,
+    canSummarize,
+    minLogsRequired: summarizeMinLogs,
+  } = useSummarizeAndContinue(activeSession ?? null);
+
+  // State for summarize progress modal visibility
+  const [summarizeModalOpen, setSummarizeModalOpen] = useState(false);
+
+  // Handler for starting summarization
+  const handleSummarizeAndContinue = useCallback((tabId?: string) => {
+    if (!activeSession || activeSession.inputMode !== 'ai') return;
+
+    const targetTabId = tabId || activeSession.activeTabId;
+    const targetTab = activeSession.aiTabs.find(t => t.id === targetTabId);
+
+    if (!targetTab || !canSummarize(targetTab)) {
+      addToast({
+        type: 'warning',
+        title: 'Cannot Summarize',
+        message: `Tab needs at least ${summarizeMinLogs} log entries to summarize.`,
+      });
+      return;
+    }
+
+    setSummarizeModalOpen(true);
+
+    startSummarize(targetTabId).then((result) => {
+      if (result) {
+        // Update session with the new tab
+        setSessions(prev => prev.map(s =>
+          s.id === activeSession.id ? result.updatedSession : s
+        ));
+
+        // Show success notification
+        addToast({
+          type: 'success',
+          title: 'Context Compacted',
+          message: `Created compacted tab with ${summarizeResult?.reductionPercent ?? 0}% token reduction`,
+        });
+      }
+    });
+  }, [activeSession, canSummarize, summarizeMinLogs, startSummarize, setSessions, addToast, summarizeResult?.reductionPercent]);
 
   // Fetch available agents when Send to Agent modal opens
   useEffect(() => {
@@ -6518,7 +6570,14 @@ export default function MaestroConsole() {
     hasActiveSessionCapability,
     // Merge session modal and send to agent modal
     setMergeSessionModalOpen,
-    setSendToAgentModalOpen
+    setSendToAgentModalOpen,
+    // Summarize and continue
+    canSummarizeActiveTab: (() => {
+      if (!activeSession || !activeSession.activeTabId) return false;
+      const tab = activeSession.aiTabs.find(t => t.id === activeSession.activeTabId);
+      return tab ? canSummarize(tab) : false;
+    })(),
+    summarizeAndContinue: handleSummarizeAndContinue,
   };
 
   // Update flat file list when active session's tree, expanded folders, filter, or hidden files setting changes
@@ -6921,6 +6980,8 @@ export default function MaestroConsole() {
             setCreatePRSession(session);
             setCreatePRModalOpen(true);
           }}
+          onSummarizeAndContinue={() => handleSummarizeAndContinue()}
+          canSummarizeActiveTab={activeTab ? canSummarize(activeTab) : false}
           onToggleRemoteControl={async () => {
             await toggleGlobalLive();
             // Show flash notification based on the NEW state (opposite of current)
@@ -7528,6 +7589,23 @@ export default function MaestroConsole() {
             resetTransfer();
             setTransferSourceAgent(null);
             setTransferTargetAgent(null);
+          }}
+        />
+      )}
+
+      {/* --- SUMMARIZE PROGRESS MODAL --- */}
+      {summarizeModalOpen && summarizeState !== 'idle' && (
+        <SummarizeProgressModal
+          theme={theme}
+          isOpen={summarizeModalOpen}
+          progress={summarizeProgress}
+          result={summarizeResult}
+          onCancel={() => {
+            cancelSummarize();
+            setSummarizeModalOpen(false);
+          }}
+          onComplete={() => {
+            setSummarizeModalOpen(false);
           }}
         />
       )}
@@ -8643,6 +8721,7 @@ export default function MaestroConsole() {
         onOpenWorktreeConfig={() => setWorktreeConfigModalOpen(true)}
         onOpenCreatePR={() => setCreatePRModalOpen(true)}
         isWorktreeChild={!!activeSession?.parentSessionId}
+        onSummarizeAndContinue={handleSummarizeAndContinue}
       />
       )}
 

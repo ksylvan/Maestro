@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Plus, Star, Copy, Edit2, Mail, Pencil, Search, GitMerge, ArrowRightCircle } from 'lucide-react';
+import { X, Plus, Star, Copy, Edit2, Mail, Pencil, Search, GitMerge, ArrowRightCircle, Minimize2 } from 'lucide-react';
 import type { AITab, Theme } from '../types';
 import { hasDraft } from '../utils/tabHelpers';
 
@@ -19,6 +19,8 @@ interface TabBarProps {
   onMergeWith?: (tabId: string) => void;
   /** Handler to open send to agent modal with this tab as source */
   onSendToAgent?: (tabId: string) => void;
+  /** Handler to summarize and continue in a new tab */
+  onSummarizeAndContinue?: (tabId: string) => void;
   showUnreadOnly?: boolean;
   onToggleUnreadFilter?: () => void;
   onOpenTabSearch?: () => void;
@@ -45,6 +47,8 @@ interface TabProps {
   onMergeWith?: () => void;
   /** Handler to open send to agent modal with this tab as source */
   onSendToAgent?: () => void;
+  /** Handler to summarize and continue in a new tab */
+  onSummarizeAndContinue?: () => void;
   shortcutHint?: number | null;
   registerRef?: (el: HTMLDivElement | null) => void;
   hasDraft?: boolean;
@@ -113,6 +117,7 @@ function Tab({
   onMarkUnread,
   onMergeWith,
   onSendToAgent,
+  onSummarizeAndContinue,
   shortcutHint,
   registerRef,
   hasDraft
@@ -214,6 +219,12 @@ function Tab({
   const handleSendToAgentClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     onSendToAgent?.();
+    setOverlayOpen(false);
+  };
+
+  const handleSummarizeAndContinueClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSummarizeAndContinue?.();
     setOverlayOpen(false);
   };
 
@@ -448,6 +459,18 @@ function Tab({
               </button>
             )}
 
+            {/* Summarize & Continue button - only show for tabs with substantial content */}
+            {(tab.logs?.length ?? 0) >= 5 && onSummarizeAndContinue && (
+              <button
+                onClick={handleSummarizeAndContinueClick}
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
+                style={{ color: theme.colors.textMain }}
+              >
+                <Minimize2 className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
+                Summarize & Continue
+              </button>
+            )}
+
             <button
               onClick={handleMarkUnreadClick}
               className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
@@ -482,6 +505,7 @@ export function TabBar({
   onTabMarkUnread,
   onMergeWith,
   onSendToAgent,
+  onSummarizeAndContinue,
   showUnreadOnly: showUnreadOnlyProp,
   onToggleUnreadFilter,
   onOpenTabSearch
@@ -678,6 +702,7 @@ export function TabBar({
               onMarkUnread={onTabMarkUnread ? () => onTabMarkUnread(tab.id) : undefined}
               onMergeWith={onMergeWith && tab.agentSessionId ? () => onMergeWith(tab.id) : undefined}
               onSendToAgent={onSendToAgent && tab.agentSessionId ? () => onSendToAgent(tab.id) : undefined}
+              onSummarizeAndContinue={onSummarizeAndContinue && (tab.logs?.length ?? 0) >= 5 ? () => onSummarizeAndContinue(tab.id) : undefined}
               shortcutHint={!showUnreadOnly && originalIndex < 9 ? originalIndex + 1 : null}
               hasDraft={hasDraft(tab)}
               registerRef={(el) => {
