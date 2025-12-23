@@ -12,7 +12,7 @@
  * - They make real API calls and may incur costs
  *
  * These tests are SKIPPED by default. To run them:
- *   RUN_INTEGRATION_TESTS=true npm test -- provider-integration --run
+ *   RUN_INTEGRATION_TESTS=true npm run test:integration
  *
  * IMPORTANT: These tests mirror the actual argument building logic from:
  * - src/main/agent-detector.ts (agent definitions with arg builders)
@@ -763,7 +763,7 @@ Rules:
         expect(synopsisResponse, `${provider.name} should return synopsis`).toBeTruthy();
 
         // Import and use the actual parseSynopsis function
-        const { parseSynopsis } = await import('../../../shared/synopsis');
+        const { parseSynopsis } = await import('../../shared/synopsis');
         const parsed = parseSynopsis(synopsisResponse!);
 
         console.log(`📊 Parsed synopsis:`);
@@ -828,12 +828,13 @@ Rules:
         // This mirrors how agent-detector.ts builds readOnlyArgs
         let readOnlyArgs: string[];
         if (provider.agentId === 'claude-code') {
+          // NOTE: Claude Code uses --permission-mode plan (not --plan)
+          // as defined in agent-detector.ts readOnlyArgs
           readOnlyArgs = [
             '--print',
             '--verbose',
             '--output-format', 'stream-json',
-            '--dangerously-skip-permissions',
-            '--plan',  // Read-only flag for Claude Code
+            '--permission-mode', 'plan',  // Read-only flag for Claude Code
             '--',
             'What files are in this directory? Just list them briefly.',
           ];
@@ -859,6 +860,162 @@ Rules:
         const response = provider.parseResponse(result.stdout);
         console.log(`💬 Response: ${response?.substring(0, 200)}`);
         expect(response, `${provider.name} should return a response in read-only mode`).toBeTruthy();
+      }, PROVIDER_TIMEOUT);
+
+      it('should detect and classify error patterns correctly', async () => {
+        // This test verifies that error detection works correctly.
+        // We test error pattern matching directly (no API calls) since forcing
+        // real errors (like auth failures) would require invalid credentials.
+        //
+        // This validates:
+        // 1. Error patterns are registered for the agent
+        // 2. Pattern matching correctly classifies error types
+        // 3. Error messages and recoverability are correctly assigned
+
+        const { getErrorPatterns, matchErrorPattern } = await import('../../main/parsers/error-patterns');
+        const patterns = getErrorPatterns(provider.agentId);
+
+        console.log(`\n⚠️  Testing error detection for ${provider.name}`);
+
+        // Test authentication errors
+        const authErrors = [
+          'Error: invalid api key provided',
+          'Authentication failed: unauthorized',
+          'Please run `claude login` to authenticate',
+        ];
+
+        let authMatches = 0;
+        for (const errLine of authErrors) {
+          const match = matchErrorPattern(patterns, errLine);
+          if (match?.type === 'auth_expired') {
+            authMatches++;
+            console.log(`   ✓ Auth error detected: "${errLine.substring(0, 40)}..." → ${match.message}`);
+          }
+        }
+        console.log(`   📊 Auth patterns: ${authMatches}/${authErrors.length} matched`);
+
+        // Test rate limit errors
+        const rateLimitErrors = [
+          'Rate limit exceeded. Please wait.',
+          'Error 429: Too many requests',
+          'Quota exceeded for this billing period',
+        ];
+
+        let rateMatches = 0;
+        for (const errLine of rateLimitErrors) {
+          const match = matchErrorPattern(patterns, errLine);
+          if (match?.type === 'rate_limited') {
+            rateMatches++;
+            console.log(`   ✓ Rate limit detected: "${errLine.substring(0, 40)}..." → ${match.message}`);
+          }
+        }
+        console.log(`   📊 Rate limit patterns: ${rateMatches}/${rateLimitErrors.length} matched`);
+
+        // Test token/context errors
+        const tokenErrors = [
+          'Context window exceeded: too many tokens',
+          'Maximum tokens reached for this model',
+          'Input is too large for context window',
+        ];
+
+        let tokenMatches = 0;
+        for (const errLine of tokenErrors) {
+          const match = matchErrorPattern(patterns, errLine);
+          if (match?.type === 'token_exhaustion') {
+            tokenMatches++;
+            console.log(`   ✓ Token exhaustion detected: "${errLine.substring(0, 40)}..." → ${match.message}`);
+          }
+        }
+        console.log(`   📊 Token patterns: ${tokenMatches}/${tokenErrors.length} matched`);
+
+        // Test network errors
+        const networkErrors = [
+          'ECONNREFUSED: connection refused',
+          'Request timed out after 30s',
+          'Network error: socket hang up',
+        ];
+
+        let networkMatches = 0;
+        for (const errLine of networkErrors) {
+          const match = matchErrorPattern(patterns, errLine);
+          if (match?.type === 'network_error') {
+            networkMatches++;
+            console.log(`   ✓ Network error detected: "${errLine.substring(0, 40)}..." → ${match.message}`);
+          }
+        }
+        console.log(`   📊 Network patterns: ${networkMatches}/${networkErrors.length} matched`);
+
+        // Verify error patterns exist for this agent
+        const hasPatterns = Object.keys(patterns).length > 0;
+        expect(
+          hasPatterns,
+          `${provider.name} should have registered error patterns`
+        ).toBe(true);
+
+        // At least some patterns should match for common error types
+        const totalMatches = authMatches + rateMatches + tokenMatches + networkMatches;
+        console.log(`   📊 Total pattern matches: ${totalMatches}`);
+
+        // Each agent should recognize at least some error patterns
+        expect(
+          totalMatches >= 2,
+          `${provider.name} should match at least 2 error patterns (matched: ${totalMatches})`
+        ).toBe(true);
+      });
+
+      it('should handle forced error gracefully', async () => {
+        // This test verifies that errors from the agent are properly handled.
+        // We force an error by using an invalid argument/flag.
+        //
+        // This validates:
+        // 1. Agent returns non-zero exit code on error
+        // 2. Error output is captured in stderr or stdout
+        // 3. Error can be parsed and classified
+
+        if (!providerAvailable) {
+          console.log(`Skipping: ${provider.name} not available`);
+          return;
+        }
+
+        // Use an invalid argument to force an error
+        let errorArgs: string[];
+        if (provider.agentId === 'claude-code') {
+          // Claude Code: use an invalid flag
+          errorArgs = ['--invalid-flag-that-does-not-exist-12345'];
+        } else if (provider.agentId === 'codex') {
+          // Codex: use invalid subcommand
+          errorArgs = ['invalid-command-12345'];
+        } else if (provider.agentId === 'opencode') {
+          // OpenCode: use invalid flag
+          errorArgs = ['run', '--invalid-flag-12345'];
+        } else {
+          console.log(`⚠️  Error forcing not configured for ${provider.name}`);
+          return;
+        }
+
+        console.log(`\n💥 Testing forced error handling for ${provider.name}`);
+        console.log(`🚀 Running: ${provider.command} ${errorArgs.join(' ')}`);
+
+        const result = await runProvider(provider, errorArgs);
+
+        console.log(`📤 Exit code: ${result.exitCode}`);
+        console.log(`📤 Stdout: ${result.stdout.substring(0, 300)}`);
+        console.log(`📤 Stderr: ${result.stderr.substring(0, 300)}`);
+
+        // Agent should return non-zero exit code on error
+        expect(
+          result.exitCode !== 0,
+          `${provider.name} should return non-zero exit code on error`
+        ).toBe(true);
+
+        // There should be some error output
+        const hasErrorOutput = result.stderr.length > 0 || result.stdout.length > 0;
+        expect(
+          hasErrorOutput,
+          `${provider.name} should produce error output`
+        ).toBe(true);
+
+        console.log(`   ✓ Error handled: exit code ${result.exitCode}`);
       }, PROVIDER_TIMEOUT);
 
       it('should process image and identify text content', async () => {

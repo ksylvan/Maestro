@@ -1008,6 +1008,31 @@ export default function MaestroConsole() {
       batchedUpdater.markDelivered(actualSessionId, targetTabId);
       batchedUpdater.updateCycleBytes(actualSessionId, data.length);
 
+      // Clear error state if session had an error but is now receiving successful data
+      // This indicates the user fixed the issue (e.g., re-authenticated) and the agent is working
+      const sessionForErrorCheck = sessionsRef.current.find(s => s.id === actualSessionId);
+      if (sessionForErrorCheck?.agentError) {
+        setSessions(prev => prev.map(s => {
+          if (s.id !== actualSessionId) return s;
+          // Clear error from session and the specific tab
+          const updatedAiTabs = s.aiTabs.map(tab =>
+            tab.id === targetTabId ? { ...tab, agentError: undefined } : tab
+          );
+          return {
+            ...s,
+            agentError: undefined,
+            agentErrorTabId: undefined,
+            agentErrorPaused: false,
+            state: 'busy' as SessionState, // Keep busy since we're receiving data
+            aiTabs: updatedAiTabs,
+          };
+        }));
+        // Notify main process to clear error state
+        window.maestro.agentError.clearError(actualSessionId).catch(err => {
+          console.error('Failed to clear agent error on successful data:', err);
+        });
+      }
+
       // Determine if tab should be marked as unread
       // Mark as unread if user hasn't seen the new message:
       // - The tab is not the active tab in this session, OR
@@ -4351,140 +4376,8 @@ export default function MaestroConsole() {
     }
 
     try {
-      // First, check if this directory contains git-enabled subdirectories (worktrees)
-      // If so, we create sessions for each subdirectory instead of the parent
-      const scanResult = await window.maestro.git.scanWorktreeDirectory(workingDir);
-      const { gitSubdirs } = scanResult;
-
-      if (gitSubdirs.length > 0) {
-        // This is a worktree parent directory - create sessions for subdirectories only
-
-        // Create a group using the user-provided name
-        const groupId = generateId();
-        const worktreeGroup: Group = {
-          id: groupId,
-          name: name,
-          collapsed: false,
-          emoji: '🌳'
-        };
-        setGroups(prev => [...prev, worktreeGroup]);
-
-        // Create sessions for each git subdirectory
-        const newSessions: Session[] = [];
-        let firstSessionId: string | null = null;
-
-        for (const subdir of gitSubdirs) {
-          // Create session name from directory name and branch
-          const sessionName = subdir.branch
-            ? `${subdir.name} (${subdir.branch})`
-            : subdir.name;
-
-          // Check if session already exists for this path
-          const existingSession = sessions.find(s => s.cwd === subdir.path || s.projectRoot === subdir.path);
-          if (existingSession) {
-            continue;
-          }
-
-          const newId = generateId();
-          if (!firstSessionId) firstSessionId = newId;
-
-          const initialTabId = generateId();
-          const initialTab: AITab = {
-            id: initialTabId,
-            agentSessionId: null,
-            name: null,
-            starred: false,
-            logs: [],
-            inputValue: '',
-            stagedImages: [],
-            createdAt: Date.now(),
-            state: 'idle',
-            saveToHistory: defaultSaveToHistory
-          };
-
-          // Fetch git info for this subdirectory
-          let gitBranches: string[] | undefined;
-          let gitTags: string[] | undefined;
-          let gitRefsCacheTime: number | undefined;
-
-          try {
-            [gitBranches, gitTags] = await Promise.all([
-              gitService.getBranches(subdir.path),
-              gitService.getTags(subdir.path)
-            ]);
-            gitRefsCacheTime = Date.now();
-          } catch {
-            // Ignore errors fetching git info
-          }
-
-          const newSession: Session = {
-            id: newId,
-            name: sessionName,
-            groupId: groupId,
-            toolType: agentId as ToolType,
-            state: 'idle',
-            cwd: subdir.path,
-            fullPath: subdir.path,
-            projectRoot: subdir.path,
-            isGitRepo: true,
-            gitBranches,
-            gitTags,
-            gitRefsCacheTime,
-            worktreeParentPath: workingDir, // Track parent for dynamic scanning
-            aiLogs: [],
-            shellLogs: [{ id: generateId(), timestamp: Date.now(), source: 'system', text: 'Shell Session Ready.' }],
-            workLog: [],
-            contextUsage: 0,
-            inputMode: agentId === 'terminal' ? 'terminal' : 'ai',
-            aiPid: 0,
-            terminalPid: 0,
-            port: 3000 + Math.floor(Math.random() * 100),
-            isLive: false,
-            changedFiles: [],
-            fileTree: [],
-            fileExplorerExpanded: [],
-            fileExplorerScrollPos: 0,
-            fileTreeAutoRefreshInterval: 180,
-            shellCwd: subdir.path,
-            aiCommandHistory: [],
-            shellCommandHistory: [],
-            executionQueue: [],
-            activeTimeMs: 0,
-            aiTabs: [initialTab],
-            activeTabId: initialTabId,
-            closedTabHistory: [],
-            nudgeMessage,
-            customPath,
-            customArgs,
-            customEnvVars,
-            customModel
-          };
-
-          newSessions.push(newSession);
-        }
-
-        if (newSessions.length > 0) {
-          setSessions(prev => [...prev, ...newSessions]);
-          // Set the first worktree session as active
-          if (firstSessionId) {
-            setActiveSessionId(firstSessionId);
-          }
-          // Track session creation in global stats
-          updateGlobalStats({ totalSessions: newSessions.length });
-          addToast({
-            type: 'success',
-            title: 'Worktree Sessions Created',
-            message: `Created ${newSessions.length} agents for git worktrees`,
-          });
-        }
-
-        // Auto-focus the input
-        setActiveFocus('main');
-        setTimeout(() => inputRef.current?.focus(), 50);
-        return;
-      }
-
-      // No git subdirectories found - create a single session for this directory
+      // Always create a single session for the selected directory
+      // Worktree scanning/creation is now handled explicitly via the worktree config modal
       // Validate uniqueness before creating
       const validation = validateNewSession(name, workingDir, agentId as ToolType, sessions);
       if (!validation.valid) {
