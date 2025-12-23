@@ -487,4 +487,75 @@ index 1234567..abcdefg 100644
       });
     });
   });
+
+  describe('git:remote', () => {
+    it('should return remote URL for origin', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: 'git@github.com:user/repo.git\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:remote');
+      const result = await handler!({} as any, '/test/repo');
+
+      expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
+        'git',
+        ['remote', 'get-url', 'origin'],
+        '/test/repo'
+      );
+      expect(result).toEqual({
+        stdout: 'git@github.com:user/repo.git',
+        stderr: '',
+      });
+    });
+
+    it('should return HTTPS remote URL', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: 'https://github.com/user/repo.git\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:remote');
+      const result = await handler!({} as any, '/test/repo');
+
+      expect(result).toEqual({
+        stdout: 'https://github.com/user/repo.git',
+        stderr: '',
+      });
+    });
+
+    it('should return stderr when no remote configured', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: "fatal: No such remote 'origin'",
+        exitCode: 2,
+      });
+
+      const handler = handlers.get('git:remote');
+      const result = await handler!({} as any, '/test/repo');
+
+      expect(result).toEqual({
+        stdout: '',
+        stderr: "fatal: No such remote 'origin'",
+      });
+    });
+
+    it('should return stderr when not a git repo', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: 'fatal: not a git repository',
+        exitCode: 128,
+      });
+
+      const handler = handlers.get('git:remote');
+      const result = await handler!({} as any, '/not/a/repo');
+
+      expect(result).toEqual({
+        stdout: '',
+        stderr: 'fatal: not a git repository',
+      });
+    });
+  });
 });
