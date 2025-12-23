@@ -1185,4 +1185,140 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature
       });
     });
   });
+
+  describe('git:show', () => {
+    it('should return commit details with stat and patch', async () => {
+      const showOutput = `commit abc123456789abcdef1234567890abcdef12345678
+Author: John Doe <john@example.com>
+Date:   Mon Jan 15 10:30:00 2024 +0000
+
+    Add new feature
+
+ src/feature.ts | 25 +++++++++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+
+diff --git a/src/feature.ts b/src/feature.ts
+new file mode 100644
+index 0000000..abc1234
+--- /dev/null
++++ b/src/feature.ts
+@@ -0,0 +1,25 @@
++// New feature code here
++export function newFeature() {
++  return true;
++}`;
+
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: showOutput,
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:show');
+      const result = await handler!({} as any, '/test/repo', 'abc123456789');
+
+      expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
+        'git',
+        ['show', '--stat', '--patch', 'abc123456789'],
+        '/test/repo'
+      );
+      expect(result).toEqual({
+        stdout: showOutput,
+        stderr: '',
+      });
+    });
+
+    it('should return stderr for invalid commit hash', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: "fatal: bad object invalidhash123",
+        exitCode: 128,
+      });
+
+      const handler = handlers.get('git:show');
+      const result = await handler!({} as any, '/test/repo', 'invalidhash123');
+
+      expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
+        'git',
+        ['show', '--stat', '--patch', 'invalidhash123'],
+        '/test/repo'
+      );
+      expect(result).toEqual({
+        stdout: '',
+        stderr: "fatal: bad object invalidhash123",
+      });
+    });
+
+    it('should handle short commit hashes', async () => {
+      const showOutput = `commit abc1234
+Author: Jane Doe <jane@example.com>
+Date:   Tue Jan 16 14:00:00 2024 +0000
+
+    Fix bug
+
+ src/fix.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)`;
+
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: showOutput,
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:show');
+      const result = await handler!({} as any, '/test/repo', 'abc1234');
+
+      expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
+        'git',
+        ['show', '--stat', '--patch', 'abc1234'],
+        '/test/repo'
+      );
+      expect(result).toEqual({
+        stdout: showOutput,
+        stderr: '',
+      });
+    });
+
+    it('should return stderr when not a git repo', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: 'fatal: not a git repository',
+        exitCode: 128,
+      });
+
+      const handler = handlers.get('git:show');
+      const result = await handler!({} as any, '/not/a/repo', 'abc123');
+
+      expect(result).toEqual({
+        stdout: '',
+        stderr: 'fatal: not a git repository',
+      });
+    });
+
+    it('should handle merge commits with multiple parents', async () => {
+      const mergeShowOutput = `commit def789012345abcdef789012345abcdef12345678
+Merge: abc1234 xyz5678
+Author: Developer <dev@example.com>
+Date:   Wed Jan 17 09:00:00 2024 +0000
+
+    Merge branch 'feature' into main
+
+ src/merged.ts | 10 ++++++++++
+ 1 file changed, 10 insertions(+)`;
+
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: mergeShowOutput,
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:show');
+      const result = await handler!({} as any, '/test/repo', 'def789012345');
+
+      expect(result).toEqual({
+        stdout: mergeShowOutput,
+        stderr: '',
+      });
+    });
+  });
 });
