@@ -1756,4 +1756,99 @@ export function Component() {
       });
     });
   });
+
+  describe('git:getRepoRoot', () => {
+    it('should return repository root path', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '/Users/dev/my-project\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:getRepoRoot');
+      const result = await handler!({} as any, '/Users/dev/my-project/src');
+
+      expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
+        'git',
+        ['rev-parse', '--show-toplevel'],
+        '/Users/dev/my-project/src'
+      );
+      // createIpcHandler wraps the result with success: true
+      expect(result).toEqual({
+        success: true,
+        root: '/Users/dev/my-project',
+      });
+    });
+
+    it('should throw error when not in a git repository', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: 'fatal: not a git repository (or any of the parent directories): .git',
+        exitCode: 128,
+      });
+
+      const handler = handlers.get('git:getRepoRoot');
+      const result = await handler!({} as any, '/not/a/repo');
+
+      // createIpcHandler catches the error and returns success: false with "Error: " prefix
+      expect(result).toEqual({
+        success: false,
+        error: 'Error: fatal: not a git repository (or any of the parent directories): .git',
+      });
+    });
+
+    it('should return root from deeply nested directory', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '/Users/dev/project\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:getRepoRoot');
+      const result = await handler!({} as any, '/Users/dev/project/src/components/ui/buttons');
+
+      expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
+        'git',
+        ['rev-parse', '--show-toplevel'],
+        '/Users/dev/project/src/components/ui/buttons'
+      );
+      expect(result).toEqual({
+        success: true,
+        root: '/Users/dev/project',
+      });
+    });
+
+    it('should handle paths with spaces', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '/Users/dev/My Projects/awesome project\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:getRepoRoot');
+      const result = await handler!({} as any, '/Users/dev/My Projects/awesome project/src');
+
+      expect(result).toEqual({
+        success: true,
+        root: '/Users/dev/My Projects/awesome project',
+      });
+    });
+
+    it('should return error with fallback message when stderr is empty', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: '',
+        exitCode: 1,
+      });
+
+      const handler = handlers.get('git:getRepoRoot');
+      const result = await handler!({} as any, '/some/path');
+
+      // When stderr is empty, the handler throws with "Not a git repository", createIpcHandler adds "Error: " prefix
+      expect(result).toEqual({
+        success: false,
+        error: 'Error: Not a git repository',
+      });
+    });
+  });
 });
