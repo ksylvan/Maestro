@@ -33,9 +33,11 @@ interface ToolCallCardProps {
 }
 
 /**
- * Get tool name from tool use entry - supports both Claude (name) and OpenCode (tool) formats
+ * Get tool name from tool use entry or array - supports both Claude (name) and OpenCode (tool) formats
  */
-function getToolName(tool: ToolUseEntry): string {
+export function getToolName(toolUse: ToolUseEntry | ToolUseEntry[] | undefined): string {
+  if (!toolUse) return 'unknown';
+  const tool = Array.isArray(toolUse) ? toolUse[0] : toolUse;
   return tool?.name || tool?.tool || 'unknown';
 }
 
@@ -150,12 +152,20 @@ export const ToolCallCard = memo(function ToolCallCard({
   if (!expanded) {
     return (
       <div
-        className="rounded-lg px-4 py-3 text-sm cursor-pointer hover:opacity-90 transition-opacity"
+        role="button"
+        tabIndex={0}
+        className="rounded-lg px-4 py-3 text-sm cursor-pointer hover:opacity-90 transition-opacity outline-none focus:ring-2 focus:ring-offset-1"
         style={{
           backgroundColor: theme.colors.bgActivity,
           borderLeft: `3px solid ${theme.colors.warning}`,
         }}
         onClick={() => setExpanded(true)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setExpanded(true);
+          }
+        }}
       >
         <div className="flex items-center gap-2">
           <ChevronRight className="w-4 h-4 shrink-0" style={{ color: theme.colors.textDim }} />
@@ -191,9 +201,17 @@ export const ToolCallCard = memo(function ToolCallCard({
     >
       {/* Header - clickable to collapse */}
       <div
-        className="px-4 py-3 cursor-pointer hover:opacity-90 transition-opacity flex items-center gap-2"
+        role="button"
+        tabIndex={0}
+        className="px-4 py-3 cursor-pointer hover:opacity-90 transition-opacity flex items-center gap-2 outline-none focus:ring-2 focus:ring-inset"
         style={{ backgroundColor: `${theme.colors.warning}08` }}
         onClick={() => setExpanded(false)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setExpanded(false);
+          }
+        }}
       >
         <ChevronDown className="w-4 h-4 shrink-0" style={{ color: theme.colors.textDim }} />
         <span
@@ -253,5 +271,3 @@ export const ToolCallCard = memo(function ToolCallCard({
     </div>
   );
 });
-
-export default ToolCallCard;

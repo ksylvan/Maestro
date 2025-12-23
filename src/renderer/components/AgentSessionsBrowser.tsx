@@ -5,21 +5,12 @@ import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { SessionActivityGraph, type ActivityEntry } from './SessionActivityGraph';
 import { SessionListItem } from './SessionListItem';
-import { ToolCallCard } from './ToolCallCard';
+import { ToolCallCard, getToolName } from './ToolCallCard';
 import { formatSize, formatNumber, formatTokens, formatRelativeTime } from '../utils/formatters';
 import { useSessionViewer, type ClaudeSession } from '../hooks/useSessionViewer';
 import { useSessionPagination } from '../hooks/useSessionPagination';
 import { useFilteredAndSortedSessions } from '../hooks/useFilteredAndSortedSessions';
 import { useClickOutside } from '../hooks';
-
-/**
- * Get tool name from toolUse array - supports both Claude (name) and OpenCode (tool) formats
- */
-function getToolName(toolUse: any[] | undefined): string {
-  if (!toolUse || toolUse.length === 0) return 'unknown';
-  const firstTool = toolUse[0];
-  return firstTool?.name || firstTool?.tool || 'unknown';
-}
 
 type SearchMode = 'title' | 'user' | 'assistant' | 'all';
 
