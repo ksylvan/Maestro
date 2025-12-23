@@ -415,4 +415,76 @@ index 1234567..abcdefg 100644
       });
     });
   });
+
+  describe('git:branch', () => {
+    it('should return current branch name trimmed', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: 'main\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:branch');
+      const result = await handler!({} as any, '/test/repo');
+
+      expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
+        'git',
+        ['rev-parse', '--abbrev-ref', 'HEAD'],
+        '/test/repo'
+      );
+      expect(result).toEqual({
+        stdout: 'main',
+        stderr: '',
+      });
+    });
+
+    it('should return HEAD for detached HEAD state', async () => {
+      // When in detached HEAD state, git rev-parse --abbrev-ref HEAD returns 'HEAD'
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: 'HEAD\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:branch');
+      const result = await handler!({} as any, '/test/repo');
+
+      expect(result).toEqual({
+        stdout: 'HEAD',
+        stderr: '',
+      });
+    });
+
+    it('should return stderr when not a git repo', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: 'fatal: not a git repository',
+        exitCode: 128,
+      });
+
+      const handler = handlers.get('git:branch');
+      const result = await handler!({} as any, '/not/a/repo');
+
+      expect(result).toEqual({
+        stdout: '',
+        stderr: 'fatal: not a git repository',
+      });
+    });
+
+    it('should handle feature branch names', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: 'feature/my-new-feature\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:branch');
+      const result = await handler!({} as any, '/test/repo');
+
+      expect(result).toEqual({
+        stdout: 'feature/my-new-feature',
+        stderr: '',
+      });
+    });
+  });
 });
