@@ -26,6 +26,9 @@ import groupChatModeratorPrompt from './group-chat-moderator.md?raw';
 // Maestro system prompt (injected at agent startup)
 import maestroSystemPrompt from './maestro-system-prompt.md?raw';
 
+// Context management prompts
+import contextGroomingPrompt from './context-grooming.md?raw';
+
 export {
   // Wizard
   wizardSystemPrompt,
@@ -47,4 +50,7 @@ export {
 
   // Maestro system prompt
   maestroSystemPrompt,
+
+  // Context management
+  contextGroomingPrompt,
 };
