@@ -22,7 +22,7 @@ import { registerAgentSessionsHandlers, AgentSessionsHandlerDependencies } from 
 import { registerGroupChatHandlers, GroupChatHandlerDependencies } from './groupChat';
 import { registerDebugHandlers, DebugHandlerDependencies } from './debug';
 import { registerSpeckitHandlers } from './speckit';
-import { registerContextHandlers, ContextHandlerDependencies } from './context';
+import { registerContextHandlers, ContextHandlerDependencies, cleanupAllGroomingSessions, getActiveGroomingSessionCount } from './context';
 import { AgentDetector } from '../../agent-detector';
 import { ProcessManager } from '../../process-manager';
 import { WebServer } from '../../web-server';
@@ -45,7 +45,7 @@ export { registerAgentSessionsHandlers };
 export { registerGroupChatHandlers };
 export { registerDebugHandlers };
 export { registerSpeckitHandlers };
-export { registerContextHandlers };
+export { registerContextHandlers, cleanupAllGroomingSessions, getActiveGroomingSessionCount };
 export type { AgentsHandlerDependencies };
 export type { ProcessHandlerDependencies };
 export type { PersistenceHandlerDependencies };
