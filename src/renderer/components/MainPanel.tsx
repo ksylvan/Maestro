@@ -804,6 +804,7 @@ export const MainPanel = forwardRef<MainPanelHandle, MainPanelProps>(function Ma
                   }}
                   className="p-2 rounded hover:bg-white/5"
                   title={`Agent Sessions (${shortcuts.agentSessions?.keys?.join('+').replace('Meta', 'Cmd').replace('Shift', '⇧') || 'Cmd+⇧+L'})`}
+                  data-tour="agent-sessions-button"
                 >
                   <List className="w-4 h-4" style={{ color: theme.colors.textDim }} />
                 </button>

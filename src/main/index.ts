@@ -321,6 +321,9 @@ function createWebServer(): WebServer {
         aiTabs,
         activeTabId: s.activeTabId || (aiTabs.length > 0 ? aiTabs[0].id : undefined),
         bookmarked: s.bookmarked || false,
+        // Worktree subagent support
+        parentSessionId: s.parentSessionId || null,
+        worktreeBranch: s.worktreeBranch || null,
       };
     });
   });

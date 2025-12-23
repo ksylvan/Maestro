@@ -201,6 +201,7 @@ describe('Debug Package Packager', () => {
         'settings.json': { theme: 'dark' },
         'agents.json': { agents: [] },
         'external-tools.json': { git: { available: true } },
+        'windows-diagnostics.json': { platform: 'test' },
         'sessions.json': [],
         'groups.json': [],
         'processes.json': [],
