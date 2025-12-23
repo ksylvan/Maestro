@@ -1,5 +1,8 @@
 // Type definitions for Maestro renderer
 
+// Re-export context merge types
+export * from './contextMerge';
+
 // Re-export theme types from shared location
 export type { Theme, ThemeId, ThemeMode, ThemeColors } from '../../shared/theme-types';
 export { isValidThemeId } from '../../shared/theme-types';
