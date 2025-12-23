@@ -595,6 +595,16 @@ export interface LeaderboardRankingInfo {
   improved: boolean;      // Did they move up?
 }
 
+// Keyboard Mastery gamification types
+export type KeyboardMasteryLevel = 'beginner' | 'student' | 'performer' | 'virtuoso' | 'maestro';
+
+export interface KeyboardMasteryStats {
+  usedShortcuts: string[];        // Array of shortcut IDs that have been used
+  currentLevel: number;           // 0-4 (Beginner to Keyboard Maestro)
+  lastLevelUpTimestamp: number;   // When user last leveled up
+  lastAcknowledgedLevel: number;  // Last level user dismissed celebration for
+}
+
 // Response from leaderboard submission API
 export interface LeaderboardSubmitResponse {
   success: boolean;
