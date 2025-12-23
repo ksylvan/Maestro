@@ -6551,6 +6551,28 @@ export default function MaestroConsole() {
               }));
             }
           }}
+          onToggleTabShowThinking={() => {
+            if (activeSession?.inputMode === 'ai' && activeSession.activeTabId) {
+              setSessions(prev => prev.map(s => {
+                if (s.id !== activeSession.id) return s;
+                return {
+                  ...s,
+                  aiTabs: s.aiTabs.map(tab => {
+                    if (tab.id !== s.activeTabId) return tab;
+                    // When turning OFF, clear any thinking logs
+                    if (tab.showThinking) {
+                      return {
+                        ...tab,
+                        showThinking: false,
+                        logs: tab.logs.filter(l => l.source !== 'thinking')
+                      };
+                    }
+                    return { ...tab, showThinking: true };
+                  })
+                };
+              }));
+            }
+          }}
           onOpenTabSwitcher={() => {
             if (activeSession?.inputMode === 'ai' && activeSession.aiTabs) {
               setTabSwitcherOpen(true);
