@@ -1095,4 +1095,94 @@ COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature
       });
     });
   });
+
+  describe('git:commitCount', () => {
+    it('should return commit count number', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '142\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:commitCount');
+      const result = await handler!({} as any, '/test/repo');
+
+      expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
+        'git',
+        ['rev-list', '--count', 'HEAD'],
+        '/test/repo'
+      );
+      expect(result).toEqual({
+        count: 142,
+        error: null,
+      });
+    });
+
+    it('should return 0 when repository has no commits', async () => {
+      // Empty repo or unborn branch returns error
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: "fatal: bad revision 'HEAD'",
+        exitCode: 128,
+      });
+
+      const handler = handlers.get('git:commitCount');
+      const result = await handler!({} as any, '/empty/repo');
+
+      expect(result).toEqual({
+        count: 0,
+        error: "fatal: bad revision 'HEAD'",
+      });
+    });
+
+    it('should return error when not a git repo', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: 'fatal: not a git repository',
+        exitCode: 128,
+      });
+
+      const handler = handlers.get('git:commitCount');
+      const result = await handler!({} as any, '/not/a/repo');
+
+      expect(result).toEqual({
+        count: 0,
+        error: 'fatal: not a git repository',
+      });
+    });
+
+    it('should handle large commit counts', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '50000\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:commitCount');
+      const result = await handler!({} as any, '/large/repo');
+
+      expect(result).toEqual({
+        count: 50000,
+        error: null,
+      });
+    });
+
+    it('should return 0 for non-numeric output', async () => {
+      // Edge case: if somehow git returns non-numeric output
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: 'not a number\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:commitCount');
+      const result = await handler!({} as any, '/test/repo');
+
+      // parseInt returns NaN for "not a number", || 0 returns 0
+      expect(result).toEqual({
+        count: 0,
+        error: null,
+      });
+    });
+  });
 });
