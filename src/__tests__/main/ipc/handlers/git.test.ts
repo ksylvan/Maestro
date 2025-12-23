@@ -190,4 +190,98 @@ describe('Git IPC handlers', () => {
       });
     });
   });
+
+  describe('git:diff', () => {
+    it('should return diff output for unstaged changes', async () => {
+      const diffOutput = `diff --git a/file.txt b/file.txt
+index abc1234..def5678 100644
+--- a/file.txt
++++ b/file.txt
+@@ -1,3 +1,4 @@
+ line 1
++new line
+ line 2
+ line 3`;
+
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: diffOutput,
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:diff');
+      const result = await handler!({} as any, '/test/repo');
+
+      expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
+        'git',
+        ['diff'],
+        '/test/repo'
+      );
+      expect(result).toEqual({
+        stdout: diffOutput,
+        stderr: '',
+      });
+    });
+
+    it('should return diff for specific file when file path is provided', async () => {
+      const fileDiff = `diff --git a/specific.txt b/specific.txt
+index 1234567..abcdefg 100644
+--- a/specific.txt
++++ b/specific.txt
+@@ -1 +1 @@
+-old content
++new content`;
+
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: fileDiff,
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:diff');
+      const result = await handler!({} as any, '/test/repo', 'specific.txt');
+
+      expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
+        'git',
+        ['diff', 'specific.txt'],
+        '/test/repo'
+      );
+      expect(result).toEqual({
+        stdout: fileDiff,
+        stderr: '',
+      });
+    });
+
+    it('should return empty diff when no changes exist', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:diff');
+      const result = await handler!({} as any, '/test/repo');
+
+      expect(result).toEqual({
+        stdout: '',
+        stderr: '',
+      });
+    });
+
+    it('should return stderr when not a git repo', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: 'fatal: not a git repository',
+        exitCode: 128,
+      });
+
+      const handler = handlers.get('git:diff');
+      const result = await handler!({} as any, '/not/a/repo');
+
+      expect(result).toEqual({
+        stdout: '',
+        stderr: 'fatal: not a git repository',
+      });
+    });
+  });
 });
