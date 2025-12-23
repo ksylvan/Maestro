@@ -284,4 +284,56 @@ index 1234567..abcdefg 100644
       });
     });
   });
+
+  describe('git:isRepo', () => {
+    it('should return true when directory is inside a git work tree', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: 'true\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:isRepo');
+      const result = await handler!({} as any, '/valid/git/repo');
+
+      expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
+        'git',
+        ['rev-parse', '--is-inside-work-tree'],
+        '/valid/git/repo'
+      );
+      expect(result).toBe(true);
+    });
+
+    it('should return false when not a git repository', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: 'fatal: not a git repository (or any of the parent directories): .git',
+        exitCode: 128,
+      });
+
+      const handler = handlers.get('git:isRepo');
+      const result = await handler!({} as any, '/not/a/repo');
+
+      expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
+        'git',
+        ['rev-parse', '--is-inside-work-tree'],
+        '/not/a/repo'
+      );
+      expect(result).toBe(false);
+    });
+
+    it('should return false for non-zero exit codes', async () => {
+      // Test with different non-zero exit code
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: 'error',
+        exitCode: 1,
+      });
+
+      const handler = handlers.get('git:isRepo');
+      const result = await handler!({} as any, '/some/path');
+
+      expect(result).toBe(false);
+    });
+  });
 });
