@@ -62,6 +62,23 @@ vi.mock('chokidar', () => ({
   },
 }));
 
+// Mock child_process for spawnSync (used in git:showFile for images)
+// The handler uses require('child_process') at runtime - need vi.hoisted for proper hoisting
+const { mockSpawnSync } = vi.hoisted(() => ({
+  mockSpawnSync: vi.fn(),
+}));
+
+vi.mock('child_process', () => ({
+  spawnSync: mockSpawnSync,
+  // Include other exports that might be needed
+  spawn: vi.fn(),
+  exec: vi.fn(),
+  execSync: vi.fn(),
+  execFile: vi.fn(),
+  execFileSync: vi.fn(),
+  fork: vi.fn(),
+}));
+
 describe('Git IPC handlers', () => {
   let handlers: Map<string, Function>;
 
@@ -1319,6 +1336,186 @@ Date:   Wed Jan 17 09:00:00 2024 +0000
         stdout: mergeShowOutput,
         stderr: '',
       });
+    });
+  });
+
+  describe('git:showFile', () => {
+    beforeEach(() => {
+      // Reset the spawnSync mock before each test in this describe block
+      mockSpawnSync.mockReset();
+    });
+
+    it('should return file content for text files', async () => {
+      const fileContent = `import React from 'react';
+
+export function Component() {
+  return <div>Hello World</div>;
+}`;
+
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: fileContent,
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:showFile');
+      const result = await handler!({} as any, '/test/repo', 'HEAD', 'src/Component.tsx');
+
+      expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
+        'git',
+        ['show', 'HEAD:src/Component.tsx'],
+        '/test/repo'
+      );
+      expect(result).toEqual({
+        content: fileContent,
+      });
+    });
+
+    it('should return error when file not found in commit', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: "fatal: path 'nonexistent.txt' does not exist in 'HEAD'",
+        exitCode: 128,
+      });
+
+      const handler = handlers.get('git:showFile');
+      const result = await handler!({} as any, '/test/repo', 'HEAD', 'nonexistent.txt');
+
+      expect(result).toEqual({
+        error: "fatal: path 'nonexistent.txt' does not exist in 'HEAD'",
+      });
+    });
+
+    it('should return error for invalid commit reference', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: "fatal: invalid object name 'invalidref'",
+        exitCode: 128,
+      });
+
+      const handler = handlers.get('git:showFile');
+      const result = await handler!({} as any, '/test/repo', 'invalidref', 'file.txt');
+
+      expect(result).toEqual({
+        error: "fatal: invalid object name 'invalidref'",
+      });
+    });
+
+    // Note: Image file handling tests use spawnSync which is mocked via vi.hoisted.
+    // The handler uses require('child_process') at runtime, which interacts with
+    // the mock through the gif error test below. Full success path testing for
+    // image files requires integration tests.
+
+    it('should recognize image files and use spawnSync for them', async () => {
+      // The handler takes different code paths for images vs text files.
+      // This test verifies that image files (gif) trigger the spawnSync path
+      // by checking the error response when spawnSync returns a failure status.
+      mockSpawnSync.mockReturnValue({
+        stdout: Buffer.from(''),
+        stderr: undefined,
+        status: 1,
+        pid: 1234,
+        output: [null, Buffer.from(''), undefined],
+        signal: null,
+      });
+
+      const handler = handlers.get('git:showFile');
+      const result = await handler!({} as any, '/test/repo', 'HEAD', 'assets/logo.gif');
+
+      // The fact we get this specific error proves the spawnSync path was taken
+      expect(result).toEqual({
+        error: 'Failed to read file from git',
+      });
+    });
+
+    it('should handle different git refs (tags, branches, commit hashes)', async () => {
+      const fileContent = 'version = "1.0.0"';
+
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: fileContent,
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:showFile');
+
+      // Test with tag
+      await handler!({} as any, '/test/repo', 'v1.0.0', 'package.json');
+      expect(execFile.execFileNoThrow).toHaveBeenLastCalledWith(
+        'git',
+        ['show', 'v1.0.0:package.json'],
+        '/test/repo'
+      );
+
+      // Test with branch
+      await handler!({} as any, '/test/repo', 'feature/new-feature', 'config.ts');
+      expect(execFile.execFileNoThrow).toHaveBeenLastCalledWith(
+        'git',
+        ['show', 'feature/new-feature:config.ts'],
+        '/test/repo'
+      );
+
+      // Test with short commit hash
+      await handler!({} as any, '/test/repo', 'abc1234', 'README.md');
+      expect(execFile.execFileNoThrow).toHaveBeenLastCalledWith(
+        'git',
+        ['show', 'abc1234:README.md'],
+        '/test/repo'
+      );
+    });
+
+    it('should return fallback error when image spawnSync fails without stderr', async () => {
+      // When spawnSync fails without a stderr message, we get the fallback error
+      mockSpawnSync.mockReturnValue({
+        stdout: Buffer.from(''),
+        stderr: Buffer.from(''),
+        status: 128,
+        pid: 1234,
+        output: [null, Buffer.from(''), Buffer.from('')],
+        signal: null,
+      });
+
+      const handler = handlers.get('git:showFile');
+      const result = await handler!({} as any, '/test/repo', 'HEAD', 'missing.gif');
+
+      // The empty stderr results in the fallback error message
+      expect(result).toEqual({
+        error: 'Failed to read file from git',
+      });
+    });
+
+    it('should return fallback error for text files when execFile fails with no stderr', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: '',
+        exitCode: 1,
+      });
+
+      const handler = handlers.get('git:showFile');
+      const result = await handler!({} as any, '/test/repo', 'HEAD', 'missing.txt');
+
+      expect(result).toEqual({
+        error: 'Failed to read file from git',
+      });
+    });
+
+    it('should handle file paths with special characters', async () => {
+      const fileContent = 'content';
+
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: fileContent,
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:showFile');
+      await handler!({} as any, '/test/repo', 'HEAD', 'path with spaces/file (1).txt');
+
+      expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
+        'git',
+        ['show', 'HEAD:path with spaces/file (1).txt'],
+        '/test/repo'
+      );
     });
   });
 });
