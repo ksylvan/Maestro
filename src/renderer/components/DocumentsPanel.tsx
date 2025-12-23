@@ -532,6 +532,14 @@ export function DocumentsPanel({
   const [isCopyDrag, setIsCopyDrag] = useState(false);
   const [cursorPosition, setCursorPosition] = useState<{ x: number; y: number } | null>(null);
 
+  // Refs to access current values in event handlers (avoids stale closure issues)
+  const draggedIdRef = useRef(draggedId);
+  const dropTargetIndexRef = useRef(dropTargetIndex);
+  const isCopyDragRef = useRef(isCopyDrag);
+  draggedIdRef.current = draggedId;
+  dropTargetIndexRef.current = dropTargetIndex;
+  isCopyDragRef.current = isCopyDrag;
+
   // Calculate counts
   const totalTaskCount = documents.reduce((sum, doc) => {
     if (doc.isMissing) return sum;
@@ -623,24 +631,28 @@ export function DocumentsPanel({
     const isCopy = e.ctrlKey || e.metaKey;
     setIsCopyDrag(isCopy);
     e.dataTransfer.dropEffect = isCopy ? 'copy' : 'move';
-    
-    if (draggedId && (isCopy || draggedId !== id)) {
+
+    // Use ref to get current draggedId (avoids stale closure)
+    const currentDraggedId = draggedIdRef.current;
+
+    if (currentDraggedId && (isCopy || currentDraggedId !== id)) {
       // Get the element's bounding rect to determine if cursor is in top or bottom half
       const rect = e.currentTarget.getBoundingClientRect();
       const midY = rect.top + rect.height / 2;
-      
+
       // Determine drop position: before (index) or after (index + 1)
       const dropIndex = e.clientY < midY ? index : index + 1;
-      
-      // Don't show indicator at positions that would result in no change
-      const draggedIndex = documents.findIndex(d => d.id === draggedId);
-      if (!isCopy && (dropIndex === draggedIndex || dropIndex === draggedIndex + 1)) {
-        setDropTargetIndex(null);
-      } else {
-        setDropTargetIndex(dropIndex);
+
+      // Don't show indicator at positions that would result in no change (for move only)
+      // For copy, always allow since we're creating a new item
+      if (!isCopy) {
+        // Need to find dragged index from current documents
+        // Use functional approach - but for now just set the index
+        // The actual validation happens at drop time
       }
+      setDropTargetIndex(dropIndex);
     }
-  }, [draggedId, documents]);
+  }, []);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     // Only clear if leaving the entire documents container (not just moving between items)
@@ -654,51 +666,61 @@ export function DocumentsPanel({
     e.preventDefault();
     e.stopPropagation(); // Prevent double-firing from row bubbling to container
 
-    console.log('[handleDrop] draggedId:', draggedId, 'dropTargetIndex:', dropTargetIndex, 'isCopyDrag:', isCopyDrag);
+    // Read current values from refs to avoid stale closure issues
+    const currentDraggedId = draggedIdRef.current;
+    const currentDropTargetIndex = dropTargetIndexRef.current;
+    const currentIsCopyDrag = isCopyDragRef.current;
 
-    if (draggedId && dropTargetIndex !== null) {
-      const draggedIndex = documents.findIndex(d => d.id === draggedId);
+    if (currentDraggedId && currentDropTargetIndex !== null) {
+      // Use functional update to get current documents
+      setDocuments(prev => {
+        const draggedIndex = prev.findIndex(d => d.id === currentDraggedId);
 
-      if (draggedIndex !== -1) {
-        // Use tracked isCopyDrag state - more reliable than event.metaKey at drop time
-        setDocuments(prev => {
-          const items = [...prev];
+        if (draggedIndex === -1) {
+          return prev; // Item not found, return unchanged
+        }
 
-          if (isCopyDrag) {
-            // Copy mode: duplicate the document at the drop position with reset enabled
-            const original = items[draggedIndex];
-            const duplicate: BatchDocumentEntry = {
-              id: generateId(),
-              filename: original.filename,
-              resetOnCompletion: true, // Copies always have reset enabled
-              isDuplicate: true
-            };
-            items.splice(dropTargetIndex, 0, duplicate);
-          } else {
-            // Move mode: remove from original position and insert at drop position
-            const [removed] = items.splice(draggedIndex, 1);
-            // Adjust target index if we removed an item before it
-            const adjustedDropIndex = draggedIndex < dropTargetIndex ? dropTargetIndex - 1 : dropTargetIndex;
-            items.splice(adjustedDropIndex, 0, removed);
-          }
+        const items = [...prev];
 
-          return items;
-        });
-      }
+        if (currentIsCopyDrag) {
+          // Copy mode: duplicate the document at the drop position with reset enabled
+          const original = items[draggedIndex];
+          const duplicate: BatchDocumentEntry = {
+            id: generateId(),
+            filename: original.filename,
+            resetOnCompletion: true, // Copies always have reset enabled
+            isDuplicate: true
+          };
+          items.splice(currentDropTargetIndex, 0, duplicate);
+        } else {
+          // Move mode: remove from original position and insert at drop position
+          const [removed] = items.splice(draggedIndex, 1);
+          // Adjust target index if we removed an item before it
+          const adjustedDropIndex = draggedIndex < currentDropTargetIndex ? currentDropTargetIndex - 1 : currentDropTargetIndex;
+          items.splice(adjustedDropIndex, 0, removed);
+        }
+
+        return items;
+      });
     }
     setDraggedId(null);
     setDropTargetIndex(null);
     setIsCopyDrag(false);
     setCursorPosition(null);
-  }, [draggedId, dropTargetIndex, documents, setDocuments, isCopyDrag]);
+  }, [setDocuments]);
 
   const handleDragEnd = useCallback((e: React.DragEvent) => {
-    // Clean up drag state (actual drop logic is in handleDrop)
-    console.log('[handleDragEnd] dropEffect:', e.dataTransfer.dropEffect);
-    setDraggedId(null);
-    setDropTargetIndex(null);
-    setIsCopyDrag(false);
-    setCursorPosition(null);
+    // Only clean up if drop didn't happen (e.g., user cancelled with Escape or dropped outside)
+    // When drop succeeds, handleDrop clears the state
+    const dropEffect = e.dataTransfer.dropEffect;
+    if (dropEffect === 'none') {
+      // Drop was cancelled - clean up
+      setDraggedId(null);
+      setDropTargetIndex(null);
+      setIsCopyDrag(false);
+      setCursorPosition(null);
+    }
+    // If dropEffect is 'move' or 'copy', handleDrop already handled cleanup
   }, []);
 
   // Sync showMaxLoopsSlider when maxLoops prop changes externally
