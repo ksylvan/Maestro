@@ -912,4 +912,187 @@ index 1234567..abcdefg 100644
       });
     });
   });
+
+  describe('git:log', () => {
+    it('should return parsed log entries with correct structure', async () => {
+      // Mock output with COMMIT_START marker format
+      const logOutput = `COMMIT_STARTabc123456789|John Doe|2024-01-15T10:30:00+00:00|HEAD -> main, origin/main|Initial commit
+
+ 2 files changed, 50 insertions(+), 10 deletions(-)
+COMMIT_STARTdef987654321|Jane Smith|2024-01-14T09:00:00+00:00||Add feature
+
+ 1 file changed, 25 insertions(+)`;
+
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: logOutput,
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:log');
+      const result = await handler!({} as any, '/test/repo');
+
+      expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
+        'git',
+        [
+          'log',
+          '--max-count=100',
+          '--pretty=format:COMMIT_START%H|%an|%ad|%D|%s',
+          '--date=iso-strict',
+          '--shortstat',
+        ],
+        '/test/repo'
+      );
+
+      expect(result).toEqual({
+        entries: [
+          {
+            hash: 'abc123456789',
+            shortHash: 'abc1234',
+            author: 'John Doe',
+            date: '2024-01-15T10:30:00+00:00',
+            refs: ['HEAD -> main', 'origin/main'],
+            subject: 'Initial commit',
+            additions: 50,
+            deletions: 10,
+          },
+          {
+            hash: 'def987654321',
+            shortHash: 'def9876',
+            author: 'Jane Smith',
+            date: '2024-01-14T09:00:00+00:00',
+            refs: [],
+            subject: 'Add feature',
+            additions: 25,
+            deletions: 0,
+          },
+        ],
+        error: null,
+      });
+    });
+
+    it('should use custom limit parameter', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:log');
+      await handler!({} as any, '/test/repo', { limit: 50 });
+
+      expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
+        'git',
+        [
+          'log',
+          '--max-count=50',
+          '--pretty=format:COMMIT_START%H|%an|%ad|%D|%s',
+          '--date=iso-strict',
+          '--shortstat',
+        ],
+        '/test/repo'
+      );
+    });
+
+    it('should include search filter when provided', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:log');
+      await handler!({} as any, '/test/repo', { search: 'bugfix' });
+
+      expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
+        'git',
+        [
+          'log',
+          '--max-count=100',
+          '--pretty=format:COMMIT_START%H|%an|%ad|%D|%s',
+          '--date=iso-strict',
+          '--shortstat',
+          '--all',
+          '--grep=bugfix',
+          '-i',
+        ],
+        '/test/repo'
+      );
+    });
+
+    it('should return empty entries when no commits exist', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:log');
+      const result = await handler!({} as any, '/test/repo');
+
+      expect(result).toEqual({
+        entries: [],
+        error: null,
+      });
+    });
+
+    it('should return error when not a git repo', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: 'fatal: not a git repository',
+        exitCode: 128,
+      });
+
+      const handler = handlers.get('git:log');
+      const result = await handler!({} as any, '/not/a/repo');
+
+      expect(result).toEqual({
+        entries: [],
+        error: 'fatal: not a git repository',
+      });
+    });
+
+    it('should handle commit subject containing pipe characters', async () => {
+      // Pipe character in commit subject should be preserved
+      const logOutput = `COMMIT_STARTabc123|Author|2024-01-15T10:00:00+00:00||Fix: handle a | b condition
+
+ 1 file changed, 5 insertions(+)`;
+
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: logOutput,
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:log');
+      const result = await handler!({} as any, '/test/repo');
+
+      expect(result.entries[0].subject).toBe('Fix: handle a | b condition');
+    });
+
+    it('should handle commits without shortstat (no file changes)', async () => {
+      // Merge commits or empty commits may not have shortstat
+      const logOutput = `COMMIT_STARTabc1234567890abcdef1234567890abcdef12345678|Author|2024-01-15T10:00:00+00:00|HEAD -> main|Merge branch 'feature'`;
+
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: logOutput,
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:log');
+      const result = await handler!({} as any, '/test/repo');
+
+      expect(result.entries[0]).toEqual({
+        hash: 'abc1234567890abcdef1234567890abcdef12345678',
+        shortHash: 'abc1234',
+        author: 'Author',
+        date: '2024-01-15T10:00:00+00:00',
+        refs: ['HEAD -> main'],
+        subject: "Merge branch 'feature'",
+        additions: 0,
+        deletions: 0,
+      });
+    });
+  });
 });
