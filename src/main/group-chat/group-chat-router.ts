@@ -8,7 +8,7 @@
  * - Participants -> Moderator
  */
 
-import { GroupChatParticipant, loadGroupChat, updateParticipant, addGroupChatHistoryEntry, extractFirstSentence } from './group-chat-storage';
+import { GroupChatParticipant, loadGroupChat, updateParticipant, addGroupChatHistoryEntry, extractFirstSentence, getGroupChatDir } from './group-chat-storage';
 import { appendToLog, readLog } from './group-chat-log';
 import { type GroupChatMessage, mentionMatches } from '../../shared/group-chat-types';
 import {
@@ -647,10 +647,14 @@ export async function routeModeratorResponse(
         ? ' Remember: READ-ONLY mode is active, do not modify any files.'
         : ' If you need to perform any actions, do so and report your findings.';
 
+      // Get the group chat folder path for file access permissions
+      const groupChatFolder = getGroupChatDir(groupChatId);
+
       const participantPrompt = groupChatParticipantRequestPrompt
         .replace(/\{\{PARTICIPANT_NAME\}\}/g, participantName)
         .replace(/\{\{GROUP_CHAT_NAME\}\}/g, updatedChat.name)
         .replace(/\{\{READ_ONLY_NOTE\}\}/g, readOnlyNote)
+        .replace(/\{\{GROUP_CHAT_FOLDER\}\}/g, groupChatFolder)
         .replace(/\{\{HISTORY_CONTEXT\}\}/g, historyContext)
         .replace(/\{\{READ_ONLY_LABEL\}\}/g, readOnlyLabel)
         .replace(/\{\{MESSAGE\}\}/g, message)

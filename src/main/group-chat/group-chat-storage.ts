@@ -106,7 +106,7 @@ export function getGroupChatsDir(): string {
 /**
  * Get the directory path for a specific group chat
  */
-function getGroupChatDir(id: string): string {
+export function getGroupChatDir(id: string): string {
   return path.join(getGroupChatsDir(), id);
 }
 
