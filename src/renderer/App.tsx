@@ -225,10 +225,10 @@ export default function MaestroConsole() {
     state: wizardState,
     openWizard: openWizardModal,
     restoreState: restoreWizardState,
-    loadResumeState,
+    loadResumeState: _loadResumeState,
     clearResumeState,
     completeWizard,
-    closeWizard: closeWizardModal,
+    closeWizard: _closeWizardModal,
     goToStep: wizardGoToStep,
   } = useWizard();
 
@@ -271,15 +271,15 @@ export default function MaestroConsole() {
     shortcuts, setShortcuts,
     tabShortcuts, setTabShortcuts,
     customAICommands, setCustomAICommands,
-    globalStats, updateGlobalStats,
+    globalStats: _globalStats, updateGlobalStats,
     autoRunStats, recordAutoRunComplete, updateAutoRunProgress, acknowledgeBadge, getUnacknowledgedBadgeLevel,
-    tourCompleted, setTourCompleted,
+    tourCompleted: _tourCompleted, setTourCompleted,
     firstAutoRunCompleted, setFirstAutoRunCompleted,
     recordWizardStart, recordWizardComplete, recordWizardAbandon, recordWizardResume,
     recordTourStart, recordTourComplete, recordTourSkip,
     leaderboardRegistration, setLeaderboardRegistration, isLeaderboardRegistered,
 
-    contextManagementSettings, updateContextManagementSettings,
+    contextManagementSettings, updateContextManagementSettings: _updateContextManagementSettings,
 
     keyboardMasteryStats, recordShortcutUsage, acknowledgeKeyboardMasteryLevel, getUnacknowledgedKeyboardMasteryLevel,
 
@@ -393,13 +393,13 @@ export default function MaestroConsole() {
   const [editAgentModalOpen, setEditAgentModalOpen] = useState(false);
   const [editAgentSession, setEditAgentSession] = useState<Session | null>(null);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
-  const [shortcutsSearchQuery, setShortcutsSearchQuery] = useState('');
+  const [_shortcutsSearchQuery, setShortcutsSearchQuery] = useState('');
   const [quickActionOpen, setQuickActionOpen] = useState(false);
   const [quickActionInitialMode, setQuickActionInitialMode] = useState<'main' | 'move-to-group'>('main');
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [lightboxImages, setLightboxImages] = useState<string[]>([]); // Context images for navigation
-  const [lightboxSource, setLightboxSource] = useState<'staged' | 'history'>('history'); // Track source for delete permission
+  const [_lightboxSource, setLightboxSource] = useState<'staged' | 'history'>('history'); // Track source for delete permission
   const lightboxIsGroupChatRef = useRef<boolean>(false); // Track if lightbox was opened from group chat
   const lightboxAllowDeleteRef = useRef<boolean>(false); // Track if delete should be allowed (set synchronously before state updates)
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
@@ -519,7 +519,7 @@ export default function MaestroConsole() {
   const [renameGroupId, setRenameGroupId] = useState<string | null>(null);
   const [renameGroupValue, setRenameGroupValue] = useState('');
   const [renameGroupEmoji, setRenameGroupEmoji] = useState('📂');
-  const [renameGroupEmojiPickerOpen, setRenameGroupEmojiPickerOpen] = useState(false);
+  const [_renameGroupEmojiPickerOpen, _setRenameGroupEmojiPickerOpen] = useState(false);
 
   // Output Search State
   const [outputSearchOpen, setOutputSearchOpen] = useState(false);
@@ -767,7 +767,7 @@ export default function MaestroConsole() {
     sessionLoadStarted.current = true;
 
     const loadSessionsAndGroups = async () => {
-      let hasSessionsLoaded = false;
+      let _hasSessionsLoaded = false;
 
       try {
         const savedSessions = await window.maestro.sessions.getAll();
@@ -779,7 +779,7 @@ export default function MaestroConsole() {
             savedSessions.map(s => restoreSession(s))
           );
           setSessions(restoredSessions);
-          hasSessionsLoaded = true;
+          _hasSessionsLoaded = true;
           // Set active session to first session if current activeSessionId is invalid
           if (restoredSessions.length > 0 && !restoredSessions.find(s => s.id === activeSessionId)) {
             setActiveSessionId(restoredSessions[0].id);
@@ -2350,7 +2350,7 @@ export default function MaestroConsole() {
 
   // Ref for handling remote commands from web interface
   // This allows web commands to go through the exact same code path as desktop commands
-  const pendingRemoteCommandRef = useRef<{ sessionId: string; command: string } | null>(null);
+  const _pendingRemoteCommandRef = useRef<{ sessionId: string; command: string } | null>(null);
 
   // Refs for batch processor error handling (Phase 5.10)
   // These are populated after useBatchProcessor is called and used in the agent error handler
@@ -2733,13 +2733,13 @@ export default function MaestroConsole() {
   const {
     mergeState,
     progress: mergeProgress,
-    error: mergeError,
+    error: _mergeError,
     startTime: mergeStartTime,
     sourceName: mergeSourceName,
     targetName: mergeTargetName,
     executeMerge,
     cancelTab: cancelMergeTab,
-    cancelMerge,
+    cancelMerge: _cancelMerge,
     clearTabState: clearMergeTabState,
     reset: resetMerge,
   } = useMergeSessionWithSessions({
@@ -2816,8 +2816,8 @@ export default function MaestroConsole() {
   const {
     transferState,
     progress: transferProgress,
-    error: transferError,
-    executeTransfer,
+    error: _transferError,
+    executeTransfer: _executeTransfer,
     cancelTransfer,
     reset: resetTransfer,
   } = useSendToAgentWithSessions({
@@ -2855,7 +2855,7 @@ export default function MaestroConsole() {
     summarizeState,
     progress: summarizeProgress,
     result: summarizeResult,
-    error: summarizeError,
+    error: _summarizeError,
     startTime,
     startSummarize,
     cancelTab,
@@ -3183,11 +3183,11 @@ export default function MaestroConsole() {
   // Extracted hook for agent spawning and execution operations
   const {
     spawnAgentForSession,
-    spawnAgentWithPrompt,
+    spawnAgentWithPrompt: _spawnAgentWithPrompt,
     spawnBackgroundSynopsis,
     spawnBackgroundSynopsisRef,
-    spawnAgentWithPromptRef,
-    showFlashNotification,
+    spawnAgentWithPromptRef: _spawnAgentWithPromptRef,
+    showFlashNotification: _showFlashNotification,
     showSuccessFlash,
   } = useAgentExecution({
     activeSession,
@@ -3219,7 +3219,7 @@ export default function MaestroConsole() {
 
   // Initialize batch processor (supports parallel batches per session)
   const {
-    batchRunStates,
+    batchRunStates: _batchRunStates,
     getBatchState,
     activeBatchSessionIds,
     startBatchRun,
@@ -3593,7 +3593,7 @@ export default function MaestroConsole() {
   }, [activeSession, groups, spawnBackgroundSynopsis, addHistoryEntry, addLogToActiveTab, setSessions, addToast]);
 
   // Input processing hook - handles sending messages and commands
-  const { processInput, processInputRef } = useInputProcessing({
+  const { processInput, processInputRef: _processInputRef } = useInputProcessing({
     activeSession,
     activeSessionId,
     setSessions,
@@ -4102,7 +4102,7 @@ export default function MaestroConsole() {
 
       // Restore the state for this specific chat from the per-chat state map
       // This prevents state from one chat bleeding into another when switching
-      setGroupChatState(prev => {
+      setGroupChatState(_prev => {
         const savedState = groupChatStates.get(id);
         return savedState ?? 'idle';
       });
@@ -5088,7 +5088,7 @@ export default function MaestroConsole() {
    *                         (e.g., "Here's a summary of our previous conversations...")
    * @returns Promise that resolves when the session is initialized
    */
-  const initializeMergedSession = useCallback(async (
+  const _initializeMergedSession = useCallback(async (
     session: Session,
     contextSummary?: string
   ) => {
@@ -5261,7 +5261,7 @@ export default function MaestroConsole() {
       if (isLiveMode) {
         // Stop tunnel first (if running), then stop web server
         await window.maestro.tunnel.stop();
-        const result = await window.maestro.live.disableAll();
+        const _result = await window.maestro.live.disableAll();
         setIsLiveMode(false);
         setWebInterfaceUrl(null);
       } else {
