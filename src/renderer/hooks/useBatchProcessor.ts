@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useReducer } from 'react';
+import { useState, useCallback, useRef, useReducer, useEffect } from 'react';
 import type { BatchRunState, BatchRunConfig, Session, HistoryEntry, UsageStats, Group, AutoRunStats, AgentError, ToolType } from '../types';
 import { getBadgeForTime, getNextBadge, formatTimeRemaining } from '../constants/conductorBadges';
 import { formatElapsedTime } from '../../shared/formatters';
@@ -160,6 +160,12 @@ export { countUnfinishedTasks, uncheckAllTasks };
 
 /**
  * Hook for managing batch processing of scratchpad tasks across multiple sessions
+ *
+ * Memory safety guarantees:
+ * - All error resolution promises are rejected with 'abort' on unmount
+ * - stopRequestedRefs are cleared when batches complete normally
+ * - isMountedRef check prevents all state updates after unmount
+ * - Extracted hooks (useSessionDebounce, useTimeTracking) handle their own cleanup
  */
 export function useBatchProcessor({
   sessions,
@@ -193,6 +199,28 @@ export function useBatchProcessor({
 
   // Error resolution promises to pause batch processing until user action (per session)
   const errorResolutionRefs = useRef<Record<string, ErrorResolutionEntry>>({});
+
+  // Track whether the component is still mounted to prevent state updates after unmount
+  const isMountedRef = useRef(true);
+
+  // Cleanup effect: reject all error resolution promises and clear refs on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+
+      // Reject all pending error resolution promises with 'abort' to unblock any waiting async code
+      // This prevents memory leaks from promises that would never resolve
+      Object.entries(errorResolutionRefs.current).forEach(([sessionId, entry]) => {
+        entry.resolve('abort');
+        console.log(`[BatchProcessor] Rejected error resolution promise for session ${sessionId} on unmount`);
+      });
+      // Clear the refs to allow garbage collection
+      errorResolutionRefs.current = {};
+
+      // Clear stop requested refs (though they should already be cleaned up per-session)
+      stopRequestedRefs.current = {};
+    };
+  }, []);
 
   /**
    * Broadcast Auto Run state to web interface immediately (synchronously).
@@ -1352,37 +1380,46 @@ export function useBatchProcessor({
       console.error('[BatchProcessor] Failed to add final Auto Run summary to history:', historyError);
     }
 
-    // Reset state for this session using COMPLETE_BATCH action
-    // (not updateBatchStateAndBroadcast which only supports UPDATE_PROGRESS)
-    dispatch({
-      type: 'COMPLETE_BATCH',
-      sessionId,
-      finalSessionIds: agentSessionIds
-    });
-    // Broadcast state change
-    broadcastAutoRunState(sessionId, null);
-
-    // Call completion callback if provided
-    if (onComplete) {
-      onComplete({
+    // Guard against state updates after unmount (async code may still be running)
+    if (isMountedRef.current) {
+      // Reset state for this session using COMPLETE_BATCH action
+      // (not updateBatchStateAndBroadcast which only supports UPDATE_PROGRESS)
+      dispatch({
+        type: 'COMPLETE_BATCH',
         sessionId,
-        sessionName: session.name || session.cwd.split('/').pop() || 'Unknown',
-        completedTasks: totalCompletedTasks,
-        totalTasks: initialTotalTasks,
-        wasStopped,
-        elapsedTimeMs: totalElapsedMs
+        finalSessionIds: agentSessionIds
       });
+      // Broadcast state change
+      broadcastAutoRunState(sessionId, null);
+
+      // Call completion callback if provided
+      if (onComplete) {
+        onComplete({
+          sessionId,
+          sessionName: session.name || session.cwd.split('/').pop() || 'Unknown',
+          completedTasks: totalCompletedTasks,
+          totalTasks: initialTotalTasks,
+          wasStopped,
+          elapsedTimeMs: totalElapsedMs
+        });
+      }
     }
 
-    // Clean up time tracking and error resolution
+    // Clean up time tracking, error resolution, and stop request flag
+    // Clearing stopRequestedRefs here (not just at start) ensures proper cleanup
+    // regardless of how the batch ended (normal completion, stopped, or error)
+    // Note: These cleanup operations are safe even after unmount (they only affect refs)
     timeTracking.stopTracking(sessionId);
     delete errorResolutionRefs.current[sessionId];
+    delete stopRequestedRefs.current[sessionId];
   }, [onUpdateSession, onSpawnAgent, onSpawnSynopsis, onAddHistoryEntry, onComplete, onPRResult, audioFeedbackEnabled, audioFeedbackCommand, updateBatchStateAndBroadcast, timeTracking]);
 
   /**
    * Request to stop the batch run for a specific session after current task completes
    */
   const stopBatchRun = useCallback((sessionId: string) => {
+    if (!isMountedRef.current) return;
+
     stopRequestedRefs.current[sessionId] = true;
     const errorResolution = errorResolutionRefs.current[sessionId];
     if (errorResolution) {
@@ -1403,6 +1440,8 @@ export function useBatchProcessor({
    * Called externally when agent error is detected
    */
   const pauseBatchOnError = useCallback((sessionId: string, error: AgentError, documentIndex: number, taskDescription?: string) => {
+    if (!isMountedRef.current) return;
+
     console.log('[BatchProcessor] Pausing batch due to error:', { sessionId, errorType: error.type, documentIndex });
     window.maestro.logger.autorun(
       `Auto Run paused due to error: ${error.type}`,
@@ -1449,6 +1488,8 @@ export function useBatchProcessor({
    * Skip the current document that caused an error and continue with the next one (Phase 5.10)
    */
   const skipCurrentDocument = useCallback((sessionId: string) => {
+    if (!isMountedRef.current) return;
+
     console.log('[BatchProcessor] Skipping current document after error:', sessionId);
     window.maestro.logger.autorun(
       `Skipping document after error`,
@@ -1484,6 +1525,8 @@ export function useBatchProcessor({
    * This clears the error state and allows the batch to continue
    */
   const resumeAfterError = useCallback((sessionId: string) => {
+    if (!isMountedRef.current) return;
+
     console.log('[BatchProcessor] Resuming batch after error resolution:', sessionId);
     window.maestro.logger.autorun(
       `Resuming Auto Run after error resolution`,
@@ -1516,6 +1559,8 @@ export function useBatchProcessor({
    * Abort the batch run completely due to an unrecoverable error (Phase 5.10)
    */
   const abortBatchOnError = useCallback((sessionId: string) => {
+    if (!isMountedRef.current) return;
+
     console.log('[BatchProcessor] Aborting batch due to error:', sessionId);
     window.maestro.logger.autorun(
       `Auto Run aborted due to error`,
