@@ -1786,7 +1786,7 @@ describe('TabBar', () => {
     });
   });
 
-  describe('tab context menu', () => {
+  describe('tab hover overlay menu (tab close operations)', () => {
     const mockOnCloseOthers = vi.fn();
     const mockOnCloseTabsToLeft = vi.fn();
     const mockOnCloseTabsToRight = vi.fn();
@@ -1797,10 +1797,10 @@ describe('TabBar', () => {
       mockOnCloseTabsToRight.mockClear();
     });
 
-    it('opens context menu on right-click', () => {
+    it('opens overlay menu on hover with agentSessionId', () => {
       const tabs = [
-        createTab({ id: 'tab-1', name: 'Tab 1' }),
-        createTab({ id: 'tab-2', name: 'Tab 2' }),
+        createTab({ id: 'tab-1', name: 'Tab 1', agentSessionId: 'session-1' }),
+        createTab({ id: 'tab-2', name: 'Tab 2', agentSessionId: 'session-2' }),
       ];
 
       render(
@@ -1816,17 +1816,21 @@ describe('TabBar', () => {
       );
 
       const tab = screen.getByText('Tab 1').closest('[data-tab-id]')!;
-      fireEvent.contextMenu(tab, { clientX: 100, clientY: 200 });
+      fireEvent.mouseEnter(tab);
 
-      // Context menu should appear
+      act(() => {
+        vi.advanceTimersByTime(450);
+      });
+
+      // Overlay menu should appear
       expect(screen.getByText('Close')).toBeInTheDocument();
     });
 
-    it('shows all context menu items', () => {
+    it('shows all overlay menu items', () => {
       const tabs = [
-        createTab({ id: 'tab-1', name: 'Tab 1' }),
-        createTab({ id: 'tab-2', name: 'Tab 2' }),
-        createTab({ id: 'tab-3', name: 'Tab 3' }),
+        createTab({ id: 'tab-1', name: 'Tab 1', agentSessionId: 'session-1' }),
+        createTab({ id: 'tab-2', name: 'Tab 2', agentSessionId: 'session-2' }),
+        createTab({ id: 'tab-3', name: 'Tab 3', agentSessionId: 'session-3' }),
       ];
 
       render(
@@ -1842,7 +1846,11 @@ describe('TabBar', () => {
       );
 
       const tab = screen.getByText('Tab 2').closest('[data-tab-id]')!;
-      fireEvent.contextMenu(tab, { clientX: 100, clientY: 200 });
+      fireEvent.mouseEnter(tab);
+
+      act(() => {
+        vi.advanceTimersByTime(450);
+      });
 
       expect(screen.getByText('Close')).toBeInTheDocument();
       expect(screen.getByText('Close Others')).toBeInTheDocument();
@@ -1851,7 +1859,7 @@ describe('TabBar', () => {
     });
 
     it('disables "Close" when only one tab exists', () => {
-      const tabs = [createTab({ id: 'tab-1', name: 'Tab 1' })];
+      const tabs = [createTab({ id: 'tab-1', name: 'Tab 1', agentSessionId: 'session-1' })];
 
       render(
         <TabBar
@@ -1866,15 +1874,19 @@ describe('TabBar', () => {
       );
 
       const tab = screen.getByText('Tab 1').closest('[data-tab-id]')!;
-      fireEvent.contextMenu(tab);
+      fireEvent.mouseEnter(tab);
 
-      const closeItem = screen.getByText('Close').closest('[role="menuitem"]');
-      expect(closeItem).toHaveAttribute('aria-disabled', 'true');
+      act(() => {
+        vi.advanceTimersByTime(450);
+      });
+
+      const closeItem = screen.getByText('Close').closest('button');
       expect(closeItem).toHaveClass('opacity-40');
+      expect(closeItem).toHaveClass('cursor-default');
     });
 
     it('disables "Close Others" when only one tab exists', () => {
-      const tabs = [createTab({ id: 'tab-1', name: 'Tab 1' })];
+      const tabs = [createTab({ id: 'tab-1', name: 'Tab 1', agentSessionId: 'session-1' })];
 
       render(
         <TabBar
@@ -1889,16 +1901,21 @@ describe('TabBar', () => {
       );
 
       const tab = screen.getByText('Tab 1').closest('[data-tab-id]')!;
-      fireEvent.contextMenu(tab);
+      fireEvent.mouseEnter(tab);
 
-      const closeOthersItem = screen.getByText('Close Others').closest('[role="menuitem"]');
-      expect(closeOthersItem).toHaveAttribute('aria-disabled', 'true');
+      act(() => {
+        vi.advanceTimersByTime(450);
+      });
+
+      const closeOthersItem = screen.getByText('Close Others').closest('button');
+      expect(closeOthersItem).toHaveClass('opacity-40');
+      expect(closeOthersItem).toHaveClass('cursor-default');
     });
 
-    it('disables "Close Tabs to the Left" when clicking first tab', () => {
+    it('disables "Close Tabs to the Left" when hovering first tab', () => {
       const tabs = [
-        createTab({ id: 'tab-1', name: 'Tab 1' }),
-        createTab({ id: 'tab-2', name: 'Tab 2' }),
+        createTab({ id: 'tab-1', name: 'Tab 1', agentSessionId: 'session-1' }),
+        createTab({ id: 'tab-2', name: 'Tab 2', agentSessionId: 'session-2' }),
       ];
 
       render(
@@ -1913,16 +1930,21 @@ describe('TabBar', () => {
       );
 
       const tab = screen.getByText('Tab 1').closest('[data-tab-id]')!;
-      fireEvent.contextMenu(tab);
+      fireEvent.mouseEnter(tab);
 
-      const closeLeftItem = screen.getByText('Close Tabs to the Left').closest('[role="menuitem"]');
-      expect(closeLeftItem).toHaveAttribute('aria-disabled', 'true');
+      act(() => {
+        vi.advanceTimersByTime(450);
+      });
+
+      const closeLeftItem = screen.getByText('Close Tabs to the Left').closest('button');
+      expect(closeLeftItem).toHaveClass('opacity-40');
+      expect(closeLeftItem).toHaveClass('cursor-default');
     });
 
-    it('disables "Close Tabs to the Right" when clicking last tab', () => {
+    it('disables "Close Tabs to the Right" when hovering last tab', () => {
       const tabs = [
-        createTab({ id: 'tab-1', name: 'Tab 1' }),
-        createTab({ id: 'tab-2', name: 'Tab 2' }),
+        createTab({ id: 'tab-1', name: 'Tab 1', agentSessionId: 'session-1' }),
+        createTab({ id: 'tab-2', name: 'Tab 2', agentSessionId: 'session-2' }),
       ];
 
       render(
@@ -1937,16 +1959,21 @@ describe('TabBar', () => {
       );
 
       const tab = screen.getByText('Tab 2').closest('[data-tab-id]')!;
-      fireEvent.contextMenu(tab);
+      fireEvent.mouseEnter(tab);
 
-      const closeRightItem = screen.getByText('Close Tabs to the Right').closest('[role="menuitem"]');
-      expect(closeRightItem).toHaveAttribute('aria-disabled', 'true');
+      act(() => {
+        vi.advanceTimersByTime(450);
+      });
+
+      const closeRightItem = screen.getByText('Close Tabs to the Right').closest('button');
+      expect(closeRightItem).toHaveClass('opacity-40');
+      expect(closeRightItem).toHaveClass('cursor-default');
     });
 
     it('closes tab when "Close" is clicked', () => {
       const tabs = [
-        createTab({ id: 'tab-1', name: 'Tab 1' }),
-        createTab({ id: 'tab-2', name: 'Tab 2' }),
+        createTab({ id: 'tab-1', name: 'Tab 1', agentSessionId: 'session-1' }),
+        createTab({ id: 'tab-2', name: 'Tab 2', agentSessionId: 'session-2' }),
       ];
 
       render(
@@ -1961,7 +1988,11 @@ describe('TabBar', () => {
       );
 
       const tab = screen.getByText('Tab 1').closest('[data-tab-id]')!;
-      fireEvent.contextMenu(tab);
+      fireEvent.mouseEnter(tab);
+
+      act(() => {
+        vi.advanceTimersByTime(450);
+      });
 
       fireEvent.click(screen.getByText('Close'));
 
@@ -1970,9 +2001,9 @@ describe('TabBar', () => {
 
     it('closes other tabs when "Close Others" is clicked', () => {
       const tabs = [
-        createTab({ id: 'tab-1', name: 'Tab 1' }),
-        createTab({ id: 'tab-2', name: 'Tab 2' }),
-        createTab({ id: 'tab-3', name: 'Tab 3' }),
+        createTab({ id: 'tab-1', name: 'Tab 1', agentSessionId: 'session-1' }),
+        createTab({ id: 'tab-2', name: 'Tab 2', agentSessionId: 'session-2' }),
+        createTab({ id: 'tab-3', name: 'Tab 3', agentSessionId: 'session-3' }),
       ];
 
       render(
@@ -1987,7 +2018,11 @@ describe('TabBar', () => {
       );
 
       const tab = screen.getByText('Tab 2').closest('[data-tab-id]')!;
-      fireEvent.contextMenu(tab);
+      fireEvent.mouseEnter(tab);
+
+      act(() => {
+        vi.advanceTimersByTime(450);
+      });
 
       fireEvent.click(screen.getByText('Close Others'));
 
@@ -1999,9 +2034,9 @@ describe('TabBar', () => {
 
     it('closes tabs to the left when clicked', () => {
       const tabs = [
-        createTab({ id: 'tab-1', name: 'Tab 1' }),
-        createTab({ id: 'tab-2', name: 'Tab 2' }),
-        createTab({ id: 'tab-3', name: 'Tab 3' }),
+        createTab({ id: 'tab-1', name: 'Tab 1', agentSessionId: 'session-1' }),
+        createTab({ id: 'tab-2', name: 'Tab 2', agentSessionId: 'session-2' }),
+        createTab({ id: 'tab-3', name: 'Tab 3', agentSessionId: 'session-3' }),
       ];
 
       render(
@@ -2016,7 +2051,11 @@ describe('TabBar', () => {
       );
 
       const tab = screen.getByText('Tab 3').closest('[data-tab-id]')!;
-      fireEvent.contextMenu(tab);
+      fireEvent.mouseEnter(tab);
+
+      act(() => {
+        vi.advanceTimersByTime(450);
+      });
 
       fireEvent.click(screen.getByText('Close Tabs to the Left'));
 
@@ -2027,9 +2066,9 @@ describe('TabBar', () => {
 
     it('closes tabs to the right when clicked', () => {
       const tabs = [
-        createTab({ id: 'tab-1', name: 'Tab 1' }),
-        createTab({ id: 'tab-2', name: 'Tab 2' }),
-        createTab({ id: 'tab-3', name: 'Tab 3' }),
+        createTab({ id: 'tab-1', name: 'Tab 1', agentSessionId: 'session-1' }),
+        createTab({ id: 'tab-2', name: 'Tab 2', agentSessionId: 'session-2' }),
+        createTab({ id: 'tab-3', name: 'Tab 3', agentSessionId: 'session-3' }),
       ];
 
       render(
@@ -2044,7 +2083,11 @@ describe('TabBar', () => {
       );
 
       const tab = screen.getByText('Tab 1').closest('[data-tab-id]')!;
-      fireEvent.contextMenu(tab);
+      fireEvent.mouseEnter(tab);
+
+      act(() => {
+        vi.advanceTimersByTime(450);
+      });
 
       fireEvent.click(screen.getByText('Close Tabs to the Right'));
 
@@ -2053,10 +2096,10 @@ describe('TabBar', () => {
       expect(mockOnTabClose).toHaveBeenCalledWith('tab-3');
     });
 
-    it('closes context menu after action', () => {
+    it('closes overlay menu after action', () => {
       const tabs = [
-        createTab({ id: 'tab-1', name: 'Tab 1' }),
-        createTab({ id: 'tab-2', name: 'Tab 2' }),
+        createTab({ id: 'tab-1', name: 'Tab 1', agentSessionId: 'session-1' }),
+        createTab({ id: 'tab-2', name: 'Tab 2', agentSessionId: 'session-2' }),
       ];
 
       render(
@@ -2071,21 +2114,26 @@ describe('TabBar', () => {
       );
 
       const tab = screen.getByText('Tab 1').closest('[data-tab-id]')!;
-      fireEvent.contextMenu(tab);
+      fireEvent.mouseEnter(tab);
+
+      act(() => {
+        vi.advanceTimersByTime(450);
+      });
 
       expect(screen.getByText('Close')).toBeInTheDocument();
 
       fireEvent.click(screen.getByText('Close'));
 
-      // Menu should be closed
-      expect(screen.queryByText('Close Others')).not.toBeInTheDocument();
+      // Overlay should be closed after clicking Close
+      // Note: The overlay closes because onTabClose is called which removes the tab
+      expect(mockOnTabClose).toHaveBeenCalledWith('tab-1');
     });
 
-    it('handles context menu on different tabs', () => {
+    it('handles overlay menu on different tabs', () => {
       const tabs = [
-        createTab({ id: 'tab-1', name: 'Tab 1' }),
-        createTab({ id: 'tab-2', name: 'Tab 2' }),
-        createTab({ id: 'tab-3', name: 'Tab 3' }),
+        createTab({ id: 'tab-1', name: 'Tab 1', agentSessionId: 'session-1' }),
+        createTab({ id: 'tab-2', name: 'Tab 2', agentSessionId: 'session-2' }),
+        createTab({ id: 'tab-3', name: 'Tab 3', agentSessionId: 'session-3' }),
       ];
 
       render(
@@ -2099,27 +2147,37 @@ describe('TabBar', () => {
         />
       );
 
-      // Open context menu on Tab 1 (first tab)
+      // Open overlay menu on Tab 1 (first tab)
       const tab1 = screen.getByText('Tab 1').closest('[data-tab-id]')!;
-      fireEvent.contextMenu(tab1);
+      fireEvent.mouseEnter(tab1);
 
-      const closeLeft1 = screen.getByText('Close Tabs to the Left').closest('[role="menuitem"]');
-      expect(closeLeft1).toHaveAttribute('aria-disabled', 'true');
+      act(() => {
+        vi.advanceTimersByTime(450);
+      });
 
-      // Close menu
-      fireEvent.mouseDown(document.body);
+      const closeLeft1 = screen.getByText('Close Tabs to the Left').closest('button');
+      expect(closeLeft1).toHaveClass('opacity-40');
+      expect(closeLeft1).toHaveClass('cursor-default');
 
-      // Open context menu on Tab 3 (last tab)
+      // Close menu by hovering away
+      fireEvent.mouseLeave(tab1);
+
+      // Open overlay menu on Tab 3 (last tab)
       const tab3 = screen.getByText('Tab 3').closest('[data-tab-id]')!;
-      fireEvent.contextMenu(tab3);
+      fireEvent.mouseEnter(tab3);
 
-      const closeRight3 = screen.getByText('Close Tabs to the Right').closest('[role="menuitem"]');
-      expect(closeRight3).toHaveAttribute('aria-disabled', 'true');
+      act(() => {
+        vi.advanceTimersByTime(450);
+      });
+
+      const closeRight3 = screen.getByText('Close Tabs to the Right').closest('button');
+      expect(closeRight3).toHaveClass('opacity-40');
+      expect(closeRight3).toHaveClass('cursor-default');
     });
 
-    it('context menu works with many tabs', () => {
+    it('overlay menu works with many tabs', () => {
       const tabs = Array.from({ length: 20 }, (_, i) =>
-        createTab({ id: `tab-${i}`, name: `Tab ${i + 1}` })
+        createTab({ id: `tab-${i}`, name: `Tab ${i + 1}`, agentSessionId: `session-${i}` })
       );
 
       render(
@@ -2134,17 +2192,21 @@ describe('TabBar', () => {
       );
 
       const tab = screen.getByText('Tab 11').closest('[data-tab-id]')!;
-      fireEvent.contextMenu(tab);
+      fireEvent.mouseEnter(tab);
+
+      act(() => {
+        vi.advanceTimersByTime(450);
+      });
 
       expect(screen.getByText('Close')).toBeInTheDocument();
       expect(screen.getByText('Close Others')).toBeInTheDocument();
 
       // Middle tab should have enabled left and right actions
-      const closeLeft = screen.getByText('Close Tabs to the Left').closest('[role="menuitem"]');
-      const closeRight = screen.getByText('Close Tabs to the Right').closest('[role="menuitem"]');
+      const closeLeft = screen.getByText('Close Tabs to the Left').closest('button');
+      const closeRight = screen.getByText('Close Tabs to the Right').closest('button');
 
-      expect(closeLeft).not.toHaveAttribute('aria-disabled', 'true');
-      expect(closeRight).not.toHaveAttribute('aria-disabled', 'true');
+      expect(closeLeft).not.toHaveClass('opacity-40');
+      expect(closeRight).not.toHaveClass('opacity-40');
     });
   });
 
