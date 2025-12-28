@@ -1,0 +1,141 @@
+/**
+ * ExternalLinkNode - Custom React Flow node for displaying external link domains.
+ *
+ * Renders a compact node showing:
+ * - Domain name prominently (www. stripped)
+ * - Link count badge if multiple links to same domain
+ * - Globe icon to distinguish from document nodes
+ * - Tooltip showing all full URLs on hover
+ *
+ * Uses dashed border and smaller size to visually differentiate from document nodes.
+ * Styled with theme colors and supports selection/hover states.
+ */
+
+import React, { memo, useMemo } from 'react';
+import { Handle, Position, NodeProps } from 'reactflow';
+import { Globe, ExternalLink as ExternalLinkIcon } from 'lucide-react';
+import type { Theme } from '../../types';
+import type { ExternalLinkNodeData } from './graphDataBuilder';
+
+/**
+ * Extended node data including theme for styling
+ */
+export interface ExternalLinkNodeProps extends NodeProps<ExternalLinkNodeData & { theme: Theme }> {
+  // Props come from React Flow - data, selected, etc.
+}
+
+/**
+ * Custom React Flow node for rendering external link domains in the graph
+ */
+export const ExternalLinkNode = memo(function ExternalLinkNode({
+  data,
+  selected,
+}: ExternalLinkNodeProps) {
+  const { domain, linkCount, urls, theme } = data;
+
+  // Build tooltip text showing all URLs
+  const tooltipText = useMemo(() => {
+    if (urls.length === 1) return urls[0];
+    return urls.join('\n');
+  }, [urls]);
+
+  // Memoize styles to prevent unnecessary recalculations
+  const containerStyle = useMemo(() => ({
+    backgroundColor: theme.colors.bgSidebar,
+    borderColor: selected ? theme.colors.accent : theme.colors.border,
+    borderWidth: selected ? 2 : 1,
+    borderStyle: 'dashed' as const,
+    borderRadius: 12,
+    padding: 8,
+    minWidth: 100,
+    maxWidth: 160,
+    boxShadow: selected
+      ? `0 4px 12px ${theme.colors.accentDim}`
+      : '0 2px 6px rgba(0, 0, 0, 0.1)',
+    transition: 'all 0.2s ease',
+    cursor: 'pointer',
+    display: 'flex' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    gap: 6,
+    position: 'relative' as const,
+  }), [theme.colors, selected]);
+
+  const domainStyle = useMemo(() => ({
+    color: theme.colors.textMain,
+    fontSize: 12,
+    fontWeight: 500,
+    lineHeight: 1.3,
+    overflow: 'hidden' as const,
+    textOverflow: 'ellipsis' as const,
+    whiteSpace: 'nowrap' as const,
+    maxWidth: 110,
+  }), [theme.colors.textMain]);
+
+  const badgeStyle = useMemo(() => ({
+    backgroundColor: theme.colors.accent,
+    color: theme.colors.accentForeground,
+    fontSize: 10,
+    fontWeight: 600,
+    borderRadius: 8,
+    padding: '2px 6px',
+    minWidth: 18,
+    textAlign: 'center' as const,
+    position: 'absolute' as const,
+    top: -6,
+    right: -6,
+  }), [theme.colors.accent, theme.colors.accentForeground]);
+
+  const handleStyle = useMemo(() => ({
+    backgroundColor: theme.colors.textDim,
+    borderColor: theme.colors.bgSidebar,
+    width: 6,
+    height: 6,
+  }), [theme.colors]);
+
+  const iconStyle = useMemo(() => ({
+    color: theme.colors.textDim,
+    flexShrink: 0,
+  }), [theme.colors.textDim]);
+
+  return (
+    <div
+      className="external-link-node"
+      style={containerStyle}
+      title={tooltipText}
+    >
+      {/* Input handle (for incoming edges from documents) */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={handleStyle}
+      />
+
+      {/* Globe icon */}
+      <Globe
+        size={14}
+        style={iconStyle}
+      />
+
+      {/* Domain name */}
+      <div style={domainStyle}>{domain}</div>
+
+      {/* External link indicator icon */}
+      <ExternalLinkIcon
+        size={10}
+        style={iconStyle}
+      />
+
+      {/* Link count badge (only show if more than 1) */}
+      {linkCount > 1 && (
+        <div style={badgeStyle} title={`${linkCount} links to this domain`}>
+          {linkCount}
+        </div>
+      )}
+
+      {/* No output handle - external links are leaf nodes */}
+    </div>
+  );
+});
+
+export default ExternalLinkNode;
