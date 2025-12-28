@@ -31,6 +31,14 @@ import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { DocumentNode } from './DocumentNode';
 import { ExternalLinkNode } from './ExternalLinkNode';
 import { buildGraphData, GraphNodeData } from './graphDataBuilder';
+import {
+  applyForceLayout,
+  applyHierarchicalLayout,
+  createLayoutTransitionFrames,
+  saveNodePositions,
+  restoreNodePositions,
+  hasSavedPositions,
+} from './layoutAlgorithms';
 
 /**
  * Props for the DocumentGraphView component
@@ -109,46 +117,76 @@ function DocumentGraphViewInner({
     }
   }, [isOpen]);
 
+  // Track animation frame for layout transitions
+  const animationFrameRef = useRef<number | null>(null);
+  const isAnimatingRef = useRef(false);
+
   /**
-   * Apply a simple force-directed-like layout using grid placement
-   * For actual force-directed layout, we would use d3-force (Phase: Layout Algorithms task)
+   * Apply layout algorithm to nodes
    */
-  const applySimpleLayout = useCallback(
-    (rawNodes: Node<GraphNodeData>[]): Node<GraphNodeData>[] => {
+  const applyLayout = useCallback(
+    (rawNodes: Node<GraphNodeData>[], rawEdges: Edge[]): Node<GraphNodeData>[] => {
       if (rawNodes.length === 0) return [];
 
-      const documentNodes = rawNodes.filter((n) => n.type === 'documentNode');
-      const externalNodes = rawNodes.filter((n) => n.type === 'externalLinkNode');
-
-      const spacing = layoutType === 'hierarchical' ? { x: 350, y: 150 } : { x: 300, y: 200 };
-      const cols = Math.ceil(Math.sqrt(documentNodes.length));
-
-      // Position document nodes in a grid
-      const positionedDocs = documentNodes.map((node, i) => ({
-        ...node,
-        position: {
-          x: (i % cols) * spacing.x,
-          y: Math.floor(i / cols) * spacing.y,
-        },
-      }));
-
-      // Position external nodes below or to the right
-      const externalStartY =
-        positionedDocs.length > 0
-          ? Math.max(...positionedDocs.map((n) => n.position.y)) + spacing.y + 50
-          : 0;
-
-      const positionedExternal = externalNodes.map((node, i) => ({
-        ...node,
-        position: {
-          x: (i % (cols + 2)) * 180,
-          y: externalStartY + Math.floor(i / (cols + 2)) * 100,
-        },
-      }));
-
-      return [...positionedDocs, ...positionedExternal];
+      if (layoutType === 'hierarchical') {
+        return applyHierarchicalLayout(rawNodes, rawEdges, {
+          nodeWidth: 280,
+          nodeHeight: 120,
+          rankDirection: 'TB',
+          nodeSeparation: 60,
+          rankSeparation: 120,
+        });
+      } else {
+        return applyForceLayout(rawNodes, rawEdges, {
+          nodeWidth: 280,
+          nodeHeight: 120,
+          nodeSeparation: 60,
+          centerX: 0,
+          centerY: 0,
+        });
+      }
     },
     [layoutType]
+  );
+
+  /**
+   * Animate transition between layouts
+   */
+  const animateLayoutTransition = useCallback(
+    (startNodes: Node<GraphNodeData>[], endNodes: Node<GraphNodeData>[], callback?: () => void) => {
+      // Cancel any existing animation
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+
+      isAnimatingRef.current = true;
+      const frames = createLayoutTransitionFrames(startNodes, endNodes, 20);
+      let frameIndex = 0;
+
+      const animate = () => {
+        if (frameIndex >= frames.length) {
+          isAnimatingRef.current = false;
+          callback?.();
+          return;
+        }
+
+        // Inject theme into frame nodes
+        const themedNodes = frames[frameIndex].map((node) => ({
+          ...node,
+          data: {
+            ...node.data,
+            theme,
+          },
+        }));
+
+        setNodes(themedNodes as Node[]);
+        frameIndex++;
+        animationFrameRef.current = requestAnimationFrame(animate);
+      };
+
+      animate();
+    },
+    [theme, setNodes]
   );
 
   /**
@@ -180,8 +218,14 @@ function DocumentGraphViewInner({
         includeExternalLinks,
       });
 
-      // Apply layout
-      const layoutedNodes = applySimpleLayout(graphData.nodes);
+      // Check for saved positions first
+      let layoutedNodes: Node<GraphNodeData>[];
+      if (hasSavedPositions(rootPath)) {
+        layoutedNodes = restoreNodePositions(rootPath, graphData.nodes);
+      } else {
+        // Apply layout algorithm
+        layoutedNodes = applyLayout(graphData.nodes, graphData.edges);
+      }
 
       // Inject theme
       const themedNodes = injectThemeIntoNodes(layoutedNodes);
@@ -199,7 +243,7 @@ function DocumentGraphViewInner({
     } finally {
       setLoading(false);
     }
-  }, [rootPath, includeExternalLinks, applySimpleLayout, injectThemeIntoNodes, setNodes, setEdges, fitView]);
+  }, [rootPath, includeExternalLinks, applyLayout, injectThemeIntoNodes, setNodes, setEdges, fitView]);
 
   // Load data when modal opens or settings change
   useEffect(() => {
@@ -256,17 +300,82 @@ function DocumentGraphViewInner({
   }, [edges, theme.colors]);
 
   /**
-   * Handle layout toggle
+   * Handle layout toggle with animated transition
    */
   const handleLayoutToggle = useCallback(() => {
-    setLayoutType((prev) => (prev === 'force' ? 'hierarchical' : 'force'));
-  }, []);
+    const newLayoutType = layoutType === 'force' ? 'hierarchical' : 'force';
+    setLayoutType(newLayoutType);
+
+    // Re-layout with animation if we have nodes
+    if (nodes.length > 0 && !isAnimatingRef.current) {
+      // Strip theme from nodes for layout calculation
+      const currentNodes = nodes.map((node) => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { theme: _, ...data } = node.data as GraphNodeData & { theme: Theme };
+        return {
+          ...node,
+          data: data as GraphNodeData,
+        };
+      });
+
+      // Apply the new layout
+      const newLayoutedNodes =
+        newLayoutType === 'hierarchical'
+          ? applyHierarchicalLayout(currentNodes, edges, {
+              nodeWidth: 280,
+              nodeHeight: 120,
+              rankDirection: 'TB',
+              nodeSeparation: 60,
+              rankSeparation: 120,
+            })
+          : applyForceLayout(currentNodes, edges, {
+              nodeWidth: 280,
+              nodeHeight: 120,
+              nodeSeparation: 60,
+              centerX: 0,
+              centerY: 0,
+            });
+
+      // Animate the transition
+      animateLayoutTransition(currentNodes, newLayoutedNodes, () => {
+        // Save positions after animation completes
+        saveNodePositions(rootPath, newLayoutedNodes);
+        // Fit view after animation
+        fitView({ padding: 0.1, duration: 300 });
+      });
+    }
+  }, [layoutType, nodes, edges, animateLayoutTransition, rootPath, fitView]);
 
   /**
    * Handle external links toggle
    */
   const handleExternalLinksToggle = useCallback(() => {
     setIncludeExternalLinks((prev) => !prev);
+  }, []);
+
+  /**
+   * Handle node drag end - save positions
+   */
+  const handleNodeDragStop = useCallback(() => {
+    // Strip theme from nodes before saving
+    const nodesToSave = nodes.map((node) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { theme: _, ...data } = node.data as GraphNodeData & { theme: Theme };
+      return {
+        ...node,
+        data: data as GraphNodeData,
+      };
+    });
+    saveNodePositions(rootPath, nodesToSave);
+  }, [nodes, rootPath]);
+
+  // Cleanup animation frame on unmount
+  useEffect(() => {
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
   }, []);
 
   /**
@@ -444,6 +553,7 @@ function DocumentGraphViewInner({
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onNodeDoubleClick={handleNodeDoubleClick}
+              onNodeDragStop={handleNodeDragStop}
               nodeTypes={nodeTypes}
               fitView
               fitViewOptions={{ padding: 0.1 }}
