@@ -99,6 +99,14 @@ if (DEMO_MODE) {
   console.log(`[DEMO MODE] Using data directory: ${DEMO_DATA_PATH}`);
 }
 
+// Development mode: use a separate data directory to allow running alongside production
+// This prevents database lock conflicts (e.g., Service Worker storage)
+if (isDevelopment && !DEMO_MODE) {
+  const devDataPath = path.join(app.getPath('userData'), '..', 'maestro-dev');
+  app.setPath('userData', devDataPath);
+  console.log(`[DEV MODE] Using data directory: ${devDataPath}`);
+}
+
 // Type definitions
 interface MaestroSettings {
   activeThemeId: string;

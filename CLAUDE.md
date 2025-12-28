@@ -84,9 +84,14 @@ src/
 │   ├── autorun-*.md       # Auto Run default prompts
 │   └── index.ts           # Central exports
 │
-└── shared/                 # Shared types and utilities
-    ├── types.ts           # Common type definitions
-    └── templateVariables.ts # Template variable processing
+├── shared/                 # Shared types and utilities
+│   ├── types.ts           # Common type definitions
+│   └── templateVariables.ts # Template variable processing
+│
+└── docs/                   # Mintlify documentation (docs.runmaestro.ai)
+    ├── docs.json          # Navigation and configuration
+    ├── screenshots/       # All documentation screenshots
+    └── *.md               # Documentation pages
 ```
 
 ### Key Files for Common Tasks
@@ -112,6 +117,8 @@ src/
 | Modify wizard flow | `src/renderer/components/Wizard/` (see Onboarding Wizard section) |
 | Add tour step | `src/renderer/components/Wizard/tour/tourSteps.ts` |
 | Modify file linking | `src/renderer/utils/remarkFileLinks.ts` (remark plugin for `[[wiki]]` and path links) |
+| Add documentation page | `docs/*.md`, `docs/docs.json` (navigation) |
+| Add documentation screenshot | `docs/screenshots/` (PNG, kebab-case naming) |
 
 ## Core Patterns
 

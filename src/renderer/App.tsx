@@ -18,6 +18,7 @@ import { AppOverlays } from './components/AppOverlays';
 import { PlaygroundPanel } from './components/PlaygroundPanel';
 import { DebugWizardModal } from './components/DebugWizardModal';
 import { DebugPackageModal } from './components/DebugPackageModal';
+import { GistPublishModal } from './components/GistPublishModal';
 import { MaestroWizard, useWizard, WizardResumeModal, AUTO_RUN_FOLDER_NAME } from './components/Wizard';
 import { TourOverlay } from './components/Wizard/tour';
 import { CONDUCTOR_BADGES, getBadgeForTime } from './constants/conductorBadges';
@@ -381,6 +382,10 @@ function MaestroConsoleInner() {
   const [fileTreeFilter, setFileTreeFilter] = useState('');
   const [fileTreeFilterOpen, setFileTreeFilterOpen] = useState(false);
 
+  // GitHub CLI availability (for gist publishing)
+  const [ghCliAvailable, setGhCliAvailable] = useState(false);
+  const [gistPublishModalOpen, setGistPublishModalOpen] = useState(false);
+
   // Note: Git Diff State, Tour Overlay State, and Git Log Viewer State are now from ModalContext
 
   // Renaming State
@@ -741,17 +746,22 @@ function MaestroConsoleInner() {
   // Use a ref to prevent duplicate execution in React Strict Mode
   const sessionLoadStarted = useRef(false);
   useEffect(() => {
+    console.log('[App] Session load useEffect triggered');
     // Guard against duplicate execution in React Strict Mode
     if (sessionLoadStarted.current) {
+      console.log('[App] Session load already started, skipping');
       return;
     }
     sessionLoadStarted.current = true;
+    console.log('[App] Starting loadSessionsAndGroups');
 
     const loadSessionsAndGroups = async () => {
       let _hasSessionsLoaded = false;
 
       try {
+        console.log('[App] About to call sessions.getAll()');
         const savedSessions = await window.maestro.sessions.getAll();
+        console.log('[App] Got sessions:', savedSessions?.length ?? 0);
         const savedGroups = await window.maestro.groups.getAll();
 
         // Handle sessions
@@ -806,12 +816,23 @@ function MaestroConsoleInner() {
   // Hide splash screen only when both settings and sessions have fully loaded
   // This prevents theme flash on initial render
   useEffect(() => {
+    console.log('[App] Splash check - settingsLoaded:', settingsLoaded, 'sessionsLoaded:', sessionsLoaded);
     if (settingsLoaded && sessionsLoaded) {
+      console.log('[App] Both loaded, hiding splash');
       if (typeof window.__hideSplash === 'function') {
         window.__hideSplash();
       }
     }
   }, [settingsLoaded, sessionsLoaded]);
+
+  // Check GitHub CLI availability for gist publishing
+  useEffect(() => {
+    window.maestro.git.checkGhCli().then(status => {
+      setGhCliAvailable(status.installed && status.authenticated);
+    }).catch(() => {
+      setGhCliAvailable(false);
+    });
+  }, []);
 
   // Expose debug helpers to window for console access
   // No dependency array - always keep functions fresh
@@ -8250,6 +8271,9 @@ function MaestroConsoleInner() {
         autoRunSelectedDocument={activeSession?.autoRunSelectedFile ?? null}
         autoRunCompletedTaskCount={rightPanelRef.current?.getAutoRunCompletedTaskCount() ?? 0}
         onAutoRunResetTasks={handleQuickActionsAutoRunResetTasks}
+        isFilePreviewOpen={previewFile !== null}
+        ghCliAvailable={ghCliAvailable}
+        onPublishGist={() => setGistPublishModalOpen(true)}
         lightboxImage={lightboxImage}
         lightboxImages={lightboxImages}
         stagedImages={stagedImages}
@@ -8389,6 +8413,29 @@ function MaestroConsoleInner() {
         isOpen={debugWizardModalOpen}
         onClose={() => setDebugWizardModalOpen(false)}
       />
+
+      {/* --- GIST PUBLISH MODAL --- */}
+      {gistPublishModalOpen && previewFile && (
+        <GistPublishModal
+          theme={theme}
+          filename={previewFile.name}
+          content={previewFile.content}
+          onClose={() => setGistPublishModalOpen(false)}
+          onSuccess={(gistUrl, isPublic) => {
+            // Copy the gist URL to clipboard
+            navigator.clipboard.writeText(gistUrl);
+            // Show a toast notification
+            addToast({
+              type: 'success',
+              title: 'Gist Published',
+              message: `${isPublic ? 'Public' : 'Secret'} gist created! URL copied to clipboard.`,
+              duration: 5000,
+              actionUrl: gistUrl,
+              actionLabel: 'Open Gist',
+            });
+          }}
+        />
+      )}
 
       {/* NOTE: All modals are now rendered via the unified <AppModals /> component above */}
 
@@ -9206,6 +9253,8 @@ function MaestroConsoleInner() {
             onKeyboardMasteryLevelUp(result.newLevel);
           }
         }}
+        ghCliAvailable={ghCliAvailable}
+        onPublishGist={() => setGistPublishModalOpen(true)}
       />
       )}
 

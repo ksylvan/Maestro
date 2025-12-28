@@ -1056,8 +1056,12 @@ export function useSettings(): UseSettingsReturn {
 
   // Load settings from electron-store on mount
   useEffect(() => {
+    console.log('[Settings] useEffect triggered, about to call loadSettings');
     const loadSettings = async () => {
+      console.log('[Settings] loadSettings started');
+      try {
       const savedEnterToSendAI = await window.maestro.settings.get('enterToSendAI');
+      console.log('[Settings] Got first setting');
       const savedEnterToSendTerminal = await window.maestro.settings.get('enterToSendTerminal');
       const savedDefaultSaveToHistory = await window.maestro.settings.get('defaultSaveToHistory');
       const savedDefaultShowThinking = await window.maestro.settings.get('defaultShowThinking');
@@ -1324,8 +1328,12 @@ export function useSettings(): UseSettingsReturn {
         setKeyboardMasteryStatsState({ ...DEFAULT_KEYBOARD_MASTERY_STATS, ...(savedKeyboardMasteryStats as Partial<KeyboardMasteryStats>) });
       }
 
-      // Mark settings as loaded
-      setSettingsLoaded(true);
+      } catch (error) {
+        console.error('[Settings] Failed to load settings:', error);
+      } finally {
+        // Mark settings as loaded even if there was an error (use defaults)
+        setSettingsLoaded(true);
+      }
     };
     loadSettings();
   }, []);

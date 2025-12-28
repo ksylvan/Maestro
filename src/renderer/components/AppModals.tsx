@@ -747,6 +747,11 @@ export interface AppUtilityModalsProps {
   autoRunCompletedTaskCount: number;
   onAutoRunResetTasks: () => void;
 
+  // Gist publishing (for QuickActionsModal)
+  isFilePreviewOpen: boolean;
+  ghCliAvailable: boolean;
+  onPublishGist?: () => void;
+
   // LightboxModal
   lightboxImage: string | null;
   lightboxImages: string[];
@@ -908,6 +913,10 @@ export function AppUtilityModals({
   autoRunSelectedDocument,
   autoRunCompletedTaskCount,
   onAutoRunResetTasks,
+  // Gist publishing
+  isFilePreviewOpen,
+  ghCliAvailable,
+  onPublishGist,
   // LightboxModal
   lightboxImage,
   lightboxImages,
@@ -1046,6 +1055,9 @@ export function AppUtilityModals({
           autoRunSelectedDocument={autoRunSelectedDocument}
           autoRunCompletedTaskCount={autoRunCompletedTaskCount}
           onAutoRunResetTasks={onAutoRunResetTasks}
+          isFilePreviewOpen={isFilePreviewOpen}
+          ghCliAvailable={ghCliAvailable}
+          onPublishGist={onPublishGist}
         />
       )}
 
@@ -1719,6 +1731,10 @@ export interface AppModalsProps {
   autoRunSelectedDocument: string | null;
   autoRunCompletedTaskCount: number;
   onAutoRunResetTasks: () => void;
+  // Gist publishing
+  isFilePreviewOpen: boolean;
+  ghCliAvailable: boolean;
+  onPublishGist?: () => void;
   lightboxImage: string | null;
   lightboxImages: string[];
   stagedImages: string[];
@@ -1981,6 +1997,10 @@ export function AppModals(props: AppModalsProps) {
     autoRunSelectedDocument,
     autoRunCompletedTaskCount,
     onAutoRunResetTasks,
+    // Gist publishing
+    isFilePreviewOpen,
+    ghCliAvailable,
+    onPublishGist,
     lightboxImage,
     lightboxImages,
     stagedImages,
@@ -2261,6 +2281,9 @@ export function AppModals(props: AppModalsProps) {
         autoRunSelectedDocument={autoRunSelectedDocument}
         autoRunCompletedTaskCount={autoRunCompletedTaskCount}
         onAutoRunResetTasks={onAutoRunResetTasks}
+        isFilePreviewOpen={isFilePreviewOpen}
+        ghCliAvailable={ghCliAvailable}
+        onPublishGist={onPublishGist}
         lightboxImage={lightboxImage}
         lightboxImages={lightboxImages}
         stagedImages={stagedImages}

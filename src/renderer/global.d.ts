@@ -283,6 +283,11 @@ interface MaestroAPI {
     tags: (cwd: string) => Promise<{ tags: string[] }>;
     commitCount: (cwd: string) => Promise<{ count: number; error: string | null }>;
     checkGhCli: (ghPath?: string) => Promise<{ installed: boolean; authenticated: boolean }>;
+    createGist: (filename: string, content: string, description: string, isPublic: boolean, ghPath?: string) => Promise<{
+      success: boolean;
+      gistUrl?: string;
+      error?: string;
+    }>;
     // Git worktree operations for Auto Run parallelization
     worktreeInfo: (worktreePath: string) => Promise<{
       success: boolean;
