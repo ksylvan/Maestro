@@ -48,6 +48,7 @@ import { AboutModal } from './AboutModal';
 import { ShortcutsHelpModal } from './ShortcutsHelpModal';
 import { UpdateCheckModal } from './UpdateCheckModal';
 import { ProcessMonitor } from './ProcessMonitor';
+import { UsageDashboardModal } from './UsageDashboard';
 
 // Confirmation Modal Components
 import { ConfirmModal } from './ConfirmModal';
@@ -138,6 +139,10 @@ export interface AppInfoModalsProps {
   groupChats: GroupChat[];
   onNavigateToSession: (sessionId: string, tabId?: string) => void;
   onNavigateToGroupChat: (groupChatId: string) => void;
+
+  // Usage Dashboard Modal
+  usageDashboardOpen: boolean;
+  onCloseUsageDashboard: () => void;
 }
 
 /**
@@ -148,6 +153,7 @@ export interface AppInfoModalsProps {
  * - AboutModal: Shows app info and stats
  * - UpdateCheckModal: Shows update status
  * - ProcessMonitor: Shows running processes
+ * - UsageDashboardModal: Shows usage analytics and visualizations
  *
  * NOTE: LogViewer is intentionally excluded - it's a content replacement component
  * that needs to be positioned in the flex layout, not an overlay modal.
@@ -181,6 +187,9 @@ export function AppInfoModals({
   groupChats,
   onNavigateToSession,
   onNavigateToGroupChat,
+  // Usage Dashboard Modal
+  usageDashboardOpen,
+  onCloseUsageDashboard,
 }: AppInfoModalsProps) {
   return (
     <>
@@ -228,6 +237,15 @@ export function AppInfoModals({
           onClose={onCloseProcessMonitor}
           onNavigateToSession={onNavigateToSession}
           onNavigateToGroupChat={onNavigateToGroupChat}
+        />
+      )}
+
+      {/* --- USAGE DASHBOARD MODAL --- */}
+      {usageDashboardOpen && (
+        <UsageDashboardModal
+          isOpen={usageDashboardOpen}
+          onClose={onCloseUsageDashboard}
+          theme={theme}
         />
       )}
     </>
@@ -1607,6 +1625,8 @@ export interface AppModalsProps {
   onCloseProcessMonitor: () => void;
   onNavigateToSession: (sessionId: string, tabId?: string) => void;
   onNavigateToGroupChat: (groupChatId: string) => void;
+  usageDashboardOpen: boolean;
+  onCloseUsageDashboard: () => void;
 
   // --- AppConfirmModals props ---
   confirmModalOpen: boolean;
@@ -1901,6 +1921,8 @@ export function AppModals(props: AppModalsProps) {
     onCloseProcessMonitor,
     onNavigateToSession,
     onNavigateToGroupChat,
+    usageDashboardOpen,
+    onCloseUsageDashboard,
     // Confirm modals
     confirmModalOpen,
     confirmModalMessage,
@@ -2153,6 +2175,8 @@ export function AppModals(props: AppModalsProps) {
         groupChats={groupChats}
         onNavigateToSession={onNavigateToSession}
         onNavigateToGroupChat={onNavigateToGroupChat}
+        usageDashboardOpen={usageDashboardOpen}
+        onCloseUsageDashboard={onCloseUsageDashboard}
       />
 
       {/* Confirmation Modals */}

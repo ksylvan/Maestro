@@ -8248,6 +8248,8 @@ function MaestroConsoleInner() {
         onCloseProcessMonitor={handleCloseProcessMonitor}
         onNavigateToSession={handleProcessMonitorNavigateToSession}
         onNavigateToGroupChat={handleProcessMonitorNavigateToGroupChat}
+        usageDashboardOpen={usageDashboardOpen}
+        onCloseUsageDashboard={() => setUsageDashboardOpen(false)}
         // AppConfirmModals props
         confirmModalOpen={confirmModalOpen}
         confirmModalMessage={confirmModalMessage}
