@@ -1395,6 +1395,97 @@ interface MaestroAPI {
       error?: string;
     }>;
   };
+  // Stats tracking API (global AI interaction statistics)
+  stats: {
+    // Record a query event (interactive conversation turn)
+    recordQuery: (event: {
+      sessionId: string;
+      agentType: string;
+      source: 'user' | 'auto';
+      startTime: number;
+      duration: number;
+      projectPath?: string;
+      tabId?: string;
+    }) => Promise<string>;
+    // Start an Auto Run session (returns session ID)
+    startAutoRun: (session: {
+      sessionId: string;
+      agentType: string;
+      documentPath?: string;
+      startTime: number;
+      tasksTotal?: number;
+      projectPath?: string;
+    }) => Promise<string>;
+    // End an Auto Run session (update duration and completed count)
+    endAutoRun: (id: string, duration: number, tasksCompleted: number) => Promise<boolean>;
+    // Record an Auto Run task completion
+    recordAutoTask: (task: {
+      autoRunSessionId: string;
+      sessionId: string;
+      agentType: string;
+      taskIndex: number;
+      taskContent?: string;
+      startTime: number;
+      duration: number;
+      success: boolean;
+    }) => Promise<string>;
+    // Get query events with time range and optional filters
+    getStats: (
+      range: 'day' | 'week' | 'month' | 'year' | 'all',
+      filters?: {
+        agentType?: string;
+        source?: 'user' | 'auto';
+        projectPath?: string;
+        sessionId?: string;
+      }
+    ) => Promise<Array<{
+      id: string;
+      sessionId: string;
+      agentType: string;
+      source: 'user' | 'auto';
+      startTime: number;
+      duration: number;
+      projectPath?: string;
+      tabId?: string;
+    }>>;
+    // Get Auto Run sessions within a time range
+    getAutoRunSessions: (range: 'day' | 'week' | 'month' | 'year' | 'all') => Promise<Array<{
+      id: string;
+      sessionId: string;
+      agentType: string;
+      documentPath?: string;
+      startTime: number;
+      duration: number;
+      tasksTotal?: number;
+      tasksCompleted?: number;
+      projectPath?: string;
+    }>>;
+    // Get tasks for a specific Auto Run session
+    getAutoRunTasks: (autoRunSessionId: string) => Promise<Array<{
+      id: string;
+      autoRunSessionId: string;
+      sessionId: string;
+      agentType: string;
+      taskIndex: number;
+      taskContent?: string;
+      startTime: number;
+      duration: number;
+      success: boolean;
+    }>>;
+    // Get aggregated stats for dashboard display
+    getAggregation: (range: 'day' | 'week' | 'month' | 'year' | 'all') => Promise<{
+      totalQueries: number;
+      totalDuration: number;
+      avgDuration: number;
+      byAgent: Record<string, { count: number; duration: number }>;
+      bySource: { user: number; auto: number };
+      byDay: Array<{ date: string; count: number; duration: number }>;
+    }>;
+    // Export query events to CSV
+    exportCsv: (range: 'day' | 'week' | 'month' | 'year' | 'all') => Promise<string>;
+    // Subscribe to stats updates (for real-time dashboard refresh)
+    onStatsUpdate: (callback: () => void) => () => void;
+  };
 }
 
 declare global {

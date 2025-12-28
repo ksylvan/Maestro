@@ -532,6 +532,22 @@ export function useBatchProcessor({
     // State machine: INITIALIZING -> RUNNING (initialization complete)
     dispatch({ type: 'SET_RUNNING', sessionId });
 
+    // Start stats tracking for this Auto Run session
+    let statsAutoRunId: string | null = null;
+    try {
+      statsAutoRunId = await window.maestro.stats.startAutoRun({
+        sessionId: sessionId,
+        agentType: session.toolType,
+        documentPath: documents.map(d => d.filename).join(', '),
+        startTime: batchStartTime,
+        tasksTotal: initialTotalTasks,
+        projectPath: session.cwd,
+      });
+    } catch (statsError) {
+      // Don't fail the batch if stats tracking fails
+      console.warn('[BatchProcessor] Failed to start stats tracking:', statsError);
+    }
+
     // Collect Claude session IDs and track completion
     const agentSessionIds: string[] = [];
     let totalCompletedTasks = 0;
@@ -774,6 +790,25 @@ export function useBatchProcessor({
             docTasksCompleted += tasksCompletedThisRun;
             totalCompletedTasks += tasksCompletedThisRun;
             loopTasksCompleted += tasksCompletedThisRun;
+
+            // Record this task in stats database (if stats tracking is active)
+            if (statsAutoRunId && tasksCompletedThisRun > 0) {
+              try {
+                await window.maestro.stats.recordAutoTask({
+                  autoRunSessionId: statsAutoRunId,
+                  sessionId: sessionId,
+                  agentType: session.toolType,
+                  taskIndex: totalCompletedTasks - 1, // 0-indexed
+                  taskContent: shortSummary || undefined,
+                  startTime: Date.now() - elapsedTimeMs,
+                  duration: elapsedTimeMs,
+                  success: success,
+                });
+              } catch (statsError) {
+                // Don't fail the batch if stats tracking fails
+                console.warn('[BatchProcessor] Failed to record task stats:', statsError);
+              }
+            }
 
             // Track token usage for loop summary and cumulative totals
             if (usageStats) {
@@ -1235,6 +1270,20 @@ export function useBatchProcessor({
       });
     } catch {
       // Ignore history errors
+    }
+
+    // End stats tracking for this Auto Run session
+    if (statsAutoRunId) {
+      try {
+        await window.maestro.stats.endAutoRun(
+          statsAutoRunId,
+          totalElapsedMs,
+          totalCompletedTasks
+        );
+      } catch (statsError) {
+        // Don't fail cleanup if stats tracking fails
+        console.warn('[BatchProcessor] Failed to end stats tracking:', statsError);
+      }
     }
 
     // Guard against state updates after unmount (async code may still be running)
