@@ -99,6 +99,9 @@ interface RightPanelProps {
   onFileClick?: (path: string) => void;
   // Marketplace modal
   onOpenMarketplace?: () => void;
+  // Graph view state
+  isGraphViewOpen?: boolean;
+  onOpenGraphView?: () => void;
 }
 
 export const RightPanel = memo(forwardRef<RightPanelHandle, RightPanelProps>(function RightPanel(props, ref) {
@@ -119,7 +122,8 @@ export const RightPanel = memo(forwardRef<RightPanelHandle, RightPanelProps>(fun
     onSkipCurrentDocument, onAbortBatchOnError, onResumeAfterError,
     onJumpToAgentSession, onResumeSession,
     onOpenSessionAsTab, onOpenAboutModal, onFileClick,
-    onOpenMarketplace
+    onOpenMarketplace,
+    isGraphViewOpen, onOpenGraphView
   } = props;
 
   const historyPanelRef = useRef<HistoryPanelHandle>(null);
@@ -407,6 +411,7 @@ export const RightPanel = memo(forwardRef<RightPanelHandle, RightPanelProps>(fun
               onShowFlash={onShowFlash}
               showHiddenFiles={showHiddenFiles}
               setShowHiddenFiles={setShowHiddenFiles}
+              onOpenGraphView={onOpenGraphView}
             />
           </div>
         )}

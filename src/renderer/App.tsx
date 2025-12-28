@@ -392,6 +392,7 @@ function MaestroConsoleInner() {
   const [flatFileList, setFlatFileList] = useState<any[]>([]);
   const [fileTreeFilter, setFileTreeFilter] = useState('');
   const [fileTreeFilterOpen, setFileTreeFilterOpen] = useState(false);
+  const [isGraphViewOpen, setIsGraphViewOpen] = useState(false);
 
   // GitHub CLI availability (for gist publishing)
   const [ghCliAvailable, setGhCliAvailable] = useState(false);
@@ -9468,6 +9469,8 @@ function MaestroConsoleInner() {
                 console.error('[onFileClick] Failed to read file:', error);
               }
             }}
+            isGraphViewOpen={isGraphViewOpen}
+            onOpenGraphView={() => setIsGraphViewOpen(true)}
           />
         </ErrorBoundary>
       )}

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ChevronRight, ChevronDown, ChevronUp, Folder, RefreshCw, Check, Eye, EyeOff } from 'lucide-react';
+import { ChevronRight, ChevronDown, ChevronUp, Folder, RefreshCw, Check, Eye, EyeOff, GitGraph } from 'lucide-react';
 import type { Session, Theme, FocusArea } from '../types';
 import type { FileNode } from '../types/fileTree';
 import type { FileTreeChanges } from '../utils/fileExplorer';
@@ -61,6 +61,7 @@ interface FileExplorerPanelProps {
   onShowFlash?: (message: string) => void;
   showHiddenFiles: boolean;
   setShowHiddenFiles: (value: boolean) => void;
+  onOpenGraphView?: () => void;
 }
 
 function FileExplorerPanelInner(props: FileExplorerPanelProps) {
@@ -69,7 +70,7 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
     filteredFileTree, selectedFileIndex, setSelectedFileIndex, activeFocus, activeRightTab,
     previewFile, setActiveFocus, fileTreeFilterInputRef, toggleFolder, handleFileClick, expandAllFolders,
     collapseAllFolders, updateSessionWorkingDirectory, refreshFileTree, setSessions, onAutoRefreshChange, onShowFlash,
-    showHiddenFiles, setShowHiddenFiles
+    showHiddenFiles, setShowHiddenFiles, onOpenGraphView
   } = props;
 
   const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
@@ -386,6 +387,16 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
       >
         <span className="opacity-50 truncate min-w-0 flex-1" title={session.cwd}>{session.cwd}</span>
         <div className="flex items-center gap-1 flex-shrink-0">
+          {onOpenGraphView && (
+            <button
+              onClick={onOpenGraphView}
+              className="p-1 rounded hover:bg-white/10 transition-colors"
+              title="Document Graph"
+              style={{ color: theme.colors.textDim }}
+            >
+              <GitGraph className="w-3.5 h-3.5" />
+            </button>
+          )}
           <button
             onClick={() => setShowHiddenFiles(!showHiddenFiles)}
             className="p-1 rounded hover:bg-white/10 transition-colors"
