@@ -340,8 +340,11 @@ function PlaybookDetailView({
               {playbook.description}{' '}
               <button
                 onClick={() => onSelectDocument('')}
-                className="hover:opacity-80 transition-colors"
-                style={{ color: theme.colors.accent }}
+                className="hover:opacity-80 transition-colors px-1 rounded"
+                style={{
+                  color: theme.colors.accent,
+                  backgroundColor: !selectedDocFilename ? `${theme.colors.accent}20` : 'transparent',
+                }}
               >
                 Read more...
               </button>
@@ -470,7 +473,7 @@ function PlaybookDetailView({
         {/* Main content area with document dropdown and markdown preview */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
           {/* Document selector dropdown */}
-          <div className="px-4 py-3 border-b shrink-0" style={{ borderColor: theme.colors.border }}>
+          <div className="px-4 py-3 border-b shrink-0" style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}>
             <div className="relative" ref={dropdownRef}>
               <button
                 onClick={() => setShowDocDropdown(!showDocDropdown)}
@@ -535,7 +538,10 @@ function PlaybookDetailView({
           </div>
 
           {/* Markdown preview - scrollable container with prose styles */}
-          <div className="marketplace-preview flex-1 min-h-0 overflow-y-auto p-4">
+          <div
+            className="marketplace-preview flex-1 min-h-0 overflow-y-auto p-4"
+            style={{ backgroundColor: theme.colors.bgMain }}
+          >
             <style>{proseStyles}</style>
             {isLoadingDocument ? (
               <div className="flex items-center justify-center h-32">
@@ -557,7 +563,7 @@ function PlaybookDetailView({
       {/* Fixed footer with folder name input and import button */}
       <div
         className="shrink-0 px-4 py-3 border-t"
-        style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgActivity }}
+        style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
       >
         <div className="flex items-center gap-3">
           {/* Target folder input */}
@@ -570,10 +576,11 @@ function PlaybookDetailView({
                 type="text"
                 value={targetFolderName}
                 onChange={(e) => onTargetFolderChange(e.target.value)}
-                className="flex-1 px-3 py-2 rounded border bg-transparent outline-none text-sm focus:ring-1"
+                className="flex-1 px-3 py-2 rounded border outline-none text-sm focus:ring-1"
                 style={{
                   borderColor: theme.colors.border,
                   color: theme.colors.textMain,
+                  backgroundColor: theme.colors.bgActivity,
                 }}
                 placeholder="folder-name or /absolute/path"
               />
@@ -814,20 +821,49 @@ export function MarketplaceModal({
     }
   }, []);
 
-  // Keyboard shortcuts for category tabs: Cmd+Shift+[ and Cmd+Shift+]
+  // Keyboard shortcuts for category tabs (list view) or document navigation (detail view): Cmd+Shift+[ and Cmd+Shift+]
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
-        if (e.key === '[') {
+        if (e.key === '[' || e.key === ']') {
           e.preventDefault();
-          const currentIndex = categories.indexOf(selectedCategory);
-          const newIndex = Math.max(0, currentIndex - 1);
-          setSelectedCategory(categories[newIndex]);
-        } else if (e.key === ']') {
-          e.preventDefault();
-          const currentIndex = categories.indexOf(selectedCategory);
-          const newIndex = Math.min(categories.length - 1, currentIndex + 1);
-          setSelectedCategory(categories[newIndex]);
+
+          // In detail view: navigate between documents
+          if (showDetailView && selectedPlaybook) {
+            // Build document list: README (null) + all playbook documents
+            const docList: (string | null)[] = [null, ...selectedPlaybook.documents.map(d => d.filename)];
+            const currentIndex = selectedDocFilename === null || selectedDocFilename === ''
+              ? 0
+              : docList.indexOf(selectedDocFilename);
+
+            let newIndex: number;
+            if (e.key === '[') {
+              // Go backwards, wrap around
+              newIndex = currentIndex <= 0 ? docList.length - 1 : currentIndex - 1;
+            } else {
+              // Go forwards, wrap around
+              newIndex = currentIndex >= docList.length - 1 ? 0 : currentIndex + 1;
+            }
+
+            const newDoc = docList[newIndex];
+            if (newDoc === null) {
+              // Switch to README
+              handleSelectDocument('');
+            } else {
+              handleSelectDocument(newDoc);
+            }
+          } else {
+            // In list view: navigate between category tabs
+            if (e.key === '[') {
+              const currentIndex = categories.indexOf(selectedCategory);
+              const newIndex = Math.max(0, currentIndex - 1);
+              setSelectedCategory(categories[newIndex]);
+            } else {
+              const currentIndex = categories.indexOf(selectedCategory);
+              const newIndex = Math.min(categories.length - 1, currentIndex + 1);
+              setSelectedCategory(categories[newIndex]);
+            }
+          }
         }
       }
     };
@@ -836,7 +872,7 @@ export function MarketplaceModal({
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
     }
-  }, [isOpen, categories, selectedCategory, setSelectedCategory]);
+  }, [isOpen, categories, selectedCategory, setSelectedCategory, showDetailView, selectedPlaybook, selectedDocFilename, handleSelectDocument]);
 
   // Arrow key navigation for tiles
   useEffect(() => {
@@ -896,7 +932,7 @@ export function MarketplaceModal({
         aria-modal="true"
         aria-labelledby="marketplace-title"
         tabIndex={-1}
-        className="w-[900px] max-w-[90vw] rounded-xl shadow-2xl border overflow-hidden flex flex-col max-h-[80vh] outline-none"
+        className="w-[900px] max-w-[90vw] rounded-xl shadow-2xl border overflow-hidden flex flex-col h-[80vh] outline-none"
         style={{
           backgroundColor: theme.colors.bgActivity,
           borderColor: theme.colors.border,
@@ -1074,7 +1110,7 @@ export function MarketplaceModal({
             {/* Search Bar */}
             <div
               className="px-4 py-3 border-b"
-              style={{ borderColor: theme.colors.border }}
+              style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
             >
               <div className="relative">
                 <Search
@@ -1087,17 +1123,21 @@ export function MarketplaceModal({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search playbooks..."
-                  className="w-full pl-10 pr-4 py-2 rounded border bg-transparent outline-none"
+                  className="w-full pl-10 pr-4 py-2 rounded border outline-none"
                   style={{
                     borderColor: theme.colors.border,
                     color: theme.colors.textMain,
+                    backgroundColor: theme.colors.bgActivity,
                   }}
                 />
               </div>
             </div>
 
             {/* Playbook Grid */}
-            <div className="flex-1 overflow-y-auto p-4">
+            <div
+              className="flex-1 overflow-y-auto p-4"
+              style={{ backgroundColor: theme.colors.bgMain }}
+            >
               {isLoading ? (
                 // Loading skeleton tiles
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
