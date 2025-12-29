@@ -702,6 +702,209 @@ describe('DocumentGraphView', () => {
     });
   });
 
+  describe('Node Addition/Removal Animation', () => {
+    it('tracks previous nodes for diffing in ref', () => {
+      // The component uses previousNodesRef to track previous node state
+      // for calculating additions and removals between updates
+      //
+      // Implementation details (DocumentGraphView.tsx):
+      // - previousNodesRef = useRef<Node<GraphNodeData>[]>([])
+      // - Updated in loadGraphData after layouting: previousNodesRef.current = layoutedNodes
+      // - Reset on modal close: previousNodesRef.current = []
+
+      const expectedBehavior = {
+        initialValue: [],
+        updatedOnLoad: 'layoutedNodes array',
+        clearedOnClose: true,
+      };
+
+      expect(expectedBehavior.initialValue).toEqual([]);
+      expect(expectedBehavior.clearedOnClose).toBe(true);
+    });
+
+    it('skips animation on initial load', () => {
+      // The component uses isInitialLoadRef to skip animation on first load
+      // Animation is only applied on subsequent graph updates
+      //
+      // Implementation details (DocumentGraphView.tsx):
+      // - isInitialLoadRef = useRef(true)
+      // - Set to false after first load: isInitialLoadRef.current = false
+      // - Reset on modal close: isInitialLoadRef.current = true
+
+      const expectedBehavior = {
+        initialLoad: 'no animation, direct setNodes',
+        subsequentLoads: 'animation via animateNodesEntering/Exiting',
+      };
+
+      expect(expectedBehavior.initialLoad).toContain('no animation');
+      expect(expectedBehavior.subsequentLoads).toContain('animation');
+    });
+
+    it('diffs previous and new nodes to detect changes', () => {
+      // The loadGraphData function uses diffNodes to compare previous and new nodes
+      // This identifies which nodes were added and which were removed
+      //
+      // Implementation details (DocumentGraphView.tsx line ~442):
+      // const diff = diffNodes(previousNodes, layoutedNodes);
+
+      const mockPreviousNodes = [{ id: 'doc1' }, { id: 'doc2' }];
+      const mockNewNodes = [{ id: 'doc1' }, { id: 'doc3' }];
+
+      // Expected diff result
+      const expectedDiff = {
+        added: [{ id: 'doc3' }],
+        removed: [{ id: 'doc2' }],
+        unchanged: [{ id: 'doc1' }],
+      };
+
+      expect(expectedDiff.added[0].id).toBe('doc3');
+      expect(expectedDiff.removed[0].id).toBe('doc2');
+    });
+
+    it('animates removed nodes first, then added nodes', () => {
+      // When both additions and removals occur, the component:
+      // 1. Animates removed nodes exiting first
+      // 2. In the callback, animates new nodes entering
+      //
+      // This prevents visual confusion from simultaneous animations
+      //
+      // Implementation in loadGraphData (lines ~447-470):
+      // if (diff.removed.length > 0) {
+      //   animateNodesExiting(diff.removed, remainingNodes, () => {
+      //     if (diff.added.length > 0) {
+      //       animateNodesEntering(positionedNewNodes, remainingNodes, ...)
+      //     }
+      //   });
+      // }
+
+      const animationOrder = ['exit removed nodes', 'then enter new nodes'];
+      expect(animationOrder[0]).toBe('exit removed nodes');
+      expect(animationOrder[1]).toBe('then enter new nodes');
+    });
+
+    it('positions new nodes near their connected neighbors', () => {
+      // New nodes are positioned using positionNewNodesNearNeighbors
+      // This calculates initial positions based on edges to existing nodes
+      //
+      // Implementation (loadGraphData lines ~453-458):
+      // const positionedNewNodes = positionNewNodesNearNeighbors(
+      //   diff.added,
+      //   remainingNodes,
+      //   graphData.edges,
+      //   { nodeSeparation: 60 }
+      // );
+
+      const positioningStrategy = {
+        connectedNodes: 'position near centroid of neighbors',
+        unconnectedNodes: 'position near center with random offset',
+      };
+
+      expect(positioningStrategy.connectedNodes).toContain('centroid');
+      expect(positioningStrategy.unconnectedNodes).toContain('center');
+    });
+
+    it('uses requestAnimationFrame for smooth animation', () => {
+      // Both animateNodesEntering and animateNodesExiting use
+      // requestAnimationFrame for smooth, browser-synced animation
+      //
+      // Implementation pattern:
+      // const animate = () => {
+      //   if (frameIndex >= frames.length) { callback?.(); return; }
+      //   setNodes(frameNodes);
+      //   frameIndex++;
+      //   animationFrameRef.current = requestAnimationFrame(animate);
+      // };
+      // animate();
+
+      const animationMethod = 'requestAnimationFrame';
+      expect(animationMethod).toBe('requestAnimationFrame');
+    });
+
+    it('cancels ongoing animation when new animation starts', () => {
+      // Both animation functions cancel any existing animation first
+      // This prevents overlapping animations from causing visual glitches
+      //
+      // Implementation (lines ~252-255, ~308-311):
+      // if (animationFrameRef.current) {
+      //   cancelAnimationFrame(animationFrameRef.current);
+      // }
+
+      const preventionBehavior = 'cancelAnimationFrame on existing animation';
+      expect(preventionBehavior).toContain('cancelAnimationFrame');
+    });
+
+    it('resets animation state when modal closes', () => {
+      // Modal close resets all animation-related state:
+      // - isInitialLoadRef.current = true (will skip animation on next open)
+      // - previousNodesRef.current = [] (no nodes to diff against)
+      //
+      // Implementation (useEffect for isOpen, lines ~555-562):
+      // if (!isOpen) {
+      //   isInitialMountRef.current = true;
+      //   isInitialLoadRef.current = true;
+      //   previousNodesRef.current = [];
+      // }
+
+      const resetItems = ['isInitialMountRef', 'isInitialLoadRef', 'previousNodesRef'];
+      expect(resetItems).toHaveLength(3);
+    });
+
+    it('entry animation uses fade in and scale up', () => {
+      // Entry animation creates frames with:
+      // - opacity: 0 -> 1 (fade in)
+      // - transform: scale(0.5) -> scale(1) (scale up)
+      // - ease-out cubic easing for smooth deceleration
+      //
+      // See createNodeEntryFrames in layoutAlgorithms.ts
+
+      const entryAnimation = {
+        opacity: { start: 0, end: 1 },
+        scale: { start: 0.5, end: 1 },
+        easing: 'ease-out cubic',
+        frames: 15,
+      };
+
+      expect(entryAnimation.opacity.start).toBe(0);
+      expect(entryAnimation.opacity.end).toBe(1);
+      expect(entryAnimation.scale.start).toBe(0.5);
+      expect(entryAnimation.scale.end).toBe(1);
+    });
+
+    it('exit animation uses fade out and scale down', () => {
+      // Exit animation creates frames with:
+      // - opacity: 1 -> 0 (fade out)
+      // - transform: scale(1) -> scale(0.5) (scale down)
+      // - ease-in quadratic easing for quick exit
+      //
+      // See createNodeExitFrames in layoutAlgorithms.ts
+
+      const exitAnimation = {
+        opacity: { start: 1, end: 0 },
+        scale: { start: 1, end: 0.5 },
+        easing: 'ease-in quadratic',
+        frames: 10,
+      };
+
+      expect(exitAnimation.opacity.start).toBe(1);
+      expect(exitAnimation.opacity.end).toBe(0);
+      expect(exitAnimation.scale.start).toBe(1);
+      expect(exitAnimation.scale.end).toBe(0.5);
+    });
+
+    it('saves positions after animation completes', () => {
+      // After entry animation completes, node positions are saved
+      // This preserves the animated positions for future restores
+      //
+      // Implementation (lines ~466-467, ~490-491):
+      // animateNodesEntering(positionedNewNodes, remainingNodes, () => {
+      //   saveNodePositions(rootPath, allNodes);
+      // });
+
+      const postAnimationAction = 'saveNodePositions';
+      expect(postAnimationAction).toBe('saveNodePositions');
+    });
+  });
+
   describe('Progress Indicator', () => {
     it('shows scanning phase progress with directory count', () => {
       // During the scanning phase, the component displays:

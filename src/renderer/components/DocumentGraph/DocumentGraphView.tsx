@@ -54,6 +54,11 @@ import {
   saveNodePositions,
   restoreNodePositions,
   hasSavedPositions,
+  diffNodes,
+  createNodeEntryFrames,
+  createNodeExitFrames,
+  mergeAnimatingNodes,
+  positionNewNodesNearNeighbors,
 } from './layoutAlgorithms';
 
 /** Default maximum number of nodes to load initially (for performance with large directories) */
@@ -161,6 +166,11 @@ function DocumentGraphViewInner({
   const animationFrameRef = useRef<number | null>(null);
   const isAnimatingRef = useRef(false);
 
+  // Track previous nodes for diff-based animations (additions/removals)
+  const previousNodesRef = useRef<Node<GraphNodeData>[]>([]);
+  // Track if this is the initial load (skip animation for initial load)
+  const isInitialLoadRef = useRef(true);
+
   /**
    * Apply layout algorithm to nodes
    */
@@ -230,6 +240,127 @@ function DocumentGraphViewInner({
   );
 
   /**
+   * Animate nodes entering the graph (fade in + scale up)
+   */
+  const animateNodesEntering = useCallback(
+    (enteringNodes: Node<GraphNodeData>[], stableNodes: Node<GraphNodeData>[], callback?: () => void) => {
+      if (enteringNodes.length === 0) {
+        callback?.();
+        return;
+      }
+
+      // Cancel any existing animation
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+
+      isAnimatingRef.current = true;
+      const frames = createNodeEntryFrames(enteringNodes, 15);
+      let frameIndex = 0;
+
+      const animate = () => {
+        if (frameIndex >= frames.length) {
+          isAnimatingRef.current = false;
+          callback?.();
+          return;
+        }
+
+        // Merge stable nodes with current frame's entering nodes
+        const frameEnteringNodes = frames[frameIndex];
+        const themedEnteringNodes = frameEnteringNodes.map((node) => ({
+          ...node,
+          data: {
+            ...node.data,
+            theme,
+          },
+        }));
+
+        const themedStableNodes = stableNodes.map((node) => ({
+          ...node,
+          data: {
+            ...node.data,
+            theme,
+          },
+        }));
+
+        const mergedNodes = mergeAnimatingNodes(themedStableNodes, themedEnteringNodes);
+        setNodes(mergedNodes as Node[]);
+
+        frameIndex++;
+        animationFrameRef.current = requestAnimationFrame(animate);
+      };
+
+      animate();
+    },
+    [theme, setNodes]
+  );
+
+  /**
+   * Animate nodes exiting the graph (fade out + scale down)
+   */
+  const animateNodesExiting = useCallback(
+    (exitingNodes: Node<GraphNodeData>[], remainingNodes: Node<GraphNodeData>[], callback?: () => void) => {
+      if (exitingNodes.length === 0) {
+        callback?.();
+        return;
+      }
+
+      // Cancel any existing animation
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+
+      isAnimatingRef.current = true;
+      const frames = createNodeExitFrames(exitingNodes, 10);
+      let frameIndex = 0;
+
+      const animate = () => {
+        if (frameIndex >= frames.length) {
+          isAnimatingRef.current = false;
+          // After exit animation, show only remaining nodes
+          const themedRemainingNodes = remainingNodes.map((node) => ({
+            ...node,
+            data: {
+              ...node.data,
+              theme,
+            },
+          }));
+          setNodes(themedRemainingNodes as Node[]);
+          callback?.();
+          return;
+        }
+
+        // Merge remaining nodes with current frame's exiting nodes
+        const frameExitingNodes = frames[frameIndex];
+        const themedExitingNodes = frameExitingNodes.map((node) => ({
+          ...node,
+          data: {
+            ...node.data,
+            theme,
+          },
+        }));
+
+        const themedRemainingNodes = remainingNodes.map((node) => ({
+          ...node,
+          data: {
+            ...node.data,
+            theme,
+          },
+        }));
+
+        const mergedNodes = mergeAnimatingNodes(themedRemainingNodes, themedExitingNodes);
+        setNodes(mergedNodes as Node[]);
+
+        frameIndex++;
+        animationFrameRef.current = requestAnimationFrame(animate);
+      };
+
+      animate();
+    },
+    [theme, setNodes]
+  );
+
+  /**
    * Inject theme into node data for styling
    */
   const injectThemeIntoNodes = useCallback(
@@ -253,9 +384,12 @@ function DocumentGraphViewInner({
   }, []);
 
   /**
-   * Load and build graph data
+   * Load and build graph data with optional animation for node additions/removals
    */
   const loadGraphData = useCallback(async (resetPagination = true) => {
+    // Store previous nodes for diffing before starting the load
+    const previousNodes = previousNodesRef.current;
+
     setLoading(true);
     setError(null);
     setProgress(null);
@@ -287,23 +421,98 @@ function DocumentGraphViewInner({
         layoutedNodes = applyLayout(graphData.nodes, graphData.edges);
       }
 
-      // Inject theme
-      const themedNodes = injectThemeIntoNodes(layoutedNodes);
+      // Store layouted nodes (without theme) for future diffs
+      previousNodesRef.current = layoutedNodes;
 
-      setNodes(themedNodes as Node[]);
-      setEdges(graphData.edges);
+      // Check if this is the initial load or if there are changes to animate
+      const isInitial = isInitialLoadRef.current;
+      if (isInitial) {
+        isInitialLoadRef.current = false;
+        // Initial load: just set nodes without animation
+        const themedNodes = injectThemeIntoNodes(layoutedNodes);
+        setNodes(themedNodes as Node[]);
+        setEdges(graphData.edges);
 
-      // Fit view after nodes are set
-      setTimeout(() => {
-        fitView({ padding: 0.1, duration: 300 });
-      }, 50);
+        // Fit view after nodes are set
+        setTimeout(() => {
+          fitView({ padding: 0.1, duration: 300 });
+        }, 50);
+      } else if (previousNodes.length > 0 && !isAnimatingRef.current) {
+        // Diff previous nodes with new nodes to find additions and removals
+        const diff = diffNodes(previousNodes, layoutedNodes);
+
+        // Update edges first (they animate with CSS transitions)
+        setEdges(graphData.edges);
+
+        if (diff.removed.length > 0) {
+          // Animate removed nodes exiting first
+          const remainingNodes = layoutedNodes.filter((n) => !diff.removedIds.has(n.id));
+
+          animateNodesExiting(diff.removed, remainingNodes, () => {
+            if (diff.added.length > 0) {
+              // Position new nodes near their connected neighbors
+              const positionedNewNodes = positionNewNodesNearNeighbors(
+                diff.added,
+                remainingNodes,
+                graphData.edges,
+                { nodeSeparation: 60 }
+              );
+
+              // Update layouted positions with positioned new nodes
+              const allNodes = [...remainingNodes, ...positionedNewNodes];
+
+              // Animate new nodes entering
+              animateNodesEntering(positionedNewNodes, remainingNodes, () => {
+                // Save positions after animation
+                saveNodePositions(rootPath, allNodes);
+              });
+            }
+          });
+        } else if (diff.added.length > 0) {
+          // No removals, just animate additions
+          const stableNodes = layoutedNodes.filter((n) => !diff.addedIds.has(n.id));
+
+          // Position new nodes near their connected neighbors
+          const positionedNewNodes = positionNewNodesNearNeighbors(
+            diff.added,
+            stableNodes,
+            graphData.edges,
+            { nodeSeparation: 60 }
+          );
+
+          // Update layouted positions with positioned new nodes
+          const allNodes = [...stableNodes, ...positionedNewNodes];
+
+          // Update the reference with new positions
+          previousNodesRef.current = allNodes;
+
+          animateNodesEntering(positionedNewNodes, stableNodes, () => {
+            // Save positions after animation
+            saveNodePositions(rootPath, allNodes);
+          });
+        } else {
+          // No additions or removals, just update with theme
+          const themedNodes = injectThemeIntoNodes(layoutedNodes);
+          setNodes(themedNodes as Node[]);
+        }
+      } else {
+        // Fallback: no previous nodes or animation in progress
+        const themedNodes = injectThemeIntoNodes(layoutedNodes);
+        setNodes(themedNodes as Node[]);
+        setEdges(graphData.edges);
+
+        // Fit view after nodes are set
+        setTimeout(() => {
+          fitView({ padding: 0.1, duration: 300 });
+        }, 50);
+      }
     } catch (err) {
       console.error('Failed to build graph data:', err);
       setError(err instanceof Error ? err.message : 'Failed to load document graph');
     } finally {
       setLoading(false);
     }
-  }, [rootPath, includeExternalLinks, maxNodes, applyLayout, injectThemeIntoNodes, setNodes, setEdges, fitView, handleProgress]);
+  }, [rootPath, includeExternalLinks, maxNodes, applyLayout, injectThemeIntoNodes, setNodes, setEdges, fitView, handleProgress, animateNodesEntering, animateNodesExiting]);
 
   /**
    * Debounced version of loadGraphData for settings changes.
@@ -343,10 +552,12 @@ function DocumentGraphViewInner({
     };
   }, [cancelDebouncedLoad]);
 
-  // Reset initial mount ref when modal closes
+  // Reset initial mount ref and animation state when modal closes
   useEffect(() => {
     if (!isOpen) {
       isInitialMountRef.current = true;
+      isInitialLoadRef.current = true;
+      previousNodesRef.current = [];
     }
   }, [isOpen]);
 

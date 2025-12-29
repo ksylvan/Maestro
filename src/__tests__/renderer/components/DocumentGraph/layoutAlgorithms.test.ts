@@ -13,6 +13,11 @@ import {
   restoreNodePositions,
   clearNodePositions,
   hasSavedPositions,
+  diffNodes,
+  createNodeEntryFrames,
+  createNodeExitFrames,
+  mergeAnimatingNodes,
+  positionNewNodesNearNeighbors,
 } from '../../../../renderer/components/DocumentGraph/layoutAlgorithms';
 import type { GraphNodeData, DocumentNodeData, ExternalLinkNodeData } from '../../../../renderer/components/DocumentGraph/graphDataBuilder';
 
@@ -463,6 +468,373 @@ describe('layoutAlgorithms', () => {
 
       expect(restored1[0].position).toEqual({ x: 100, y: 100 });
       expect(restored2[0].position).toEqual({ x: 200, y: 200 });
+    });
+  });
+
+  describe('Node Addition/Removal Animation', () => {
+    describe('diffNodes', () => {
+      it('should identify added nodes', () => {
+        const oldNodes: Node<GraphNodeData>[] = [createDocumentNode('doc1')];
+        const newNodes: Node<GraphNodeData>[] = [
+          createDocumentNode('doc1'),
+          createDocumentNode('doc2'),
+        ];
+
+        const diff = diffNodes(oldNodes, newNodes);
+
+        expect(diff.added).toHaveLength(1);
+        expect(diff.added[0].id).toBe('doc2');
+        expect(diff.removed).toHaveLength(0);
+        expect(diff.unchanged).toHaveLength(1);
+        expect(diff.addedIds.has('doc2')).toBe(true);
+      });
+
+      it('should identify removed nodes', () => {
+        const oldNodes: Node<GraphNodeData>[] = [
+          createDocumentNode('doc1'),
+          createDocumentNode('doc2'),
+        ];
+        const newNodes: Node<GraphNodeData>[] = [createDocumentNode('doc1')];
+
+        const diff = diffNodes(oldNodes, newNodes);
+
+        expect(diff.added).toHaveLength(0);
+        expect(diff.removed).toHaveLength(1);
+        expect(diff.removed[0].id).toBe('doc2');
+        expect(diff.unchanged).toHaveLength(1);
+        expect(diff.removedIds.has('doc2')).toBe(true);
+      });
+
+      it('should handle simultaneous additions and removals', () => {
+        const oldNodes: Node<GraphNodeData>[] = [
+          createDocumentNode('doc1'),
+          createDocumentNode('doc2'),
+        ];
+        const newNodes: Node<GraphNodeData>[] = [
+          createDocumentNode('doc1'),
+          createDocumentNode('doc3'),
+        ];
+
+        const diff = diffNodes(oldNodes, newNodes);
+
+        expect(diff.added).toHaveLength(1);
+        expect(diff.added[0].id).toBe('doc3');
+        expect(diff.removed).toHaveLength(1);
+        expect(diff.removed[0].id).toBe('doc2');
+        expect(diff.unchanged).toHaveLength(1);
+        expect(diff.unchanged[0].id).toBe('doc1');
+      });
+
+      it('should handle empty old nodes (all added)', () => {
+        const oldNodes: Node<GraphNodeData>[] = [];
+        const newNodes: Node<GraphNodeData>[] = [
+          createDocumentNode('doc1'),
+          createDocumentNode('doc2'),
+        ];
+
+        const diff = diffNodes(oldNodes, newNodes);
+
+        expect(diff.added).toHaveLength(2);
+        expect(diff.removed).toHaveLength(0);
+        expect(diff.unchanged).toHaveLength(0);
+      });
+
+      it('should handle empty new nodes (all removed)', () => {
+        const oldNodes: Node<GraphNodeData>[] = [
+          createDocumentNode('doc1'),
+          createDocumentNode('doc2'),
+        ];
+        const newNodes: Node<GraphNodeData>[] = [];
+
+        const diff = diffNodes(oldNodes, newNodes);
+
+        expect(diff.added).toHaveLength(0);
+        expect(diff.removed).toHaveLength(2);
+        expect(diff.unchanged).toHaveLength(0);
+      });
+
+      it('should handle no changes (same nodes)', () => {
+        const oldNodes: Node<GraphNodeData>[] = [
+          createDocumentNode('doc1'),
+          createDocumentNode('doc2'),
+        ];
+        const newNodes: Node<GraphNodeData>[] = [
+          createDocumentNode('doc1'),
+          createDocumentNode('doc2'),
+        ];
+
+        const diff = diffNodes(oldNodes, newNodes);
+
+        expect(diff.added).toHaveLength(0);
+        expect(diff.removed).toHaveLength(0);
+        expect(diff.unchanged).toHaveLength(2);
+      });
+    });
+
+    describe('createNodeEntryFrames', () => {
+      it('should return empty array for empty input', () => {
+        const result = createNodeEntryFrames([]);
+        expect(result).toEqual([]);
+      });
+
+      it('should create correct number of frames', () => {
+        const nodes: Node<GraphNodeData>[] = [createDocumentNode('doc1')];
+        const result = createNodeEntryFrames(nodes, 10);
+        expect(result).toHaveLength(11); // 0 to 10 inclusive
+      });
+
+      it('should start with opacity 0 and end with opacity 1', () => {
+        const nodes: Node<GraphNodeData>[] = [createDocumentNode('doc1')];
+        const result = createNodeEntryFrames(nodes, 15);
+
+        // First frame should have opacity 0 (or near 0)
+        expect(result[0][0].style?.opacity).toBe(0);
+
+        // Last frame should have opacity 1
+        const lastFrame = result[result.length - 1];
+        expect(lastFrame[0].style?.opacity).toBe(1);
+      });
+
+      it('should start with scale 0.5 and end with scale 1', () => {
+        const nodes: Node<GraphNodeData>[] = [createDocumentNode('doc1')];
+        const result = createNodeEntryFrames(nodes, 15);
+
+        // First frame should have scale 0.5
+        expect(result[0][0].style?.transform).toBe('scale(0.5)');
+
+        // Last frame should have scale 1
+        const lastFrame = result[result.length - 1];
+        expect(lastFrame[0].style?.transform).toBe('scale(1)');
+      });
+
+      it('should set animationPhase correctly', () => {
+        const nodes: Node<GraphNodeData>[] = [createDocumentNode('doc1')];
+        const result = createNodeEntryFrames(nodes, 10);
+
+        // During animation, phase should be 'entering'
+        expect(result[0][0].data.animationPhase).toBe('entering');
+        expect(result[5][0].data.animationPhase).toBe('entering');
+
+        // Last frame should be 'stable'
+        const lastFrame = result[result.length - 1];
+        expect(lastFrame[0].data.animationPhase).toBe('stable');
+      });
+
+      it('should handle single frame case', () => {
+        const nodes: Node<GraphNodeData>[] = [createDocumentNode('doc1')];
+        const result = createNodeEntryFrames(nodes, 1);
+
+        expect(result).toHaveLength(1);
+        expect(result[0][0].data.animationPhase).toBe('stable');
+        expect(result[0][0].data.animationProgress).toBe(1);
+      });
+    });
+
+    describe('createNodeExitFrames', () => {
+      it('should return empty array for empty input', () => {
+        const result = createNodeExitFrames([]);
+        expect(result).toEqual([]);
+      });
+
+      it('should return empty for single frame', () => {
+        const nodes: Node<GraphNodeData>[] = [createDocumentNode('doc1')];
+        const result = createNodeExitFrames(nodes, 1);
+        expect(result).toEqual([]);
+      });
+
+      it('should create correct number of frames', () => {
+        const nodes: Node<GraphNodeData>[] = [createDocumentNode('doc1')];
+        const result = createNodeExitFrames(nodes, 10);
+        expect(result).toHaveLength(11); // 0 to 10 inclusive
+      });
+
+      it('should start with opacity 1 and end with opacity near 0', () => {
+        const nodes: Node<GraphNodeData>[] = [createDocumentNode('doc1')];
+        const result = createNodeExitFrames(nodes, 10);
+
+        // First frame should have opacity 1
+        expect(result[0][0].style?.opacity).toBe(1);
+
+        // Last frame should have opacity near 0
+        const lastFrame = result[result.length - 1];
+        expect(lastFrame[0].style?.opacity).toBeLessThan(0.1);
+      });
+
+      it('should set animationPhase to exiting', () => {
+        const nodes: Node<GraphNodeData>[] = [createDocumentNode('doc1')];
+        const result = createNodeExitFrames(nodes, 10);
+
+        // All frames should have 'exiting' phase
+        for (const frame of result) {
+          expect(frame[0].data.animationPhase).toBe('exiting');
+        }
+      });
+    });
+
+    describe('mergeAnimatingNodes', () => {
+      it('should combine stable and animating nodes', () => {
+        const stableNodes: Node<GraphNodeData>[] = [
+          createDocumentNode('doc1', 0, 0),
+          createDocumentNode('doc2', 100, 100),
+        ];
+        const animatingNodes: Node<GraphNodeData>[] = [
+          createDocumentNode('doc3', 200, 200),
+        ];
+
+        const result = mergeAnimatingNodes(stableNodes, animatingNodes);
+
+        expect(result).toHaveLength(3);
+        expect(result.find((n) => n.id === 'doc1')).toBeDefined();
+        expect(result.find((n) => n.id === 'doc2')).toBeDefined();
+        expect(result.find((n) => n.id === 'doc3')).toBeDefined();
+      });
+
+      it('should replace stable node with animating counterpart', () => {
+        const stableNodes: Node<GraphNodeData>[] = [
+          { ...createDocumentNode('doc1', 0, 0), style: { opacity: 1 } },
+        ];
+        const animatingNodes: Node<GraphNodeData>[] = [
+          { ...createDocumentNode('doc1', 0, 0), style: { opacity: 0.5 } },
+        ];
+
+        const result = mergeAnimatingNodes(stableNodes, animatingNodes);
+
+        expect(result).toHaveLength(1);
+        expect(result[0].style?.opacity).toBe(0.5);
+      });
+
+      it('should handle empty stable nodes', () => {
+        const stableNodes: Node<GraphNodeData>[] = [];
+        const animatingNodes: Node<GraphNodeData>[] = [
+          createDocumentNode('doc1'),
+        ];
+
+        const result = mergeAnimatingNodes(stableNodes, animatingNodes);
+
+        expect(result).toHaveLength(1);
+        expect(result[0].id).toBe('doc1');
+      });
+
+      it('should handle empty animating nodes', () => {
+        const stableNodes: Node<GraphNodeData>[] = [
+          createDocumentNode('doc1'),
+          createDocumentNode('doc2'),
+        ];
+        const animatingNodes: Node<GraphNodeData>[] = [];
+
+        const result = mergeAnimatingNodes(stableNodes, animatingNodes);
+
+        expect(result).toHaveLength(2);
+      });
+    });
+
+    describe('positionNewNodesNearNeighbors', () => {
+      it('should position new nodes near connected existing nodes', () => {
+        const existingNodes: Node<GraphNodeData>[] = [
+          createDocumentNode('doc1', 100, 100),
+        ];
+        const newNodes: Node<GraphNodeData>[] = [
+          createDocumentNode('doc2', 0, 0),
+        ];
+        const edges: Edge[] = [createEdge('doc1', 'doc2')];
+
+        const result = positionNewNodesNearNeighbors(newNodes, existingNodes, edges);
+
+        expect(result).toHaveLength(1);
+        // New node should be positioned near doc1 (100, 100)
+        const distance = Math.sqrt(
+          Math.pow(result[0].position.x - 100, 2) +
+          Math.pow(result[0].position.y - 100, 2)
+        );
+        // Should be within reasonable distance (nodeSeparation * 2 to account for randomness)
+        expect(distance).toBeLessThan(150);
+      });
+
+      it('should position unconnected nodes at center with offset', () => {
+        const existingNodes: Node<GraphNodeData>[] = [
+          createDocumentNode('doc1', 100, 100),
+        ];
+        const newNodes: Node<GraphNodeData>[] = [
+          createDocumentNode('doc2', 0, 0),
+        ];
+        const edges: Edge[] = []; // No edges connecting the new node
+
+        const result = positionNewNodesNearNeighbors(newNodes, existingNodes, edges, {
+          centerX: 200,
+          centerY: 200,
+        });
+
+        expect(result).toHaveLength(1);
+        // Should be roughly near the center (200, 200) with some offset
+        const distance = Math.sqrt(
+          Math.pow(result[0].position.x - 200, 2) +
+          Math.pow(result[0].position.y - 200, 2)
+        );
+        // Should be within reasonable distance from center
+        expect(distance).toBeLessThan(150);
+      });
+
+      it('should handle multiple connected neighbors (average position)', () => {
+        const existingNodes: Node<GraphNodeData>[] = [
+          createDocumentNode('doc1', 0, 0),
+          createDocumentNode('doc2', 200, 0),
+          createDocumentNode('doc3', 100, 200),
+        ];
+        const newNodes: Node<GraphNodeData>[] = [
+          createDocumentNode('doc4', 0, 0),
+        ];
+        const edges: Edge[] = [
+          createEdge('doc1', 'doc4'),
+          createEdge('doc2', 'doc4'),
+          createEdge('doc3', 'doc4'),
+        ];
+
+        const result = positionNewNodesNearNeighbors(newNodes, existingNodes, edges);
+
+        // Centroid of existing nodes is (100, 66.67)
+        // New node should be positioned near this centroid
+        const centroidX = (0 + 200 + 100) / 3;
+        const centroidY = (0 + 0 + 200) / 3;
+        const distance = Math.sqrt(
+          Math.pow(result[0].position.x - centroidX, 2) +
+          Math.pow(result[0].position.y - centroidY, 2)
+        );
+        // Should be within reasonable distance from centroid
+        expect(distance).toBeLessThan(150);
+      });
+
+      it('should handle empty new nodes array', () => {
+        const existingNodes: Node<GraphNodeData>[] = [
+          createDocumentNode('doc1', 100, 100),
+        ];
+        const newNodes: Node<GraphNodeData>[] = [];
+        const edges: Edge[] = [];
+
+        const result = positionNewNodesNearNeighbors(newNodes, existingNodes, edges);
+
+        expect(result).toHaveLength(0);
+      });
+
+      it('should handle empty existing nodes array', () => {
+        const existingNodes: Node<GraphNodeData>[] = [];
+        const newNodes: Node<GraphNodeData>[] = [
+          createDocumentNode('doc1', 0, 0),
+        ];
+        const edges: Edge[] = [];
+
+        const result = positionNewNodesNearNeighbors(newNodes, existingNodes, edges, {
+          centerX: 100,
+          centerY: 100,
+        });
+
+        expect(result).toHaveLength(1);
+        // Should be positioned near center since there are no neighbors
+        const distance = Math.sqrt(
+          Math.pow(result[0].position.x - 100, 2) +
+          Math.pow(result[0].position.y - 100, 2)
+        );
+        expect(distance).toBeLessThan(150);
+      });
     });
   });
 });

@@ -388,3 +388,259 @@ export function clearNodePositions(graphId: string): void {
 export function hasSavedPositions(graphId: string): boolean {
   return positionStore.has(graphId);
 }
+
+/**
+ * Animation state that can be attached to nodes for entry/exit animations.
+ */
+export interface NodeAnimationState {
+  /** Current animation phase */
+  animationPhase: 'entering' | 'stable' | 'exiting';
+  /** Animation progress (0-1) */
+  animationProgress: number;
+  /** Original opacity before animation */
+  originalOpacity?: number;
+  /** Original scale before animation */
+  originalScale?: number;
+}
+
+/**
+ * Result of diffing two sets of nodes to detect additions and removals.
+ */
+export interface NodeDiff<T> {
+  /** Nodes that exist in new set but not in old set */
+  added: Node<T>[];
+  /** Nodes that exist in old set but not in new set */
+  removed: Node<T>[];
+  /** Nodes that exist in both sets (potentially with updated data/position) */
+  unchanged: Node<T>[];
+  /** IDs of added nodes */
+  addedIds: Set<string>;
+  /** IDs of removed nodes */
+  removedIds: Set<string>;
+}
+
+/**
+ * Diff two sets of nodes to find additions, removals, and unchanged nodes.
+ *
+ * @param oldNodes - Previous set of nodes
+ * @param newNodes - New set of nodes
+ * @returns NodeDiff containing categorized nodes
+ */
+export function diffNodes<T>(
+  oldNodes: Node<T>[],
+  newNodes: Node<T>[]
+): NodeDiff<T> {
+  const oldIds = new Set(oldNodes.map((n) => n.id));
+  const newIds = new Set(newNodes.map((n) => n.id));
+
+  const addedIds = new Set<string>();
+  const removedIds = new Set<string>();
+
+  const added: Node<T>[] = [];
+  const removed: Node<T>[] = [];
+  const unchanged: Node<T>[] = [];
+
+  // Find added nodes (in new but not in old)
+  for (const node of newNodes) {
+    if (!oldIds.has(node.id)) {
+      added.push(node);
+      addedIds.add(node.id);
+    } else {
+      unchanged.push(node);
+    }
+  }
+
+  // Find removed nodes (in old but not in new)
+  for (const node of oldNodes) {
+    if (!newIds.has(node.id)) {
+      removed.push(node);
+      removedIds.add(node.id);
+    }
+  }
+
+  return { added, removed, unchanged, addedIds, removedIds };
+}
+
+/**
+ * Create animation frames for nodes entering the graph.
+ * Nodes fade in and scale up from 0 to 1.
+ *
+ * @param nodes - Nodes to animate entering
+ * @param frameCount - Number of animation frames
+ * @returns Array of node arrays, one per frame with updated animation state
+ */
+export function createNodeEntryFrames<T>(
+  nodes: Node<T>[],
+  frameCount: number = 15
+): Node<T & NodeAnimationState>[][] {
+  if (nodes.length === 0) return [];
+  if (frameCount <= 1) return [nodes.map((n) => ({ ...n, data: { ...n.data, animationPhase: 'stable' as const, animationProgress: 1 } }))];
+
+  const frames: Node<T & NodeAnimationState>[][] = [];
+
+  for (let i = 0; i <= frameCount; i++) {
+    const progress = i / frameCount;
+    // Use ease-out cubic for smooth entry
+    const easedProgress = 1 - Math.pow(1 - progress, 3);
+
+    const frameNodes = nodes.map((node) => ({
+      ...node,
+      data: {
+        ...node.data,
+        animationPhase: progress < 1 ? ('entering' as const) : ('stable' as const),
+        animationProgress: easedProgress,
+      },
+      // Store animation state in node style for CSS-based animation
+      style: {
+        ...node.style,
+        opacity: easedProgress,
+        transform: `scale(${0.5 + easedProgress * 0.5})`,
+        transition: 'none', // Disable CSS transitions during JS animation
+      },
+    }));
+
+    frames.push(frameNodes);
+  }
+
+  return frames;
+}
+
+/**
+ * Create animation frames for nodes exiting the graph.
+ * Nodes fade out and scale down from 1 to 0.
+ *
+ * @param nodes - Nodes to animate exiting
+ * @param frameCount - Number of animation frames
+ * @returns Array of node arrays, one per frame with updated animation state
+ */
+export function createNodeExitFrames<T>(
+  nodes: Node<T>[],
+  frameCount: number = 10
+): Node<T & NodeAnimationState>[][] {
+  if (nodes.length === 0) return [];
+  if (frameCount <= 1) return []; // Exit ends with nodes removed
+
+  const frames: Node<T & NodeAnimationState>[][] = [];
+
+  for (let i = 0; i <= frameCount; i++) {
+    const progress = i / frameCount;
+    // Use ease-in cubic for quick exit
+    const easedProgress = Math.pow(progress, 2);
+    const inverseProgress = 1 - easedProgress;
+
+    const frameNodes = nodes.map((node) => ({
+      ...node,
+      data: {
+        ...node.data,
+        animationPhase: 'exiting' as const,
+        animationProgress: easedProgress,
+      },
+      style: {
+        ...node.style,
+        opacity: inverseProgress,
+        transform: `scale(${0.5 + inverseProgress * 0.5})`,
+        transition: 'none',
+      },
+    }));
+
+    frames.push(frameNodes);
+  }
+
+  return frames;
+}
+
+/**
+ * Merge nodes from multiple sources, handling animation states.
+ * Used to combine stable nodes with entering/exiting nodes during animation.
+ *
+ * @param stableNodes - Nodes that are not animating
+ * @param animatingNodes - Nodes that are currently animating (entering or exiting)
+ * @returns Combined array of all nodes
+ */
+export function mergeAnimatingNodes<T>(
+  stableNodes: Node<T>[],
+  animatingNodes: Node<T>[]
+): Node<T>[] {
+  // Create a map of animating nodes for quick lookup
+  const animatingMap = new Map(animatingNodes.map((n) => [n.id, n]));
+
+  // Replace stable nodes with their animating counterparts if they exist
+  const merged = stableNodes.map((node) => {
+    const animating = animatingMap.get(node.id);
+    return animating ?? node;
+  });
+
+  // Add any animating nodes that aren't in stable nodes (e.g., exiting nodes)
+  for (const node of animatingNodes) {
+    if (!stableNodes.some((n) => n.id === node.id)) {
+      merged.push(node);
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * Calculate optimal positions for new nodes based on their connections.
+ * New nodes are positioned near their connected neighbors.
+ *
+ * @param newNodes - New nodes to position
+ * @param existingNodes - Existing nodes with known positions
+ * @param edges - All edges including connections to new nodes
+ * @param options - Layout options
+ * @returns New nodes with initial positions near connected neighbors
+ */
+export function positionNewNodesNearNeighbors<T extends GraphNodeData>(
+  newNodes: Node<T>[],
+  existingNodes: Node<T>[],
+  edges: Edge[],
+  options: LayoutOptions = {}
+): Node<T>[] {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const existingPositions = new Map(existingNodes.map((n) => [n.id, n.position]));
+
+  return newNodes.map((node) => {
+    // Find edges connected to this node
+    const connectedEdges = edges.filter(
+      (e) => e.source === node.id || e.target === node.id
+    );
+
+    // Find positions of connected existing nodes
+    const neighborPositions: { x: number; y: number }[] = [];
+    for (const edge of connectedEdges) {
+      const neighborId = edge.source === node.id ? edge.target : edge.source;
+      const neighborPos = existingPositions.get(neighborId);
+      if (neighborPos) {
+        neighborPositions.push(neighborPos);
+      }
+    }
+
+    let initialPosition: { x: number; y: number };
+
+    if (neighborPositions.length > 0) {
+      // Calculate centroid of connected neighbors
+      const avgX = neighborPositions.reduce((sum, p) => sum + p.x, 0) / neighborPositions.length;
+      const avgY = neighborPositions.reduce((sum, p) => sum + p.y, 0) / neighborPositions.length;
+
+      // Offset slightly to avoid exact overlap
+      const offset = opts.nodeSeparation;
+      const angle = Math.random() * Math.PI * 2;
+      initialPosition = {
+        x: avgX + Math.cos(angle) * offset,
+        y: avgY + Math.sin(angle) * offset,
+      };
+    } else {
+      // No connected neighbors, position at center with random offset
+      const offset = opts.nodeSeparation * 2;
+      initialPosition = {
+        x: opts.centerX + (Math.random() - 0.5) * offset,
+        y: opts.centerY + (Math.random() - 0.5) * offset,
+      };
+    }
+
+    return {
+      ...node,
+      position: initialPosition,
+    };
+  });
+}
