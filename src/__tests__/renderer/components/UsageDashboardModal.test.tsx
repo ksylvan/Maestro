@@ -251,7 +251,7 @@ describe('UsageDashboardModal', () => {
   });
 
   describe('Data Loading', () => {
-    it('shows loading state initially', async () => {
+    it('shows loading skeleton initially', async () => {
       mockGetAggregation.mockImplementation(() => new Promise(() => {})); // Never resolves
 
       render(
@@ -259,7 +259,24 @@ describe('UsageDashboardModal', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('Loading usage data...')).toBeInTheDocument();
+        expect(screen.getByTestId('dashboard-skeleton')).toBeInTheDocument();
+      });
+    });
+
+    it('loading skeleton matches current view mode', async () => {
+      mockGetAggregation.mockImplementation(() => new Promise(() => {})); // Never resolves
+
+      render(
+        <UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />
+      );
+
+      await waitFor(() => {
+        // Default view is overview, so all skeleton components should be present
+        expect(screen.getByTestId('summary-cards-skeleton')).toBeInTheDocument();
+        expect(screen.getByTestId('agent-comparison-skeleton')).toBeInTheDocument();
+        expect(screen.getByTestId('source-distribution-skeleton')).toBeInTheDocument();
+        expect(screen.getByTestId('activity-heatmap-skeleton')).toBeInTheDocument();
+        expect(screen.getByTestId('duration-trends-skeleton')).toBeInTheDocument();
       });
     });
 
@@ -616,9 +633,9 @@ describe('UsageDashboardModal', () => {
         updateCallback();
       });
 
-      // Immediately after trigger, data should still be visible (not loading state)
+      // Immediately after trigger, data should still be visible (not loading skeleton)
       // The debounce timer hasn't fired yet so no fetch has been made
-      expect(screen.queryByText('Loading usage data...')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('dashboard-skeleton')).not.toBeInTheDocument();
       expect(screen.getByTestId('usage-dashboard-content')).toBeInTheDocument();
 
       // Original data should still be visible during debounce wait
@@ -677,8 +694,8 @@ describe('UsageDashboardModal', () => {
       const refreshButton = screen.getByTitle('Refresh');
       fireEvent.click(refreshButton);
 
-      // Content should still be visible (refresh uses showRefresh=true path)
-      expect(screen.queryByText('Loading usage data...')).not.toBeInTheDocument();
+      // Content should still be visible (refresh uses showRefresh=true path, not skeleton)
+      expect(screen.queryByTestId('dashboard-skeleton')).not.toBeInTheDocument();
       expect(screen.getByTestId('usage-dashboard-content')).toBeInTheDocument();
 
       // Wait for refresh to complete
@@ -734,8 +751,8 @@ describe('UsageDashboardModal', () => {
       // Click refresh
       fireEvent.click(screen.getByTitle('Refresh'));
 
-      // Critical: content should NOT disappear during refresh
-      expect(screen.queryByText('Loading usage data...')).not.toBeInTheDocument();
+      // Critical: content should NOT disappear during refresh (no skeleton shown)
+      expect(screen.queryByTestId('dashboard-skeleton')).not.toBeInTheDocument();
 
       // Wait for update to complete
       await waitFor(() => {

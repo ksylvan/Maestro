@@ -22,6 +22,7 @@ import { SourceDistributionChart } from './SourceDistributionChart';
 import { DurationTrendsChart } from './DurationTrendsChart';
 import { AutoRunStats } from './AutoRunStats';
 import { EmptyState } from './EmptyState';
+import { DashboardSkeleton } from './ChartSkeletons';
 import type { Theme } from '../../types';
 import { useLayerStack } from '../../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
@@ -424,13 +425,13 @@ export function UsageDashboardModal({
         {/* Main Content */}
         <div ref={contentRef} className="flex-1 overflow-y-auto scrollbar-thin p-6">
           {loading && !data ? (
-            <div
-              className="h-full flex items-center justify-center"
-              style={{ color: theme.colors.textDim }}
-            >
-              <RefreshCw className="w-6 h-6 animate-spin mr-2" />
-              Loading usage data...
-            </div>
+            <DashboardSkeleton
+              theme={theme}
+              viewMode={viewMode}
+              chartGridCols={layout.chartGridCols}
+              summaryCardsCols={layout.summaryCardsCols}
+              autoRunStatsCols={layout.autoRunStatsCols}
+            />
           ) : error ? (
             <div
               className="h-full flex flex-col items-center justify-center gap-4"
