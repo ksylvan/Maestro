@@ -32,9 +32,9 @@ export interface DocumentNodeProps extends NodeProps<DocumentNodeData & {
 const MAX_TITLE_LENGTH = 40;
 
 /**
- * Maximum characters for description before truncation
+ * Maximum characters for description before truncation (~100 chars as specified in design)
  */
-const MAX_DESCRIPTION_LENGTH = 80;
+const MAX_DESCRIPTION_LENGTH = 100;
 
 /**
  * Truncate text with ellipsis if exceeding max length
@@ -130,6 +130,7 @@ export const DocumentNode = memo(function DocumentNode({
   const displayDescription = description
     ? truncateText(description, MAX_DESCRIPTION_LENGTH)
     : null;
+  const isDescriptionTruncated = description ? description.length > MAX_DESCRIPTION_LENGTH : false;
 
   // Build tooltip: show full title if truncated, always show file path
   const tooltipText = isTitleTruncated
@@ -174,9 +175,12 @@ export const DocumentNode = memo(function DocumentNode({
         </div>
       </div>
 
-      {/* Optional description */}
+      {/* Optional description - shows tooltip with full text when truncated */}
       {displayDescription && (
-        <div style={descriptionStyle}>
+        <div
+          style={descriptionStyle}
+          title={isDescriptionTruncated ? description : undefined}
+        >
           {displayDescription}
         </div>
       )}

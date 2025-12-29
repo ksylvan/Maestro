@@ -191,24 +191,95 @@ describe('DocumentNode', () => {
   });
 
   describe('Description Truncation', () => {
-    it('truncates long descriptions with ellipsis', () => {
-      const longDescription = 'This is a very long description that exceeds the maximum allowed length and should be truncated with an ellipsis at the end';
-      const props = createNodeProps({ description: longDescription });
-      renderWithProvider(<DocumentNode {...props} />);
-
-      // Should show truncated text with ellipsis
-      const truncatedElement = screen.getByText(/\.\.\./);
-      expect(truncatedElement).toBeInTheDocument();
-      // The full text should not appear
-      expect(screen.queryByText(longDescription)).not.toBeInTheDocument();
-    });
-
-    it('does not truncate short descriptions', () => {
-      const shortDescription = 'Brief desc';
+    it('displays full description when under 100 characters', () => {
+      const shortDescription = 'This is a brief description that fits within the limit.';
       const props = createNodeProps({ description: shortDescription });
       renderWithProvider(<DocumentNode {...props} />);
 
       expect(screen.getByText(shortDescription)).toBeInTheDocument();
+    });
+
+    it('truncates description with ellipsis when exceeding 100 characters', () => {
+      // Create a description that's exactly 120 chars (exceeds 100)
+      const longDescription = 'A'.repeat(120);
+      const props = createNodeProps({ description: longDescription });
+      renderWithProvider(<DocumentNode {...props} />);
+
+      // Should show truncated text with ellipsis (100 chars + "...")
+      const expectedTruncated = 'A'.repeat(100) + '...';
+      expect(screen.getByText(expectedTruncated)).toBeInTheDocument();
+      // The full description should not appear
+      expect(screen.queryByText(longDescription)).not.toBeInTheDocument();
+    });
+
+    it('handles description exactly at max length (100 chars) without truncation', () => {
+      const exactDescription = 'B'.repeat(100); // Exactly 100 chars
+      const props = createNodeProps({ description: exactDescription });
+      renderWithProvider(<DocumentNode {...props} />);
+
+      // Should show full description without ellipsis
+      expect(screen.getByText(exactDescription)).toBeInTheDocument();
+    });
+
+    it('shows full description in tooltip when description is truncated', () => {
+      const longDescription = 'This is a very long description that exceeds the maximum allowed length of 100 characters and should show a tooltip with the full text when hovering.';
+      const props = createNodeProps({ description: longDescription });
+
+      const { container } = renderWithProvider(<DocumentNode {...props} />);
+
+      // Find the description element (contains truncated text with ellipsis)
+      const descriptionElement = screen.getByText(/\.\.\./);
+      expect(descriptionElement).toHaveAttribute('title', longDescription);
+    });
+
+    it('does not show tooltip on description when not truncated', () => {
+      const shortDescription = 'Brief description under limit';
+      const props = createNodeProps({ description: shortDescription });
+
+      const { container } = renderWithProvider(<DocumentNode {...props} />);
+
+      // The description element should not have a title attribute
+      const descriptionElement = screen.getByText(shortDescription);
+      expect(descriptionElement).not.toHaveAttribute('title');
+    });
+
+    it('handles description exactly at 101 characters (just over limit)', () => {
+      const description101 = 'C'.repeat(101); // Just 1 char over
+      const props = createNodeProps({ description: description101 });
+      renderWithProvider(<DocumentNode {...props} />);
+
+      // Should truncate to 100 chars + ellipsis
+      const expectedTruncated = 'C'.repeat(100) + '...';
+      expect(screen.getByText(expectedTruncated)).toBeInTheDocument();
+    });
+
+    it('does not render description section when description is undefined', () => {
+      const props = createNodeProps({ description: undefined });
+      renderWithProvider(<DocumentNode {...props} />);
+
+      // Should not have any description-related elements (no truncated text)
+      expect(screen.queryByText(/\.\.\./)).not.toBeInTheDocument();
+    });
+
+    it('handles empty string description', () => {
+      const props = createNodeProps({ description: '' });
+      renderWithProvider(<DocumentNode {...props} />);
+
+      // Empty string is falsy, so description section should not render
+      // (truncateText returns empty string, but displayDescription will be null due to falsy check)
+      const descriptionElements = document.querySelectorAll('[style*="opacity: 0.85"]');
+      expect(descriptionElements.length).toBe(0);
+    });
+
+    it('preserves whitespace when truncating', () => {
+      // Description with words that will be truncated mid-word
+      const description = 'Word1 Word2 Word3 Word4 Word5 Word6 Word7 Word8 Word9 Word10 Word11 Word12 Word13 Word14 Word15 Word16 Word17 Word18';
+      const props = createNodeProps({ description });
+      renderWithProvider(<DocumentNode {...props} />);
+
+      // Should truncate at 100 chars and add ellipsis
+      const truncatedText = description.slice(0, 100).trim() + '...';
+      expect(screen.getByText(truncatedText)).toBeInTheDocument();
     });
   });
 
