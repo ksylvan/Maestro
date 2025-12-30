@@ -149,8 +149,9 @@ contextBridge.exposeInMainWorld('maestro', {
     },
     // SSH remote execution status
     // Emitted when a process starts executing via SSH on a remote host
-    onSshRemote: (callback: (sessionId: string, sshRemote: { id: string; name: string; host: string } | null) => void) => {
-      const handler = (_: any, sessionId: string, sshRemote: { id: string; name: string; host: string } | null) => callback(sessionId, sshRemote);
+    // Includes remoteWorkingDir for session-wide SSH context (file explorer, git, auto run, etc.)
+    onSshRemote: (callback: (sessionId: string, sshRemote: { id: string; name: string; host: string; remoteWorkingDir?: string } | null) => void) => {
+      const handler = (_: any, sessionId: string, sshRemote: { id: string; name: string; host: string; remoteWorkingDir?: string } | null) => callback(sessionId, sshRemote);
       ipcRenderer.on('process:ssh-remote', handler);
       return () => ipcRenderer.removeListener('process:ssh-remote', handler);
     },
@@ -1708,7 +1709,7 @@ export interface MaestroAPI {
     onSlashCommands: (callback: (sessionId: string, slashCommands: string[]) => void) => () => void;
     onThinkingChunk: (callback: (sessionId: string, content: string) => void) => () => void;
     onToolExecution: (callback: (sessionId: string, toolEvent: { toolName: string; state?: unknown; timestamp: number }) => void) => () => void;
-    onSshRemote: (callback: (sessionId: string, sshRemote: { id: string; name: string; host: string } | null) => void) => () => void;
+    onSshRemote: (callback: (sessionId: string, sshRemote: { id: string; name: string; host: string; remoteWorkingDir?: string } | null) => void) => () => void;
     onRemoteCommand: (callback: (sessionId: string, command: string) => void) => () => void;
     onRemoteSwitchMode: (callback: (sessionId: string, mode: 'ai' | 'terminal') => void) => () => void;
     onRemoteInterrupt: (callback: (sessionId: string) => void) => () => void;
