@@ -225,11 +225,21 @@ export function DocumentGraphView({
     }
 
     try {
+      console.log('[DocumentGraph] Building graph data:', { rootPath, focusFilePath, includeExternalLinks });
+
       const graphData = await buildGraphData({
         rootPath,
         includeExternalLinks,
         maxNodes: resetPagination ? defaultMaxNodes : maxNodes,
         onProgress: handleProgress,
+      });
+
+      console.log('[DocumentGraph] Graph data built:', {
+        totalDocuments: graphData.totalDocuments,
+        loadedDocuments: graphData.loadedDocuments,
+        nodeCount: graphData.nodes.length,
+        edgeCount: graphData.edges.length,
+        sampleNodeIds: graphData.nodes.slice(0, 5).map(n => n.id),
       });
 
       // Update pagination state
@@ -242,6 +252,13 @@ export function DocumentGraphView({
         graphData.nodes.map(n => ({ id: n.id, data: n.data })),
         graphData.edges.map(e => ({ source: e.source, target: e.target, type: e.type }))
       );
+
+      console.log('[DocumentGraph] Converted to mind map format:', {
+        nodeCount: mindMapNodes.length,
+        linkCount: mindMapLinks.length,
+        sampleFilePaths: mindMapNodes.filter(n => n.nodeType === 'document').slice(0, 5).map(n => n.filePath),
+        focusFilePath,
+      });
 
       setNodes(mindMapNodes);
       setLinks(mindMapLinks);

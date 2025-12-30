@@ -263,11 +263,38 @@ function calculateMindMapLayout(
   canvasHeight: number,
   showExternalLinks: boolean
 ): LayoutResult {
-  // Find center node
+  // Find center node - try exact match first, then normalized paths
   const centerNodeId = `doc-${centerFilePath}`;
-  const centerNode = allNodes.find(n => n.id === centerNodeId);
+  let centerNode = allNodes.find(n => n.id === centerNodeId);
+
+  // If exact match fails, try normalizing paths (handle leading slashes, etc.)
+  if (!centerNode) {
+    const normalizedPath = centerFilePath.replace(/^\/+/, '');
+    const normalizedNodeId = `doc-${normalizedPath}`;
+    centerNode = allNodes.find(n => n.id === normalizedNodeId);
+  }
+
+  // Also try matching by filePath property directly
+  if (!centerNode) {
+    centerNode = allNodes.find(n =>
+      n.nodeType === 'document' &&
+      (n.filePath === centerFilePath ||
+       n.filePath === centerFilePath.replace(/^\/+/, '') ||
+       n.filePath?.replace(/^\/+/, '') === centerFilePath.replace(/^\/+/, ''))
+    );
+  }
 
   if (!centerNode) {
+    // Log available nodes to help debug path mismatches
+    console.warn(
+      `[MindMap] Center node not found for path: "${centerFilePath}"`,
+      '\nAvailable document nodes:',
+      allNodes
+        .filter(n => n.nodeType === 'document')
+        .map(n => n.filePath)
+        .slice(0, 10),
+      allNodes.length > 10 ? `... and ${allNodes.length - 10} more` : ''
+    );
     // No center node found, return empty layout
     return {
       nodes: [],

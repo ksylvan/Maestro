@@ -8,7 +8,63 @@
  * - Front matter metadata
  */
 
-import * as path from 'path';
+// Browser-compatible path utilities (Node's path module doesn't work in renderer)
+
+/**
+ * Get the directory portion of a path (browser-compatible path.dirname)
+ */
+function dirname(filePath: string): string {
+  if (!filePath) return '.';
+  const normalized = filePath.replace(/\\/g, '/');
+  const lastSlash = normalized.lastIndexOf('/');
+  if (lastSlash === -1) return '.';
+  if (lastSlash === 0) return '/';
+  return normalized.slice(0, lastSlash);
+}
+
+/**
+ * Get the extension of a path (browser-compatible path.extname)
+ */
+function extname(filePath: string): string {
+  if (!filePath) return '';
+  const normalized = filePath.replace(/\\/g, '/');
+  const basename = normalized.slice(normalized.lastIndexOf('/') + 1);
+  const dotIndex = basename.lastIndexOf('.');
+  if (dotIndex <= 0) return ''; // No extension or hidden file like .gitignore
+  return basename.slice(dotIndex);
+}
+
+/**
+ * Join path segments and normalize (browser-compatible path.join)
+ */
+function joinPath(...segments: string[]): string {
+  // Filter out empty segments and join with /
+  const joined = segments
+    .filter(s => s && s.length > 0)
+    .join('/')
+    .replace(/\\/g, '/');
+
+  // Normalize multiple slashes
+  let normalized = joined.replace(/\/+/g, '/');
+
+  // Resolve . and .. segments
+  const parts = normalized.split('/');
+  const result: string[] = [];
+
+  for (const part of parts) {
+    if (part === '..') {
+      if (result.length > 0 && result[result.length - 1] !== '..') {
+        result.pop();
+      } else {
+        result.push('..');
+      }
+    } else if (part !== '.' && part !== '') {
+      result.push(part);
+    }
+  }
+
+  return result.join('/') || '.';
+}
 
 /**
  * Represents an external link with its URL and extracted domain
@@ -150,7 +206,7 @@ function resolveRelativePath(linkPath: string, currentFilePath: string): string 
   }
 
   // Get the directory of the current file
-  const currentDir = path.dirname(currentFilePath || '');
+  const currentDir = dirname(currentFilePath || '');
 
   // Decode URL-encoded characters (e.g., %20 -> space)
   // Wrapped in try-catch to handle malformed URL encoding gracefully
@@ -163,7 +219,7 @@ function resolveRelativePath(linkPath: string, currentFilePath: string): string 
   }
 
   // Join and normalize the path
-  let resolved = path.join(currentDir, decodedPath);
+  let resolved = joinPath(currentDir, decodedPath);
 
   // Normalize path separators and remove leading ./
   resolved = resolved.replace(/\\/g, '/');
@@ -172,7 +228,7 @@ function resolveRelativePath(linkPath: string, currentFilePath: string): string 
   }
 
   // Ensure it ends with .md if it doesn't have an extension
-  if (!path.extname(resolved)) {
+  if (!extname(resolved)) {
     resolved = resolved + '.md';
   }
 

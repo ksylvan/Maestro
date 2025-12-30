@@ -10,8 +10,35 @@
  * - Description (from front matter)
  */
 
-import * as path from 'path';
 import { parseMarkdownLinks } from './markdownLinkParser';
+
+// Browser-compatible path utilities (Node's path module doesn't work in renderer)
+
+/**
+ * Get the basename of a path, optionally removing an extension
+ * (browser-compatible path.basename)
+ */
+function basename(filePath: string, ext?: string): string {
+  if (!filePath) return '';
+  const normalized = filePath.replace(/\\/g, '/');
+  let base = normalized.slice(normalized.lastIndexOf('/') + 1);
+  if (ext && base.endsWith(ext)) {
+    base = base.slice(0, -ext.length);
+  }
+  return base;
+}
+
+/**
+ * Get the extension of a path (browser-compatible path.extname)
+ */
+function extname(filePath: string): string {
+  if (!filePath) return '';
+  const normalized = filePath.replace(/\\/g, '/');
+  const base = normalized.slice(normalized.lastIndexOf('/') + 1);
+  const dotIndex = base.lastIndexOf('.');
+  if (dotIndex <= 0) return ''; // No extension or hidden file like .gitignore
+  return base.slice(dotIndex);
+}
 
 /**
  * Document statistics extracted from a markdown file
@@ -153,8 +180,7 @@ export function extractTitle(
   }
 
   // 3. Fall back to filename without extension
-  const basename = path.basename(filePath, path.extname(filePath));
-  return basename;
+  return basename(filePath, extname(filePath));
 }
 
 /**
@@ -212,7 +238,7 @@ export function computeDocumentStats(
     title = extractTitle(safeContent, safeFilePath, frontMatter);
   } catch (error) {
     console.warn(`Failed to extract title from ${safeFilePath}:`, error);
-    title = path.basename(safeFilePath, path.extname(safeFilePath));
+    title = basename(safeFilePath, extname(safeFilePath));
   }
 
   let lineCount: number;

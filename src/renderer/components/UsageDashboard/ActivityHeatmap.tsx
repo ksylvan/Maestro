@@ -273,16 +273,11 @@ export function ActivityHeatmap({ data, timeRange, theme, colorBlindMode = false
     (cell: HourData, event: React.MouseEvent<HTMLDivElement>) => {
       setHoveredCell(cell);
       const rect = event.currentTarget.getBoundingClientRect();
-      const tooltipWidth = 180; // Approximate tooltip width
-      const viewportWidth = window.innerWidth;
 
-      // Check if tooltip would overflow right edge
-      const wouldOverflowRight = rect.left + rect.width / 2 + tooltipWidth / 2 > viewportWidth - 20;
-
-      // Position tooltip above the cell, adjusting horizontally if needed
+      // Position tooltip centered above the cell
       setTooltipPos({
-        x: wouldOverflowRight ? rect.left - 10 : rect.left + rect.width / 2,
-        y: rect.top - 4,
+        x: rect.left + rect.width / 2,
+        y: rect.top,
       });
     },
     []
@@ -463,16 +458,35 @@ export function ActivityHeatmap({ data, timeRange, theme, colorBlindMode = false
       {/* Tooltip */}
       {hoveredCell && tooltipPos && (() => {
         const tooltipWidth = 180;
+        const tooltipHeight = 50;
         const viewportWidth = window.innerWidth;
-        const wouldOverflowRight = tooltipPos.x + tooltipWidth / 2 > viewportWidth - 20;
+        const margin = 12;
+
+        // Calculate horizontal position with edge detection
+        let left = tooltipPos.x;
+        let transformX = '-50%'; // Default: centered
+
+        // Check right edge overflow
+        if (tooltipPos.x + tooltipWidth / 2 > viewportWidth - margin) {
+          left = viewportWidth - margin;
+          transformX = '-100%';
+        }
+        // Check left edge overflow
+        else if (tooltipPos.x - tooltipWidth / 2 < margin) {
+          left = margin;
+          transformX = '0%';
+        }
+
+        // Check if tooltip would overflow top - if so, show below
+        const wouldOverflowTop = tooltipPos.y - tooltipHeight - margin < 0;
 
         return (
           <div
             className="fixed z-50 px-2 py-1.5 rounded text-xs whitespace-nowrap pointer-events-none shadow-lg"
             style={{
-              left: tooltipPos.x,
-              top: tooltipPos.y - 8,
-              transform: wouldOverflowRight ? 'translate(-100%, -100%)' : 'translate(-50%, -100%)',
+              left,
+              top: wouldOverflowTop ? tooltipPos.y + 20 : tooltipPos.y - 8,
+              transform: `translate(${transformX}, ${wouldOverflowTop ? '0%' : '-100%'})`,
               backgroundColor: theme.colors.bgActivity,
               color: theme.colors.textMain,
               border: `1px solid ${theme.colors.border}`,
