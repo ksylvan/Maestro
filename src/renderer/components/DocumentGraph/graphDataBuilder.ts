@@ -195,13 +195,29 @@ interface ParsedFile {
 }
 
 /**
+ * Lightweight link data for building the reverse link index.
+ * Only stores paths and links, not full stats, to minimize memory during initial scan.
+ */
+interface LinkIndexEntry {
+  /** Relative path from root */
+  relativePath: string;
+  /** Outgoing internal links */
+  outgoingLinks: string[];
+}
+
+/**
+ * Reverse link index: maps each file path to the set of files that link TO it.
+ * This enables bidirectional graph traversal.
+ */
+type ReverseLinkIndex = Map<string, Set<string>>;
+
+/**
  * Recursively scan a directory for all markdown files.
- * Note: Currently unused - retained for potential future features like "scan all" mode.
  * @param rootPath - Root directory to scan
  * @param onProgress - Optional callback for progress updates (reports number of directories scanned)
  * @returns Array of file paths relative to root
  */
-async function _scanMarkdownFiles(
+async function scanMarkdownFiles(
   rootPath: string,
   onProgress?: ProgressCallback
 ): Promise<string[]> {
@@ -327,8 +343,106 @@ async function parseFile(rootPath: string, relativePath: string): Promise<Parsed
 }
 
 /**
+ * Quickly extract just the internal links from a file (no stats computation).
+ * Used for building the reverse link index efficiently.
+ *
+ * @param rootPath - Root directory path
+ * @param relativePath - Path relative to root
+ * @returns LinkIndexEntry or null if reading fails
+ */
+async function parseFileLinksOnly(rootPath: string, relativePath: string): Promise<LinkIndexEntry | null> {
+  const fullPath = `${rootPath}/${relativePath}`;
+
+  try {
+    // Get file stats first to check size
+    const stat = await window.maestro.fs.stat(fullPath);
+    const fileSize = stat?.size ?? 0;
+    const isLargeFile = fileSize > LARGE_FILE_THRESHOLD;
+
+    // Read file content
+    const content = await window.maestro.fs.readFile(fullPath);
+    if (content === null || content === undefined) {
+      return null;
+    }
+
+    // For large files, truncate content for parsing
+    let contentForParsing = content;
+    if (isLargeFile && content.length > LARGE_FILE_PARSE_LIMIT) {
+      contentForParsing = content.substring(0, LARGE_FILE_PARSE_LIMIT);
+    }
+
+    // Parse links from content (only need internal links for index)
+    const { internalLinks } = parseMarkdownLinks(contentForParsing, relativePath);
+
+    return {
+      relativePath,
+      outgoingLinks: internalLinks,
+    };
+  } catch {
+    // Silently fail - file may not exist or be unreadable
+    return null;
+  }
+}
+
+/**
+ * Build a reverse link index by scanning all markdown files in the directory.
+ * The index maps each file path to the set of files that link TO it.
+ *
+ * @param rootPath - Root directory to scan
+ * @param onProgress - Optional progress callback
+ * @returns ReverseLinkIndex and set of all existing file paths
+ */
+async function buildReverseLinkIndex(
+  rootPath: string,
+  onProgress?: ProgressCallback
+): Promise<{ reverseIndex: ReverseLinkIndex; existingFiles: Set<string> }> {
+  // Scan all markdown files
+  const allFiles = await scanMarkdownFiles(rootPath, onProgress);
+  const existingFiles = new Set(allFiles);
+
+  // Build the reverse index
+  const reverseIndex: ReverseLinkIndex = new Map();
+
+  // Process files in batches to avoid blocking UI
+  let filesProcessed = 0;
+  for (const filePath of allFiles) {
+    const entry = await parseFileLinksOnly(rootPath, filePath);
+    if (entry) {
+      // For each outgoing link, add the current file as an incoming link
+      for (const targetPath of entry.outgoingLinks) {
+        if (!reverseIndex.has(targetPath)) {
+          reverseIndex.set(targetPath, new Set());
+        }
+        reverseIndex.get(targetPath)!.add(filePath);
+      }
+    }
+
+    filesProcessed++;
+    if (filesProcessed % BATCH_SIZE_BEFORE_YIELD === 0) {
+      await yieldToEventLoop();
+      if (onProgress) {
+        onProgress({
+          phase: 'scanning',
+          current: filesProcessed,
+          total: allFiles.length,
+          currentFile: filePath,
+        });
+      }
+    }
+  }
+
+  console.log('[DocumentGraph] Built reverse link index:', {
+    totalFiles: allFiles.length,
+    filesWithIncomingLinks: reverseIndex.size,
+  });
+
+  return { reverseIndex, existingFiles };
+}
+
+/**
  * Build graph data starting from a focus file and traversing outward via links.
  * Uses BFS to discover connected documents up to maxDepth levels.
+ * Now includes BOTH outgoing links (A → B) and incoming links (backlinks: X → A).
  *
  * @param options - Build configuration options
  * @returns GraphData with nodes and edges
@@ -340,6 +454,10 @@ export async function buildGraphData(options: BuildOptions): Promise<GraphData> 
 
   console.log('[DocumentGraph] Building graph from focus file:', { rootPath, focusFile, maxDepth, maxNodes });
 
+  // Step 1: Build reverse link index to enable bidirectional traversal
+  // This scans all markdown files to know which files link TO each file
+  const { reverseIndex, existingFiles } = await buildReverseLinkIndex(rootPath, onProgress);
+
   // Track parsed files by path for deduplication
   const parsedFileMap = new Map<string, ParsedFile>();
   // BFS queue: [relativePath, depth]
@@ -347,7 +465,7 @@ export async function buildGraphData(options: BuildOptions): Promise<GraphData> 
   // Track visited paths to avoid re-processing
   const visited = new Set<string>();
 
-  // Step 1: Parse the focus file first
+  // Step 2: Parse the focus file first
   const focusParsed = await parseFile(rootPath, focusFile);
   if (!focusParsed) {
     console.error(`[DocumentGraph] Failed to parse focus file: ${focusFile}`);
@@ -365,11 +483,22 @@ export async function buildGraphData(options: BuildOptions): Promise<GraphData> 
   parsedFileMap.set(focusFile, focusParsed);
   visited.add(focusFile);
 
-  // Add linked files to queue
+  // Add OUTGOING linked files to queue (focus file links to these)
   for (const link of focusParsed.internalLinks) {
-    if (!visited.has(link)) {
+    if (!visited.has(link) && existingFiles.has(link)) {
       queue.push({ path: link, depth: 1 });
       visited.add(link);
+    }
+  }
+
+  // Add INCOMING linked files to queue (these files link to focus file)
+  const incomingLinks = reverseIndex.get(focusFile);
+  if (incomingLinks) {
+    for (const incomingFile of incomingLinks) {
+      if (!visited.has(incomingFile)) {
+        queue.push({ path: incomingFile, depth: 1 });
+        visited.add(incomingFile);
+      }
     }
   }
 
@@ -385,7 +514,7 @@ export async function buildGraphData(options: BuildOptions): Promise<GraphData> 
     });
   }
 
-  // Step 2: BFS traversal to discover connected documents
+  // Step 3: BFS traversal to discover connected documents (bidirectionally)
   let filesProcessed = 1;
   let totalInternalLinks = focusParsed.internalLinks.length;
   let totalExternalLinks = focusParsed.externalLinks.length;
@@ -417,12 +546,23 @@ export async function buildGraphData(options: BuildOptions): Promise<GraphData> 
       });
     }
 
-    // Add linked files to queue (if not at max depth)
+    // Add OUTGOING linked files to queue (if not at max depth)
     if (depth < maxDepth) {
       for (const link of parsed.internalLinks) {
-        if (!visited.has(link)) {
+        if (!visited.has(link) && existingFiles.has(link)) {
           queue.push({ path: link, depth: depth + 1 });
           visited.add(link);
+        }
+      }
+
+      // Add INCOMING linked files to queue (backlinks)
+      const incoming = reverseIndex.get(path);
+      if (incoming) {
+        for (const incomingFile of incoming) {
+          if (!visited.has(incomingFile)) {
+            queue.push({ path: incomingFile, depth: depth + 1 });
+            visited.add(incomingFile);
+          }
         }
       }
     }
