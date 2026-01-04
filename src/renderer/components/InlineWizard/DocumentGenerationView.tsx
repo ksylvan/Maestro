@@ -67,6 +67,8 @@ export interface DocumentGenerationViewProps {
   currentGeneratingIndex?: number;
   /** Total number of documents to generate (for progress indicator) */
   totalDocuments?: number;
+  /** Called when user wants to cancel generation */
+  onCancel?: () => void;
 }
 
 /**
@@ -809,6 +811,7 @@ export function DocumentGenerationView({
   progressMessage,
   currentGeneratingIndex,
   totalDocuments,
+  onCancel,
 }: DocumentGenerationViewProps): JSX.Element {
   const currentDoc = documents[currentDocumentIndex];
   const [localContent, setLocalContent] = useState(currentDoc?.content || '');
@@ -928,8 +931,10 @@ export function DocumentGenerationView({
     0
   );
 
-  // If generating, show streaming preview
-  if (isGenerating && streamingContent !== undefined) {
+  // If generating with actual streaming content, show streaming preview
+  // Only show streaming preview once we have meaningful content (more than a few chars)
+  const hasStreamingContent = streamingContent !== undefined && streamingContent.length > 10;
+  if (isGenerating && hasStreamingContent) {
     return (
       <div
         className="relative flex flex-col h-full"
@@ -947,23 +952,69 @@ export function DocumentGenerationView({
     );
   }
 
-  // If no documents yet, show loading state with centered Austin Facts
-  if (documents.length === 0) {
+  // If generating but no streaming content yet, OR no documents yet, show centered loading state
+  if (isGenerating || documents.length === 0) {
     return (
       <div
-        className="flex flex-col items-center justify-center h-full"
+        className="flex flex-col h-full items-center justify-center p-6"
         style={{ backgroundColor: theme.colors.bgMain }}
       >
-        <div className="text-center mb-6">
-          <Loader2
-            className="w-8 h-8 animate-spin mx-auto mb-4"
-            style={{ color: theme.colors.accent }}
-          />
-          <p style={{ color: theme.colors.textDim }}>
-            {progressMessage || 'Preparing documents...'}
+        {/* Main loading content - centered vertically */}
+        <div className="flex flex-col items-center">
+          {/* Animated spinner */}
+          <div className="relative mb-4">
+            <div
+              className="w-14 h-14 rounded-full border-4 border-t-transparent animate-spin"
+              style={{
+                borderColor: `${theme.colors.border}`,
+                borderTopColor: theme.colors.accent,
+              }}
+            />
+            {/* Inner pulsing circle */}
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div
+                className="w-7 h-7 rounded-full animate-pulse"
+                style={{ backgroundColor: `${theme.colors.accent}30` }}
+              />
+            </div>
+          </div>
+
+          {/* Message */}
+          <h3
+            className="text-lg font-semibold mb-1 text-center"
+            style={{ color: theme.colors.textMain }}
+          >
+            {progressMessage || 'Preparing Playbooks...'}
+          </h3>
+
+          {/* Subtitle */}
+          <p
+            className="text-sm text-center max-w-md"
+            style={{ color: theme.colors.textDim }}
+          >
+            Creating detailed task documents based on your conversation.
           </p>
+
+          {/* Cancel button */}
+          {onCancel && (
+            <button
+              onClick={onCancel}
+              className="mt-4 px-4 py-2 text-sm rounded transition-colors hover:opacity-80"
+              style={{
+                backgroundColor: theme.colors.bgActivity,
+                color: theme.colors.textDim,
+                border: `1px solid ${theme.colors.border}`,
+              }}
+            >
+              Cancel
+            </button>
+          )}
+
+          {/* Austin Facts - centered below other content */}
+          <div className="mt-8">
+            <AustinFactsDisplay theme={theme} isVisible={true} centered />
+          </div>
         </div>
-        <AustinFactsDisplay theme={theme} isVisible={true} centered />
       </div>
     );
   }

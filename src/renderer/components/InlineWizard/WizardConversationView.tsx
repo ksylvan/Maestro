@@ -51,6 +51,12 @@ export interface WizardConversationViewProps {
   onRetry?: () => void;
   /** Callback to clear the error */
   onClearError?: () => void;
+  /** Whether to show thinking content instead of filler phrases */
+  showThinking?: boolean;
+  /** Thinking content being streamed from the AI */
+  thinkingContent?: string;
+  /** Whether document generation has started (to hide Let's Go button once generation begins) */
+  hasStartedGenerating?: boolean;
 }
 
 /**
@@ -88,24 +94,38 @@ function TypingIndicator({
   const [displayedText, setDisplayedText] = useState('');
   const [isTypingComplete, setIsTypingComplete] = useState(false);
 
-  // Typewriter effect
+  // Typewriter effect using requestAnimationFrame for smoother animation
   useEffect(() => {
     const text = fillerPhrase || 'Thinking...';
     let currentIndex = 0;
+    let lastTime = 0;
+    const charDelay = 30; // 30ms per character for a natural typing speed
+    let rafId: number;
+
     setDisplayedText('');
     setIsTypingComplete(false);
 
-    const typeInterval = setInterval(() => {
-      if (currentIndex < text.length) {
-        setDisplayedText(text.slice(0, currentIndex + 1));
-        currentIndex++;
-      } else {
-        setIsTypingComplete(true);
-        clearInterval(typeInterval);
-      }
-    }, 30); // 30ms per character for a natural typing speed
+    function tick(timestamp: number) {
+      if (!lastTime) lastTime = timestamp;
+      const elapsed = timestamp - lastTime;
 
-    return () => clearInterval(typeInterval);
+      if (elapsed >= charDelay) {
+        if (currentIndex < text.length) {
+          currentIndex++;
+          setDisplayedText(text.slice(0, currentIndex));
+          lastTime = timestamp;
+          rafId = requestAnimationFrame(tick);
+        } else {
+          setIsTypingComplete(true);
+        }
+      } else {
+        rafId = requestAnimationFrame(tick);
+      }
+    }
+
+    rafId = requestAnimationFrame(tick);
+
+    return () => cancelAnimationFrame(rafId);
   }, [fillerPhrase]);
 
   // Rotate to new phrase 5 seconds after typing completes
@@ -168,6 +188,58 @@ function TypingIndicator({
               }}
             />
           </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * ThinkingDisplay - Shows AI thinking content when showThinking is enabled.
+ * Displays raw thinking content with styling similar to the normal AI terminal.
+ */
+function ThinkingDisplay({
+  theme,
+  agentName,
+  thinkingContent,
+}: {
+  theme: Theme;
+  agentName: string;
+  thinkingContent: string;
+}): JSX.Element {
+  return (
+    <div className="flex justify-start mb-4" data-testid="wizard-thinking-display">
+      <div
+        className="max-w-[80%] rounded-lg rounded-bl-none px-4 py-3 border-l-2"
+        style={{
+          backgroundColor: theme.colors.bgActivity,
+          borderColor: theme.colors.accent,
+        }}
+      >
+        <div className="flex items-center gap-2 mb-2">
+          <span
+            className="text-xs font-medium"
+            style={{ color: theme.colors.accent }}
+          >
+            {formatAgentName(agentName)}
+          </span>
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded"
+            style={{
+              backgroundColor: `${theme.colors.accent}30`,
+              color: theme.colors.accent,
+            }}
+          >
+            thinking
+          </span>
+        </div>
+        <div
+          className="text-sm whitespace-pre-wrap font-mono"
+          style={{ color: theme.colors.textDim, opacity: 0.85 }}
+          data-testid="thinking-display-content"
+        >
+          {thinkingContent || 'Reasoning...'}
+          <span className="animate-pulse ml-1" data-testid="thinking-cursor">▊</span>
         </div>
       </div>
     </div>
@@ -398,6 +470,9 @@ export function WizardConversationView({
   error = null,
   onRetry,
   onClearError,
+  showThinking = false,
+  thinkingContent = '',
+  hasStartedGenerating = false,
 }: WizardConversationViewProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -410,7 +485,7 @@ export function WizardConversationView({
 
   useEffect(() => {
     scrollToBottom();
-  }, [conversationHistory, isLoading, streamingText, error, scrollToBottom]);
+  }, [conversationHistory, isLoading, streamingText, thinkingContent, error, scrollToBottom]);
 
   // Get a new filler phrase when requested by the TypingIndicator
   const handleRequestNewPhrase = useCallback(() => {
@@ -515,7 +590,7 @@ export function WizardConversationView({
         />
       ))}
 
-      {/* Streaming Response or Typing Indicator */}
+      {/* Streaming Response, Thinking Display, or Typing Indicator */}
       {isLoading &&
         !error &&
         (streamingText ? (
@@ -524,7 +599,22 @@ export function WizardConversationView({
             agentName={agentName}
             streamingText={streamingText}
           />
+        ) : showThinking && thinkingContent ? (
+          // When showThinking is enabled and we have thinking content, show it
+          <ThinkingDisplay
+            theme={theme}
+            agentName={agentName}
+            thinkingContent={thinkingContent}
+          />
+        ) : showThinking ? (
+          // When showThinking is enabled but no content yet, show minimal thinking display
+          <ThinkingDisplay
+            theme={theme}
+            agentName={agentName}
+            thinkingContent=""
+          />
         ) : (
+          // Otherwise show the filler phrase typing indicator
           <TypingIndicator
             theme={theme}
             agentName={agentName}
@@ -543,8 +633,8 @@ export function WizardConversationView({
         />
       )}
 
-      {/* "Let's Go" Action Button - shown when ready and confidence threshold met */}
-      {ready && confidence >= READY_CONFIDENCE_THRESHOLD && !isLoading && onLetsGo && (
+      {/* "Let's Go" Action Button - shown when ready and confidence threshold met, but NOT after generation has started */}
+      {ready && confidence >= READY_CONFIDENCE_THRESHOLD && !isLoading && !hasStartedGenerating && onLetsGo && (
         <div
           className="mx-auto max-w-md mb-4 p-4 rounded-lg text-center"
           style={{

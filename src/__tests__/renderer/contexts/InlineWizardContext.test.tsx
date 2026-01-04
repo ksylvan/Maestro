@@ -117,9 +117,11 @@ describe('InlineWizardContext', () => {
         sessionId: null,
         streamingContent: '',
         generationProgress: null,
+        currentDocumentIndex: 0,
         lastUserMessageContent: null,
         agentSessionId: null,
         subfolderName: null,
+        subfolderPath: null,
       });
     });
   });
@@ -295,9 +297,11 @@ describe('InlineWizardContext', () => {
         sessionId: null,
         streamingContent: '',
         generationProgress: null,
+        currentDocumentIndex: 0,
         lastUserMessageContent: null,
         agentSessionId: null,
         subfolderName: null,
+        subfolderPath: null,
       });
     });
   });

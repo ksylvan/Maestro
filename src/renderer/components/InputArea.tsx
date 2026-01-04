@@ -116,6 +116,9 @@ interface InputAreaProps {
   onCancelMerge?: () => void;
   // Inline wizard mode props
   onExitWizard?: () => void;
+  // Wizard thinking toggle
+  wizardShowThinking?: boolean;
+  onToggleWizardShowThinking?: () => void;
 }
 
 export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
@@ -167,7 +170,10 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
     mergeTargetName,
     onCancelMerge,
     // Inline wizard mode props
-    onExitWizard
+    onExitWizard,
+    // Wizard thinking toggle
+    wizardShowThinking = false,
+    onToggleWizardShowThinking
   } = props;
 
   // Get agent capabilities for conditional feature rendering
@@ -306,8 +312,9 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
     );
   }
 
-  // Show WizardInputPanel when wizard is active (wizardState is per-tab)
-  if (wizardState?.isActive && onExitWizard) {
+  // Show WizardInputPanel when wizard is active AND in AI mode (wizardState is per-tab)
+  // When in terminal mode, show the normal terminal input even if wizard is active
+  if (wizardState?.isActive && onExitWizard && session.inputMode === 'ai') {
     return (
       <WizardInputPanel
         session={session}
@@ -332,6 +339,8 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
         onInputBlur={onInputBlur}
         showFlashNotification={showFlashNotification}
         setLightboxImage={setLightboxImage}
+        showThinking={wizardShowThinking}
+        onToggleShowThinking={onToggleWizardShowThinking}
       />
     );
   }

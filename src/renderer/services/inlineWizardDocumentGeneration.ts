@@ -12,6 +12,7 @@
 import type { ToolType } from '../types';
 import type { InlineWizardMessage, InlineGeneratedDocument } from '../hooks/useInlineWizard';
 import type { ExistingDocument } from '../utils/existingDocsDetector';
+import { logger } from '../utils/logger';
 import {
   wizardDocumentGenerationPrompt,
   wizardInlineIterateGenerationPrompt,
@@ -24,9 +25,71 @@ import { substituteTemplateVariables, type TemplateContext } from '../utils/temp
 export const AUTO_RUN_FOLDER_NAME = 'Auto Run Docs';
 
 /**
- * Generation timeout in milliseconds (5 minutes).
+ * Generation timeout in milliseconds (20 minutes).
  */
-const GENERATION_TIMEOUT = 300000;
+const GENERATION_TIMEOUT = 1200000;
+
+/**
+ * Extract displayable text from streaming JSON chunks.
+ * Parses Claude's stream-json format and extracts text from content_block_delta
+ * events and assistant messages.
+ *
+ * @param chunk - Raw JSON chunk from the streaming output
+ * @param agentType - Type of agent to determine parsing strategy
+ * @returns Extracted text to display, or empty string if no text found
+ */
+export function extractDisplayTextFromChunk(chunk: string, agentType: ToolType): string {
+  // Split into lines in case multiple JSON objects are in one chunk
+  const lines = chunk.split('\n').filter(line => line.trim());
+  const textParts: string[] = [];
+
+  for (const line of lines) {
+    try {
+      const msg = JSON.parse(line);
+
+      // Claude Code stream-json format
+      if (agentType === 'claude-code') {
+        // content_block_delta contains streaming text
+        if (msg.type === 'content_block_delta' && msg.delta?.text) {
+          textParts.push(msg.delta.text);
+        }
+        // assistant message chunks
+        else if (msg.type === 'assistant' && msg.message?.content) {
+          for (const block of msg.message.content) {
+            if (block.type === 'text' && block.text) {
+              textParts.push(block.text);
+            }
+          }
+        }
+      }
+
+      // OpenCode format
+      else if (agentType === 'opencode') {
+        if (msg.type === 'text' && msg.part?.text) {
+          textParts.push(msg.part.text);
+        }
+      }
+
+      // Codex format
+      else if (agentType === 'codex') {
+        if (msg.type === 'agent_message' && msg.content) {
+          for (const block of msg.content) {
+            if (block.type === 'text' && block.text) {
+              textParts.push(block.text);
+            }
+          }
+        }
+        if (msg.type === 'message' && msg.text) {
+          textParts.push(msg.text);
+        }
+      }
+    } catch {
+      // Ignore non-JSON lines or parse errors
+    }
+  }
+
+  return textParts.join('');
+}
 
 /**
  * Callbacks for document generation progress.
@@ -481,9 +544,8 @@ function extractResultFromStreamJson(output: string, agentType: ToolType): strin
 
 /**
  * Build CLI args for the agent based on its type and capabilities.
- * For document generation, we restrict tool usage to read-only operations
- * to prevent the agent from directly writing files instead of outputting
- * document markers for the application to save.
+ * For document generation, the agent can write files directly to the Auto Run folder.
+ * The prompt strictly enforces the write restriction to prevent writing elsewhere.
  */
 function buildArgsForAgent(agent: { id: string; args?: string[] }): string[] {
   const agentId = agent.id;
@@ -494,12 +556,11 @@ function buildArgsForAgent(agent: { id: string; args?: string[] }): string[] {
       if (!args.includes('--include-partial-messages')) {
         args.push('--include-partial-messages');
       }
-      // Restrict to read-only tools during document generation
-      // The agent should output document markers (---BEGIN DOCUMENT--- / ---END DOCUMENT---)
-      // which the application parses and saves to the Auto Run folder.
-      // This prevents the agent from directly creating files in the project directory.
+      // Allow Write tool so agent can create files directly in Auto Run folder.
+      // The prompt strictly limits writes to the Auto Run folder only.
+      // This enables real-time streaming of documents as they're created.
       if (!args.includes('--allowedTools')) {
-        args.push('--allowedTools', 'Read', 'Glob', 'Grep', 'LS');
+        args.push('--allowedTools', 'Read', 'Glob', 'Grep', 'LS', 'Write');
       }
       return args;
     }
@@ -535,8 +596,12 @@ async function saveDocument(
   // Ensure filename has .md extension
   const filename = sanitized.endsWith('.md') ? sanitized : `${sanitized}.md`;
 
-  const action = doc.isUpdate ? 'Updating' : 'Creating';
-  console.log(`[InlineWizardDocGen] ${action} document:`, filename);
+  const action = doc.isUpdate ? 'Updated' : 'Created';
+  logger.info(
+    `${action} document: ${filename}`,
+    '[InlineWizardDocGen]',
+    { filename, action, autoRunFolderPath }
+  );
 
   // Write the document (creates or overwrites as needed)
   const result = await window.maestro.autorun.writeDoc(
@@ -588,7 +653,18 @@ export async function generateInlineDocuments(
   const subfolderName = await generateUniqueSubfolderName(autoRunFolderPath, baseFolderName);
   const subfolderPath = `${autoRunFolderPath}/${subfolderName}`;
 
-  console.log(`[InlineWizardDocGen] Using subfolder: ${subfolderName} (base: ${baseFolderName})`);
+  logger.info(
+    `Starting document generation for "${projectName}"`,
+    '[InlineWizardDocGen]',
+    {
+      subfolderName,
+      baseFolderName,
+      autoRunFolderPath,
+      agentType,
+      mode: config.mode,
+      conversationLength: config.conversationHistory.length,
+    }
+  );
 
   try {
     // Get the agent configuration
@@ -606,24 +682,48 @@ export async function generateInlineDocuments(
     const sessionId = `inline-wizard-gen-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const argsForSpawn = buildArgsForAgent(agent);
 
+    // Track documents created via file watcher (for real-time streaming)
+    const documentsFromWatcher: InlineGeneratedDocument[] = [];
+
     const result = await new Promise<{ success: boolean; rawOutput: string; error?: string }>((resolve) => {
       let outputBuffer = '';
       let dataListenerCleanup: (() => void) | undefined;
       let exitListenerCleanup: (() => void) | undefined;
+      let fileWatcherCleanup: (() => void) | undefined;
+      let lastActivityTime = Date.now();
 
-      // Set up timeout (5 minutes for complex generation)
-      const timeoutId = setTimeout(() => {
+      /**
+       * Reset the inactivity timeout - called on any activity
+       */
+      const resetTimeout = () => {
+        clearTimeout(timeoutId);
+        lastActivityTime = Date.now();
+
+        timeoutId = setTimeout(() => {
+          console.error('[InlineWizardDocGen] TIMEOUT fired! Session:', sessionId);
+          cleanupAll();
+          window.maestro.process.kill(sessionId).catch(() => {});
+          resolve({
+            success: false,
+            rawOutput: outputBuffer,
+            error: 'Generation timed out after 20 minutes of inactivity. Please try again.',
+          });
+        }, GENERATION_TIMEOUT);
+      };
+
+      // Set up timeout (20 minutes for complex generation)
+      let timeoutId = setTimeout(() => {
         console.error('[InlineWizardDocGen] TIMEOUT fired! Session:', sessionId);
-        cleanupListeners();
+        cleanupAll();
         window.maestro.process.kill(sessionId).catch(() => {});
         resolve({
           success: false,
           rawOutput: outputBuffer,
-          error: 'Generation timed out after 5 minutes. Please try again.',
+          error: 'Generation timed out after 20 minutes. Please try again.',
         });
       }, GENERATION_TIMEOUT);
 
-      function cleanupListeners() {
+      function cleanupAll() {
         if (dataListenerCleanup) {
           dataListenerCleanup();
           dataListenerCleanup = undefined;
@@ -632,13 +732,89 @@ export async function generateInlineDocuments(
           exitListenerCleanup();
           exitListenerCleanup = undefined;
         }
+        if (fileWatcherCleanup) {
+          fileWatcherCleanup();
+          fileWatcherCleanup = undefined;
+        }
+        // Stop watching the subfolder
+        window.maestro.autorun.unwatchFolder(subfolderPath).catch(() => {});
       }
+
+      // Set up file watcher for real-time document streaming
+      // The agent writes files directly, and we detect them here
+      window.maestro.autorun.watchFolder(subfolderPath).then((watchResult) => {
+        if (watchResult.success) {
+          console.log('[InlineWizardDocGen] Started watching folder:', subfolderPath);
+
+          // Set up file change listener
+          fileWatcherCleanup = window.maestro.autorun.onFileChanged((data) => {
+            if (data.folderPath === subfolderPath) {
+              console.log('[InlineWizardDocGen] File activity:', data.filename, data.eventType);
+
+              // Reset timeout on file activity
+              resetTimeout();
+
+              // If a file was created/changed, read it and notify
+              if (data.filename && (data.eventType === 'rename' || data.eventType === 'change')) {
+                // Re-add the .md extension since main process may strip it
+                const filenameWithExt = data.filename.endsWith('.md') ? data.filename : `${data.filename}.md`;
+                const fullPath = `${subfolderPath}/${filenameWithExt}`;
+
+                // Use retry logic since file might still be being written
+                const readWithRetry = async (retries = 3, delayMs = 200): Promise<void> => {
+                  for (let attempt = 1; attempt <= retries; attempt++) {
+                    try {
+                      const content = await window.maestro.fs.readFile(fullPath);
+                      if (content && typeof content === 'string' && content.length > 0) {
+                        console.log('[InlineWizardDocGen] File read successful:', filenameWithExt, 'size:', content.length);
+
+                        // Check if we've already processed this document
+                        const alreadyProcessed = documentsFromWatcher.some(d => d.filename === filenameWithExt);
+                        if (alreadyProcessed) {
+                          console.log('[InlineWizardDocGen] Document already processed:', filenameWithExt);
+                          return;
+                        }
+
+                        const doc: InlineGeneratedDocument = {
+                          filename: filenameWithExt,
+                          content,
+                          taskCount: countTasks(content),
+                          savedPath: fullPath,
+                        };
+
+                        documentsFromWatcher.push(doc);
+                        callbacks?.onDocumentComplete?.(doc);
+                        return;
+                      }
+                    } catch (err) {
+                      console.log(`[InlineWizardDocGen] File read attempt ${attempt}/${retries} failed for ${filenameWithExt}:`, err);
+                    }
+                    if (attempt < retries) {
+                      await new Promise(r => setTimeout(r, delayMs));
+                    }
+                  }
+
+                  // Even if we couldn't read content, note that file exists
+                  console.log('[InlineWizardDocGen] Could not read file content:', filenameWithExt);
+                };
+
+                readWithRetry();
+              }
+            }
+          });
+        } else {
+          console.warn('[InlineWizardDocGen] Could not watch folder:', watchResult.error);
+        }
+      }).catch((err) => {
+        console.warn('[InlineWizardDocGen] Error setting up folder watcher:', err);
+      });
 
       // Set up data listener
       dataListenerCleanup = window.maestro.process.onData(
         (receivedSessionId: string, data: string) => {
           if (receivedSessionId === sessionId) {
             outputBuffer += data;
+            resetTimeout();
             callbacks?.onChunk?.(data);
           }
         }
@@ -649,7 +825,7 @@ export async function generateInlineDocuments(
         (receivedSessionId: string, code: number) => {
           if (receivedSessionId === sessionId) {
             clearTimeout(timeoutId);
-            cleanupListeners();
+            cleanupAll();
 
             console.log('[InlineWizardDocGen] Agent exited with code:', code);
 
@@ -670,6 +846,12 @@ export async function generateInlineDocuments(
       );
 
       // Spawn the agent process
+      logger.info(
+        `Spawning document generation agent`,
+        '[InlineWizardDocGen]',
+        { sessionId, agentType, cwd: directoryPath }
+      );
+
       window.maestro.process
         .spawn({
           sessionId,
@@ -680,10 +862,10 @@ export async function generateInlineDocuments(
           prompt,
         })
         .then(() => {
-          console.log('[InlineWizardDocGen] Agent spawned successfully');
+          logger.debug('Document generation agent spawned successfully', '[InlineWizardDocGen]', { sessionId });
         })
         .catch((error: Error) => {
-          cleanupListeners();
+          cleanupAll();
           clearTimeout(timeoutId);
           resolve({
             success: false,
@@ -702,10 +884,57 @@ export async function generateInlineDocuments(
       };
     }
 
-    // Parse the output
-    callbacks?.onProgress?.('Parsing generated documents...');
-
     const rawOutput = result.rawOutput;
+
+    // If documents were streamed in via file watcher, use those
+    // (they were already created directly by the agent)
+    if (documentsFromWatcher.length > 0) {
+      console.log('[InlineWizardDocGen] Using documents from file watcher:', documentsFromWatcher.length);
+
+      // Sort by phase number for consistent ordering
+      const sortedDocs = [...documentsFromWatcher].sort((a, b) => {
+        const phaseA = a.filename.match(/Phase-(\d+)/i)?.[1] || '0';
+        const phaseB = b.filename.match(/Phase-(\d+)/i)?.[1] || '0';
+        return parseInt(phaseA, 10) - parseInt(phaseB, 10);
+      });
+
+      // Create a playbook for the generated documents (if sessionId provided)
+      let playbookInfo: { id: string; name: string } | undefined;
+      if (config.sessionId && sortedDocs.length > 0) {
+        callbacks?.onProgress?.('Creating playbook configuration...');
+        try {
+          playbookInfo = await createPlaybookForDocuments(
+            config.sessionId,
+            projectName,
+            subfolderName,
+            sortedDocs
+          );
+          logger.info(
+            `Created playbook for ${sortedDocs.length} document(s)`,
+            '[InlineWizardDocGen]',
+            { playbookId: playbookInfo?.id, playbookName: playbookInfo?.name, subfolderName }
+          );
+        } catch (error) {
+          console.error('[InlineWizardDocGen] Failed to create playbook:', error);
+        }
+      }
+
+      callbacks?.onProgress?.(`Generated ${sortedDocs.length} Auto Run document(s)`);
+      callbacks?.onComplete?.(sortedDocs);
+
+      return {
+        success: true,
+        documents: sortedDocs,
+        rawOutput,
+        subfolderName,
+        subfolderPath,
+        playbook: playbookInfo,
+      };
+    }
+
+    // Fallback: Parse documents from output (legacy marker-based approach)
+    // This handles cases where file watcher didn't detect files
+    callbacks?.onProgress?.('Parsing generated documents...');
 
     // Try to extract result from stream-json format
     const extractedResult = extractResultFromStreamJson(rawOutput, agentType);
@@ -756,16 +985,20 @@ export async function generateInlineDocuments(
 
     // Create a playbook for the generated documents (if sessionId provided)
     let playbookInfo: { id: string; name: string } | undefined;
-    if (sessionId && savedDocuments.length > 0) {
+    if (config.sessionId && savedDocuments.length > 0) {
       callbacks?.onProgress?.('Creating playbook configuration...');
       try {
         playbookInfo = await createPlaybookForDocuments(
-          sessionId,
+          config.sessionId,
           projectName,
           subfolderName,
           savedDocuments
         );
-        console.log('[InlineWizardDocGen] Created playbook:', playbookInfo);
+        logger.info(
+          `Created playbook for ${savedDocuments.length} document(s)`,
+          '[InlineWizardDocGen]',
+          { playbookId: playbookInfo?.id, playbookName: playbookInfo?.name, subfolderName }
+        );
       } catch (error) {
         console.error('[InlineWizardDocGen] Failed to create playbook:', error);
         // Don't fail the overall operation if playbook creation fails

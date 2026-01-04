@@ -21,7 +21,7 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { Terminal, Wand2, ImageIcon, ArrowUp, PenLine, X, Keyboard } from 'lucide-react';
+import { Terminal, Wand2, ImageIcon, ArrowUp, PenLine, X, Keyboard, Brain } from 'lucide-react';
 import type { Session, Theme } from '../../types';
 import { WizardPill } from './WizardPill';
 import { WizardConfidenceGauge } from './WizardConfidenceGauge';
@@ -72,6 +72,10 @@ interface WizardInputPanelProps {
   showFlashNotification?: (message: string) => void;
   /** Set lightbox image */
   setLightboxImage?: (image: string | null, contextImages?: string[], source?: 'staged' | 'history') => void;
+  /** Whether to show thinking content instead of filler phrases */
+  showThinking?: boolean;
+  /** Toggle show thinking mode */
+  onToggleShowThinking?: () => void;
 }
 
 /**
@@ -108,6 +112,8 @@ export const WizardInputPanel = React.memo(function WizardInputPanel({
   onInputBlur,
   showFlashNotification,
   setLightboxImage,
+  showThinking = false,
+  onToggleShowThinking,
 }: WizardInputPanelProps) {
   // State for exit confirmation dialog
   const [showExitConfirm, setShowExitConfirm] = useState(false);
@@ -120,16 +126,14 @@ export const WizardInputPanel = React.memo(function WizardInputPanel({
     }
   }, [inputValue, inputRef]);
 
-  // Auto-focus input when wizard mode becomes active
+  // Auto-focus input on mount (this component only renders when wizard is active)
   useEffect(() => {
-    if (session.wizardState?.isActive && inputRef.current) {
-      // Small delay to ensure DOM is ready
-      const timer = setTimeout(() => {
-        inputRef.current?.focus();
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-  }, [session.wizardState?.isActive, inputRef]);
+    // Use requestAnimationFrame to ensure the DOM is painted before focusing
+    const rafId = requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [inputRef]);
 
   // Handle Escape key to show exit confirmation
   const handleEscapeKey = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -285,7 +289,20 @@ export const WizardInputPanel = React.memo(function WizardInputPanel({
               </div>
 
               <div className="flex items-center gap-2">
-                {/* Note: Read-only, History, and Thinking toggles are intentionally hidden in wizard mode */}
+                {/* Show Thinking toggle - when on, shows raw AI thinking instead of filler phrases */}
+                {!isTerminalMode && onToggleShowThinking && (
+                  <button
+                    onClick={onToggleShowThinking}
+                    className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded hover:bg-white/5 transition-opacity ${
+                      showThinking ? 'opacity-100' : 'opacity-50 hover:opacity-100'
+                    }`}
+                    title={showThinking ? 'Hide AI thinking (show filler messages)' : 'Show AI thinking'}
+                    style={showThinking ? { color: theme.colors.accent } : undefined}
+                  >
+                    <Brain className="w-3 h-3" />
+                    <span>{showThinking ? 'Thinking' : 'Thinking'}</span>
+                  </button>
+                )}
                 <button
                   onClick={() => setEnterToSend(!enterToSend)}
                   className="flex items-center gap-1 text-[10px] opacity-50 hover:opacity-100 px-2 py-1 rounded hover:bg-white/5"

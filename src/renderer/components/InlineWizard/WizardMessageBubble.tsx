@@ -13,6 +13,7 @@
  * - Confidence badge for assistant messages (when confidence is available)
  */
 
+import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Theme } from '../../types';
@@ -70,8 +71,12 @@ function formatTimestamp(timestamp: number): string {
 
 /**
  * WizardMessageBubble - Individual conversation message display for inline wizard
+ *
+ * Memoized to prevent unnecessary re-renders when parent state changes
+ * (e.g., new messages added, isLoading updates, confidence changes).
+ * Only re-renders when the message itself or styling props change.
  */
-export function WizardMessageBubble({
+export const WizardMessageBubble = React.memo(function WizardMessageBubble({
   message,
   theme,
   agentName = 'Agent',
@@ -226,4 +231,4 @@ export function WizardMessageBubble({
       </div>
     </div>
   );
-}
+});

@@ -792,7 +792,7 @@ export function PreparingPlanScreen({
                 return;
               }
 
-              // Save documents to disk
+              // Save documents to disk in "Initiation" subfolder
               setProgressMessage('Saving documents...');
               const saveResult = await phaseGenerator.saveDocuments(
                 state.directoryPath,
@@ -800,7 +800,8 @@ export function PreparingPlanScreen({
                 (file) => {
                   // Add file to the created files list as it's saved
                   addCreatedFile(file);
-                }
+                },
+                'Initiation' // Save in Initiation subfolder
               );
 
               if (saveResult.success) {

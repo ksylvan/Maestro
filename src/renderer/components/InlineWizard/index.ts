@@ -1,8 +1,12 @@
 /**
- * InlineWizard components index
+ * Inline Wizard (`/wizard` command)
  *
- * Components for the inline wizard that runs within the AI terminal,
- * triggered by the /wizard slash command.
+ * Components for creating Auto Run Playbook documents from within an existing
+ * agent session. Unlike the full-screen Onboarding Wizard, this runs inside a
+ * single tab using the existing agent connection.
+ *
+ * For detailed documentation on user flow, state management, and architecture,
+ * see the "Inline Wizard" section in CLAUDE.md.
  */
 
 export { WizardPill } from './WizardPill';

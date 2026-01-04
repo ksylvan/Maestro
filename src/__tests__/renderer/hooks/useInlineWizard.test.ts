@@ -55,6 +55,8 @@ vi.mock('../../../renderer/services/inlineWizardDocumentGeneration', () => ({
     subfolderName: 'Test-Project',
     subfolderPath: '/test/project/Auto Run Docs/Test-Project',
   }),
+  // By default, return the chunk as-is (pass-through for tests)
+  extractDisplayTextFromChunk: vi.fn().mockImplementation((chunk: string) => chunk),
 }));
 
 import { generateInlineDocuments } from '../../../renderer/services/inlineWizardDocumentGeneration';

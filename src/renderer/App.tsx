@@ -4330,6 +4330,63 @@ You are taking over this conversation. Based on the context above, provide a bri
     isWizardActiveForTab: isInlineWizardActiveForTab,
   } = useInlineWizardContext();
 
+  // Wrapper for sendInlineWizardMessage that adds thinking content callback
+  // This extracts thinking content from the streaming response and stores it in wizardState
+  const sendWizardMessageWithThinking = useCallback(async (content: string) => {
+    // Clear previous thinking content when starting a new message
+    if (activeSession) {
+      const activeTab = getActiveTab(activeSession);
+      if (activeTab?.wizardState) {
+        setSessions(prev => prev.map(s => {
+          if (s.id !== activeSession.id) return s;
+          return {
+            ...s,
+            aiTabs: s.aiTabs.map(tab => {
+              if (tab.id !== activeTab.id) return tab;
+              if (!tab.wizardState) return tab;
+              return {
+                ...tab,
+                wizardState: {
+                  ...tab.wizardState,
+                  thinkingContent: '', // Clear previous thinking
+                }
+              };
+            })
+          };
+        }));
+      }
+    }
+
+    // Send message with thinking callback
+    await sendInlineWizardMessage(content, {
+      onThinkingChunk: (chunk) => {
+        // Only accumulate thinking content if showWizardThinking is enabled
+        if (!activeSession) return;
+        const activeTab = getActiveTab(activeSession);
+        if (!activeTab?.wizardState?.showWizardThinking) return;
+
+        // Accumulate thinking content in the session state
+        setSessions(prev => prev.map(s => {
+          if (s.id !== activeSession.id) return s;
+          return {
+            ...s,
+            aiTabs: s.aiTabs.map(tab => {
+              if (tab.id !== activeTab.id) return tab;
+              if (!tab.wizardState) return tab;
+              return {
+                ...tab,
+                wizardState: {
+                  ...tab.wizardState,
+                  thinkingContent: (tab.wizardState.thinkingContent || '') + chunk,
+                }
+              };
+            })
+          };
+        }));
+      },
+    });
+  }, [activeSession, sendInlineWizardMessage, setSessions]);
+
   // Sync inline wizard context state to activeTab.wizardState (per-tab wizard state)
   // This bridges the gap between the context-based state and tab-based UI rendering
   // Each tab maintains its own independent wizard state
@@ -4372,6 +4429,8 @@ You are taking over this conversation. Based on the context above, provide a bri
     }
 
     // Sync the wizard state to this specific tab
+    // IMPORTANT: Preserve showWizardThinking and thinkingContent from current state
+    // These are managed by the toggle and onThinkingChunk callback, not by the hook
     const newWizardState = {
       isActive: tabWizardState.isActive,
       isWaiting: tabWizardState.isWaiting,
@@ -4401,14 +4460,20 @@ You are taking over this conversation. Based on the context above, provide a bri
         savedPath: doc.savedPath,
       })),
       streamingContent: tabWizardState.streamingContent,
+      currentDocumentIndex: tabWizardState.currentDocumentIndex,
       currentGeneratingIndex: tabWizardState.generationProgress?.current,
       totalDocuments: tabWizardState.generationProgress?.total,
       autoRunFolderPath: tabWizardState.projectPath
         ? `${tabWizardState.projectPath}/Auto Run Docs`
         : undefined,
+      // Full path to subfolder where documents are saved (e.g., "/path/Auto Run Docs/Maestro-Marketing")
+      subfolderPath: tabWizardState.subfolderPath ?? undefined,
       agentSessionId: tabWizardState.agentSessionId ?? undefined,
       // Track the subfolder name for tab naming after wizard completes
       subfolderName: tabWizardState.subfolderName ?? undefined,
+      // Preserve thinking state - these are managed separately from hook state
+      showWizardThinking: currentTabWizardState?.showWizardThinking ?? false,
+      thinkingContent: currentTabWizardState?.thinkingContent ?? '',
     };
 
     setSessions(prev => prev.map(s => {
@@ -4618,6 +4683,21 @@ You are taking over this conversation. Based on the context above, provide a bri
       activeSession.id // Session ID for playbook creation
     );
 
+    // Rename the tab to "Wizard" immediately when wizard starts
+    // This provides visual feedback that wizard mode is active
+    // The tab will be renamed again on completion if a subfolder is chosen
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.id !== activeSession.id) return s;
+        return {
+          ...s,
+          aiTabs: s.aiTabs.map((tab) =>
+            tab.id === activeTab.id ? { ...tab, name: 'Wizard' } : tab
+          ),
+        };
+      })
+    );
+
     // Show a system log entry indicating wizard started
     const wizardLog: LogEntry = {
       id: generateId(),
@@ -4661,9 +4741,37 @@ You are taking over this conversation. Based on the context above, provide a bri
     flushBatchedUpdates: batchedUpdater.flushNow,
     onHistoryCommand: handleHistoryCommand,
     onWizardCommand: handleWizardCommand,
-    onWizardSendMessage: sendInlineWizardMessage,
+    onWizardSendMessage: sendWizardMessageWithThinking,
     isWizardActive: isWizardActiveForCurrentTab,
   });
+
+  // Auto-send context when a tab with autoSendOnActivate becomes active
+  // This is used by context transfer to automatically send the transferred context to the agent
+  useEffect(() => {
+    if (!activeSession) return;
+
+    const activeTab = getActiveTab(activeSession);
+    if (!activeTab?.autoSendOnActivate) return;
+
+    // Clear the flag first to prevent multiple sends
+    setSessions(prev => prev.map(s => {
+      if (s.id !== activeSession.id) return s;
+      return {
+        ...s,
+        aiTabs: s.aiTabs.map(tab =>
+          tab.id === activeTab.id
+            ? { ...tab, autoSendOnActivate: false }
+            : tab
+        ),
+      };
+    }));
+
+    // Trigger the send after a short delay to ensure state is settled
+    // The inputValue and pendingMergedContext are already set on the tab
+    setTimeout(() => {
+      processInput();
+    }, 100);
+  }, [activeSession?.id, activeSession?.activeTabId]);
 
   // Initialize activity tracker for per-session time tracking
   useActivityTracker(activeSessionId, setSessions);
@@ -10279,9 +10387,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 
           // Derive tab name from the subfolder where documents were saved
           // The subfolderName is stored in the wizard state after generation completes
-          // Format: "Project: Subfolder-Name" (e.g., "Project: Maestro-Marketing")
+          // Format: "Wizard: Subfolder-Name" (e.g., "Wizard: Maestro-Marketing")
           const subfolderName = wizardState.subfolderName || '';
-          const tabName = subfolderName ? `Project: ${subfolderName}` : 'Wizard Session';
+          const tabName = subfolderName ? `Wizard: ${subfolderName}` : 'Wizard';
 
           // Get the wizard's agentSessionId for tab context switching
           const wizardAgentSessionId = wizardState.agentSessionId;
@@ -10323,11 +10431,44 @@ You are taking over this conversation. Based on the context above, provide a bri
           setInputValue('');
         }}
         // Inline wizard callbacks
-        onWizardLetsGo={generateInlineWizardDocuments}
+        onWizardLetsGo={() => {
+          // Pass the active tab ID to ensure we generate for the correct tab
+          const activeTab = activeSession ? getActiveTab(activeSession) : null;
+          if (activeTab) {
+            generateInlineWizardDocuments(undefined, activeTab.id);
+          }
+        }}
         onWizardRetry={retryInlineWizardMessage}
         onWizardClearError={clearInlineWizardError}
         // Inline wizard exit handler (for WizardInputPanel)
         onExitWizard={endInlineWizard}
+        // Cancel generation and exit wizard
+        onWizardCancelGeneration={endInlineWizard}
+        // Wizard thinking toggle
+        onToggleWizardShowThinking={() => {
+          if (!activeSession) return;
+          const activeTab = getActiveTab(activeSession);
+          if (!activeTab?.wizardState) return;
+          setSessions(prev => prev.map(s => {
+            if (s.id !== activeSession.id) return s;
+            return {
+              ...s,
+              aiTabs: s.aiTabs.map(tab => {
+                if (tab.id !== activeTab.id) return tab;
+                if (!tab.wizardState) return tab;
+                // Toggle showWizardThinking and clear thinkingContent when turning off
+                return {
+                  ...tab,
+                  wizardState: {
+                    ...tab.wizardState,
+                    showWizardThinking: !tab.wizardState.showWizardThinking,
+                    thinkingContent: !tab.wizardState.showWizardThinking ? '' : tab.wizardState.thinkingContent,
+                  }
+                };
+              })
+            };
+          }));
+        }}
       />
       )}
 

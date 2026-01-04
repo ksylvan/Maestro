@@ -1643,6 +1643,34 @@ contextBridge.exposeInMainWorld('maestro', {
     // Get database size in bytes
     getDatabaseSize: () =>
       ipcRenderer.invoke('stats:get-database-size') as Promise<number>,
+
+    // Record session creation (for lifecycle tracking)
+    recordSessionCreated: (event: {
+      sessionId: string;
+      agentType: string;
+      projectPath?: string;
+      createdAt: number;
+      isRemote?: boolean;
+    }) => ipcRenderer.invoke('stats:record-session-created', event) as Promise<string | null>,
+
+    // Record session closure (for lifecycle tracking)
+    recordSessionClosed: (sessionId: string, closedAt: number) =>
+      ipcRenderer.invoke('stats:record-session-closed', sessionId, closedAt) as Promise<boolean>,
+
+    // Get session lifecycle events within a time range
+    getSessionLifecycle: (range: 'day' | 'week' | 'month' | 'year' | 'all') =>
+      ipcRenderer.invoke('stats:get-session-lifecycle', range) as Promise<
+        Array<{
+          id: string;
+          sessionId: string;
+          agentType: string;
+          projectPath?: string;
+          createdAt: number;
+          closedAt?: number;
+          duration?: number;
+          isRemote?: boolean;
+        }>
+      >,
   },
 
   // Leaderboard API (runmaestro.ai integration)

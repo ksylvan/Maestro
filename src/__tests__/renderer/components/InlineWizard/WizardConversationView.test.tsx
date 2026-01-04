@@ -9,6 +9,7 @@
  * - Auto-scroll to bottom behavior
  * - Filler phrase rotation
  * - Component styling and layout
+ * - ThinkingDisplay when showThinking is enabled
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -70,10 +71,20 @@ describe('WizardConversationView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    // Mock requestAnimationFrame for typewriter effect tests
+    let rafId = 0;
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      rafId++;
+      // Schedule callback to run on next timer tick, simulating frame timing
+      setTimeout(() => callback(performance.now()), 16);
+      return rafId;
+    });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   describe('rendering', () => {
@@ -306,9 +317,11 @@ describe('WizardConversationView', () => {
       // Initially empty or partial
       expect(textElement.textContent?.length).toBeLessThan('Thinking...'.length);
 
-      // Advance time to complete typewriter effect (30ms per char * 11 chars = 330ms)
+      // Advance time to complete typewriter effect
+      // RAF-based animation: 16ms per frame, 30ms char delay = ~2 frames per char
+      // 11 chars * 30ms = 330ms, plus RAF overhead
       act(() => {
-        vi.advanceTimersByTime(500);
+        vi.advanceTimersByTime(600);
       });
 
       // Should show full text after animation
@@ -727,6 +740,38 @@ describe('WizardConversationView', () => {
       );
       expect(screen.getByText('Or continue chatting below to add more details')).toBeInTheDocument();
     });
+
+    it('does not show Lets Go button when hasStartedGenerating=true', () => {
+      const handleLetsGo = vi.fn();
+      render(
+        <WizardConversationView
+          theme={mockTheme}
+          conversationHistory={[createMessage()]}
+          isLoading={false}
+          ready={true}
+          confidence={85}
+          onLetsGo={handleLetsGo}
+          hasStartedGenerating={true}
+        />
+      );
+      expect(screen.queryByTestId('wizard-lets-go-container')).not.toBeInTheDocument();
+    });
+
+    it('shows Lets Go button when hasStartedGenerating=false', () => {
+      const handleLetsGo = vi.fn();
+      render(
+        <WizardConversationView
+          theme={mockTheme}
+          conversationHistory={[createMessage()]}
+          isLoading={false}
+          ready={true}
+          confidence={85}
+          onLetsGo={handleLetsGo}
+          hasStartedGenerating={false}
+        />
+      );
+      expect(screen.getByTestId('wizard-lets-go-container')).toBeInTheDocument();
+    });
   });
 
   describe('edge cases', () => {
@@ -775,6 +820,161 @@ describe('WizardConversationView', () => {
       );
 
       expect(screen.getByTestId('wizard-conversation-view')).toBeInTheDocument();
+    });
+  });
+
+  describe('thinking display', () => {
+    it('shows thinking display instead of typing indicator when showThinking=true and thinkingContent provided', () => {
+      render(
+        <WizardConversationView
+          theme={mockTheme}
+          conversationHistory={[]}
+          isLoading={true}
+          showThinking={true}
+          thinkingContent="Analyzing the codebase structure..."
+        />
+      );
+
+      expect(screen.getByTestId('wizard-thinking-display')).toBeInTheDocument();
+      expect(screen.queryByTestId('wizard-typing-indicator')).not.toBeInTheDocument();
+    });
+
+    it('displays the thinking content text', () => {
+      render(
+        <WizardConversationView
+          theme={mockTheme}
+          conversationHistory={[]}
+          isLoading={true}
+          showThinking={true}
+          thinkingContent="Processing files and dependencies..."
+        />
+      );
+
+      expect(screen.getByText(/Processing files and dependencies/)).toBeInTheDocument();
+    });
+
+    it('shows "thinking" badge in thinking display', () => {
+      render(
+        <WizardConversationView
+          theme={mockTheme}
+          conversationHistory={[]}
+          isLoading={true}
+          showThinking={true}
+          thinkingContent="Some thinking content"
+        />
+      );
+
+      expect(screen.getByText('thinking')).toBeInTheDocument();
+    });
+
+    it('shows agent name in thinking display', () => {
+      render(
+        <WizardConversationView
+          theme={mockTheme}
+          conversationHistory={[]}
+          isLoading={true}
+          showThinking={true}
+          thinkingContent="Some thinking content"
+          agentName="TestAgent"
+        />
+      );
+
+      expect(screen.getByText('🤖 TestAgent')).toBeInTheDocument();
+    });
+
+    it('shows pulsing cursor in thinking display', () => {
+      render(
+        <WizardConversationView
+          theme={mockTheme}
+          conversationHistory={[]}
+          isLoading={true}
+          showThinking={true}
+          thinkingContent="Thinking..."
+        />
+      );
+
+      // The thinking display should have a pulsing cursor (▊)
+      const thinkingDisplay = screen.getByTestId('wizard-thinking-display');
+      expect(thinkingDisplay.textContent).toContain('▊');
+    });
+
+    it('shows "Reasoning..." fallback when thinkingContent is empty', () => {
+      render(
+        <WizardConversationView
+          theme={mockTheme}
+          conversationHistory={[]}
+          isLoading={true}
+          showThinking={true}
+          thinkingContent=""
+        />
+      );
+
+      expect(screen.getByText(/Reasoning/)).toBeInTheDocument();
+    });
+
+    it('falls back to typing indicator when showThinking=true but not loading', () => {
+      render(
+        <WizardConversationView
+          theme={mockTheme}
+          conversationHistory={[]}
+          isLoading={false}
+          showThinking={true}
+          thinkingContent="Some content"
+        />
+      );
+
+      expect(screen.queryByTestId('wizard-thinking-display')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('wizard-typing-indicator')).not.toBeInTheDocument();
+    });
+
+    it('shows typing indicator when showThinking=false even with thinkingContent', () => {
+      render(
+        <WizardConversationView
+          theme={mockTheme}
+          conversationHistory={[]}
+          isLoading={true}
+          showThinking={false}
+          thinkingContent="This should not appear"
+        />
+      );
+
+      expect(screen.queryByTestId('wizard-thinking-display')).not.toBeInTheDocument();
+      expect(screen.getByTestId('wizard-typing-indicator')).toBeInTheDocument();
+    });
+
+    it('renders thinking display alongside messages', () => {
+      const messages = [
+        createMessage({ id: 'msg-1', content: 'User question', role: 'user' }),
+      ];
+
+      render(
+        <WizardConversationView
+          theme={mockTheme}
+          conversationHistory={messages}
+          isLoading={true}
+          showThinking={true}
+          thinkingContent="Working on it..."
+        />
+      );
+
+      expect(screen.getByText('User question')).toBeInTheDocument();
+      expect(screen.getByTestId('wizard-thinking-display')).toBeInTheDocument();
+    });
+
+    it('prefers streaming response over thinking display when streamingText provided', () => {
+      render(
+        <WizardConversationView
+          theme={mockTheme}
+          conversationHistory={[]}
+          isLoading={true}
+          showThinking={true}
+          thinkingContent="Some thinking"
+          streamingText="Actual response text..."
+        />
+      );
+
+      expect(screen.getByTestId('wizard-streaming-response')).toBeInTheDocument();
+      expect(screen.queryByTestId('wizard-thinking-display')).not.toBeInTheDocument();
     });
   });
 });

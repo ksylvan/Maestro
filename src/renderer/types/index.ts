@@ -132,12 +132,20 @@ export interface SessionWizardState {
   currentGeneratingIndex?: number;
   /** Total number of documents to generate (for progress indicator) */
   totalDocuments?: number;
-  /** Folder path for Auto Run docs */
+  /** Folder path for Auto Run docs (base folder, e.g., "/path/Auto Run Docs") */
   autoRunFolderPath?: string;
+  /** Full path to the subfolder where documents are saved (e.g., "/path/Auto Run Docs/Maestro-Marketing") */
+  subfolderPath?: string;
   /** The Claude agent session ID (from session_id in output) - used to switch tab after wizard completes */
   agentSessionId?: string;
   /** Subfolder name where documents were saved (e.g., "Maestro-Marketing") - used for tab naming */
   subfolderName?: string;
+
+  // Thinking display state
+  /** Whether to show AI thinking content instead of filler phrases */
+  showWizardThinking?: boolean;
+  /** Accumulated thinking content from the AI during conversation */
+  thinkingContent?: string;
 }
 
 export interface Shortcut {
@@ -410,6 +418,7 @@ export interface AITab {
   hasUnread?: boolean;             // True when tab has new messages user hasn't seen
   isAtBottom?: boolean;            // True when user is scrolled to bottom of output
   pendingMergedContext?: string;   // Context from merge that needs to be sent with next message
+  autoSendOnActivate?: boolean;    // When true, automatically send inputValue when tab becomes active
   wizardState?: SessionWizardState; // Per-tab inline wizard state for /wizard command
 }
 

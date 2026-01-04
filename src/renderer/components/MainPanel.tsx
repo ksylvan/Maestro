@@ -247,6 +247,10 @@ interface MainPanelProps {
   onWizardClearError?: () => void;
   /** Called when user exits inline wizard mode (Escape or clicks pill) */
   onExitWizard?: () => void;
+  /** Toggle showing wizard thinking instead of filler phrases */
+  onToggleWizardShowThinking?: () => void;
+  /** Called when user cancels document generation */
+  onWizardCancelGeneration?: () => void;
 }
 
 // PERFORMANCE: Wrap with React.memo to prevent re-renders when parent (App.tsx) re-renders
@@ -1120,24 +1124,25 @@ export const MainPanel = React.memo(forwardRef<MainPanelHandle, MainPanelProps>(
             </div>
           ) : (
             <>
-              {/* Logs Area - Show DocumentGenerationView when generating docs, WizardConversationView when wizard is active, otherwise show TerminalOutput */}
+              {/* Logs Area - Show DocumentGenerationView when generating docs OR when docs are generated, WizardConversationView when wizard is active, otherwise show TerminalOutput */}
               {/* Note: wizardState is per-tab (stored on activeTab), not per-session */}
               <div className="flex-1 overflow-hidden flex flex-col" data-tour="main-terminal">
-              {activeSession.inputMode === 'ai' && activeTab?.wizardState?.isGeneratingDocs ? (
+              {activeSession.inputMode === 'ai' && (activeTab?.wizardState?.isGeneratingDocs || (activeTab?.wizardState?.generatedDocuments?.length ?? 0) > 0) ? (
                 <DocumentGenerationView
                   key={`wizard-gen-${activeSession.id}-${activeSession.activeTabId}`}
                   theme={theme}
                   documents={activeTab?.wizardState?.generatedDocuments ?? []}
                   currentDocumentIndex={activeTab?.wizardState?.currentDocumentIndex ?? 0}
-                  isGenerating={activeSession.state === 'busy' || Boolean(activeTab?.wizardState?.streamingContent)}
+                  isGenerating={activeTab?.wizardState?.isGeneratingDocs ?? false}
                   streamingContent={activeTab?.wizardState?.streamingContent}
                   onComplete={props.onWizardComplete || (() => {})}
                   onDocumentSelect={props.onWizardDocumentSelect || (() => {})}
-                  folderPath={activeTab?.wizardState?.autoRunFolderPath}
+                  folderPath={activeTab?.wizardState?.subfolderPath ?? activeTab?.wizardState?.autoRunFolderPath}
                   onContentChange={props.onWizardContentChange}
                   progressMessage={activeTab?.wizardState?.progressMessage}
                   currentGeneratingIndex={activeTab?.wizardState?.currentGeneratingIndex}
                   totalDocuments={activeTab?.wizardState?.totalDocuments}
+                  onCancel={props.onWizardCancelGeneration}
                 />
               ) : activeSession.inputMode === 'ai' && activeTab?.wizardState?.isActive ? (
                 <WizardConversationView
@@ -1152,6 +1157,9 @@ export const MainPanel = React.memo(forwardRef<MainPanelHandle, MainPanelProps>(
                   error={activeTab.wizardState.error}
                   onRetry={props.onWizardRetry}
                   onClearError={props.onWizardClearError}
+                  showThinking={activeTab.wizardState.showWizardThinking ?? false}
+                  thinkingContent={activeTab.wizardState.thinkingContent ?? ''}
+                  hasStartedGenerating={activeTab.wizardState.isGeneratingDocs || (activeTab.wizardState.generatedDocuments?.length ?? 0) > 0}
                 />
               ) : (
                 <TerminalOutput
@@ -1195,8 +1203,8 @@ export const MainPanel = React.memo(forwardRef<MainPanelHandle, MainPanelProps>(
               )}
               </div>
 
-              {/* Input Area (hidden in mobile landscape for focused reading) */}
-              {!isMobileLandscape && (
+              {/* Input Area (hidden in mobile landscape for focused reading, and during wizard doc generation) */}
+              {!isMobileLandscape && !(activeTab?.wizardState?.isGeneratingDocs) && (
               <div data-tour="input-area">
               <InputArea
                 session={activeSession}
@@ -1282,6 +1290,8 @@ export const MainPanel = React.memo(forwardRef<MainPanelHandle, MainPanelProps>(
                 onCancelMerge={onCancelMerge}
                 // Inline wizard mode
                 onExitWizard={onExitWizard}
+                wizardShowThinking={activeTab?.wizardState?.showWizardThinking ?? false}
+                onToggleWizardShowThinking={props.onToggleWizardShowThinking}
               />
               </div>
               )}

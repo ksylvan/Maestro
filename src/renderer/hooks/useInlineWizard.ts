@@ -10,6 +10,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { logger } from '../utils/logger';
 import { parseWizardIntent } from '../services/wizardIntentParser';
 import {
   hasExistingAutoRunDocs,
@@ -28,6 +29,7 @@ import {
 } from '../services/inlineWizardConversation';
 import {
   generateInlineDocuments,
+  extractDisplayTextFromChunk,
   type DocumentGenerationCallbacks,
 } from '../services/inlineWizardDocumentGeneration';
 import type { ToolType } from '../types';
@@ -131,10 +133,14 @@ export interface InlineWizardState {
   streamingContent: string;
   /** Progress tracking for document generation */
   generationProgress: GenerationProgress | null;
+  /** Currently selected document index (for DocumentGenerationView) */
+  currentDocumentIndex: number;
   /** The Claude agent session ID (from session_id in output) - used to switch tab after wizard completes */
   agentSessionId: string | null;
   /** Subfolder name where documents were saved (e.g., "Maestro-Marketing") - used for tab naming after wizard completes */
   subfolderName: string | null;
+  /** Full path to the subfolder where documents are saved (e.g., "/path/Auto Run Docs/Maestro-Marketing") */
+  subfolderPath: string | null;
 }
 
 /**
@@ -244,8 +250,9 @@ export interface UseInlineWizardReturn {
    * Sets isGeneratingDocs to true, streams AI response, parses documents,
    * and saves them to the Auto Run folder.
    * @param callbacks - Optional callbacks for generation progress
+   * @param tabId - Optional tab ID to generate for (defaults to currentTabId)
    */
-  generateDocuments: (callbacks?: DocumentGenerationCallbacks) => Promise<void>;
+  generateDocuments: (callbacks?: DocumentGenerationCallbacks, tabId?: string) => Promise<void>;
 }
 
 /**
@@ -280,8 +287,10 @@ const initialState: InlineWizardState = {
   sessionId: null,
   streamingContent: '',
   generationProgress: null,
+  currentDocumentIndex: 0,
   agentSessionId: null,
   subfolderName: null,
+  subfolderPath: null,
 };
 
 /**
@@ -440,6 +449,12 @@ export function useInlineWizard(): UseInlineWizardReturn {
       // Tab ID is required for per-tab wizard management
       const effectiveTabId = tabId || 'default';
 
+      logger.info(
+        `Starting inline wizard on tab ${effectiveTabId}`,
+        '[InlineWizard]',
+        { projectPath, agentType, sessionName, hasInput: !!naturalLanguageInput }
+      );
+
       // Store current UI state for later restoration (per-tab)
       if (currentUIState) {
         previousUIStateRefsMap.current.set(effectiveTabId, currentUIState);
@@ -471,9 +486,11 @@ export function useInlineWizard(): UseInlineWizardReturn {
         sessionId: sessionId || null,
         streamingContent: '',
         generationProgress: null,
+        currentDocumentIndex: 0,
         lastUserMessageContent: null,
         agentSessionId: null,
         subfolderName: null,
+        subfolderPath: null,
       }));
 
       try {
@@ -528,7 +545,18 @@ export function useInlineWizard(): UseInlineWizardReturn {
 
           // Store conversation session per-tab
           conversationSessionsMap.current.set(effectiveTabId, session);
-          console.log('[useInlineWizard] Conversation session started for tab', effectiveTabId, ':', session.sessionId);
+
+          logger.info(
+            `Wizard conversation started (mode: ${mode})`,
+            '[InlineWizard]',
+            {
+              sessionId: session.sessionId,
+              tabId: effectiveTabId,
+              mode,
+              goal: goal || null,
+              existingDocsCount: docsWithContent.length,
+            }
+          );
         }
 
         // Update state with parsed results
@@ -573,7 +601,7 @@ export function useInlineWizard(): UseInlineWizardReturn {
     if (session) {
       try {
         await endInlineWizardConversation(session);
-        console.log('[useInlineWizard] Conversation session ended for tab', tabId);
+        logger.info(`Wizard conversation ended`, '[InlineWizard]', { tabId, sessionId: session.sessionId });
       } catch (error) {
         console.warn('[useInlineWizard] Failed to end conversation session:', error);
       }
@@ -597,8 +625,11 @@ export function useInlineWizard(): UseInlineWizardReturn {
    */
   const sendMessage = useCallback(
     async (content: string, callbacks?: ConversationCallbacks): Promise<void> => {
-      // Get the tab ID from the current state
+      // Get the tab ID from the current state, ensure currentTabId is set for visibility
       const tabId = currentTabId || 'default';
+      if (tabId !== currentTabId) {
+        setCurrentTabId(tabId);
+      }
 
       // Create user message
       const userMessage: InlineWizardMessage = {
@@ -690,8 +721,14 @@ export function useInlineWizard(): UseInlineWizardReturn {
             agentSessionId: prev.agentSessionId || result.agentSessionId || null,
           }));
 
-          console.log(
-            `[useInlineWizard] Response received - confidence: ${result.response.confidence}, ready: ${result.response.ready}, agentSessionId: ${result.agentSessionId || 'none'}`
+          logger.info(
+            `Wizard response received - confidence: ${result.response.confidence}%, ready: ${result.response.ready}`,
+            '[InlineWizard]',
+            {
+              confidence: result.response.confidence,
+              ready: result.response.ready,
+              agentSessionId: result.agentSessionId || null,
+            }
           );
         } else {
           // Handle error response
@@ -729,7 +766,11 @@ export function useInlineWizard(): UseInlineWizardReturn {
    */
   const addAssistantMessage = useCallback(
     (content: string, confidence?: number, ready?: boolean) => {
+      // Get the tab ID from the current state, ensure currentTabId is set for visibility
       const tabId = currentTabId || 'default';
+      if (tabId !== currentTabId) {
+        setCurrentTabId(tabId);
+      }
       const message: InlineWizardMessage = {
         id: generateMessageId(),
         role: 'assistant',
@@ -751,16 +792,28 @@ export function useInlineWizard(): UseInlineWizardReturn {
   );
 
   /**
+   * Helper to get the effective tab ID and ensure currentTabId is set.
+   * This is used by setters to ensure state changes are visible via the hook's return values.
+   */
+  const getEffectiveTabId = useCallback(() => {
+    const tabId = currentTabId || 'default';
+    if (tabId !== currentTabId) {
+      setCurrentTabId(tabId);
+    }
+    return tabId;
+  }, [currentTabId]);
+
+  /**
    * Set the confidence level.
    * Uses the current tab ID to determine which wizard to update.
    */
   const setConfidence = useCallback((value: number) => {
-    const tabId = currentTabId || 'default';
+    const tabId = getEffectiveTabId();
     setTabState(tabId, (prev) => ({
       ...prev,
       confidence: Math.max(0, Math.min(100, value)),
     }));
-  }, [currentTabId, setTabState]);
+  }, [getEffectiveTabId, setTabState]);
 
   /**
    * Set the wizard mode.
@@ -769,7 +822,7 @@ export function useInlineWizard(): UseInlineWizardReturn {
    * Uses the current tab ID to determine which wizard to update.
    */
   const setMode = useCallback((newMode: InlineWizardMode) => {
-    const tabId = currentTabId || 'default';
+    const tabId = getEffectiveTabId();
     const currentState = tabStatesRef.current.get(tabId);
 
     // If transitioning from 'ask' to 'new' or 'iterate', we need to create the conversation session
@@ -796,80 +849,80 @@ export function useInlineWizard(): UseInlineWizardReturn {
       ...prev,
       mode: newMode,
     }));
-  }, [currentTabId, setTabState]);
+  }, [getEffectiveTabId, setTabState]);
 
   /**
    * Set the goal for iterate mode.
    * Uses the current tab ID to determine which wizard to update.
    */
   const setGoal = useCallback((goal: string | null) => {
-    const tabId = currentTabId || 'default';
+    const tabId = getEffectiveTabId();
     setTabState(tabId, (prev) => ({
       ...prev,
       goal,
     }));
-  }, [currentTabId, setTabState]);
+  }, [getEffectiveTabId, setTabState]);
 
   /**
    * Set whether documents are being generated.
    * Uses the current tab ID to determine which wizard to update.
    */
   const setGeneratingDocs = useCallback((generating: boolean) => {
-    const tabId = currentTabId || 'default';
+    const tabId = getEffectiveTabId();
     setTabState(tabId, (prev) => ({
       ...prev,
       isGeneratingDocs: generating,
     }));
-  }, [currentTabId, setTabState]);
+  }, [getEffectiveTabId, setTabState]);
 
   /**
    * Set generated documents.
    * Uses the current tab ID to determine which wizard to update.
    */
   const setGeneratedDocuments = useCallback((docs: InlineGeneratedDocument[]) => {
-    const tabId = currentTabId || 'default';
+    const tabId = getEffectiveTabId();
     setTabState(tabId, (prev) => ({
       ...prev,
       generatedDocuments: docs,
       isGeneratingDocs: false,
     }));
-  }, [currentTabId, setTabState]);
+  }, [getEffectiveTabId, setTabState]);
 
   /**
    * Set existing documents (for iterate mode context).
    * Uses the current tab ID to determine which wizard to update.
    */
   const setExistingDocuments = useCallback((docs: ExistingDocument[]) => {
-    const tabId = currentTabId || 'default';
+    const tabId = getEffectiveTabId();
     setTabState(tabId, (prev) => ({
       ...prev,
       existingDocuments: docs,
     }));
-  }, [currentTabId, setTabState]);
+  }, [getEffectiveTabId, setTabState]);
 
   /**
    * Set error message.
    * Uses the current tab ID to determine which wizard to update.
    */
   const setError = useCallback((error: string | null) => {
-    const tabId = currentTabId || 'default';
+    const tabId = getEffectiveTabId();
     setTabState(tabId, (prev) => ({
       ...prev,
       error,
     }));
-  }, [currentTabId, setTabState]);
+  }, [getEffectiveTabId, setTabState]);
 
   /**
    * Clear the current error.
    * Uses the current tab ID to determine which wizard to update.
    */
   const clearError = useCallback(() => {
-    const tabId = currentTabId || 'default';
+    const tabId = getEffectiveTabId();
     setTabState(tabId, (prev) => ({
       ...prev,
       error: null,
     }));
-  }, [currentTabId, setTabState]);
+  }, [getEffectiveTabId, setTabState]);
 
   /**
    * Retry sending the last user message that failed.
@@ -963,9 +1016,27 @@ export function useInlineWizard(): UseInlineWizardReturn {
    * 6. Updates generatedDocuments array as each completes
    */
   const generateDocuments = useCallback(
-    async (callbacks?: DocumentGenerationCallbacks): Promise<void> => {
-      const tabId = currentTabId || 'default';
+    async (callbacks?: DocumentGenerationCallbacks, explicitTabId?: string): Promise<void> => {
+      // Use explicit tabId if provided, otherwise fall back to currentTabId
+      const tabId = explicitTabId || currentTabId || 'default';
       const currentState = tabStatesRef.current.get(tabId);
+
+      logger.info(
+        'Starting Playbook document generation',
+        '[InlineWizard]',
+        {
+          tabId,
+          agentType: currentState?.agentType,
+          mode: currentState?.mode,
+          conversationLength: currentState?.conversationHistory?.length || 0,
+        }
+      );
+
+      // If we're using a different tabId than currentTabId, update currentTabId
+      // so that errors and state changes are visible via the hook's return values
+      if (tabId !== currentTabId) {
+        setCurrentTabId(tabId);
+      }
 
       // Validate we have the required state
       if (!currentState?.agentType || !currentState?.projectPath) {
@@ -984,6 +1055,7 @@ export function useInlineWizard(): UseInlineWizardReturn {
         error: null,
         streamingContent: '',
         generationProgress: null,
+        currentDocumentIndex: 0,
       }));
 
       try {
@@ -1011,36 +1083,46 @@ export function useInlineWizard(): UseInlineWizardReturn {
               // Try to extract progress info from message (e.g., "Saving 1 of 3 document(s)...")
               const progressMatch = message.match(/(\d+)\s+(?:of|\/)\s+(\d+)/);
               if (progressMatch) {
+                const current = parseInt(progressMatch[1], 10);
+                const total = parseInt(progressMatch[2], 10);
                 setTabState(tabId, (prev) => ({
                   ...prev,
-                  generationProgress: {
-                    current: parseInt(progressMatch[1], 10),
-                    total: parseInt(progressMatch[2], 10),
-                  },
+                  generationProgress: { current, total },
                 }));
               }
               callbacks?.onProgress?.(message);
             },
             onChunk: (chunk) => {
-              // Accumulate streaming content for display
-              setTabState(tabId, (prev) => ({
-                ...prev,
-                streamingContent: prev.streamingContent + chunk,
-              }));
+              // Parse the chunk to extract displayable text from JSON
+              // (Claude outputs stream-json format with content_block_delta events)
+              const displayText = extractDisplayTextFromChunk(chunk, currentState.agentType as ToolType);
+
+              // Accumulate parsed streaming content for display
+              if (displayText) {
+                setTabState(tabId, (prev) => ({
+                  ...prev,
+                  streamingContent: prev.streamingContent + displayText,
+                }));
+              }
               callbacks?.onChunk?.(chunk);
             },
             onDocumentComplete: (doc) => {
               console.log('[useInlineWizard] Document saved:', doc.filename);
               // Add document to the list as it completes
-              // Update progress to show completion of this document
+              // Update progress and select the newly created document
               setTabState(tabId, (prev) => {
                 const newDocs = [...prev.generatedDocuments, doc];
+                const newTotal = prev.generationProgress?.total || newDocs.length;
                 return {
                   ...prev,
                   generatedDocuments: newDocs,
-                  generationProgress: prev.generationProgress
-                    ? { ...prev.generationProgress, current: newDocs.length }
-                    : { current: newDocs.length, total: newDocs.length },
+                  // Select the newly created document in the UI
+                  currentDocumentIndex: newDocs.length - 1,
+                  // Update generationProgress - this syncs to SessionWizardState UI fields
+                  generationProgress: {
+                    current: newDocs.length,
+                    total: newTotal,
+                  },
                 };
               });
               callbacks?.onDocumentComplete?.(doc);
@@ -1066,7 +1148,7 @@ export function useInlineWizard(): UseInlineWizardReturn {
 
         if (result.success) {
           // Update state with final documents - streaming content preserved for review
-          // Also capture subfolderName for tab naming after wizard completes
+          // Also capture subfolderName and subfolderPath for tab naming after wizard completes
           const finalDocs = result.documents || [];
           setTabState(tabId, (prev) => ({
             ...prev,
@@ -1078,7 +1160,19 @@ export function useInlineWizard(): UseInlineWizardReturn {
             },
             // Store the subfolder name for tab naming (e.g., "Maestro-Marketing")
             subfolderName: result.subfolderName || null,
+            // Store the full subfolder path for document loading (e.g., "/path/Auto Run Docs/Maestro-Marketing")
+            subfolderPath: result.subfolderPath || null,
           }));
+
+          logger.info(
+            `Playbook generation complete - ${finalDocs.length} document(s) created`,
+            '[InlineWizard]',
+            {
+              documentCount: finalDocs.length,
+              subfolderName: result.subfolderName,
+              filenames: finalDocs.map((d) => d.filename),
+            }
+          );
         } else {
           // Handle error - clear streaming state
           setTabState(tabId, (prev) => ({

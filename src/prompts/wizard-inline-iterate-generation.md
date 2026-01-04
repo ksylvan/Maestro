@@ -10,7 +10,9 @@ Based on the project discovery conversation below, create or update Auto Run doc
 You may ONLY create or update files in the Auto Run folder:
 `{{DIRECTORY_PATH}}/{{AUTO_RUN_FOLDER_NAME}}/`
 
-Do NOT write, create, or modify files anywhere else. The wizard outputs documents using special markers (---BEGIN DOCUMENT--- / ---END DOCUMENT---) which are then saved by the application to the Auto Run folder.
+Do NOT write, create, or modify files anywhere else.
+
+**CRITICAL: Write files directly using your Write tool.** Create or update each document file as you complete it - do NOT wait until the end to write all files. This allows the user to see documents appear in real-time as you create them.
 
 **READ ACCESS (Unrestricted):**
 You may READ files from anywhere to inform your planning:
@@ -66,27 +68,18 @@ Each task should be:
 
 ## Output Format
 
-For NEW documents, use this format:
+**Write each document directly to the Auto Run folder as you create or update it.**
 
----BEGIN DOCUMENT---
-FILENAME: Phase-03-[Description].md
-CONTENT:
-[Full markdown content here]
----END DOCUMENT---
+Use your Write tool to save each phase document immediately after you finish writing it. This way, files appear in real-time for the user.
 
-For UPDATED documents, use this format with the exact existing filename:
-
----BEGIN DOCUMENT---
-FILENAME: Phase-01-[ExactExistingName].md
-UPDATE: true
-CONTENT:
-[Complete updated markdown content - include the full document, not just changes]
----END DOCUMENT---
+File paths for the Auto Run folder:
+- New files: `{{DIRECTORY_PATH}}/{{AUTO_RUN_FOLDER_NAME}}/Phase-XX-[Description].md`
+- Updates: Use the exact existing file path to overwrite
 
 **IMPORTANT**:
+- Write files one at a time, IN ORDER (lower phase numbers first)
+- Do NOT wait until you've finished all documents to write them - save each one as soon as it's complete
 - When updating, provide the COMPLETE updated document content, not just the additions
-- Use the exact filename of the existing document you're updating
-- Write markdown content directly - do NOT wrap it in code fences
 - New phases should use the next available phase number
 
 ## Project Discovery Conversation

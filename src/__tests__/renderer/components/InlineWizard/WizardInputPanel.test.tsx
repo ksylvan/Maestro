@@ -410,8 +410,72 @@ describe('WizardInputPanel', () => {
       expect(screen.queryByText('History')).not.toBeInTheDocument();
     });
 
-    it('does not render thinking toggle', () => {
+    it('does not render thinking toggle when onToggleShowThinking is not provided', () => {
       render(<WizardInputPanel {...defaultProps} />);
+      expect(screen.queryByText('Thinking')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('thinking toggle', () => {
+    it('renders thinking toggle when onToggleShowThinking is provided', () => {
+      render(
+        <WizardInputPanel
+          {...defaultProps}
+          onToggleShowThinking={vi.fn()}
+        />
+      );
+      expect(screen.getByText('Thinking')).toBeInTheDocument();
+    });
+
+    it('calls onToggleShowThinking when clicked', () => {
+      const onToggleShowThinking = vi.fn();
+      render(
+        <WizardInputPanel
+          {...defaultProps}
+          onToggleShowThinking={onToggleShowThinking}
+        />
+      );
+
+      fireEvent.click(screen.getByText('Thinking'));
+
+      expect(onToggleShowThinking).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows toggle in active state when showThinking is true', () => {
+      render(
+        <WizardInputPanel
+          {...defaultProps}
+          showThinking={true}
+          onToggleShowThinking={vi.fn()}
+        />
+      );
+
+      const thinkingButton = screen.getByTitle('Hide AI thinking (show filler messages)');
+      expect(thinkingButton).toHaveClass('opacity-100');
+    });
+
+    it('shows toggle in inactive state when showThinking is false', () => {
+      render(
+        <WizardInputPanel
+          {...defaultProps}
+          showThinking={false}
+          onToggleShowThinking={vi.fn()}
+        />
+      );
+
+      const thinkingButton = screen.getByTitle('Show AI thinking');
+      expect(thinkingButton).toHaveClass('opacity-50');
+    });
+
+    it('does not render thinking toggle in terminal mode', () => {
+      const terminalSession = createMockSession({ inputMode: 'terminal' });
+      render(
+        <WizardInputPanel
+          {...defaultProps}
+          session={terminalSession}
+          onToggleShowThinking={vi.fn()}
+        />
+      );
       expect(screen.queryByText('Thinking')).not.toBeInTheDocument();
     });
   });

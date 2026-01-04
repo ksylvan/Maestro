@@ -506,6 +506,19 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
               ...s,
               aiTabs: s.aiTabs.map((tab: AITab) => {
                 if (tab.id !== s.activeTabId) return tab;
+                // Check if wizard is active on this tab - toggle wizard thinking instead
+                if (tab.wizardState?.isActive) {
+                  return {
+                    ...tab,
+                    wizardState: {
+                      ...tab.wizardState,
+                      showWizardThinking: !tab.wizardState.showWizardThinking,
+                      // Clear thinking content when turning off
+                      thinkingContent: !tab.wizardState.showWizardThinking ? '' : tab.wizardState.thinkingContent,
+                    }
+                  };
+                }
+                // Regular tab: toggle showThinking
                 // When turning OFF, also clear any existing thinking/tool logs
                 if (tab.showThinking) {
                   return { ...tab, showThinking: false, logs: tab.logs.filter(l => l.source !== 'thinking' && l.source !== 'tool') };

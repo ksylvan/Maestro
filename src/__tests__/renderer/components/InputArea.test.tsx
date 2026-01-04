@@ -2113,5 +2113,34 @@ describe('InputArea', () => {
       // Merge overlay takes precedence
       expect(screen.queryByTestId('wizard-input-panel')).not.toBeInTheDocument();
     });
+
+    it('shows normal terminal input (not WizardInputPanel) when in terminal mode even if wizard is active', () => {
+      const onExitWizard = vi.fn();
+      const props = createDefaultProps({
+        session: createMockSession({
+          inputMode: 'terminal', // Terminal mode should show normal input
+          wizardState: {
+            isActive: true,
+            mode: 'new',
+            confidence: 75,
+            conversationHistory: [],
+            previousUIState: {
+              readOnlyMode: false,
+              saveToHistory: false,
+              showThinking: false,
+            },
+          },
+        }),
+        onExitWizard,
+      });
+      render(<InputArea {...props} />);
+
+      // WizardInputPanel should NOT be rendered in terminal mode
+      expect(screen.queryByTestId('wizard-input-panel')).not.toBeInTheDocument();
+      // Normal terminal input should be shown
+      expect(screen.getByPlaceholderText('Run shell command...')).toBeInTheDocument();
+      // Terminal $ prefix should be visible
+      expect(screen.getByText('$')).toBeInTheDocument();
+    });
   });
 });

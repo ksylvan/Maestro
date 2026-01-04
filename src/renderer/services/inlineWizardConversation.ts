@@ -12,6 +12,7 @@
 import type { ToolType } from '../types';
 import type { InlineWizardMessage } from '../hooks/useInlineWizard';
 import type { ExistingDocument as BaseExistingDocument } from '../utils/existingDocsDetector';
+import { logger } from '../utils/logger';
 import {
   wizardInlineIteratePrompt,
   wizardInlineNewPrompt,
@@ -130,6 +131,8 @@ export interface ConversationCallbacks {
   onReceiving?: () => void;
   /** Called with partial output chunks */
   onChunk?: OnChunkCallback;
+  /** Called with thinking/reasoning content as it streams */
+  onThinkingChunk?: OnChunkCallback;
   /** Called when response is complete */
   onComplete?: (result: InlineWizardSendResult) => void;
   /** Called when an error occurs */
@@ -236,6 +239,18 @@ export function startInlineWizardConversation(
   const sessionId = generateWizardSessionId();
   const systemPrompt = generateInlineWizardPrompt(config);
 
+  logger.info(
+    `Created wizard conversation session`,
+    '[InlineWizardConversation]',
+    {
+      sessionId,
+      mode: config.mode,
+      agentType: config.agentType,
+      projectName: config.projectName,
+      promptLength: systemPrompt.length,
+    }
+  );
+
   return {
     sessionId,
     agentType: config.agentType,
@@ -249,6 +264,8 @@ export function startInlineWizardConversation(
 /**
  * Build the full prompt including conversation context.
  *
+ * Uses array.join() for efficient string building with large conversation histories.
+ *
  * @param session The conversation session
  * @param userMessage The current user message
  * @param conversationHistory Previous messages in the conversation
@@ -259,26 +276,22 @@ function buildPromptWithContext(
   userMessage: string,
   conversationHistory: InlineWizardMessage[]
 ): string {
-  // Start with the system prompt
-  let prompt = session.systemPrompt + '\n\n';
+  const parts: string[] = [session.systemPrompt, ''];
 
-  // Add conversation history
+  // Add conversation history using array.join() for efficiency
   if (conversationHistory.length > 0) {
-    prompt += '## Previous Conversation\n\n';
-    for (const msg of conversationHistory) {
-      if (msg.role === 'user') {
-        prompt += `User: ${msg.content}\n\n`;
-      } else if (msg.role === 'assistant') {
-        prompt += `Assistant: ${msg.content}\n\n`;
-      }
-    }
+    parts.push('## Previous Conversation', '');
+    const historyLines = conversationHistory
+      .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+      .map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`);
+    parts.push(...historyLines, '');
   }
 
   // Add the current user message with structured output suffix
-  prompt += '## Current Message\n\n';
-  prompt += userMessage + STRUCTURED_OUTPUT_SUFFIX;
+  parts.push('## Current Message', '');
+  parts.push(userMessage + STRUCTURED_OUTPUT_SUFFIX);
 
-  return prompt;
+  return parts.join('\n');
 }
 
 /**
@@ -506,6 +519,8 @@ export async function sendWizardMessage(
         });
       }, 300000);
 
+      let thinkingListenerCleanup: (() => void) | undefined;
+
       function cleanupListeners() {
         if (dataListenerCleanup) {
           dataListenerCleanup();
@@ -514,6 +529,10 @@ export async function sendWizardMessage(
         if (exitListenerCleanup) {
           exitListenerCleanup();
           exitListenerCleanup = undefined;
+        }
+        if (thinkingListenerCleanup) {
+          thinkingListenerCleanup();
+          thinkingListenerCleanup = undefined;
         }
       }
 
@@ -526,6 +545,18 @@ export async function sendWizardMessage(
           }
         }
       );
+
+      // Set up thinking chunk listener - uses the dedicated event from process-manager
+      // This receives parsed thinking content (isPartial text) that's already extracted
+      if (callbacks?.onThinkingChunk) {
+        thinkingListenerCleanup = window.maestro.process.onThinkingChunk(
+          (receivedSessionId: string, content: string) => {
+            if (receivedSessionId === session.sessionId && content) {
+              callbacks.onThinkingChunk!(content);
+            }
+          }
+        );
+      }
 
       // Set up exit listener
       exitListenerCleanup = window.maestro.process.onExit(
@@ -573,6 +604,17 @@ export async function sendWizardMessage(
       );
 
       // Spawn the agent process
+      logger.info(
+        `Spawning wizard agent process`,
+        '[InlineWizardConversation]',
+        {
+          sessionId: session.sessionId,
+          agentType: session.agentType,
+          cwd: session.directoryPath,
+          historyLength: conversationHistory.length,
+        }
+      );
+
       window.maestro.process
         .spawn({
           sessionId: session.sessionId,

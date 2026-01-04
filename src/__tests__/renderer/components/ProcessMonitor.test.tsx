@@ -699,6 +699,82 @@ describe('ProcessMonitor', () => {
       });
     });
 
+    it('should display wizard conversation process with WIZARD badge', async () => {
+      const process = createActiveProcess({
+        sessionId: 'inline-wizard-1234567890-abc123xyz',
+      });
+      getActiveProcessesMock().mockResolvedValue([process]);
+
+      // Wizard processes don't belong to regular sessions
+      render(
+        <ProcessMonitor
+          theme={theme}
+          sessions={[]}
+          groups={[]}
+          onClose={onClose}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('WIZARD PROCESSES')).toBeInTheDocument();
+        expect(screen.getByText('Wizard Conversation')).toBeInTheDocument();
+        expect(screen.getByText('WIZARD')).toBeInTheDocument();
+      });
+    });
+
+    it('should display wizard generation process with GENERATING badge', async () => {
+      const process = createActiveProcess({
+        sessionId: 'inline-wizard-gen-1234567890-abc123xyz',
+      });
+      getActiveProcessesMock().mockResolvedValue([process]);
+
+      render(
+        <ProcessMonitor
+          theme={theme}
+          sessions={[]}
+          groups={[]}
+          onClose={onClose}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('WIZARD PROCESSES')).toBeInTheDocument();
+        expect(screen.getByText('Playbook Generation')).toBeInTheDocument();
+        expect(screen.getByText('GENERATING')).toBeInTheDocument();
+      });
+    });
+
+    it('should display multiple wizard processes together', async () => {
+      const processes = [
+        createActiveProcess({
+          sessionId: 'inline-wizard-1234567890-abc123xyz',
+          pid: 11111,
+        }),
+        createActiveProcess({
+          sessionId: 'inline-wizard-gen-9876543210-def456uvw',
+          pid: 22222,
+        }),
+      ];
+      getActiveProcessesMock().mockResolvedValue(processes);
+
+      render(
+        <ProcessMonitor
+          theme={theme}
+          sessions={[]}
+          groups={[]}
+          onClose={onClose}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('WIZARD PROCESSES')).toBeInTheDocument();
+        expect(screen.getByText('Wizard Conversation')).toBeInTheDocument();
+        expect(screen.getByText('Playbook Generation')).toBeInTheDocument();
+        expect(screen.getByText('PID: 11111')).toBeInTheDocument();
+        expect(screen.getByText('PID: 22222')).toBeInTheDocument();
+      });
+    });
+
     it('should display PID for processes', async () => {
       const process = createActiveProcess({ pid: 99999 });
       getActiveProcessesMock().mockResolvedValue([process]);

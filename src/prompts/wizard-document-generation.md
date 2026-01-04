@@ -10,7 +10,9 @@ Based on the project discovery conversation below, create a series of Auto Run d
 You may ONLY create files in the Auto Run folder:
 `{{DIRECTORY_PATH}}/{{AUTO_RUN_FOLDER_NAME}}/`
 
-Do NOT write, create, or modify files anywhere else. The wizard outputs documents using special markers (---BEGIN DOCUMENT--- / ---END DOCUMENT---) which are then saved by the application to the Auto Run folder.
+Do NOT write, create, or modify files anywhere else.
+
+**CRITICAL: Write files directly using your Write tool.** Create each document file as you complete it - do NOT wait until the end to write all files. This allows the user to see documents appear in real-time as you create them.
 
 **READ ACCESS (Unrestricted):**
 You may READ files from anywhere to inform your planning:
@@ -81,23 +83,16 @@ Good task examples (specific and actionable):
 
 ## Output Format
 
-Output each document in this format (including the markers):
+**Write each document directly to the Auto Run folder as you create it.**
 
----BEGIN DOCUMENT---
-FILENAME: Phase-01-[Description].md
-CONTENT:
-[Full markdown content here]
----END DOCUMENT---
+Use your Write tool to save each phase document immediately after you finish writing it. This way, files appear in real-time for the user.
 
----BEGIN DOCUMENT---
-FILENAME: Phase-02-[Description].md
-CONTENT:
-[Full markdown content here]
----END DOCUMENT---
+File naming convention:
+- `{{DIRECTORY_PATH}}/{{AUTO_RUN_FOLDER_NAME}}/Phase-01-[Description].md`
+- `{{DIRECTORY_PATH}}/{{AUTO_RUN_FOLDER_NAME}}/Phase-02-[Description].md`
+- Continue the pattern for additional phases...
 
-Continue for as many phases as needed.
-
-**IMPORTANT**: Write the markdown content directly - do NOT wrap it in code fences (like \`\`\`markdown or \`\`\`). The CONTENT section should contain raw markdown text, not a code block containing markdown.
+**IMPORTANT**: Write files one at a time, IN ORDER (Phase-01 first, then Phase-02, etc.). Do NOT wait until you've finished all documents to write them - save each one as soon as it's complete.
 
 ## Project Discovery Conversation
 

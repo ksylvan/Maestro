@@ -16,6 +16,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Brain } from 'lucide-react';
 import type { Theme } from '../../../types';
 import { useWizard, type WizardMessage } from '../WizardContext';
 import {
@@ -353,6 +354,58 @@ function TypingIndicator({
 }
 
 /**
+ * ThinkingDisplay - Shows AI thinking content when showThinking is enabled.
+ * Displays raw thinking content with styling similar to the normal AI terminal.
+ */
+function ThinkingDisplay({
+  theme,
+  agentName,
+  thinkingContent,
+}: {
+  theme: Theme;
+  agentName: string;
+  thinkingContent: string;
+}): JSX.Element {
+  return (
+    <div className="flex justify-start mb-4" data-testid="wizard-thinking-display">
+      <div
+        className="max-w-[80%] rounded-lg rounded-bl-none px-4 py-3 border-l-2"
+        style={{
+          backgroundColor: theme.colors.bgActivity,
+          borderColor: theme.colors.accent,
+        }}
+      >
+        <div className="flex items-center gap-2 mb-2">
+          <span
+            className="text-xs font-medium"
+            style={{ color: theme.colors.accent }}
+          >
+            {formatAgentName(agentName)}
+          </span>
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded"
+            style={{
+              backgroundColor: `${theme.colors.accent}30`,
+              color: theme.colors.accent,
+            }}
+          >
+            thinking
+          </span>
+        </div>
+        <div
+          className="text-sm whitespace-pre-wrap font-mono"
+          style={{ color: theme.colors.textDim, opacity: 0.85 }}
+          data-testid="thinking-display-content"
+        >
+          {thinkingContent || 'Reasoning...'}
+          <span className="animate-pulse ml-1" data-testid="thinking-cursor">▊</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * ConversationScreen - Project discovery conversation
  */
 export function ConversationScreen({ theme }: ConversationScreenProps): JSX.Element {
@@ -383,6 +436,10 @@ export function ConversationScreen({ theme }: ConversationScreenProps): JSX.Elem
   const [fillerPhrase, setFillerPhrase] = useState('');
   // Track detected provider error for showing recovery hints
   const [detectedError, setDetectedError] = useState<WizardError | null>(null);
+  // Show Thinking toggle - shows raw AI reasoning instead of filler phrases
+  const [showThinking, setShowThinking] = useState(false);
+  // Accumulated thinking content when showThinking is enabled
+  const [thinkingContent, setThinkingContent] = useState('');
 
   // Screen reader announcement state
   const [announcement, setAnnouncement] = useState('');
@@ -550,6 +607,7 @@ export function ConversationScreen({ theme }: ConversationScreenProps): JSX.Elem
     setConversationError(null);
     setDetectedError(null);
     setStreamingText('');
+    setThinkingContent(''); // Clear previous thinking content
     setFillerPhrase(getNextFillerPhrase());
 
     // If this is the first message, add the initial question to history first
@@ -621,6 +679,17 @@ export function ConversationScreen({ theme }: ConversationScreenProps): JSX.Elem
                     msg.event?.delta?.text
                   ) {
                     setStreamingText((prev) => prev + msg.event.delta.text);
+                  }
+
+                  // Extract thinking content when showThinking is enabled
+                  // Claude outputs thinking in content_block_delta with type "thinking_delta"
+                  if (
+                    showThinking &&
+                    msg.type === 'content_block_delta' &&
+                    msg.delta?.type === 'thinking_delta' &&
+                    msg.delta?.thinking
+                  ) {
+                    setThinkingContent((prev) => prev + msg.delta.thinking);
                   }
                   // Note: We intentionally skip the 'assistant' message type here
                   // because it contains the complete message, not incremental updates.
@@ -1006,7 +1075,7 @@ export function ConversationScreen({ theme }: ConversationScreenProps): JSX.Elem
           />
         ))}
 
-        {/* Streaming Response or Typing Indicator */}
+        {/* Streaming Response, Thinking Display, or Typing Indicator */}
         {state.isConversationLoading && (
           streamingText ? (
             <div className="flex justify-start mb-4">
@@ -1026,7 +1095,22 @@ export function ConversationScreen({ theme }: ConversationScreenProps): JSX.Elem
                 </div>
               </div>
             </div>
+          ) : showThinking && thinkingContent ? (
+            // Show thinking content when enabled and we have content
+            <ThinkingDisplay
+              theme={theme}
+              agentName={state.agentName || 'Agent'}
+              thinkingContent={thinkingContent}
+            />
+          ) : showThinking ? (
+            // Show minimal thinking display when enabled but no content yet
+            <ThinkingDisplay
+              theme={theme}
+              agentName={state.agentName || 'Agent'}
+              thinkingContent=""
+            />
           ) : (
+            // Show filler phrase typing indicator
             <TypingIndicator
               theme={theme}
               agentName={state.agentName || 'Agent'}
@@ -1229,8 +1313,20 @@ export function ConversationScreen({ theme }: ConversationScreenProps): JSX.Elem
           </button>
         </div>
 
-        {/* Keyboard hints */}
-        <div className="mt-4 flex justify-center gap-6">
+        {/* Controls and keyboard hints */}
+        <div className="mt-4 flex justify-center gap-6 items-center">
+          {/* Show Thinking toggle */}
+          <button
+            onClick={() => setShowThinking(!showThinking)}
+            className={`flex items-center gap-1 text-xs px-2 py-1 rounded hover:bg-white/5 transition-opacity ${
+              showThinking ? 'opacity-100' : 'opacity-50 hover:opacity-100'
+            }`}
+            title={showThinking ? 'Hide AI thinking (show filler messages)' : 'Show AI thinking'}
+            style={showThinking ? { color: theme.colors.accent } : { color: theme.colors.textDim }}
+          >
+            <Brain className="w-3 h-3" />
+            <span>Thinking</span>
+          </button>
           <span
             className="text-xs flex items-center gap-1"
             style={{ color: theme.colors.textDim }}
