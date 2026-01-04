@@ -178,16 +178,6 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
       setCustomAgentArgs(args);
       setCustomAgentEnvVars(envVars);
 
-      // Load SSH remote configurations
-      try {
-        const sshConfigsResult = await window.maestro.sshRemote.getConfigs();
-        if (sshConfigsResult.success && sshConfigsResult.configs) {
-          setSshRemotes(sshConfigsResult.configs);
-        }
-      } catch (sshError) {
-        console.error('Failed to load SSH remote configs:', sshError);
-      }
-
       // Select first available non-hidden agent (or source agent if duplicating)
       // (hidden agents like 'terminal' should never be auto-selected)
       if (source) {
@@ -419,6 +409,24 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
     }
   }, [isOpen, sourceSession]);
 
+  // Load SSH remote configurations independently of agent detection
+  // This ensures SSH remotes are available even if agent detection fails
+  useEffect(() => {
+    if (isOpen) {
+      const loadSshConfigs = async () => {
+        try {
+          const sshConfigsResult = await window.maestro.sshRemote.getConfigs();
+          if (sshConfigsResult.success && sshConfigsResult.configs) {
+            setSshRemotes(sshConfigsResult.configs);
+          }
+        } catch (sshError) {
+          console.error('Failed to load SSH remote configs:', sshError);
+        }
+      };
+      loadSshConfigs();
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   return (
@@ -491,6 +499,17 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
                             // Auto-select if available
                             if (canSelect) {
                               setSelectedAgent(agent.id);
+                              // Transfer pending SSH config to the newly selected agent if it doesn't have one
+                              setAgentSshRemoteConfigs(prev => {
+                                const pendingConfig = prev['_pending_'];
+                                if (pendingConfig && !prev[agent.id]) {
+                                  return {
+                                    ...prev,
+                                    [agent.id]: pendingConfig,
+                                  };
+                                }
+                                return prev;
+                              });
                             }
                             // Load models when expanding an agent that supports model selection
                             if (nowExpanded && agent.capabilities?.supportsModelSelection) {
@@ -792,15 +811,19 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
           )}
 
           {/* SSH Remote Execution - Top Level */}
-          {sshRemotes.length > 0 && selectedAgent && (
+          {/* Show SSH selector when remotes are configured, regardless of agent selection */}
+          {/* This allows users to see and configure SSH settings even while troubleshooting agent detection */}
+          {/* Uses '_pending_' key when no agent selected, transfers to agent when selected */}
+          {sshRemotes.length > 0 && (
             <SshRemoteSelector
               theme={theme}
               sshRemotes={sshRemotes}
-              sshRemoteConfig={agentSshRemoteConfigs[selectedAgent]}
+              sshRemoteConfig={agentSshRemoteConfigs[selectedAgent] || agentSshRemoteConfigs['_pending_']}
               onSshRemoteConfigChange={(config) => {
+                const key = selectedAgent || '_pending_';
                 setAgentSshRemoteConfigs(prev => ({
                   ...prev,
-                  [selectedAgent]: config
+                  [key]: config
                 }));
               }}
             />

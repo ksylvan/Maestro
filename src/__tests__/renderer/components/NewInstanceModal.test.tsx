@@ -86,6 +86,11 @@ describe('NewInstanceModal', () => {
       debugInfo: null,
     });
     vi.mocked(window.maestro.agents.setCustomPath).mockResolvedValue(undefined);
+    // Default: no SSH remotes configured
+    vi.mocked(window.maestro.sshRemote.getConfigs).mockResolvedValue({
+      success: true,
+      configs: [],
+    });
   });
 
   afterEach(() => {
@@ -2105,6 +2110,115 @@ describe('NewInstanceModal', () => {
       // Verify customArgs were pre-filled (internal state test)
       // The actual visibility depends on the agent being expanded, which we also set
       expect(sourceSession.customArgs).toBe('--model=opus --verbose');
+    });
+
+    it('should display SSH selector even when no agent is selected', async () => {
+      // This tests the bug where SSH section was hidden when no agents were available
+      vi.mocked(window.maestro.agents.detect).mockResolvedValue([
+        createAgentConfig({ id: 'claude-code', name: 'Claude Code', available: false }),
+      ]);
+      vi.mocked(window.maestro.sshRemote.getConfigs).mockResolvedValue({
+        success: true,
+        configs: [{
+          id: 'remote-1',
+          name: 'Test Server',
+          host: 'test.example.com',
+          port: 22,
+          username: 'testuser',
+          privateKeyPath: '/path/to/key',
+          enabled: true,
+        }],
+      });
+
+      render(
+        <NewInstanceModal
+          isOpen={true}
+          onClose={onClose}
+          onCreate={onCreate}
+          theme={theme}
+          existingSessions={[]}
+        />
+      );
+
+      // Wait for the SSH selector to appear even though no agent is available
+      await waitFor(() => {
+        expect(screen.getByText('SSH Remote Execution')).toBeInTheDocument();
+        expect(screen.getByText('Local Execution')).toBeInTheDocument();
+      });
+    });
+
+    it('should transfer pending SSH config when agent is selected', async () => {
+      // This tests that SSH config selected before agent selection transfers to the agent
+      vi.mocked(window.maestro.agents.detect).mockResolvedValue([
+        createAgentConfig({ id: 'claude-code', name: 'Claude Code', available: false }),
+        createAgentConfig({ id: 'opencode', name: 'OpenCode', available: true }),
+      ]);
+      vi.mocked(window.maestro.sshRemote.getConfigs).mockResolvedValue({
+        success: true,
+        configs: [{
+          id: 'remote-1',
+          name: 'Test Server',
+          host: 'test.example.com',
+          port: 22,
+          username: 'testuser',
+          privateKeyPath: '/path/to/key',
+          enabled: true,
+        }],
+      });
+
+      render(
+        <NewInstanceModal
+          isOpen={true}
+          onClose={onClose}
+          onCreate={onCreate}
+          theme={theme}
+          existingSessions={[]}
+        />
+      );
+
+      // Wait for SSH selector (should appear immediately since we have SSH configs)
+      await waitFor(() => {
+        expect(screen.getByText('SSH Remote Execution')).toBeInTheDocument();
+      });
+
+      // Select the SSH remote BEFORE selecting an agent
+      const dropdown = screen.getByRole('combobox');
+      fireEvent.change(dropdown, { target: { value: 'remote-1' } });
+
+      // Now select the available agent (opencode)
+      await waitFor(() => {
+        expect(screen.getByText('OpenCode')).toBeInTheDocument();
+      });
+      const openCodeOption = screen.getByRole('option', { name: /OpenCode/i });
+      fireEvent.click(openCodeOption);
+
+      // Fill in required fields and create
+      const nameInput = screen.getByLabelText('Agent Name');
+      fireEvent.change(nameInput, { target: { value: 'SSH Test' } });
+
+      // Use the placeholder that appears when SSH is enabled (mentions the remote host)
+      const dirInput = screen.getByPlaceholderText(/Enter remote path/i);
+      fireEvent.change(dirInput, { target: { value: '/test/path' } });
+
+      const createButton = screen.getByText('Create Agent');
+      await act(async () => {
+        fireEvent.click(createButton);
+      });
+
+      // Should have passed the SSH config that was selected while agent was not yet selected
+      expect(onCreate).toHaveBeenCalledWith(
+        'opencode',
+        '/test/path',
+        'SSH Test',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { enabled: true, remoteId: 'remote-1' }
+      );
     });
 
     it('should pre-fill SSH remote configuration when duplicating', async () => {
