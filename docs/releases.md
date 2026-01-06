@@ -13,28 +13,42 @@ Maestro can update itself automatically! This feature was introduced in **v0.8.7
 
 ---
 
-## v0.14.x - Document Graphs and Agents over SSH
+## v0.14.x - Doc Graphs, SSH Agents, Inline Wizard
 
-**Latest: v0.14.0** | Released January 2, 2026
+**Latest: v0.14.1** | Released January 6, 2026
 
-Two major features in this release:
+This point release brings enhancements to the new agent Wizard as well as a new "inline" or in-tab wizard that can be triggered via `/wizard`. Additionally:
 
-🗄️ The first is Document Graphs. Launch from file preview or from the FIle tree panel. Explore relationships between Markdown documents that contain links between documents and to URLs.
+- The tab menu has a new "Publish as GitHub Gist" option  📝
+- The tab menu has options to move the tab to the first or last position 🔀
+- Improved context compaction with multi-pass consolidation 📚
+- Addressed some keyboard shortcut and pathing issues specific to Windows 🪟
+- Added caching layer to Document Graph view 💨
+- Addressed a bug in sending context from one agent to another 🤝
+- Bugfix in custom path detection for new agents 🐛
+- You can now edit any text file from within Maestro 📄
+- Files and folders can be renamed/deleted from the file tree 📁
+- Proper leaderboard sync for folks who use multiple instances of Maestro 🏆
+- Addressed regression where OpenCode was not launching in YOLO mode 🐜
 
-📶 The second is SSH support for agents. Manage a remote agent with feature parity over SSH. Includes support for Git and File tree panels. Manage agents on remote systems or in containers. This even works for Group Chat, which is rad as hell.
+The other major contributions to 0.14.x remain:
 
-🎛️ Also, made hefty changes to the User Dashboard, check it out from the hamburger menu, command palette, or hotkey. Get global insights across all providers and agents.
+🗄️ Document Graphs. Launch from file preview or from the FIle tree panel. Explore relationships between Markdown documents that contain links between documents and to URLs.
 
-### Other Changes
+📶 SSH support for agents. Manage a remote agent with feature parity over SSH. Includes support for Git and File tree panels. Manage agents on remote systems or in containers. This even works for Group Chat, which is rad as hell.
+
+### Other Changes in 0.14.x
+- Improved User Dashboard, available from hamburger menu, command palette or hotkey 🎛️
 - Leaderboard tracking now works across multiple systems 🏆
-- Windows WSL compatibility improvements 🪟
 - Agent duplication. Pro tip: Consider a group of unused "Template" agents ✌️
 - New setting to prevent system from going to sleep while agents are active 🛏️
-- We were not correctly tallying user interactions in the new usage dashboard 🧮
 - Added debug package to the wizard process, if you have issues there, please share the logs! 🧙‍♂️
-- Performance improvement in Auto Run panel editor 🏃‍♂️
 
-Thanks for the contributions: @t1mmen @aejfager @Crumbgrabber @whglaser @b3nw @deandebeer
+Thanks for the contributions: @t1mmen @aejfager @Crumbgrabber @whglaser @b3nw @deandebeer @shadown @breki
+
+### Previous Releases in this Series
+
+- **v0.14.0** (January 2, 2026) - Document Graphs and Agents over SSH
 
 ---
 
