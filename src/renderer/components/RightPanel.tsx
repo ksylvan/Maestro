@@ -507,16 +507,17 @@ export const RightPanel = memo(forwardRef<RightPanelHandle, RightPanelProps>(fun
           {currentSessionBatchState.documents && currentSessionBatchState.documents.length > 1 && (
             <div className="mb-2">
               {/* Document name with progress bar */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0">
                 <span
-                  className="text-xs font-medium shrink-0"
+                  className="text-xs font-medium truncate min-w-0"
                   style={{ color: theme.colors.textMain }}
+                  title={`Document ${currentSessionBatchState.currentDocumentIndex + 1}/${currentSessionBatchState.documents.length}: ${currentSessionBatchState.documents[currentSessionBatchState.currentDocumentIndex]}.md`}
                 >
-                  Document {currentSessionBatchState.currentDocumentIndex + 1}/{currentSessionBatchState.documents.length}: {currentSessionBatchState.documents[currentSessionBatchState.currentDocumentIndex]}.md
+                  Document {currentSessionBatchState.currentDocumentIndex + 1}/{currentSessionBatchState.documents.length}: {currentSessionBatchState.documents[currentSessionBatchState.currentDocumentIndex]}
                 </span>
                 <div
-                  className="flex-1 h-1 rounded-full overflow-hidden"
-                  style={{ backgroundColor: theme.colors.border }}
+                  className="flex-1 h-1 rounded-full overflow-hidden shrink-0"
+                  style={{ backgroundColor: theme.colors.border, minWidth: '60px' }}
                 >
                   <div
                     className="h-full transition-all duration-300 ease-out"

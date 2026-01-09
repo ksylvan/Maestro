@@ -573,7 +573,8 @@ describe('RightPanel', () => {
       const props = createDefaultProps({ currentSessionBatchState });
       render(<RightPanel {...props} />);
 
-      expect(screen.getByText(/Document 2\/3: doc2.md/)).toBeInTheDocument();
+      // Document name shown without .md extension (full path with .md is in tooltip)
+      expect(screen.getByText(/Document 2\/3: doc2/)).toBeInTheDocument();
     });
 
     it('should not show document progress bar for single-document runs but should show document name', () => {
