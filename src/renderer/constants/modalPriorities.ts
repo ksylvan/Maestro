@@ -29,6 +29,9 @@ export const MODAL_PRIORITIES = {
   /** Agent error modal - critical, shows recovery options */
   AGENT_ERROR: 1010,
 
+  /** Erase confirmation modal - secondary confirmation for directory deletion */
+  ERASE_CONFIRM: 1005,
+
   /** Confirmation dialogs - highest priority, always on top */
   CONFIRM: 1000,
 
