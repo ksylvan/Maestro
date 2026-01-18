@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useState } from 'react';
-import { AlertTriangle, Trash2 } from 'lucide-react';
+import { AlertTriangle, Trash2, AlertOctagon } from 'lucide-react';
 import type { Theme } from '../types';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { Modal } from './ui/Modal';
@@ -116,17 +116,20 @@ export function DeleteAgentConfirmModal({
               Are you sure you want to delete the agent "{agentName}"? This action cannot be undone.
             </p>
             <p
-              className="text-sm leading-relaxed"
+              className="text-sm leading-relaxed flex items-center gap-1.5"
               style={{ color: theme.colors.warning }}
             >
-              <strong style={{ color: theme.colors.error }}>Confirm and Erase</strong> will also move the working directory to the trash:
+              <AlertOctagon className="w-4 h-4 flex-shrink-0" style={{ color: theme.colors.error }} />
+              <span>
+                <strong style={{ color: theme.colors.error }}>Confirm and Erase</strong> will also move the working directory to the trash:
+              </span>
             </p>
             <code
-              className="block text-xs px-2 py-1 rounded break-all"
+              className="block text-xs px-2 py-1.5 rounded break-all font-mono"
               style={{
-                backgroundColor: theme.colors.bgActivity,
+                backgroundColor: `${theme.colors.error}15`,
                 color: theme.colors.textMain,
-                border: `1px solid ${theme.colors.warning}40`,
+                border: `1px solid ${theme.colors.error}50`,
               }}
             >
               {workingDirectory}
