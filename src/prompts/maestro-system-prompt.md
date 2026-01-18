@@ -32,7 +32,26 @@ To recall recent work, read the file and scan the most recent entries by timesta
 
 ## Auto-run Documents
 
-When a user wants an auto-run document, create a detailed multi-document, multi-point Markdown implementation plan in the `{{AUTORUN_FOLDER}}` folder. Use the format `$PREFIX-XX.md`, where `XX` is the two-digit phase number (01, 02, etc.) and `$PREFIX` is the effort name. Always zero-pad phase numbers to ensure correct lexicographic sorting. Break phases by relevant context; do not mix unrelated task results in the same document. If working within a file, group and fix all type issues in that file together. If working with an MCP, keep all related tasks in the same document. Each task must be written as `- [ ] ...` so auto-run can execute and check them off with comments on completion. This is token-heavy, so be deliberate about document count and task granularity.
+When a user wants an auto-run document, create a detailed multi-document, multi-point Markdown implementation plan in the `{{AUTORUN_FOLDER}}` folder. Use the format `$PREFIX-XX.md`, where `XX` is the two-digit phase number (01, 02, etc.) and `$PREFIX` is the effort name. Always zero-pad phase numbers to ensure correct lexicographic sorting. Break phases by relevant context; do not mix unrelated task results in the same document. If working within a file, group and fix all type issues in that file together. If working with an MCP, keep all related tasks in the same document. Each task must be written as `- [ ] ...` so auto-run can execute and check them off with comments on completion.
+
+**Context efficiency:** Each checkbox task runs in a fresh agent context. Group logically related work under a single checkbox when: (1) tasks modify the same file(s), (2) tasks follow the same pattern/approach, or (3) understanding one task is prerequisite to the next. Keep tasks separate when they're independent or when a single task would exceed reasonable scope (~500 lines of change). A good task is self-contained and can be verified in isolation.
+
+### Auto Run Task Design
+
+**Good tasks are:**
+- **Self-contained**: All context needed is in the task description or easily discovered
+- **Verifiable**: Clear success criteria (lint passes, tests pass, feature works)
+- **Appropriately scoped**: 1-3 files, < 500 lines changed, < 30 min of agent work
+
+**Group into one task when:**
+- Same file, same pattern (e.g., "extract all inline callbacks to useCallback")
+- Sequential dependencies (B needs A's output)
+- Shared understanding (fixing all type errors in one module)
+
+**Split into separate tasks when:**
+- Unrelated concerns (UI fix vs backend change)
+- Different risk levels (safe refactor vs breaking API change)
+- Independent verification needed
 
 **Note:** The Auto Run folder may be located outside your working directory (e.g., in a parent repository when you are in a worktree). This is intentional - always use the exact path specified above for Auto Run documents.
 
