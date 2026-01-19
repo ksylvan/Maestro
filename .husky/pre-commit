@@ -1,3 +1,5 @@
+#!/bin/sh
+
 # Run lint-staged for formatting and linting on staged files only
 npx lint-staged
 
