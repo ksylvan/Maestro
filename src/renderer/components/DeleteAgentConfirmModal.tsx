@@ -1,5 +1,5 @@
-import React, { useRef, useCallback } from 'react';
-import { AlertTriangle, Trash2 } from 'lucide-react';
+import React, { useRef, useCallback, useState, useMemo } from 'react';
+import { Trash2 } from 'lucide-react';
 import type { Theme } from '../types';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { Modal } from './ui/Modal';
@@ -22,6 +22,11 @@ export function DeleteAgentConfirmModal({
   onClose,
 }: DeleteAgentConfirmModalProps) {
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  const [confirmationText, setConfirmationText] = useState('');
+
+  const isAgentNameMatch = useMemo(() => {
+    return confirmationText.trim().toLowerCase() === agentName.trim().toLowerCase();
+  }, [confirmationText, agentName]);
 
   const handleConfirm = useCallback(() => {
     onConfirm();
@@ -29,9 +34,10 @@ export function DeleteAgentConfirmModal({
   }, [onConfirm, onClose]);
 
   const handleConfirmAndErase = useCallback(() => {
+    if (!isAgentNameMatch) return;
     onConfirmAndErase();
     onClose();
-  }, [onConfirmAndErase, onClose]);
+  }, [isAgentNameMatch, onConfirmAndErase, onClose]);
 
   // Stop Enter key propagation to prevent parent handlers from triggering after modal closes
   const handleKeyDown = (e: React.KeyboardEvent, action: () => void) => {
@@ -76,7 +82,7 @@ export function DeleteAgentConfirmModal({
               color: '#ffffff',
             }}
           >
-            Confirm
+            Agent Only
           </button>
           <button
             type="button"
@@ -86,41 +92,57 @@ export function DeleteAgentConfirmModal({
             style={{
               backgroundColor: theme.colors.error,
               color: '#ffffff',
+              opacity: isAgentNameMatch ? 1 : 0.5,
+              cursor: isAgentNameMatch ? 'pointer' : 'not-allowed',
             }}
+            disabled={!isAgentNameMatch}
           >
-            Confirm and Erase
+            Agent + Work Directory
           </button>
         </div>
       }
     >
-      <div className="flex gap-4">
-        <div
-          className="flex-shrink-0 p-2 rounded-full h-fit"
-          style={{ backgroundColor: `${theme.colors.error}20` }}
-        >
-          <AlertTriangle className="w-5 h-5" style={{ color: theme.colors.error }} />
-        </div>
-        <div className="space-y-3">
-          <p className="leading-relaxed" style={{ color: theme.colors.textMain }}>
-            Are you sure you want to delete the agent "{agentName}"? This action cannot be undone.
-          </p>
-          <p
-            className="text-sm leading-relaxed"
-            style={{ color: theme.colors.textDim }}
-          >
-            <strong>Confirm and Erase</strong> will also move the working directory to the trash:
-          </p>
-          <code
-            className="block text-xs px-2 py-1 rounded break-all"
+      <div className="space-y-4">
+        <div className="flex gap-3 items-start">
+          <div
+            className="flex h-6 w-6 items-center justify-center rounded-full text-sm font-bold"
             style={{
-              backgroundColor: theme.colors.bgActivity,
-              color: theme.colors.textDim,
-              border: `1px solid ${theme.colors.border}`,
+              backgroundColor: `${theme.colors.warning}33`,
+              color: theme.colors.warning,
             }}
           >
-            {workingDirectory}
-          </code>
+            !
+          </div>
+          <p className="leading-relaxed" style={{ color: theme.colors.warning }}>
+            <span className="font-semibold">Danger:</span> Deleting the agent "{agentName}"
+            cannot be undone. "Agent + Work Directory" will also move the working
+            directory to the trash:
+          </p>
         </div>
+        <code
+          className="block text-xs px-3 py-2 rounded break-all"
+          style={{
+            backgroundColor: theme.colors.bgActivity,
+            color: '#ffffff',
+            border: `1px solid ${theme.colors.border}`,
+          }}
+        >
+          {workingDirectory}
+        </code>
+        <input
+          type="text"
+          value={confirmationText}
+          onChange={(e) => setConfirmationText(e.target.value)}
+          placeholder="Type the agent name here to confirm directory deletion."
+          aria-label="Type the agent name here to confirm directory deletion."
+          className="w-full px-3 py-2 rounded text-sm outline-none placeholder:text-[color:var(--placeholder-color)]"
+          style={{
+            backgroundColor: theme.colors.bgActivity,
+            color: '#ffffff',
+            border: `1px solid ${theme.colors.border}`,
+            '--placeholder-color': theme.colors.textDim,
+          } as React.CSSProperties}
+        />
       </div>
     </Modal>
   );
