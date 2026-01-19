@@ -547,4 +547,224 @@ describe('DeleteAgentConfirmModal', () => {
       expect(screen.getByRole('heading', { name: 'Confirm Delete' })).toBeInTheDocument();
     });
   });
+
+  describe('edge cases', () => {
+    describe('long agent names', () => {
+      it('handles very long agent names (50+ characters)', () => {
+        const longAgentName =
+          'ThisIsAVeryLongAgentNameThatExceedsFiftyCharactersForTestingPurposes';
+        renderWithLayerStack(
+          <DeleteAgentConfirmModal
+            theme={testTheme}
+            agentName={longAgentName}
+            workingDirectory="/home/user/project"
+            onConfirm={vi.fn()}
+            onConfirmAndErase={vi.fn()}
+            onClose={vi.fn()}
+          />
+        );
+
+        // Verify the long name is displayed
+        expect(screen.getByText(new RegExp(longAgentName))).toBeInTheDocument();
+      });
+
+      it('enables button when long agent name is typed correctly', () => {
+        const longAgentName =
+          'ThisIsAVeryLongAgentNameThatExceedsFiftyCharactersForTestingPurposes';
+        renderWithLayerStack(
+          <DeleteAgentConfirmModal
+            theme={testTheme}
+            agentName={longAgentName}
+            workingDirectory="/home/user/project"
+            onConfirm={vi.fn()}
+            onConfirmAndErase={vi.fn()}
+            onClose={vi.fn()}
+          />
+        );
+
+        const input = screen.getByPlaceholderText(
+          'Type the agent name here to confirm directory deletion.'
+        );
+        fireEvent.change(input, { target: { value: longAgentName } });
+
+        const eraseButton = screen.getByRole('button', { name: 'Agent + Work Directory' });
+        expect(eraseButton).not.toBeDisabled();
+      });
+    });
+
+    describe('long directory paths', () => {
+      it('renders very long directory paths with break-all class', () => {
+        const longPath =
+          '/home/user/very/deeply/nested/project/directory/structure/that/goes/on/and/on/and/on/forever/and/ever';
+        renderWithLayerStack(
+          <DeleteAgentConfirmModal
+            theme={testTheme}
+            agentName="TestAgent"
+            workingDirectory={longPath}
+            onConfirm={vi.fn()}
+            onConfirmAndErase={vi.fn()}
+            onClose={vi.fn()}
+          />
+        );
+
+        const codeElement = screen.getByText(longPath);
+        expect(codeElement).toBeInTheDocument();
+        expect(codeElement).toHaveClass('break-all');
+      });
+    });
+
+    describe('special characters in agent name', () => {
+      it('handles agent names with quotes', () => {
+        const agentNameWithQuotes = 'Agent"Test"Name';
+        renderWithLayerStack(
+          <DeleteAgentConfirmModal
+            theme={testTheme}
+            agentName={agentNameWithQuotes}
+            workingDirectory="/home/user/project"
+            onConfirm={vi.fn()}
+            onConfirmAndErase={vi.fn()}
+            onClose={vi.fn()}
+          />
+        );
+
+        const input = screen.getByPlaceholderText(
+          'Type the agent name here to confirm directory deletion.'
+        );
+        fireEvent.change(input, { target: { value: agentNameWithQuotes } });
+
+        const eraseButton = screen.getByRole('button', { name: 'Agent + Work Directory' });
+        expect(eraseButton).not.toBeDisabled();
+      });
+
+      it('handles agent names with ampersands', () => {
+        const agentNameWithAmpersand = 'Agent&Test&Name';
+        renderWithLayerStack(
+          <DeleteAgentConfirmModal
+            theme={testTheme}
+            agentName={agentNameWithAmpersand}
+            workingDirectory="/home/user/project"
+            onConfirm={vi.fn()}
+            onConfirmAndErase={vi.fn()}
+            onClose={vi.fn()}
+          />
+        );
+
+        const input = screen.getByPlaceholderText(
+          'Type the agent name here to confirm directory deletion.'
+        );
+        fireEvent.change(input, { target: { value: agentNameWithAmpersand } });
+
+        const eraseButton = screen.getByRole('button', { name: 'Agent + Work Directory' });
+        expect(eraseButton).not.toBeDisabled();
+      });
+
+      it('handles agent names with angle brackets', () => {
+        const agentNameWithBrackets = 'Agent<Test>Name';
+        renderWithLayerStack(
+          <DeleteAgentConfirmModal
+            theme={testTheme}
+            agentName={agentNameWithBrackets}
+            workingDirectory="/home/user/project"
+            onConfirm={vi.fn()}
+            onConfirmAndErase={vi.fn()}
+            onClose={vi.fn()}
+          />
+        );
+
+        const input = screen.getByPlaceholderText(
+          'Type the agent name here to confirm directory deletion.'
+        );
+        fireEvent.change(input, { target: { value: agentNameWithBrackets } });
+
+        const eraseButton = screen.getByRole('button', { name: 'Agent + Work Directory' });
+        expect(eraseButton).not.toBeDisabled();
+      });
+
+      it('handles agent names with Unicode characters', () => {
+        const agentNameWithUnicode = 'Agent🤖Test名前';
+        renderWithLayerStack(
+          <DeleteAgentConfirmModal
+            theme={testTheme}
+            agentName={agentNameWithUnicode}
+            workingDirectory="/home/user/project"
+            onConfirm={vi.fn()}
+            onConfirmAndErase={vi.fn()}
+            onClose={vi.fn()}
+          />
+        );
+
+        const input = screen.getByPlaceholderText(
+          'Type the agent name here to confirm directory deletion.'
+        );
+        fireEvent.change(input, { target: { value: agentNameWithUnicode } });
+
+        const eraseButton = screen.getByRole('button', { name: 'Agent + Work Directory' });
+        expect(eraseButton).not.toBeDisabled();
+      });
+    });
+
+    describe('whitespace handling', () => {
+      it('enables button when agent name prop has leading/trailing whitespace and input matches trimmed name', () => {
+        renderWithLayerStack(
+          <DeleteAgentConfirmModal
+            theme={testTheme}
+            agentName="  TestAgent  "
+            workingDirectory="/home/user/project"
+            onConfirm={vi.fn()}
+            onConfirmAndErase={vi.fn()}
+            onClose={vi.fn()}
+          />
+        );
+
+        const input = screen.getByPlaceholderText(
+          'Type the agent name here to confirm directory deletion.'
+        );
+        fireEvent.change(input, { target: { value: 'TestAgent' } });
+
+        const eraseButton = screen.getByRole('button', { name: 'Agent + Work Directory' });
+        expect(eraseButton).not.toBeDisabled();
+      });
+
+      it('enables button when input has whitespace and agent name has whitespace', () => {
+        renderWithLayerStack(
+          <DeleteAgentConfirmModal
+            theme={testTheme}
+            agentName="  TestAgent  "
+            workingDirectory="/home/user/project"
+            onConfirm={vi.fn()}
+            onConfirmAndErase={vi.fn()}
+            onClose={vi.fn()}
+          />
+        );
+
+        const input = screen.getByPlaceholderText(
+          'Type the agent name here to confirm directory deletion.'
+        );
+        fireEvent.change(input, { target: { value: '  TestAgent  ' } });
+
+        const eraseButton = screen.getByRole('button', { name: 'Agent + Work Directory' });
+        expect(eraseButton).not.toBeDisabled();
+      });
+    });
+
+    describe('input constraints', () => {
+      it('has maxLength attribute of 256 characters', () => {
+        renderWithLayerStack(
+          <DeleteAgentConfirmModal
+            theme={testTheme}
+            agentName="TestAgent"
+            workingDirectory="/home/user/project"
+            onConfirm={vi.fn()}
+            onConfirmAndErase={vi.fn()}
+            onClose={vi.fn()}
+          />
+        );
+
+        const input = screen.getByPlaceholderText(
+          'Type the agent name here to confirm directory deletion.'
+        );
+        expect(input).toHaveAttribute('maxLength', '256');
+      });
+    });
+  });
 });

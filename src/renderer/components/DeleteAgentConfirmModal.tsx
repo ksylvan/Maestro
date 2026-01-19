@@ -24,9 +24,9 @@ export function DeleteAgentConfirmModal({
   const agentOnlyButtonRef = useRef<HTMLButtonElement>(null);
   const [confirmationText, setConfirmationText] = useState('');
 
-  // Check if the confirmation input matches the agent name (case-insensitive)
+  // Check if the confirmation input matches the agent name (case-insensitive, trimmed)
   const isAgentNameMatch =
-    confirmationText.trim().toLowerCase() === agentName.toLowerCase();
+    confirmationText.trim().toLowerCase() === agentName.trim().toLowerCase();
 
   const handleConfirm = useCallback(() => {
     onConfirm();
@@ -143,6 +143,7 @@ export function DeleteAgentConfirmModal({
             value={confirmationText}
             onChange={(e) => setConfirmationText(e.target.value)}
             placeholder="Type the agent name here to confirm directory deletion."
+            maxLength={256}
             className="w-full text-sm px-2 py-2 rounded outline-none focus:ring-2 focus:ring-offset-1 placeholder:text-gray-500 mt-2.5"
             style={{
               backgroundColor: theme.colors.bgActivity,
