@@ -546,6 +546,148 @@ describe('DeleteAgentConfirmModal', () => {
 
       expect(screen.getByRole('heading', { name: 'Confirm Delete' })).toBeInTheDocument();
     });
+
+    it('confirmation input has aria-label with agent name', () => {
+      renderWithLayerStack(
+        <DeleteAgentConfirmModal
+          theme={testTheme}
+          agentName="TestAgent"
+          workingDirectory="/home/user/project"
+          onConfirm={vi.fn()}
+          onConfirmAndErase={vi.fn()}
+          onClose={vi.fn()}
+        />
+      );
+
+      const input = screen.getByRole('textbox');
+      expect(input).toHaveAttribute('aria-label', 'Type TestAgent to confirm directory deletion');
+    });
+
+    it('confirmation input has aria-describedby linking to danger warning', () => {
+      renderWithLayerStack(
+        <DeleteAgentConfirmModal
+          theme={testTheme}
+          agentName="TestAgent"
+          workingDirectory="/home/user/project"
+          onConfirm={vi.fn()}
+          onConfirmAndErase={vi.fn()}
+          onClose={vi.fn()}
+        />
+      );
+
+      const input = screen.getByRole('textbox');
+      expect(input).toHaveAttribute('aria-describedby', 'delete-agent-warning');
+
+      // Verify the referenced element exists
+      const warningElement = document.getElementById('delete-agent-warning');
+      expect(warningElement).toBeInTheDocument();
+      expect(warningElement).toHaveTextContent(/Danger:/);
+    });
+
+    it('"Agent + Work Directory" button has aria-disabled when disabled', () => {
+      renderWithLayerStack(
+        <DeleteAgentConfirmModal
+          theme={testTheme}
+          agentName="TestAgent"
+          workingDirectory="/home/user/project"
+          onConfirm={vi.fn()}
+          onConfirmAndErase={vi.fn()}
+          onClose={vi.fn()}
+        />
+      );
+
+      const eraseButton = screen.getByRole('button', { name: 'Agent + Work Directory' });
+      expect(eraseButton).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('"Agent + Work Directory" button has aria-disabled=false when enabled', () => {
+      renderWithLayerStack(
+        <DeleteAgentConfirmModal
+          theme={testTheme}
+          agentName="TestAgent"
+          workingDirectory="/home/user/project"
+          onConfirm={vi.fn()}
+          onConfirmAndErase={vi.fn()}
+          onClose={vi.fn()}
+        />
+      );
+
+      const input = screen.getByRole('textbox');
+      fireEvent.change(input, { target: { value: 'TestAgent' } });
+
+      const eraseButton = screen.getByRole('button', { name: 'Agent + Work Directory' });
+      expect(eraseButton).toHaveAttribute('aria-disabled', 'false');
+    });
+
+    it('pressing Enter on confirmation input triggers Agent + Work Directory when name matches', () => {
+      const callOrder: string[] = [];
+      const onClose = vi.fn(() => callOrder.push('close'));
+      const onConfirmAndErase = vi.fn(() => callOrder.push('confirmAndErase'));
+
+      renderWithLayerStack(
+        <DeleteAgentConfirmModal
+          theme={testTheme}
+          agentName="TestAgent"
+          workingDirectory="/home/user/project"
+          onConfirm={vi.fn()}
+          onConfirmAndErase={onConfirmAndErase}
+          onClose={onClose}
+        />
+      );
+
+      const input = screen.getByRole('textbox');
+      fireEvent.change(input, { target: { value: 'TestAgent' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      expect(callOrder).toEqual(['confirmAndErase', 'close']);
+    });
+
+    it('pressing Enter on confirmation input does nothing when name does not match', () => {
+      const onConfirmAndErase = vi.fn();
+      const onClose = vi.fn();
+
+      renderWithLayerStack(
+        <DeleteAgentConfirmModal
+          theme={testTheme}
+          agentName="TestAgent"
+          workingDirectory="/home/user/project"
+          onConfirm={vi.fn()}
+          onConfirmAndErase={onConfirmAndErase}
+          onClose={onClose}
+        />
+      );
+
+      const input = screen.getByRole('textbox');
+      fireEvent.change(input, { target: { value: 'WrongName' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      expect(onConfirmAndErase).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('pressing non-Enter keys on confirmation input does not trigger action', () => {
+      const onConfirmAndErase = vi.fn();
+      const onClose = vi.fn();
+
+      renderWithLayerStack(
+        <DeleteAgentConfirmModal
+          theme={testTheme}
+          agentName="TestAgent"
+          workingDirectory="/home/user/project"
+          onConfirm={vi.fn()}
+          onConfirmAndErase={onConfirmAndErase}
+          onClose={onClose}
+        />
+      );
+
+      const input = screen.getByRole('textbox');
+      fireEvent.change(input, { target: { value: 'TestAgent' } });
+      fireEvent.keyDown(input, { key: 'Tab' });
+      fireEvent.keyDown(input, { key: 'Escape' });
+      fireEvent.keyDown(input, { key: 'a' });
+
+      expect(onConfirmAndErase).not.toHaveBeenCalled();
+    });
   });
 
   describe('edge cases', () => {
