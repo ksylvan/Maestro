@@ -1,4 +1,4 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useState } from 'react';
 import { AlertTriangle, Trash2 } from 'lucide-react';
 import type { Theme } from '../types';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
@@ -21,7 +21,12 @@ export function DeleteAgentConfirmModal({
   onConfirmAndErase,
   onClose,
 }: DeleteAgentConfirmModalProps) {
-  const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  const agentOnlyButtonRef = useRef<HTMLButtonElement>(null);
+  const [confirmationText, setConfirmationText] = useState('');
+
+  // Check if the confirmation input matches the agent name (case-insensitive)
+  const isAgentNameMatch =
+    confirmationText.trim().toLowerCase() === agentName.toLowerCase();
 
   const handleConfirm = useCallback(() => {
     onConfirm();
@@ -29,9 +34,11 @@ export function DeleteAgentConfirmModal({
   }, [onConfirm, onClose]);
 
   const handleConfirmAndErase = useCallback(() => {
-    onConfirmAndErase();
-    onClose();
-  }, [onConfirmAndErase, onClose]);
+    if (isAgentNameMatch) {
+      onConfirmAndErase();
+      onClose();
+    }
+  }, [isAgentNameMatch, onConfirmAndErase, onClose]);
 
   // Stop Enter key propagation to prevent parent handlers from triggering after modal closes
   const handleKeyDown = (e: React.KeyboardEvent, action: () => void) => {
@@ -50,7 +57,7 @@ export function DeleteAgentConfirmModal({
       headerIcon={<Trash2 className="w-4 h-4" style={{ color: theme.colors.error }} />}
       width={500}
       zIndex={10000}
-      initialFocusRef={confirmButtonRef}
+      initialFocusRef={agentOnlyButtonRef}
       footer={
         <div className="flex justify-end gap-2 w-full">
           <button
@@ -66,7 +73,7 @@ export function DeleteAgentConfirmModal({
             Cancel
           </button>
           <button
-            ref={confirmButtonRef}
+            ref={agentOnlyButtonRef}
             type="button"
             onClick={handleConfirm}
             onKeyDown={(e) => handleKeyDown(e, handleConfirm)}
@@ -76,19 +83,26 @@ export function DeleteAgentConfirmModal({
               color: '#ffffff',
             }}
           >
-            Confirm
+            Agent Only
           </button>
           <button
             type="button"
             onClick={handleConfirmAndErase}
-            onKeyDown={(e) => handleKeyDown(e, handleConfirmAndErase)}
+            onKeyDown={(e) => {
+              if (isAgentNameMatch) {
+                handleKeyDown(e, handleConfirmAndErase);
+              }
+            }}
+            disabled={!isAgentNameMatch}
             className="px-4 py-2 rounded transition-colors outline-none focus:ring-2 focus:ring-offset-1"
             style={{
               backgroundColor: theme.colors.error,
               color: '#ffffff',
+              opacity: isAgentNameMatch ? 1 : 0.5,
+              cursor: isAgentNameMatch ? 'pointer' : 'not-allowed',
             }}
           >
-            Confirm and Erase
+            Agent + Work Directory
           </button>
         </div>
       }
@@ -96,30 +110,46 @@ export function DeleteAgentConfirmModal({
       <div className="flex gap-4">
         <div
           className="flex-shrink-0 p-2 rounded-full h-fit"
-          style={{ backgroundColor: `${theme.colors.error}20` }}
+          style={{ backgroundColor: `${theme.colors.warning}20` }}
         >
-          <AlertTriangle className="w-5 h-5" style={{ color: theme.colors.error }} />
+          <AlertTriangle className="w-5 h-5" style={{ color: theme.colors.warning }} />
         </div>
         <div className="space-y-3">
-          <p className="leading-relaxed" style={{ color: theme.colors.textMain }}>
-            Are you sure you want to delete the agent "{agentName}"? This action cannot be undone.
+          <p
+            className="leading-relaxed font-semibold"
+            style={{ color: theme.colors.warning }}
+          >
+            Danger: You are about to delete the agent "{agentName}". This action cannot be undone.
           </p>
           <p
             className="text-sm leading-relaxed"
             style={{ color: theme.colors.textDim }}
           >
-            <strong>Confirm and Erase</strong> will also move the working directory to the trash:
+            <strong style={{ color: '#ffffff' }}>Agent + Work Directory</strong> will also move the working directory to the trash:
           </p>
           <code
             className="block text-xs px-2 py-1 rounded break-all"
             style={{
               backgroundColor: theme.colors.bgActivity,
-              color: theme.colors.textDim,
+              color: '#ffffff',
               border: `1px solid ${theme.colors.border}`,
             }}
           >
             {workingDirectory}
           </code>
+          <input
+            type="text"
+            value={confirmationText}
+            onChange={(e) => setConfirmationText(e.target.value)}
+            placeholder="Type the agent name here to confirm directory deletion."
+            className="w-full text-sm px-2 py-2 rounded outline-none focus:ring-2 focus:ring-offset-1 placeholder:text-gray-500"
+            style={{
+              backgroundColor: theme.colors.bgActivity,
+              color: '#ffffff',
+              border: `1px solid ${theme.colors.border}`,
+              // Using CSS custom property for placeholder color via Tailwind class above
+            }}
+          />
         </div>
       </div>
     </Modal>
