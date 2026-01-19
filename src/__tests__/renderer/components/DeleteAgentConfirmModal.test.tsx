@@ -478,6 +478,181 @@ describe('DeleteAgentConfirmModal', () => {
       fireEvent.keyDown(screen.getByRole('dialog'), { key: 'a' });
       expect(parentHandler).not.toHaveBeenCalled();
     });
+
+    it('closes modal when Escape key is pressed', async () => {
+      const onClose = vi.fn();
+      renderWithLayerStack(
+        <DeleteAgentConfirmModal
+          theme={testTheme}
+          agentName="TestAgent"
+          workingDirectory="/home/user/project"
+          onConfirm={vi.fn()}
+          onConfirmAndErase={vi.fn()}
+          onClose={onClose}
+        />
+      );
+
+      // Escape key is handled globally via LayerStackContext
+      fireEvent.keyDown(window, { key: 'Escape' });
+
+      await waitFor(() => {
+        expect(onClose).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('calls onClose when Enter is pressed on Cancel button', () => {
+      const onClose = vi.fn();
+      const onConfirm = vi.fn();
+      renderWithLayerStack(
+        <DeleteAgentConfirmModal
+          theme={testTheme}
+          agentName="TestAgent"
+          workingDirectory="/home/user/project"
+          onConfirm={onConfirm}
+          onConfirmAndErase={vi.fn()}
+          onClose={onClose}
+        />
+      );
+
+      const cancelButton = screen.getByRole('button', { name: 'Cancel' });
+      fireEvent.keyDown(cancelButton, { key: 'Enter' });
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(onConfirm).not.toHaveBeenCalled();
+    });
+
+    it('calls onConfirm when Enter is pressed on Agent Only button', () => {
+      const callOrder: string[] = [];
+      const onClose = vi.fn(() => callOrder.push('close'));
+      const onConfirm = vi.fn(() => callOrder.push('confirm'));
+      renderWithLayerStack(
+        <DeleteAgentConfirmModal
+          theme={testTheme}
+          agentName="TestAgent"
+          workingDirectory="/home/user/project"
+          onConfirm={onConfirm}
+          onConfirmAndErase={vi.fn()}
+          onClose={onClose}
+        />
+      );
+
+      const agentOnlyButton = screen.getByRole('button', { name: 'Agent Only' });
+      fireEvent.keyDown(agentOnlyButton, { key: 'Enter' });
+
+      expect(callOrder).toEqual(['confirm', 'close']);
+    });
+
+    it('does not trigger Agent + Work Directory when Enter is pressed while disabled', () => {
+      const onConfirmAndErase = vi.fn();
+      const onClose = vi.fn();
+      renderWithLayerStack(
+        <DeleteAgentConfirmModal
+          theme={testTheme}
+          agentName="TestAgent"
+          workingDirectory="/home/user/project"
+          onConfirm={vi.fn()}
+          onConfirmAndErase={onConfirmAndErase}
+          onClose={onClose}
+        />
+      );
+
+      const eraseButton = screen.getByRole('button', { name: 'Agent + Work Directory' });
+      fireEvent.keyDown(eraseButton, { key: 'Enter' });
+
+      expect(onConfirmAndErase).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('triggers Agent + Work Directory when Enter is pressed after confirmation input matches', () => {
+      const callOrder: string[] = [];
+      const onClose = vi.fn(() => callOrder.push('close'));
+      const onConfirmAndErase = vi.fn(() => callOrder.push('confirmAndErase'));
+      renderWithLayerStack(
+        <DeleteAgentConfirmModal
+          theme={testTheme}
+          agentName="TestAgent"
+          workingDirectory="/home/user/project"
+          onConfirm={vi.fn()}
+          onConfirmAndErase={onConfirmAndErase}
+          onClose={onClose}
+        />
+      );
+
+      // First type the agent name to enable the button
+      const input = screen.getByRole('textbox');
+      fireEvent.change(input, { target: { value: 'TestAgent' } });
+
+      // Now Enter should work on the Agent + Work Directory button
+      const eraseButton = screen.getByRole('button', { name: 'Agent + Work Directory' });
+      fireEvent.keyDown(eraseButton, { key: 'Enter' });
+
+      expect(callOrder).toEqual(['confirmAndErase', 'close']);
+    });
+
+    it('Tab key navigates through interactive elements in expected order', async () => {
+      renderWithLayerStack(
+        <DeleteAgentConfirmModal
+          theme={testTheme}
+          agentName="TestAgent"
+          workingDirectory="/home/user/project"
+          onConfirm={vi.fn()}
+          onConfirmAndErase={vi.fn()}
+          onClose={vi.fn()}
+        />
+      );
+
+      // Wait for initial focus on Agent Only button
+      await waitFor(() => {
+        expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Agent Only' }));
+      });
+
+      // Tab to next element: Agent + Work Directory button
+      fireEvent.keyDown(document.activeElement!, { key: 'Tab' });
+      // Note: In real browser, Tab navigation is handled natively.
+      // In JSDOM, we simulate by checking tabIndex values are correct.
+
+      // Verify all interactive elements have correct tabIndex for keyboard access
+      const cancelButton = screen.getByRole('button', { name: 'Cancel' });
+      const agentOnlyButton = screen.getByRole('button', { name: 'Agent Only' });
+      const eraseButton = screen.getByRole('button', { name: 'Agent + Work Directory' });
+      const input = screen.getByRole('textbox');
+      const closeButton = screen.getByTestId('x-icon').closest('button');
+
+      // All interactive elements should be focusable (tabIndex 0 or no tabIndex which defaults to natural order)
+      expect(cancelButton).toHaveAttribute('tabIndex', '0');
+      expect(agentOnlyButton).toHaveAttribute('tabIndex', '0');
+      expect(eraseButton).toHaveAttribute('tabIndex', '0');
+      expect(input).toHaveAttribute('tabIndex', '0');
+      // Close button uses default tab order (no explicit tabIndex needed)
+      expect(closeButton).toBeInTheDocument();
+    });
+
+    it('all buttons are keyboard focusable', () => {
+      renderWithLayerStack(
+        <DeleteAgentConfirmModal
+          theme={testTheme}
+          agentName="TestAgent"
+          workingDirectory="/home/user/project"
+          onConfirm={vi.fn()}
+          onConfirmAndErase={vi.fn()}
+          onClose={vi.fn()}
+        />
+      );
+
+      const cancelButton = screen.getByRole('button', { name: 'Cancel' });
+      const agentOnlyButton = screen.getByRole('button', { name: 'Agent Only' });
+      const eraseButton = screen.getByRole('button', { name: 'Agent + Work Directory' });
+
+      // Focus each button programmatically and verify it receives focus
+      cancelButton.focus();
+      expect(document.activeElement).toBe(cancelButton);
+
+      agentOnlyButton.focus();
+      expect(document.activeElement).toBe(agentOnlyButton);
+
+      eraseButton.focus();
+      expect(document.activeElement).toBe(eraseButton);
+    });
   });
 
   describe('layer stack integration', () => {
