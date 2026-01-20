@@ -45,7 +45,12 @@ export function registerWebHandlers(deps: WebHandlerDependencies): void {
 		'web:broadcastUserInput',
 		async (_, sessionId: string, command: string, inputMode: 'ai' | 'terminal') => {
 			const webServer = getWebServer();
-			if (webServer && webServer.getWebClientCount() > 0) {
+			const clientCount = webServer?.getWebClientCount() ?? 0;
+			logger.debug(
+				`web:broadcastUserInput called - webServer: ${webServer ? 'exists' : 'null'}, clientCount: ${clientCount}`,
+				'WebBroadcast'
+			);
+			if (webServer && clientCount > 0) {
 				webServer.broadcastUserInput(sessionId, command, inputMode);
 				return true;
 			}
