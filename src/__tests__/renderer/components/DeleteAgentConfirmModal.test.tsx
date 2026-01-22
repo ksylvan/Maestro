@@ -360,6 +360,201 @@ describe('DeleteAgentConfirmModal', () => {
 			expect(button).toBeDisabled();
 		});
 
+		it('trims whitespace when comparing input to agent name (leading spaces)', () => {
+			renderWithLayerStack(
+				<DeleteAgentConfirmModal
+					theme={testTheme}
+					agentName="TestAgent"
+					workingDirectory="/home/user/project"
+					onConfirm={vi.fn()}
+					onConfirmAndErase={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			const input = screen.getByPlaceholderText(
+				'Type the agent name here to confirm directory deletion.'
+			);
+			fireEvent.change(input, { target: { value: '  TestAgent' } });
+
+			const button = screen.getByRole('button', { name: 'Agent + Work Directory' });
+			expect(button).not.toBeDisabled();
+		});
+
+		it('trims whitespace when comparing input to agent name (trailing spaces)', () => {
+			renderWithLayerStack(
+				<DeleteAgentConfirmModal
+					theme={testTheme}
+					agentName="TestAgent"
+					workingDirectory="/home/user/project"
+					onConfirm={vi.fn()}
+					onConfirmAndErase={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			const input = screen.getByPlaceholderText(
+				'Type the agent name here to confirm directory deletion.'
+			);
+			fireEvent.change(input, { target: { value: 'TestAgent  ' } });
+
+			const button = screen.getByRole('button', { name: 'Agent + Work Directory' });
+			expect(button).not.toBeDisabled();
+		});
+
+		it('trims whitespace when comparing input to agent name (both sides)', () => {
+			renderWithLayerStack(
+				<DeleteAgentConfirmModal
+					theme={testTheme}
+					agentName="TestAgent"
+					workingDirectory="/home/user/project"
+					onConfirm={vi.fn()}
+					onConfirmAndErase={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			const input = screen.getByPlaceholderText(
+				'Type the agent name here to confirm directory deletion.'
+			);
+			fireEvent.change(input, { target: { value: '  TestAgent  ' } });
+
+			const button = screen.getByRole('button', { name: 'Agent + Work Directory' });
+			expect(button).not.toBeDisabled();
+		});
+
+		it('works with agent names containing special characters', () => {
+			renderWithLayerStack(
+				<DeleteAgentConfirmModal
+					theme={testTheme}
+					agentName="Test-Agent_v2.0 (beta)"
+					workingDirectory="/home/user/project"
+					onConfirm={vi.fn()}
+					onConfirmAndErase={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			const input = screen.getByPlaceholderText(
+				'Type the agent name here to confirm directory deletion.'
+			);
+			fireEvent.change(input, { target: { value: 'Test-Agent_v2.0 (beta)' } });
+
+			const button = screen.getByRole('button', { name: 'Agent + Work Directory' });
+			expect(button).not.toBeDisabled();
+		});
+
+		it('works with agent names containing unicode characters', () => {
+			renderWithLayerStack(
+				<DeleteAgentConfirmModal
+					theme={testTheme}
+					agentName="助手-α"
+					workingDirectory="/home/user/project"
+					onConfirm={vi.fn()}
+					onConfirmAndErase={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			const input = screen.getByPlaceholderText(
+				'Type the agent name here to confirm directory deletion.'
+			);
+			fireEvent.change(input, { target: { value: '助手-α' } });
+
+			const button = screen.getByRole('button', { name: 'Agent + Work Directory' });
+			expect(button).not.toBeDisabled();
+		});
+
+		it('works with agent names containing emoji', () => {
+			renderWithLayerStack(
+				<DeleteAgentConfirmModal
+					theme={testTheme}
+					agentName="🤖 RoboAgent"
+					workingDirectory="/home/user/project"
+					onConfirm={vi.fn()}
+					onConfirmAndErase={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			const input = screen.getByPlaceholderText(
+				'Type the agent name here to confirm directory deletion.'
+			);
+			fireEvent.change(input, { target: { value: '🤖 RoboAgent' } });
+
+			const button = screen.getByRole('button', { name: 'Agent + Work Directory' });
+			expect(button).not.toBeDisabled();
+		});
+
+		it('renders very long agent names with proper text wrapping', () => {
+			const longName = 'ThisIsAVeryLongAgentNameThatShouldWrapProperlyInTheModalDialog';
+			renderWithLayerStack(
+				<DeleteAgentConfirmModal
+					theme={testTheme}
+					agentName={longName}
+					workingDirectory="/home/user/project"
+					onConfirm={vi.fn()}
+					onConfirmAndErase={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			expect(screen.getByText(new RegExp(longName))).toBeInTheDocument();
+
+			// Can still type the long name and enable button
+			const input = screen.getByPlaceholderText(
+				'Type the agent name here to confirm directory deletion.'
+			);
+			fireEvent.change(input, { target: { value: longName } });
+
+			const button = screen.getByRole('button', { name: 'Agent + Work Directory' });
+			expect(button).not.toBeDisabled();
+		});
+
+		it('clears confirmation input when agent name changes (modal reopened)', () => {
+			const { rerender } = renderWithLayerStack(
+				<DeleteAgentConfirmModal
+					theme={testTheme}
+					agentName="TestAgent"
+					workingDirectory="/home/user/project"
+					onConfirm={vi.fn()}
+					onConfirmAndErase={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			// Type something in the input
+			const input = screen.getByPlaceholderText(
+				'Type the agent name here to confirm directory deletion.'
+			);
+			fireEvent.change(input, { target: { value: 'TestAgent' } });
+			expect(input).toHaveValue('TestAgent');
+
+			// Simulate modal being reopened with different agent
+			rerender(
+				<LayerStackProvider>
+					<DeleteAgentConfirmModal
+						theme={testTheme}
+						agentName="DifferentAgent"
+						workingDirectory="/home/user/project"
+						onConfirm={vi.fn()}
+						onConfirmAndErase={vi.fn()}
+						onClose={vi.fn()}
+					/>
+				</LayerStackProvider>
+			);
+
+			// Input should be cleared
+			const newInput = screen.getByPlaceholderText(
+				'Type the agent name here to confirm directory deletion.'
+			);
+			expect(newInput).toHaveValue('');
+
+			// And button should be disabled again
+			const button = screen.getByRole('button', { name: 'Agent + Work Directory' });
+			expect(button).toBeDisabled();
+		});
+
 		it('enabled button calls onConfirmAndErase when clicked', () => {
 			const callOrder: string[] = [];
 			const onClose = vi.fn(() => callOrder.push('close'));

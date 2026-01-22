@@ -25,13 +25,13 @@ export function DeleteAgentConfirmModal({
 	const agentOnlyButtonRef = useRef<HTMLButtonElement>(null);
 	const [confirmationInput, setConfirmationInput] = useState('');
 
-	// Reset confirmation input when modal opens
+	// Reset confirmation input when modal opens or agent changes
 	useEffect(() => {
 		setConfirmationInput('');
-	}, []);
+	}, [agentName]);
 
-	// Check if confirmation input exactly matches agent name (case-sensitive)
-	const isConfirmationValid = confirmationInput === agentName;
+	// Check if confirmation input matches agent name (case-sensitive, trimmed)
+	const isConfirmationValid = confirmationInput.trim() === agentName;
 
 	const handleConfirm = useCallback(() => {
 		onConfirm();
@@ -115,9 +115,10 @@ export function DeleteAgentConfirmModal({
 				>
 					<AlertTriangle className="w-5 h-5" style={{ color: theme.colors.error }} />
 				</div>
-				<div className="space-y-3">
-					<p className="leading-relaxed" style={{ color: theme.colors.textMain }}>
-						Are you sure you want to delete the agent "{agentName}"? This action cannot be undone.
+				<div className="space-y-3 overflow-hidden">
+					<p className="leading-relaxed break-words" style={{ color: theme.colors.textMain }}>
+						Are you sure you want to delete the agent "
+						<span className="break-all">{agentName}</span>"? This action cannot be undone.
 					</p>
 					<p className="text-sm leading-relaxed" style={{ color: theme.colors.textDim }}>
 						<span style={{ color: theme.colors.warning, fontWeight: 'bold' }}>Danger:</span>{' '}
