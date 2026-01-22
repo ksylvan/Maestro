@@ -1,8 +1,9 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useState, useEffect } from 'react';
 import { AlertTriangle, Trash2 } from 'lucide-react';
 import type { Theme } from '../types';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { Modal } from './ui/Modal';
+import { FormInput } from './ui/FormInput';
 
 interface DeleteAgentConfirmModalProps {
 	theme: Theme;
@@ -21,7 +22,16 @@ export function DeleteAgentConfirmModal({
 	onConfirmAndErase,
 	onClose,
 }: DeleteAgentConfirmModalProps) {
-	const confirmButtonRef = useRef<HTMLButtonElement>(null);
+	const agentOnlyButtonRef = useRef<HTMLButtonElement>(null);
+	const [confirmationInput, setConfirmationInput] = useState('');
+
+	// Reset confirmation input when modal opens
+	useEffect(() => {
+		setConfirmationInput('');
+	}, []);
+
+	// Check if confirmation input exactly matches agent name (case-sensitive)
+	const isConfirmationValid = confirmationInput === agentName;
 
 	const handleConfirm = useCallback(() => {
 		onConfirm();
@@ -50,7 +60,7 @@ export function DeleteAgentConfirmModal({
 			headerIcon={<Trash2 className="w-4 h-4" style={{ color: theme.colors.error }} />}
 			width={500}
 			zIndex={10000}
-			initialFocusRef={confirmButtonRef}
+			initialFocusRef={agentOnlyButtonRef}
 			footer={
 				<div className="flex justify-end gap-2 w-full">
 					<button
@@ -66,7 +76,7 @@ export function DeleteAgentConfirmModal({
 						Cancel
 					</button>
 					<button
-						ref={confirmButtonRef}
+						ref={agentOnlyButtonRef}
 						type="button"
 						onClick={handleConfirm}
 						onKeyDown={(e) => handleKeyDown(e, handleConfirm)}
@@ -76,19 +86,22 @@ export function DeleteAgentConfirmModal({
 							color: '#ffffff',
 						}}
 					>
-						Confirm
+						Agent Only
 					</button>
 					<button
 						type="button"
 						onClick={handleConfirmAndErase}
 						onKeyDown={(e) => handleKeyDown(e, handleConfirmAndErase)}
+						disabled={!isConfirmationValid}
 						className="px-4 py-2 rounded transition-colors outline-none focus:ring-2 focus:ring-offset-1"
 						style={{
-							backgroundColor: theme.colors.error,
+							backgroundColor: isConfirmationValid ? theme.colors.error : `${theme.colors.error}40`,
 							color: '#ffffff',
+							cursor: isConfirmationValid ? 'pointer' : 'not-allowed',
+							opacity: isConfirmationValid ? 1 : 0.6,
 						}}
 					>
-						Confirm and Erase
+						Agent + Work Directory
 					</button>
 				</div>
 			}
@@ -105,7 +118,9 @@ export function DeleteAgentConfirmModal({
 						Are you sure you want to delete the agent "{agentName}"? This action cannot be undone.
 					</p>
 					<p className="text-sm leading-relaxed" style={{ color: theme.colors.textDim }}>
-						<strong>Confirm and Erase</strong> will also move the working directory to the trash:
+						<span style={{ color: theme.colors.warning, fontWeight: 'bold' }}>Danger:</span>{' '}
+						<strong>Agent + Work Directory</strong> will also move the working directory to the
+						trash:
 					</p>
 					<code
 						className="block text-xs px-2 py-1 rounded break-all"
@@ -117,6 +132,14 @@ export function DeleteAgentConfirmModal({
 					>
 						{workingDirectory}
 					</code>
+					<FormInput
+						theme={theme}
+						value={confirmationInput}
+						onChange={setConfirmationInput}
+						placeholder="Type the agent name here to confirm directory deletion."
+						monospace
+						testId="confirmation-input"
+					/>
 				</div>
 			</div>
 		</Modal>

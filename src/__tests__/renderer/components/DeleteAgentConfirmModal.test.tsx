@@ -3,7 +3,8 @@
  *
  * Tests the core behavior of the delete agent confirmation dialog:
  * - Rendering with agent name, working directory, and three buttons
- * - Button click handlers (Cancel, Confirm, Confirm and Erase)
+ * - Button click handlers (Cancel, Agent Only, Agent + Work Directory)
+ * - Friction mechanism for destructive action (typing agent name to enable)
  * - Focus management
  * - Layer stack integration
  * - Accessibility
@@ -76,8 +77,8 @@ describe('DeleteAgentConfirmModal', () => {
 
 			expect(screen.getByText(/TestAgent/)).toBeInTheDocument();
 			expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
-			expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument();
-			expect(screen.getByRole('button', { name: 'Confirm and Erase' })).toBeInTheDocument();
+			expect(screen.getByRole('button', { name: 'Agent Only' })).toBeInTheDocument();
+			expect(screen.getByRole('button', { name: 'Agent + Work Directory' })).toBeInTheDocument();
 		});
 
 		it('renders working directory path', () => {
@@ -95,7 +96,7 @@ describe('DeleteAgentConfirmModal', () => {
 			expect(screen.getByText('/home/user/project')).toBeInTheDocument();
 		});
 
-		it('renders explanatory text about Confirm and Erase', () => {
+		it('renders explanatory text about Agent + Work Directory', () => {
 			renderWithLayerStack(
 				<DeleteAgentConfirmModal
 					theme={testTheme}
@@ -111,6 +112,26 @@ describe('DeleteAgentConfirmModal', () => {
 			expect(
 				screen.getByText(/will also move the working directory to the trash/)
 			).toBeInTheDocument();
+			// Check for "Danger:" prefix with warning color
+			expect(screen.getByText('Danger:')).toBeInTheDocument();
+		});
+
+		it('renders confirmation input with correct placeholder', () => {
+			renderWithLayerStack(
+				<DeleteAgentConfirmModal
+					theme={testTheme}
+					agentName="TestAgent"
+					workingDirectory="/home/user/project"
+					onConfirm={vi.fn()}
+					onConfirmAndErase={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			const input = screen.getByPlaceholderText(
+				'Type the agent name here to confirm directory deletion.'
+			);
+			expect(input).toBeInTheDocument();
 		});
 
 		it('renders header with title and close button', () => {
@@ -148,7 +169,7 @@ describe('DeleteAgentConfirmModal', () => {
 	});
 
 	describe('focus management', () => {
-		it('focuses Confirm button on mount (not Confirm and Erase)', async () => {
+		it('focuses Agent Only button on mount (safer default)', async () => {
 			renderWithLayerStack(
 				<DeleteAgentConfirmModal
 					theme={testTheme}
@@ -161,8 +182,139 @@ describe('DeleteAgentConfirmModal', () => {
 			);
 
 			await waitFor(() => {
-				expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Confirm' }));
+				expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Agent Only' }));
 			});
+		});
+	});
+
+	describe('friction mechanism', () => {
+		it('Agent + Work Directory button is disabled by default', () => {
+			renderWithLayerStack(
+				<DeleteAgentConfirmModal
+					theme={testTheme}
+					agentName="TestAgent"
+					workingDirectory="/home/user/project"
+					onConfirm={vi.fn()}
+					onConfirmAndErase={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			const button = screen.getByRole('button', { name: 'Agent + Work Directory' });
+			expect(button).toBeDisabled();
+		});
+
+		it('typing wrong text keeps button disabled', () => {
+			renderWithLayerStack(
+				<DeleteAgentConfirmModal
+					theme={testTheme}
+					agentName="TestAgent"
+					workingDirectory="/home/user/project"
+					onConfirm={vi.fn()}
+					onConfirmAndErase={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			const input = screen.getByPlaceholderText(
+				'Type the agent name here to confirm directory deletion.'
+			);
+			fireEvent.change(input, { target: { value: 'WrongName' } });
+
+			const button = screen.getByRole('button', { name: 'Agent + Work Directory' });
+			expect(button).toBeDisabled();
+		});
+
+		it('typing exact agent name (case-sensitive) enables button', () => {
+			renderWithLayerStack(
+				<DeleteAgentConfirmModal
+					theme={testTheme}
+					agentName="TestAgent"
+					workingDirectory="/home/user/project"
+					onConfirm={vi.fn()}
+					onConfirmAndErase={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			const input = screen.getByPlaceholderText(
+				'Type the agent name here to confirm directory deletion.'
+			);
+			fireEvent.change(input, { target: { value: 'TestAgent' } });
+
+			const button = screen.getByRole('button', { name: 'Agent + Work Directory' });
+			expect(button).not.toBeDisabled();
+		});
+
+		it('partial match keeps button disabled', () => {
+			renderWithLayerStack(
+				<DeleteAgentConfirmModal
+					theme={testTheme}
+					agentName="TestAgent"
+					workingDirectory="/home/user/project"
+					onConfirm={vi.fn()}
+					onConfirmAndErase={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			const input = screen.getByPlaceholderText(
+				'Type the agent name here to confirm directory deletion.'
+			);
+			fireEvent.change(input, { target: { value: 'Test' } });
+
+			const button = screen.getByRole('button', { name: 'Agent + Work Directory' });
+			expect(button).toBeDisabled();
+		});
+
+		it('case mismatch keeps button disabled', () => {
+			renderWithLayerStack(
+				<DeleteAgentConfirmModal
+					theme={testTheme}
+					agentName="TestAgent"
+					workingDirectory="/home/user/project"
+					onConfirm={vi.fn()}
+					onConfirmAndErase={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			const input = screen.getByPlaceholderText(
+				'Type the agent name here to confirm directory deletion.'
+			);
+			fireEvent.change(input, { target: { value: 'testagent' } });
+
+			const button = screen.getByRole('button', { name: 'Agent + Work Directory' });
+			expect(button).toBeDisabled();
+		});
+
+		it('enabled button calls onConfirmAndErase when clicked', () => {
+			const callOrder: string[] = [];
+			const onClose = vi.fn(() => callOrder.push('close'));
+			const onConfirm = vi.fn();
+			const onConfirmAndErase = vi.fn(() => callOrder.push('confirmAndErase'));
+
+			renderWithLayerStack(
+				<DeleteAgentConfirmModal
+					theme={testTheme}
+					agentName="TestAgent"
+					workingDirectory="/home/user/project"
+					onConfirm={onConfirm}
+					onConfirmAndErase={onConfirmAndErase}
+					onClose={onClose}
+				/>
+			);
+
+			// Type the exact agent name to enable the button
+			const input = screen.getByPlaceholderText(
+				'Type the agent name here to confirm directory deletion.'
+			);
+			fireEvent.change(input, { target: { value: 'TestAgent' } });
+
+			// Click the enabled button
+			fireEvent.click(screen.getByRole('button', { name: 'Agent + Work Directory' }));
+			expect(callOrder).toEqual(['confirmAndErase', 'close']);
+			expect(onConfirm).not.toHaveBeenCalled();
 		});
 	});
 
@@ -202,7 +354,7 @@ describe('DeleteAgentConfirmModal', () => {
 			expect(onClose).toHaveBeenCalledTimes(1);
 		});
 
-		it('calls onConfirm then onClose when Confirm is clicked', () => {
+		it('calls onConfirm then onClose when Agent Only is clicked', () => {
 			const callOrder: string[] = [];
 			const onClose = vi.fn(() => callOrder.push('close'));
 			const onConfirm = vi.fn(() => callOrder.push('confirm'));
@@ -219,31 +371,9 @@ describe('DeleteAgentConfirmModal', () => {
 				/>
 			);
 
-			fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+			fireEvent.click(screen.getByRole('button', { name: 'Agent Only' }));
 			expect(callOrder).toEqual(['confirm', 'close']);
 			expect(onConfirmAndErase).not.toHaveBeenCalled();
-		});
-
-		it('calls onConfirmAndErase then onClose when Confirm and Erase is clicked', () => {
-			const callOrder: string[] = [];
-			const onClose = vi.fn(() => callOrder.push('close'));
-			const onConfirm = vi.fn();
-			const onConfirmAndErase = vi.fn(() => callOrder.push('confirmAndErase'));
-
-			renderWithLayerStack(
-				<DeleteAgentConfirmModal
-					theme={testTheme}
-					agentName="TestAgent"
-					workingDirectory="/home/user/project"
-					onConfirm={onConfirm}
-					onConfirmAndErase={onConfirmAndErase}
-					onClose={onClose}
-				/>
-			);
-
-			fireEvent.click(screen.getByRole('button', { name: 'Confirm and Erase' }));
-			expect(callOrder).toEqual(['confirmAndErase', 'close']);
-			expect(onConfirm).not.toHaveBeenCalled();
 		});
 
 		it('Cancel does not call onConfirm or onConfirmAndErase', () => {
