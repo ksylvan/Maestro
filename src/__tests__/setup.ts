@@ -2,6 +2,15 @@ import '@testing-library/jest-dom';
 import { vi } from 'vitest';
 import React from 'react';
 
+// Define global constants that are replaced by Vite at build time
+// These are used by components like AboutModal
+declare global {
+	const __APP_VERSION__: string;
+	const __GIT_HASH__: string;
+}
+(globalThis as unknown as Record<string, string>).__APP_VERSION__ = '0.0.0-test';
+(globalThis as unknown as Record<string, string>).__GIT_HASH__ = 'test-hash';
+
 // Create a mock icon component factory
 const createMockIcon = (name: string) => {
 	const MockIcon = function ({
