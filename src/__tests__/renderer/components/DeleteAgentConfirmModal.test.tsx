@@ -116,6 +116,25 @@ describe('DeleteAgentConfirmModal', () => {
 			expect(screen.getByText('Danger:')).toBeInTheDocument();
 		});
 
+		it('renders Danger prefix with warning color and bold styling', () => {
+			renderWithLayerStack(
+				<DeleteAgentConfirmModal
+					theme={testTheme}
+					agentName="TestAgent"
+					workingDirectory="/home/user/project"
+					onConfirm={vi.fn()}
+					onConfirmAndErase={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			const dangerPrefix = screen.getByText('Danger:');
+			expect(dangerPrefix).toHaveStyle({
+				color: testTheme.colors.warning,
+				fontWeight: 'bold',
+			});
+		});
+
 		it('renders confirmation input with correct placeholder', () => {
 			renderWithLayerStack(
 				<DeleteAgentConfirmModal
@@ -202,6 +221,59 @@ describe('DeleteAgentConfirmModal', () => {
 
 			const button = screen.getByRole('button', { name: 'Agent + Work Directory' });
 			expect(button).toBeDisabled();
+		});
+
+		it('disabled button has reduced opacity and not-allowed cursor', () => {
+			renderWithLayerStack(
+				<DeleteAgentConfirmModal
+					theme={testTheme}
+					agentName="TestAgent"
+					workingDirectory="/home/user/project"
+					onConfirm={vi.fn()}
+					onConfirmAndErase={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			const button = screen.getByRole('button', { name: 'Agent + Work Directory' });
+			expect(button).toHaveStyle({ opacity: '0.5', cursor: 'not-allowed' });
+		});
+
+		it('enabled button has full opacity and pointer cursor', () => {
+			renderWithLayerStack(
+				<DeleteAgentConfirmModal
+					theme={testTheme}
+					agentName="TestAgent"
+					workingDirectory="/home/user/project"
+					onConfirm={vi.fn()}
+					onConfirmAndErase={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			const input = screen.getByPlaceholderText(
+				'Type the agent name here to confirm directory deletion.'
+			);
+			fireEvent.change(input, { target: { value: 'TestAgent' } });
+
+			const button = screen.getByRole('button', { name: 'Agent + Work Directory' });
+			expect(button).toHaveStyle({ opacity: '1', cursor: 'pointer' });
+		});
+
+		it('button has transition styling for smooth state changes', () => {
+			renderWithLayerStack(
+				<DeleteAgentConfirmModal
+					theme={testTheme}
+					agentName="TestAgent"
+					workingDirectory="/home/user/project"
+					onConfirm={vi.fn()}
+					onConfirmAndErase={vi.fn()}
+					onClose={vi.fn()}
+				/>
+			);
+
+			const button = screen.getByRole('button', { name: 'Agent + Work Directory' });
+			expect(button).toHaveStyle({ transition: 'all 0.2s ease-in-out' });
 		});
 
 		it('typing wrong text keeps button disabled', () => {

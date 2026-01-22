@@ -93,12 +93,14 @@ export function DeleteAgentConfirmModal({
 						onClick={handleConfirmAndErase}
 						onKeyDown={(e) => handleKeyDown(e, handleConfirmAndErase)}
 						disabled={!isConfirmationValid}
-						className="px-4 py-2 rounded transition-colors outline-none focus:ring-2 focus:ring-offset-1"
+						className="px-4 py-2 rounded outline-none focus:ring-2 focus:ring-offset-1"
 						style={{
 							backgroundColor: isConfirmationValid ? theme.colors.error : `${theme.colors.error}40`,
 							color: '#ffffff',
 							cursor: isConfirmationValid ? 'pointer' : 'not-allowed',
-							opacity: isConfirmationValid ? 1 : 0.6,
+							opacity: isConfirmationValid ? 1 : 0.5,
+							transition: 'all 0.2s ease-in-out',
+							transform: isConfirmationValid ? 'scale(1)' : 'scale(0.98)',
 						}}
 					>
 						Agent + Work Directory
@@ -139,6 +141,7 @@ export function DeleteAgentConfirmModal({
 						placeholder="Type the agent name here to confirm directory deletion."
 						monospace
 						testId="confirmation-input"
+						className="focus:ring-2 focus:ring-offset-1 transition-all duration-200"
 					/>
 				</div>
 			</div>
