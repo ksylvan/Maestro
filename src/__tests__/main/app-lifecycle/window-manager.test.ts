@@ -99,6 +99,7 @@ describe('app-lifecycle/window-manager', () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		vi.resetModules(); // Reset module cache to clear devStubsRegistered flag
 		windowCloseHandler = null;
 
 		mockWindowStateStore = {

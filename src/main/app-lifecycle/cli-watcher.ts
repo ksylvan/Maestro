@@ -66,7 +66,11 @@ export function createCliWatcher(deps: CliWatcherDependencies): CliWatcher {
 
 				logger.info('CLI activity watcher started', 'Startup');
 			} catch (error) {
-				logger.error(`Failed to start CLI activity watcher: ${error}`, 'CliActivityWatcher');
+				const message = error instanceof Error ? error.message : String(error);
+				const stack = error instanceof Error ? error.stack : undefined;
+				logger.error(`Failed to start CLI activity watcher: ${message}`, 'CliActivityWatcher', {
+					stack,
+				});
 			}
 		},
 

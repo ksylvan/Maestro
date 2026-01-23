@@ -242,7 +242,10 @@ describe('app-lifecycle/cli-watcher', () => {
 
 			expect(mockLogger.error).toHaveBeenCalledWith(
 				expect.stringContaining('Failed to start CLI activity watcher'),
-				'CliActivityWatcher'
+				'CliActivityWatcher',
+				expect.objectContaining({
+					stack: expect.any(String),
+				})
 			);
 		});
 	});

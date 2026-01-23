@@ -36,6 +36,8 @@ export interface QuitHandlerDependencies {
 interface QuitHandlerState {
 	/** Whether quit has been confirmed by user (or no busy agents) */
 	quitConfirmed: boolean;
+	/** Whether we're currently waiting for quit confirmation from renderer */
+	isRequestingConfirmation: boolean;
 }
 
 /** Quit handler instance */
@@ -76,6 +78,7 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 
 	const state: QuitHandlerState = {
 		quitConfirmed: false,
+		isRequestingConfirmation: false,
 	};
 
 	return {
@@ -83,6 +86,7 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 			// Handle quit confirmation from renderer
 			ipcMain.on('app:quitConfirmed', () => {
 				logger.info('Quit confirmed by renderer', 'Window');
+				state.isRequestingConfirmation = false;
 				state.quitConfirmed = true;
 				app.quit();
 			});
@@ -90,6 +94,7 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 			// Handle quit cancellation (user declined)
 			ipcMain.on('app:quitCancelled', () => {
 				logger.info('Quit cancelled by renderer', 'Window');
+				state.isRequestingConfirmation = false;
 				// Nothing to do - app stays running
 			});
 
@@ -102,8 +107,18 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 				if (!state.quitConfirmed) {
 					event.preventDefault();
 
+					// Prevent multiple confirmation requests (race condition protection)
+					if (state.isRequestingConfirmation) {
+						logger.debug(
+							'Quit confirmation already in progress, ignoring duplicate request',
+							'Window'
+						);
+						return;
+					}
+
 					// Ask renderer to check for busy agents
 					if (mainWindow && !mainWindow.isDestroyed()) {
+						state.isRequestingConfirmation = true;
 						logger.info('Requesting quit confirmation from renderer', 'Window');
 						mainWindow.webContents.send('app:requestQuitConfirmation');
 					} else {
