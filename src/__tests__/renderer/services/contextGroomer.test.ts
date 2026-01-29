@@ -466,7 +466,6 @@ describe('AGENT_ARTIFACTS', () => {
 	it('should define artifacts for all agent types', () => {
 		const expectedAgents: ToolType[] = [
 			'claude-code',
-			'aider',
 			'opencode',
 			'codex',
 			'factory-droid',
@@ -496,14 +495,6 @@ describe('AGENT_ARTIFACTS', () => {
 		expect(artifacts).toContain('opus');
 	});
 
-	it('should include aider-specific commands', () => {
-		const artifacts = AGENT_ARTIFACTS['aider'];
-		expect(artifacts).toContain('/add');
-		expect(artifacts).toContain('/drop');
-		expect(artifacts).toContain('/commit');
-		expect(artifacts).toContain('Aider');
-	});
-
 	it('should include codex-specific references', () => {
 		const artifacts = AGENT_ARTIFACTS['codex'];
 		expect(artifacts).toContain('Codex');
@@ -521,9 +512,9 @@ describe('AGENT_TARGET_NOTES', () => {
 	it('should define notes for all agent types', () => {
 		const expectedAgents: ToolType[] = [
 			'claude-code',
-			'aider',
 			'opencode',
 			'codex',
+			'factory-droid',
 			'claude',
 			'terminal',
 		];
@@ -542,11 +533,10 @@ describe('AGENT_TARGET_NOTES', () => {
 		expect(notes).toContain('edit files');
 	});
 
-	it('should mention git workflow in aider notes', () => {
-		const notes = AGENT_TARGET_NOTES['aider'];
-		expect(notes).toContain('git');
-		expect(notes).toContain('/add');
-		expect(notes).toContain('/drop');
+	it('should mention Factory in factory-droid notes', () => {
+		const notes = AGENT_TARGET_NOTES['factory-droid'];
+		expect(notes).toContain('Factory');
+		expect(notes).toContain('AI coding assistant');
 	});
 
 	it('should mention reasoning models in codex notes', () => {
@@ -564,9 +554,9 @@ describe('AGENT_TARGET_NOTES', () => {
 describe('getAgentDisplayName', () => {
 	it('should return correct display names for all agents', () => {
 		expect(getAgentDisplayName('claude-code')).toBe('Claude Code');
-		expect(getAgentDisplayName('aider')).toBe('Aider');
 		expect(getAgentDisplayName('opencode')).toBe('OpenCode');
 		expect(getAgentDisplayName('codex')).toBe('OpenAI Codex');
+		expect(getAgentDisplayName('factory-droid')).toBe('Factory Droid');
 		expect(getAgentDisplayName('claude')).toBe('Claude');
 		expect(getAgentDisplayName('terminal')).toBe('Terminal');
 	});
@@ -580,14 +570,14 @@ describe('getAgentDisplayName', () => {
 
 describe('buildContextTransferPrompt', () => {
 	it('should include source and target agent names', () => {
-		const prompt = buildContextTransferPrompt('claude-code', 'aider');
+		const prompt = buildContextTransferPrompt('claude-code', 'opencode');
 
 		expect(prompt).toContain('Claude Code');
-		expect(prompt).toContain('Aider');
+		expect(prompt).toContain('OpenCode');
 	});
 
 	it('should include source agent artifacts', () => {
-		const prompt = buildContextTransferPrompt('claude-code', 'aider');
+		const prompt = buildContextTransferPrompt('claude-code', 'opencode');
 
 		// Should include Claude Code artifacts as bullet points
 		expect(prompt).toContain('"/clear"');
@@ -597,12 +587,11 @@ describe('buildContextTransferPrompt', () => {
 	});
 
 	it('should include target agent notes', () => {
-		const prompt = buildContextTransferPrompt('claude-code', 'aider');
+		const prompt = buildContextTransferPrompt('claude-code', 'opencode');
 
-		// Should include Aider target notes
-		expect(prompt).toContain('git repositories');
-		expect(prompt).toContain('/add');
-		expect(prompt).toContain('/drop');
+		// Should include OpenCode target notes
+		expect(prompt).toContain('multi-model');
+		expect(prompt).toContain('AI coding assistant');
 	});
 
 	it('should handle agents with no artifacts', () => {
@@ -623,7 +612,7 @@ describe('buildContextTransferPrompt', () => {
 	});
 
 	it('should work for all agent type combinations', () => {
-		const agents: ToolType[] = ['claude-code', 'aider', 'opencode', 'codex', 'factory-droid', 'claude', 'terminal'];
+		const agents: ToolType[] = ['claude-code', 'opencode', 'codex', 'factory-droid', 'claude', 'terminal'];
 
 		for (const source of agents) {
 			for (const target of agents) {

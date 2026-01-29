@@ -207,7 +207,7 @@ describe('DEFAULT_CONTEXT_WINDOWS', () => {
 		expect(DEFAULT_CONTEXT_WINDOWS['claude']).toBe(200000);
 		expect(DEFAULT_CONTEXT_WINDOWS['codex']).toBe(200000);
 		expect(DEFAULT_CONTEXT_WINDOWS['opencode']).toBe(128000);
-		expect(DEFAULT_CONTEXT_WINDOWS['aider']).toBe(128000);
+		expect(DEFAULT_CONTEXT_WINDOWS['factory-droid']).toBe(200000);
 		expect(DEFAULT_CONTEXT_WINDOWS['terminal']).toBe(0);
 	});
 });

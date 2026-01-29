@@ -183,7 +183,7 @@ describe('substituteTemplateVariables', () => {
 
 		it('should replace {{TOOL_TYPE}} with session.toolType', () => {
 			const context = createTestContext({
-				session: createTestSession({ toolType: 'aider' }),
+				session: createTestSession({ toolType: 'factory-droid' }),
 			});
 			const result = substituteTemplateVariables('Tool: {{TOOL_TYPE}}', context);
 			expect(result).toBe('Tool: aider');

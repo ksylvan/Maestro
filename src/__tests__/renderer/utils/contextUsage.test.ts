@@ -95,10 +95,11 @@ describe('estimateContextUsage', () => {
 			expect(result).toBe(8);
 		});
 
-		it('should use aider default context window (128k)', () => {
+		it('should use factory-droid default context window (200k)', () => {
 			const stats = createStats({ contextWindow: 0 });
-			const result = estimateContextUsage(stats, 'aider');
-			expect(result).toBe(8);
+			const result = estimateContextUsage(stats, 'factory-droid');
+			// (10000 + 0 + 0) / 200000 = 5%
+			expect(result).toBe(5);
 		});
 
 		it('should return null for terminal agent', () => {
@@ -289,7 +290,7 @@ describe('DEFAULT_CONTEXT_WINDOWS', () => {
 		expect(DEFAULT_CONTEXT_WINDOWS['claude']).toBe(200000);
 		expect(DEFAULT_CONTEXT_WINDOWS['codex']).toBe(200000);
 		expect(DEFAULT_CONTEXT_WINDOWS['opencode']).toBe(128000);
-		expect(DEFAULT_CONTEXT_WINDOWS['aider']).toBe(128000);
+		expect(DEFAULT_CONTEXT_WINDOWS['factory-droid']).toBe(200000);
 		expect(DEFAULT_CONTEXT_WINDOWS['terminal']).toBe(0);
 	});
 });

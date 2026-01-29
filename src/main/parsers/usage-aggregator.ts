@@ -46,7 +46,6 @@ export const DEFAULT_CONTEXT_WINDOWS: Record<ToolType, number> = {
 	claude: 200000, // Legacy Claude
 	codex: 200000, // OpenAI o3/o4-mini context window
 	opencode: 128000, // OpenCode (depends on model, 128k is conservative default)
-	aider: 128000, // Aider (varies by model, 128k is conservative default)
 	terminal: 0, // Terminal has no context window
 	'factory-droid': 200000, // Factory Droid (Claude Opus 4.5 default context)
 };

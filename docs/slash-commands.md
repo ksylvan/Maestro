@@ -34,7 +34,7 @@ Commands support **template variables** that are automatically substituted at ru
 | `{{AGENT_GROUP}}` | Agent's group name (if grouped) |
 | `{{AGENT_SESSION_ID}}` | Agent session ID (for conversation continuity) |
 | `{{TAB_NAME}}` | Custom tab name (alias: `SESSION_NAME`) |
-| `{{TOOL_TYPE}}` | Agent type (claude-code, codex, opencode, aider) |
+| `{{TOOL_TYPE}}` | Agent type (claude-code, codex, opencode, factory-droid) |
 
 ### Path Variables
 

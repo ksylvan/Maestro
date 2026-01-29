@@ -34,4 +34,4 @@ icon: sparkles
 - 📊 **[Usage Dashboard](./usage-dashboard)** - Comprehensive analytics for tracking AI usage patterns. View aggregated statistics, compare agent performance, analyze activity heatmaps, and export data to CSV. Access via `Opt+Cmd+U` / `Alt+Ctrl+U`.
 - 🏆 **[Achievements](./achievements)** - Level up from Apprentice to Titan of the Baton based on cumulative Auto Run time. 11 conductor-themed ranks to unlock.
 
-> **Note**: Maestro currently supports Claude Code, Codex (OpenAI), and OpenCode as fully-integrated providers. Support for additional providers (Aider, Gemini CLI, Qwen3 Coder) is planned for future releases based on community demand.
+> **Note**: Maestro currently supports Claude Code, Codex (OpenAI), OpenCode, and Factory Droid as fully-integrated providers. Support for additional providers (Gemini CLI, Qwen3 Coder) is planned for future releases based on community demand.

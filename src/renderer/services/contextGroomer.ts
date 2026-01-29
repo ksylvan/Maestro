@@ -59,28 +59,6 @@ export const AGENT_ARTIFACTS: Record<ToolType, string[]> = {
 		'Claude Code',
 		'CLAUDE.md',
 	],
-	aider: [
-		// Slash commands
-		'/add',
-		'/drop',
-		'/commit',
-		'/diff',
-		'/undo',
-		'/clear',
-		'/run',
-		'/voice',
-		'/help',
-		'/quit',
-		'/ls',
-		'/map',
-		// Brand references
-		'Aider',
-		'aider',
-		// Model references
-		'gpt-4',
-		'gpt-3.5',
-		'GPT',
-	],
 	opencode: [
 		// Slash commands
 		'/help',
@@ -146,12 +124,6 @@ export const AGENT_TARGET_NOTES: Record<ToolType, string> = {
     It uses slash commands like /compact, /clear, /cost for session management.
     It can handle large codebases and multi-file changes.
   `,
-	aider: `
-    Aider is an AI pair programming tool.
-    It works with git repositories and can make commits.
-    It uses /add to include files in context and /drop to remove them.
-    It focuses on code changes and git workflow.
-  `,
 	opencode: `
     OpenCode is a multi-model AI coding assistant.
     It supports multiple AI providers and models.
@@ -186,7 +158,6 @@ export const AGENT_TARGET_NOTES: Record<ToolType, string> = {
 export function getAgentDisplayName(agentType: ToolType): string {
 	const names: Record<ToolType, string> = {
 		'claude-code': 'Claude Code',
-		aider: 'Aider',
 		opencode: 'OpenCode',
 		codex: 'OpenAI Codex',
 		'factory-droid': 'Factory Droid',

@@ -457,8 +457,8 @@ export interface Session {
 	// Usage statistics from AI responses
 	usageStats?: UsageStats;
 	inputMode: 'terminal' | 'ai';
-	// AI process PID (for non-batch agents like Aider)
-	// For Claude batch mode, this is 0 since processes spawn per-message
+	// AI process PID (for agents with persistent processes)
+	// For batch mode agents, this is 0 since processes spawn per-message
 	aiPid: number;
 	// Terminal uses runCommand() which spawns fresh shells per command
 	// This field is kept for backwards compatibility but is always 0

@@ -173,13 +173,6 @@ export const AGENT_DEFINITIONS: Omit<AgentConfig, 'available' | 'path' | 'capabi
 		],
 	},
 	{
-		id: 'aider',
-		name: 'Aider',
-		binaryName: 'aider',
-		command: 'aider',
-		args: [], // Base args (placeholder - to be configured when implemented)
-	},
-	{
 		id: 'factory-droid',
 		name: 'Factory Droid',
 		binaryName: 'droid',
@@ -512,7 +505,7 @@ export class AgentDetector {
 				// User local programs
 				path.join(localAppData, 'Programs'),
 				path.join(localAppData, 'Microsoft', 'WindowsApps'),
-				// Python/pip user installs (for Aider)
+				// Python/pip user installs
 				path.join(appData, 'Python', 'Scripts'),
 				path.join(localAppData, 'Programs', 'Python', 'Python312', 'Scripts'),
 				path.join(localAppData, 'Programs', 'Python', 'Python311', 'Scripts'),
@@ -624,13 +617,6 @@ export class AgentDetector {
 				path.join(appData, 'npm', 'gemini.cmd'),
 				path.join(localAppData, 'npm', 'gemini.cmd'),
 			],
-			aider: [
-				// pip installation
-				path.join(appData, 'Python', 'Scripts', 'aider.exe'),
-				path.join(localAppData, 'Programs', 'Python', 'Python312', 'Scripts', 'aider.exe'),
-				path.join(localAppData, 'Programs', 'Python', 'Python311', 'Scripts', 'aider.exe'),
-				path.join(localAppData, 'Programs', 'Python', 'Python310', 'Scripts', 'aider.exe'),
-			],
 			droid: [
 				// Factory Droid installation paths
 				path.join(home, '.factory', 'bin', 'droid.exe'),
@@ -719,15 +705,6 @@ export class AgentDetector {
 				'/usr/local/bin/gemini',
 				// Add paths from Node version managers (nvm, fnm, volta, etc.)
 				...versionManagerPaths.map((p) => path.join(p, 'gemini')),
-			],
-			aider: [
-				// pip installation
-				path.join(home, '.local', 'bin', 'aider'),
-				// Homebrew paths
-				'/opt/homebrew/bin/aider',
-				'/usr/local/bin/aider',
-				// Add paths from Node version managers (in case installed via npm)
-				...versionManagerPaths.map((p) => path.join(p, 'aider')),
 			],
 			droid: [
 				// Factory Droid installation paths

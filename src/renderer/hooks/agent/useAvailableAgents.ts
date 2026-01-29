@@ -74,8 +74,8 @@ function getAgentIcon(agentId: string): string {
 			return '⬡';
 		case 'opencode':
 			return '📟';
-		case 'aider':
-			return '🛠️';
+		case 'factory-droid':
+			return '🏭';
 		default:
 			return '🔧';
 	}

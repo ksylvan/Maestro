@@ -19,7 +19,8 @@ Download the latest release for your platform from the [Releases](https://github
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — Anthropic's AI coding assistant (fully integrated)
   - [Codex](https://github.com/openai/codex) — OpenAI's coding agent (fully integrated)
   - [OpenCode](https://github.com/sst/opencode) — Open-source AI coding assistant (fully integrated)
-  - [Aider](https://github.com/paul-gauthier/aider), [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Qwen3 Coder](https://github.com/QwenLM/Qwen-Agent) — Planned support
+  - [Factory Droid](https://docs.factory.ai/cli) — Factory's AI coding assistant (fully integrated)
+  - [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Qwen3 Coder](https://github.com/QwenLM/Qwen-Agent) — Planned support
 - Git (optional, for git-aware features)
 
 ## WSL2 Users (Windows Subsystem for Linux)

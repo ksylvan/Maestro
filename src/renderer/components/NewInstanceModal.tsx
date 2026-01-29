@@ -1490,7 +1490,7 @@ export function EditAgentModal({
 		'claude-code': 'Claude Code',
 		codex: 'Codex',
 		opencode: 'OpenCode',
-		aider: 'Aider',
+		'factory-droid': 'Factory Droid',
 	};
 	const agentName = agentNameMap[session.toolType] || session.toolType;
 

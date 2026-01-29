@@ -26,7 +26,6 @@ import { logger } from '../utils/logger';
 const VALID_TOOL_TYPES = new Set<string>([
 	'claude',
 	'claude-code',
-	'aider',
 	'opencode',
 	'codex',
 	'terminal',
