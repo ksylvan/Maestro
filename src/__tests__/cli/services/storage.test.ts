@@ -333,7 +333,7 @@ describe('storage service', () => {
 			const configs = {
 				configs: {
 					'claude-code': { customPath: '/custom/path' },
-					aider: { setting: 'value' },
+					'factory-droid': { setting: 'value' },
 				},
 			};
 			vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(configs));

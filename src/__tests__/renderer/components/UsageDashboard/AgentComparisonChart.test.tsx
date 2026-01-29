@@ -30,7 +30,7 @@ const mockData: StatsAggregation = {
 	avgDuration: 72000, // 72 seconds
 	byAgent: {
 		'claude-code': { count: 30, duration: 2000000 },
-		aider: { count: 20, duration: 1600000 },
+		'factory-droid': { count: 20, duration: 1600000 },
 		terminal: { count: 10, duration: 500000 },
 	},
 	bySource: { user: 35, auto: 15 },
@@ -59,7 +59,7 @@ const manyAgentsData: StatsAggregation = {
 	avgDuration: 50000,
 	byAgent: {
 		'claude-code': { count: 30, duration: 1500000 },
-		aider: { count: 25, duration: 1200000 },
+		'factory-droid': { count: 25, duration: 1200000 },
 		terminal: { count: 15, duration: 800000 },
 		opencode: { count: 12, duration: 600000 },
 		gemini: { count: 10, duration: 500000 },

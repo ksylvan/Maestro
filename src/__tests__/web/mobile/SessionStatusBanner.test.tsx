@@ -348,7 +348,9 @@ describe('SessionStatusBanner', () => {
 			expect(screen.getByText('100%')).toBeInTheDocument();
 		});
 
-		it('does not render when contextWindow is 0', () => {
+		it('uses default context window when contextWindow is 0', () => {
+			// When contextWindow is 0, estimateContextUsage falls back to
+			// agent-specific default context window (200000 for claude-code)
 			const usageStats = createUsageStats({
 				inputTokens: 1000,
 				outputTokens: 500,
@@ -358,10 +360,15 @@ describe('SessionStatusBanner', () => {
 
 			render(<SessionStatusBanner session={session} />);
 
-			expect(screen.queryByRole('progressbar')).toBeNull();
+			// Should render with fallback context window
+			// 1000 / 200000 * 100 = 0.5% rounds to 1%
+			expect(screen.getByRole('progressbar')).toBeInTheDocument();
+			expect(screen.getByText('1%')).toBeInTheDocument();
 		});
 
-		it('does not render when contextWindow is undefined', () => {
+		it('uses default context window when contextWindow is undefined', () => {
+			// When contextWindow is undefined, estimateContextUsage falls back to
+			// agent-specific default context window (200000 for claude-code)
 			const usageStats = createUsageStats({
 				inputTokens: 1000,
 				outputTokens: 500,
@@ -371,10 +378,15 @@ describe('SessionStatusBanner', () => {
 
 			render(<SessionStatusBanner session={session} />);
 
-			expect(screen.queryByRole('progressbar')).toBeNull();
+			// Should render with fallback context window
+			// 1000 / 200000 * 100 = 0.5% rounds to 1%
+			expect(screen.getByRole('progressbar')).toBeInTheDocument();
+			expect(screen.getByText('1%')).toBeInTheDocument();
 		});
 
-		it('does not render when inputTokens is undefined', () => {
+		it('renders with 0% when inputTokens is undefined', () => {
+			// When inputTokens is undefined, it defaults to 0
+			// 0 / 200000 * 100 = 0%
 			const usageStats = createUsageStats({
 				inputTokens: undefined,
 				outputTokens: 500,
@@ -384,7 +396,9 @@ describe('SessionStatusBanner', () => {
 
 			render(<SessionStatusBanner session={session} />);
 
-			expect(screen.queryByRole('progressbar')).toBeNull();
+			// Should render with 0% usage
+			expect(screen.getByRole('progressbar')).toBeInTheDocument();
+			expect(screen.getByText('0%')).toBeInTheDocument();
 		});
 
 		it('does not render when usageStats is null', () => {
