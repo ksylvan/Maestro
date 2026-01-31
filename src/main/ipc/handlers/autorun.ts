@@ -634,13 +634,64 @@ export function registerAutorunHandlers(
 		'autorun:listImages',
 		createIpcHandler(
 			handlerOpts('listImages', false),
-			async (folderPath: string, docName: string) => {
+			async (folderPath: string, docName: string, sshRemoteId?: string) => {
 				// Sanitize docName to prevent directory traversal
 				const sanitizedDocName = path.basename(docName).replace(/\.md$/i, '');
 				if (sanitizedDocName.includes('..') || sanitizedDocName.includes('/')) {
 					throw new Error('Invalid document name');
 				}
 
+				const imageExtensions = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
+
+				// SSH remote: dispatch to remote operations
+				if (sshRemoteId) {
+					const sshConfig = getSshRemoteById(settingsStore, sshRemoteId);
+					if (!sshConfig) {
+						throw new Error(`SSH remote not found: ${sshRemoteId}`);
+					}
+
+					// Construct remote images directory path (use forward slashes)
+					const remoteImagesDir = `${folderPath}/images`;
+
+					logger.debug(`${LOG_CONTEXT} listImages via SSH: ${remoteImagesDir}`, LOG_CONTEXT);
+
+					// Check if images directory exists on remote
+					const existsResult = await existsRemote(remoteImagesDir, sshConfig);
+					if (!existsResult.success || !existsResult.data) {
+						// No images directory means no images
+						return { images: [] };
+					}
+
+					// Read remote directory contents
+					const dirResult = await readDirRemote(remoteImagesDir, sshConfig);
+					if (!dirResult.success || !dirResult.data) {
+						throw new Error(dirResult.error || 'Failed to read remote images directory');
+					}
+
+					// Filter files that start with the docName prefix
+					const images = dirResult.data
+						.filter((entry) => {
+							// Only include files (not directories or symlinks)
+							if (entry.isDirectory || entry.isSymlink) {
+								return false;
+							}
+							// Check if filename starts with docName-
+							if (!entry.name.startsWith(`${sanitizedDocName}-`)) {
+								return false;
+							}
+							// Check if it has a valid image extension
+							const ext = entry.name.split('.').pop()?.toLowerCase();
+							return ext && imageExtensions.includes(ext);
+						})
+						.map((entry) => ({
+							filename: entry.name,
+							relativePath: `images/${entry.name}`,
+						}));
+
+					return { images };
+				}
+
+				// Local: Build images directory path
 				const imagesDir = path.join(folderPath, 'images');
 
 				// Check if images directory exists
@@ -655,7 +706,6 @@ export function registerAutorunHandlers(
 				const files = await fs.readdir(imagesDir);
 
 				// Filter files that start with the docName prefix
-				const imageExtensions = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
 				const images = files
 					.filter((file) => {
 						// Check if filename starts with docName-
