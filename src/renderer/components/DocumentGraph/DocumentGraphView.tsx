@@ -13,7 +13,7 @@
  * - Theme-aware styling throughout
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
 	X,
 	Network,
@@ -55,9 +55,58 @@ import { NodeContextMenu } from './NodeContextMenu';
 import { GraphLegend } from './GraphLegend';
 import { MarkdownRenderer } from '../MarkdownRenderer';
 import { generateProseStyles } from '../../utils/markdownConfig';
+import type { FileNode } from '../../types/fileTree';
 
 /** Debounce delay for graph rebuilds when settings change (ms) */
 const GRAPH_REBUILD_DEBOUNCE_DELAY = 300;
+
+/**
+ * Build a file tree structure from graph node file paths.
+ * This enables wiki-link resolution in the preview panel.
+ */
+function buildFileTreeFromPaths(filePaths: string[]): FileNode[] {
+	const root: FileNode[] = [];
+	const folderMap = new Map<string, FileNode>();
+
+	for (const filePath of filePaths) {
+		if (!filePath) continue;
+
+		const parts = filePath.split('/');
+		let currentLevel = root;
+		let currentPath = '';
+
+		for (let i = 0; i < parts.length; i++) {
+			const part = parts[i];
+			const isLastPart = i === parts.length - 1;
+			currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+			if (isLastPart) {
+				// It's a file
+				currentLevel.push({
+					name: part,
+					type: 'file',
+					fullPath: filePath,
+				});
+			} else {
+				// It's a folder - check if it already exists
+				let folder = folderMap.get(currentPath);
+				if (!folder) {
+					folder = {
+						name: part,
+						type: 'folder',
+						isFolder: true,
+						children: [],
+					};
+					folderMap.set(currentPath, folder);
+					currentLevel.push(folder);
+				}
+				currentLevel = folder.children!;
+			}
+		}
+	}
+
+	return root;
+}
 /** Default maximum number of nodes to load initially */
 const DEFAULT_MAX_NODES = 200;
 /** Number of additional nodes to load when clicking "Load more" */
@@ -174,6 +223,14 @@ export function DocumentGraphView({
 	} | null>(null);
 	const [previewError, setPreviewError] = useState<string | null>(null);
 	const [previewLoading, setPreviewLoading] = useState(false);
+
+	// Build file tree from graph nodes for wiki-link resolution in preview
+	const previewFileTree = useMemo(() => {
+		const filePaths = nodes
+			.filter((n) => n.nodeType === 'document' && n.filePath)
+			.map((n) => n.filePath!);
+		return buildFileTreeFromPaths(filePaths);
+	}, [nodes]);
 
 	// Pagination state
 	const [totalDocuments, setTotalDocuments] = useState(0);
@@ -1640,6 +1697,7 @@ export function DocumentGraphView({
 												console.error('Failed to copy to clipboard:', err);
 											}
 										}}
+										fileTree={previewFileTree}
 										projectRoot={rootPath}
 										cwd={previewFile.relativePath.split('/').slice(0, -1).join('/')}
 										onFileClick={handlePreviewFile}
