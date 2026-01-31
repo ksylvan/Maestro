@@ -85,12 +85,12 @@ const KEYBOARD_SHORTCUTS: KeyboardShortcutItem[] = [
 		description: 'Navigate between nodes',
 	},
 	{
-		keys: 'Enter',
-		description: 'Preview document in-graph',
+		keys: 'Space',
+		description: 'Focus node in graph',
 	},
 	{
-		keys: 'P',
-		description: 'Preview in-graph',
+		keys: 'Enter',
+		description: 'Preview document in-graph',
 	},
 	{
 		keys: 'O',

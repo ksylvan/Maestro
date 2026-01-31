@@ -154,18 +154,18 @@ describe('GraphLegend', () => {
 			expect(screen.getByText('Navigate between nodes')).toBeInTheDocument();
 		});
 
+		it('displays space shortcut', () => {
+			render(<GraphLegend {...defaultProps} />);
+
+			expect(screen.getByText('Space')).toBeInTheDocument();
+			expect(screen.getByText('Focus node in graph')).toBeInTheDocument();
+		});
+
 		it('displays enter shortcut', () => {
 			render(<GraphLegend {...defaultProps} />);
 
 			expect(screen.getByText('Enter')).toBeInTheDocument();
 			expect(screen.getByText('Preview document in-graph')).toBeInTheDocument();
-		});
-
-		it('displays preview shortcut', () => {
-			render(<GraphLegend {...defaultProps} />);
-
-			expect(screen.getByText('P')).toBeInTheDocument();
-			expect(screen.getByText('Preview in-graph')).toBeInTheDocument();
 		});
 
 		it('displays open shortcut', () => {

@@ -1550,6 +1550,14 @@ export function MindMap({
 					e.preventDefault();
 					break;
 
+				case ' ':
+					// Recenter graph on focused document node (Space bar)
+					if (focusedNode.nodeType === 'document') {
+						onNodeDoubleClick(focusedNode);
+					}
+					e.preventDefault();
+					break;
+
 				case 'o':
 				case 'O':
 					// Open focused document in main file preview
