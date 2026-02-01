@@ -320,7 +320,7 @@ describe('ssh-command-builder', () => {
 
 			const lastArg = result.args[result.args.length - 1];
 			// Command is wrapped in bash with PATH setup (no profile sourcing)
-			expect(lastArg).toContain('bash --norc --noprofile -c');
+			expect(lastArg).toContain('/bin/bash --norc --noprofile -c');
 			expect(lastArg).toContain('export PATH=');
 			expect(lastArg).toContain('claude');
 			expect(lastArg).toContain('--print');
@@ -381,9 +381,9 @@ describe('ssh-command-builder', () => {
 			});
 
 			const wrappedCommand = result.args[result.args.length - 1];
-			// The command is wrapped in bash --norc --noprofile -c "..." with PATH setup
+			// The command is wrapped in /bin/bash --norc --noprofile -c "..." with PATH setup
 			// $ signs are escaped as \$ to prevent expansion by SSH's outer shell
-			expect(wrappedCommand).toContain('bash --norc --noprofile -c');
+			expect(wrappedCommand).toContain('/bin/bash --norc --noprofile -c');
 			expect(wrappedCommand).toContain('git');
 			expect(wrappedCommand).toContain('commit');
 			expect(wrappedCommand).toContain('fix:');
@@ -637,7 +637,7 @@ describe('ssh-command-builder', () => {
 			});
 
 			const wrappedCommand = result.args[result.args.length - 1];
-			// The prompt is wrapped in bash --norc --noprofile -c "..." with double-quote escaping
+			// The prompt is wrapped in /bin/bash --norc --noprofile -c "..." with double-quote escaping
 			// $PATH in the PROMPT should be escaped as \$PATH to prevent expansion
 			// (Note: the PATH setup also contains $PATH but that's intentional)
 			expect(wrappedCommand).toContain("'\\\\$PATH variable");

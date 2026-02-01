@@ -273,19 +273,23 @@ export async function buildSshCommand(
 	// Wrap the command with explicit PATH setup instead of sourcing profile files.
 	// Profile files often chain to zsh or contain syntax incompatible with -c embedding.
 	//
+	// CRITICAL: Use /bin/bash (full path) instead of just 'bash' because:
+	// SSH passes the command to the remote's login shell (often zsh) which parses it.
+	// If we use 'bash', zsh still sources its profile files while resolving the command.
+	// Using /bin/bash directly bypasses this - zsh just executes the path without sourcing.
+	//
 	// We prepend common binary locations to PATH:
 	// - ~/.local/bin: Claude Code, pip --user installs
 	// - ~/bin: User scripts
 	// - /usr/local/bin: Homebrew on Intel Mac, manual installs
 	// - /opt/homebrew/bin: Homebrew on Apple Silicon
 	// - ~/.cargo/bin: Rust tools
-	// - ~/.nvm/versions/node/*/bin: Node.js via nvm (glob doesn't work, but current version does)
 	//
 	// This approach avoids all profile sourcing issues while ensuring agent binaries are found.
 	const pathPrefix =
 		'export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:/opt/homebrew/bin:$HOME/.cargo/bin:$PATH"';
 	const escapedCommand = shellEscapeForDoubleQuotes(remoteCommand);
-	const wrappedCommand = `bash --norc --noprofile -c "${pathPrefix} && ${escapedCommand}"`;
+	const wrappedCommand = `/bin/bash --norc --noprofile -c "${pathPrefix} && ${escapedCommand}"`;
 	args.push(wrappedCommand);
 
 	// Log the exact command being built - use info level so it appears in system logs
