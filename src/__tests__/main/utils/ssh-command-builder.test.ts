@@ -639,8 +639,12 @@ describe('ssh-command-builder', () => {
 			const wrappedCommand = result.args[result.args.length - 1];
 			// The prompt is wrapped in /bin/bash --norc --noprofile -c "..." with double-quote escaping
 			// $PATH in the PROMPT should be escaped as \$PATH to prevent expansion
-			// (Note: the PATH setup also contains $PATH but that's intentional)
-			expect(wrappedCommand).toContain("'\\\\$PATH variable");
+			// The single quote in "what's" goes through two escaping layers:
+			// 1. shellEscape: what's -> 'what'\''s'
+			// 2. shellEscapeForDoubleQuotes: '\'' -> '\\'' (backslash is escaped)
+			// (Note: the PATH setup also contains $PATH but that's intentional - for variable expansion)
+			expect(wrappedCommand).toContain('\\$PATH variable');
+			expect(wrappedCommand).toContain("what'\\\\''s"); // Single quote with double-quote escaping
 		});
 
 		it('handles multi-line prompts', async () => {
