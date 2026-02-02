@@ -20,6 +20,7 @@ import {
 	Loader2,
 	ExternalLink,
 	FolderOpen,
+	FileText,
 } from 'lucide-react';
 import type { AITab, Theme, FilePreviewTab, UnifiedTab } from '../types';
 import { hasDraft } from '../utils/tabHelpers';

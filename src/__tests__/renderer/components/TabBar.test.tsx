@@ -3010,9 +3010,9 @@ describe('FileTab overlay menu', () => {
 
 		// Should show Close Other Tabs option
 		const closeOtherButtons = screen.getAllByText('Close Other Tabs');
-		// Find the one in the file tab overlay (has file-text-icon)
+		// Find the one in the file tab overlay (has Copy File Path which identifies file tab overlay)
 		const closeOtherButton = closeOtherButtons.find((btn) =>
-			btn.closest('.shadow-xl')?.querySelector('[data-testid="file-text-icon"]')
+			btn.closest('.shadow-xl')?.textContent?.includes('Copy File Path')
 		);
 		expect(closeOtherButton).toBeTruthy();
 
@@ -3116,7 +3116,7 @@ describe('FileTab overlay menu', () => {
 		// Should show Close Tabs to Left option
 		const closeLeftButtons = screen.getAllByText('Close Tabs to Left');
 		const closeLeftButton = closeLeftButtons.find((btn) =>
-			btn.closest('.shadow-xl')?.querySelector('[data-testid="file-text-icon"]')
+			btn.closest('.shadow-xl')?.textContent?.includes('Copy File Path')
 		);
 		expect(closeLeftButton).toBeTruthy();
 
@@ -3223,7 +3223,7 @@ describe('FileTab overlay menu', () => {
 		// Should show Close Tabs to Right option
 		const closeRightButtons = screen.getAllByText('Close Tabs to Right');
 		const closeRightButton = closeRightButtons.find((btn) =>
-			btn.closest('.shadow-xl')?.querySelector('[data-testid="file-text-icon"]')
+			btn.closest('.shadow-xl')?.textContent?.includes('Copy File Path')
 		);
 		expect(closeRightButton).toBeTruthy();
 
