@@ -326,7 +326,6 @@ interface FileExplorerPanelProps {
 	setSelectedFileIndex: (index: number) => void;
 	activeFocus: FocusArea;
 	activeRightTab: string;
-	previewFile: { name: string; content: string; path: string } | null;
 	setActiveFocus: (focus: FocusArea) => void;
 	fileTreeContainerRef?: React.RefObject<HTMLDivElement>;
 	fileTreeFilterInputRef?: React.RefObject<HTMLInputElement>;
@@ -376,7 +375,6 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 		setSelectedFileIndex,
 		activeFocus,
 		activeRightTab,
-		previewFile,
 		setActiveFocus,
 		fileTreeFilterInputRef,
 		toggleFolder,
@@ -892,11 +890,11 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 			const isFolder = node.type === 'folder';
 			const expandedSet = new Set(session.fileExplorerExpanded || []);
 			const isExpanded = expandedSet.has(fullPath);
-			// Check both legacy previewFile and active file tab for selection
+			// Check active file tab for selection highlighting
 			const activeFileTabPath = session.activeFileTabId
 				? session.filePreviewTabs?.find((t) => t.id === session.activeFileTabId)?.path
 				: undefined;
-			const isSelected = previewFile?.path === absolutePath || activeFileTabPath === absolutePath;
+			const isSelected = activeFileTabPath === absolutePath;
 			const isKeyboardSelected =
 				activeFocus === 'right' && activeRightTab === 'files' && globalIndex === selectedFileIndex;
 
@@ -1006,7 +1004,6 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 			session.id,
 			session.activeFileTabId,
 			session.filePreviewTabs,
-			previewFile?.path,
 			activeFocus,
 			activeRightTab,
 			selectedFileIndex,

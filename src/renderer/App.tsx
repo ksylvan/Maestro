@@ -760,7 +760,6 @@ function MaestroConsoleInner() {
 	const { preFilterActiveTabIdRef } = useUILayout();
 
 	// File Explorer State
-	const { previewFile, setPreviewFile } = useUILayout();
 	const [filePreviewLoading, setFilePreviewLoading] = useState<{
 		name: string;
 		path: string;
@@ -1018,14 +1017,6 @@ function MaestroConsoleInner() {
 			delete (window as unknown as { playground?: () => void }).playground;
 		};
 	}, []);
-
-	// Close file preview when switching sessions (history is now per-session)
-	// previewFile intentionally omitted: we only want to clear preview on session change, not when preview itself changes
-	useEffect(() => {
-		if (previewFile !== null) {
-			setPreviewFile(null);
-		}
-	}, [activeSessionId]);
 
 	// Restore a persisted session by respawning its process
 	/**
@@ -3976,12 +3967,7 @@ function MaestroConsoleInner() {
 		activeSessionId,
 		setSessions,
 		setActiveFocus,
-		setPreviewFile,
 		setFilePreviewLoading,
-		filePreviewHistory,
-		setFilePreviewHistory,
-		filePreviewHistoryIndex,
-		setFilePreviewHistoryIndex,
 		setConfirmModalMessage,
 		setConfirmModalOnConfirm,
 		setConfirmModalOpen,
@@ -12439,14 +12425,14 @@ You are taking over this conversation. Based on the context above, provide a bri
 	}, [activeSession, activeSessionId, processQueuedItem]);
 	const handleQuickActionsToggleMarkdownEditMode = useCallback(() => {
 		// Toggle the appropriate mode based on context:
-		// - If file preview is open: toggle file edit mode (markdownEditMode)
-		// - If no file preview: toggle chat raw text mode (chatRawTextMode)
-		if (previewFile) {
+		// - If file tab is active: toggle file edit mode (markdownEditMode)
+		// - If no file tab: toggle chat raw text mode (chatRawTextMode)
+		if (activeSession?.activeFileTabId) {
 			setMarkdownEditMode(!markdownEditMode);
 		} else {
 			setChatRawTextMode(!chatRawTextMode);
 		}
-	}, [previewFile, markdownEditMode, chatRawTextMode, setMarkdownEditMode, setChatRawTextMode]);
+	}, [activeSession?.activeFileTabId, markdownEditMode, chatRawTextMode, setMarkdownEditMode, setChatRawTextMode]);
 	const handleQuickActionsStartTour = useCallback(() => {
 		setTourFromWizard(false);
 		setTourOpen(true);
@@ -12539,7 +12525,6 @@ You are taking over this conversation. Based on the context above, provide a bri
 		renameInstanceModalOpen,
 		renameGroupModalOpen,
 		activeSession,
-		previewFile,
 		fileTreeFilter,
 		fileTreeFilterOpen,
 		gitDiffPreview,
@@ -13014,7 +12999,6 @@ You are taking over this conversation. Based on the context above, provide a bri
 		slashCommandOpen,
 		slashCommands: allSlashCommands,
 		selectedSlashCommandIndex,
-		previewFile,
 		filePreviewLoading,
 		markdownEditMode,
 		chatRawTextMode,
@@ -13079,7 +13063,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 
 		// Gist publishing
 		ghCliAvailable,
-		hasGist: previewFile ? !!fileGistUrls[previewFile.path] : false,
+		hasGist: activeFileTab ? !!fileGistUrls[activeFileTab.path] : false,
 
 		// Unread filter
 		showUnreadOnly,
@@ -13109,7 +13093,6 @@ You are taking over this conversation. Based on the context above, provide a bri
 		setAtMentionFilter,
 		setAtMentionStartIndex,
 		setSelectedAtMentionIndex,
-		setPreviewFile,
 		setMarkdownEditMode,
 		setChatRawTextMode,
 		setAboutModalOpen,
@@ -13357,7 +13340,6 @@ You are taking over this conversation. Based on the context above, provide a bri
 		fileTreeFilterOpen,
 		filteredFileTree,
 		selectedFileIndex,
-		previewFile,
 		showHiddenFiles,
 
 		// Auto Run state
@@ -13670,7 +13652,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 					setPlaygroundOpen={setPlaygroundOpen}
 					onQuickActionsRefreshGitFileState={handleQuickActionsRefreshGitFileState}
 					onQuickActionsDebugReleaseQueuedItem={handleQuickActionsDebugReleaseQueuedItem}
-					markdownEditMode={previewFile ? markdownEditMode : chatRawTextMode}
+					markdownEditMode={activeSession?.activeFileTabId ? markdownEditMode : chatRawTextMode}
 					onQuickActionsToggleMarkdownEditMode={handleQuickActionsToggleMarkdownEditMode}
 					setUpdateCheckModalOpenForQuickActions={setUpdateCheckModalOpen}
 					openWizard={openWizardModal}
@@ -13702,7 +13684,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 					autoRunSelectedDocument={activeSession?.autoRunSelectedFile ?? null}
 					autoRunCompletedTaskCount={rightPanelRef.current?.getAutoRunCompletedTaskCount() ?? 0}
 					onAutoRunResetTasks={handleQuickActionsAutoRunResetTasks}
-					isFilePreviewOpen={previewFile !== null}
+					isFilePreviewOpen={!!activeSession?.activeFileTabId}
 					ghCliAvailable={ghCliAvailable}
 					onPublishGist={() => setGistPublishModalOpen(true)}
 					lastGraphFocusFile={lastGraphFocusFilePath}
@@ -14079,20 +14061,20 @@ You are taking over this conversation. Based on the context above, provide a bri
 				)}
 
 				{/* --- GIST PUBLISH MODAL --- */}
-				{/* Supports both file preview and tab context gist publishing */}
-				{gistPublishModalOpen && (previewFile || tabGistContent) && (
+				{/* Supports both file preview tabs and tab context gist publishing */}
+				{gistPublishModalOpen && (activeFileTab || tabGistContent) && (
 					<GistPublishModal
 						theme={theme}
-						filename={tabGistContent?.filename ?? previewFile?.name ?? 'conversation.md'}
-						content={tabGistContent?.content ?? previewFile?.content ?? ''}
+						filename={tabGistContent?.filename ?? (activeFileTab ? activeFileTab.name + activeFileTab.extension : 'conversation.md')}
+						content={tabGistContent?.content ?? activeFileTab?.content ?? ''}
 						onClose={() => {
 							setGistPublishModalOpen(false);
 							setTabGistContent(null);
 						}}
 						onSuccess={(gistUrl, isPublic) => {
-							// Save gist URL for the file if it's from file preview (not tab context)
-							if (previewFile && !tabGistContent) {
-								saveFileGistUrl(previewFile.path, {
+							// Save gist URL for the file if it's from file preview tab (not tab context)
+							if (activeFileTab && !tabGistContent) {
+								saveFileGistUrl(activeFileTab.path, {
 									gistUrl,
 									isPublic,
 									publishedAt: Date.now(),
@@ -14113,7 +14095,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 							setTabGistContent(null);
 						}}
 						existingGist={
-							previewFile && !tabGistContent ? fileGistUrls[previewFile.path] : undefined
+							activeFileTab && !tabGistContent ? fileGistUrls[activeFileTab.path] : undefined
 						}
 					/>
 				)}

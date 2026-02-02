@@ -336,7 +336,6 @@ describe('MainPanel', () => {
 		slashCommandOpen: false,
 		slashCommands: [],
 		selectedSlashCommandIndex: 0,
-		previewFile: null,
 		markdownEditMode: false,
 		shortcuts: defaultShortcuts,
 		rightPanelOpen: true,
@@ -635,100 +634,8 @@ describe('MainPanel', () => {
 		});
 	});
 
-	describe('File Preview mode', () => {
-		it('should render FilePreview when previewFile is set', () => {
-			const previewFile = { name: 'test.ts', content: 'test content', path: '/test/test.ts' };
-			render(<MainPanel {...defaultProps} previewFile={previewFile} />);
-
-			expect(screen.getByTestId('file-preview')).toBeInTheDocument();
-			expect(screen.getByText('File Preview: test.ts')).toBeInTheDocument();
-		});
-
-		it('should hide TabBar when file preview is open', () => {
-			const previewFile = { name: 'test.ts', content: 'test content', path: '/test/test.ts' };
-			render(<MainPanel {...defaultProps} previewFile={previewFile} />);
-
-			expect(screen.queryByTestId('tab-bar')).not.toBeInTheDocument();
-		});
-
-		it('should call setPreviewFile(null) and setActiveFocus when closing preview', () => {
-			const setPreviewFile = vi.fn();
-			const setActiveFocus = vi.fn();
-			const previewFile = { name: 'test.ts', content: 'test content', path: '/test/test.ts' };
-
-			render(
-				<MainPanel
-					{...defaultProps}
-					previewFile={previewFile}
-					setPreviewFile={setPreviewFile}
-					setActiveFocus={setActiveFocus}
-				/>
-			);
-
-			fireEvent.click(screen.getByTestId('file-preview-close'));
-
-			expect(setPreviewFile).toHaveBeenCalledWith(null);
-			expect(setActiveFocus).toHaveBeenCalledWith('right');
-		});
-
-		it('should focus file tree container when closing preview (setTimeout callback)', async () => {
-			vi.useFakeTimers();
-			const setPreviewFile = vi.fn();
-			const setActiveFocus = vi.fn();
-			const previewFile = { name: 'test.ts', content: 'test content', path: '/test/test.ts' };
-			const fileTreeContainerRef = { current: { focus: vi.fn() } };
-
-			render(
-				<MainPanel
-					{...defaultProps}
-					previewFile={previewFile}
-					setPreviewFile={setPreviewFile}
-					setActiveFocus={setActiveFocus}
-					fileTreeContainerRef={fileTreeContainerRef as any}
-					fileTreeFilterOpen={false}
-				/>
-			);
-
-			fireEvent.click(screen.getByTestId('file-preview-close'));
-
-			// Run the setTimeout callback
-			await act(async () => {
-				vi.advanceTimersByTime(1);
-			});
-
-			expect(fileTreeContainerRef.current.focus).toHaveBeenCalled();
-			vi.useRealTimers();
-		});
-
-		it('should focus file tree filter input when closing preview with filter open', async () => {
-			vi.useFakeTimers();
-			const setPreviewFile = vi.fn();
-			const setActiveFocus = vi.fn();
-			const previewFile = { name: 'test.ts', content: 'test content', path: '/test/test.ts' };
-			const fileTreeFilterInputRef = { current: { focus: vi.fn() } };
-
-			render(
-				<MainPanel
-					{...defaultProps}
-					previewFile={previewFile}
-					setPreviewFile={setPreviewFile}
-					setActiveFocus={setActiveFocus}
-					fileTreeFilterInputRef={fileTreeFilterInputRef as any}
-					fileTreeFilterOpen={true}
-				/>
-			);
-
-			fireEvent.click(screen.getByTestId('file-preview-close'));
-
-			// Run the setTimeout callback
-			await act(async () => {
-				vi.advanceTimersByTime(1);
-			});
-
-			expect(fileTreeFilterInputRef.current.focus).toHaveBeenCalled();
-			vi.useRealTimers();
-		});
-	});
+	// Note: Legacy previewFile tests removed - file preview is now handled via the tab system
+	// File tabs have their own content rendering and closing behavior
 
 	describe('Tab Bar', () => {
 		it('should render TabBar in AI mode with tabs', () => {
@@ -3023,32 +2930,8 @@ describe('MainPanel', () => {
 			expect(screen.getByText(longMessage)).toBeInTheDocument();
 		});
 
-		it('should still display error banner when previewFile is open', () => {
-			// The error banner appears above file preview in the layout hierarchy
-			// This ensures users see critical errors even while previewing files
-			const previewFile = { name: 'test.ts', content: 'test content', path: '/test/test.ts' };
-			const session = createSession({
-				inputMode: 'ai',
-				aiTabs: [
-					{
-						id: 'tab-1',
-						name: 'Tab 1',
-						isUnread: false,
-						createdAt: Date.now(),
-						agentError: createAgentError(),
-					},
-				],
-				activeTabId: 'tab-1',
-			});
-
-			render(<MainPanel {...defaultProps} activeSession={session} previewFile={previewFile} />);
-
-			// Both error banner and file preview should be visible
-			expect(
-				screen.getByText('Authentication token has expired. Please re-authenticate.')
-			).toBeInTheDocument();
-			expect(screen.getByTestId('file-preview')).toBeInTheDocument();
-		});
+		// Note: Legacy test for previewFile removed - file preview is now handled via the tab system
+		// The error banner still displays above file tabs when activeFileTabId is set
 
 		it('should handle error with empty message gracefully', () => {
 			const session = createSession({

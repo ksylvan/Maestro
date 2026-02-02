@@ -129,9 +129,9 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 					}
 					// Fall through to handle layout/system utility/session jump/jumpToBottom shortcuts below
 				} else {
-					// Only OVERLAYS are open (FilePreview, LogViewer, etc.)
+					// Only OVERLAYS are open (file tabs, LogViewer, etc.)
 					// Allow Cmd+Shift+[] to fall through to App.tsx handler
-					// (which will cycle right panel tabs when previewFile is set)
+					// (which will cycle right panel tabs when file tab is active)
 					// Also allow right panel tab shortcuts to switch tabs while overlay is open
 					if (
 						!isCycleShortcut &&
@@ -390,7 +390,7 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 			} else if (ctx.isShortcut(e, 'toggleMarkdownMode')) {
 				// Toggle markdown raw mode for AI message history
 				// Skip when in AutoRun panel (it has its own Cmd+E handler for edit/preview toggle)
-				// Skip when FilePreview is open (it handles its own Cmd+E)
+				// Skip when file tab is active (it handles its own Cmd+E)
 				// Skip when Auto Run is running (editing is locked)
 				// Check both state-based detection AND DOM-based detection for robustness
 				const isInAutoRunPanel = ctx.activeFocus === 'right' && ctx.activeRightTab === 'autorun';
@@ -400,7 +400,9 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				// Check if Auto Run is running and editing is locked (running without worktree)
 				const isAutoRunLocked =
 					ctx.activeBatchRunState?.isRunning && !ctx.activeBatchRunState?.worktreeActive;
-				if (!isInAutoRunPanel && !isInAutoRunDOM && !ctx.previewFile && !isAutoRunLocked) {
+				// Check if a file tab is active (new tab-based file preview)
+				const hasActiveFileTab = !!ctx.activeSession?.activeFileTabId;
+				if (!isInAutoRunPanel && !isInAutoRunDOM && !hasActiveFileTab && !isAutoRunLocked) {
 					e.preventDefault();
 					// Toggle chat raw text mode (not file preview edit mode)
 					ctx.setChatRawTextMode(!ctx.chatRawTextMode);

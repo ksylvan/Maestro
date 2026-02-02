@@ -59,7 +59,6 @@ export interface UseMainPanelPropsDeps {
 	slashCommandOpen: boolean;
 	slashCommands: Array<{ command: string; description: string }>;
 	selectedSlashCommandIndex: number;
-	previewFile: { name: string; content: string; path: string } | null;
 	filePreviewLoading: { name: string; path: string } | null;
 	markdownEditMode: boolean; // FilePreview: whether editing file content
 	chatRawTextMode: boolean; // TerminalOutput: whether to show raw text in AI responses
@@ -159,7 +158,6 @@ export interface UseMainPanelPropsDeps {
 	setAtMentionFilter: (filter: string) => void;
 	setAtMentionStartIndex: (index: number) => void;
 	setSelectedAtMentionIndex: (index: number) => void;
-	setPreviewFile: (file: { name: string; content: string; path: string } | null) => void;
 	setMarkdownEditMode: (mode: boolean) => void;
 	setChatRawTextMode: (mode: boolean) => void;
 	setAboutModalOpen: (open: boolean) => void;
@@ -322,7 +320,6 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			slashCommandOpen: deps.slashCommandOpen,
 			slashCommands: deps.slashCommands,
 			selectedSlashCommandIndex: deps.selectedSlashCommandIndex,
-			previewFile: deps.previewFile,
 			filePreviewLoading: deps.filePreviewLoading,
 			markdownEditMode: deps.markdownEditMode,
 			chatRawTextMode: deps.chatRawTextMode,
@@ -369,7 +366,6 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			atMentionSuggestions: deps.atMentionSuggestions,
 			selectedAtMentionIndex: deps.selectedAtMentionIndex,
 			setSelectedAtMentionIndex: deps.setSelectedAtMentionIndex,
-			setPreviewFile: deps.setPreviewFile,
 			setMarkdownEditMode: deps.setMarkdownEditMode,
 			setChatRawTextMode: deps.setChatRawTextMode,
 			setAboutModalOpen: deps.setAboutModalOpen,
@@ -490,13 +486,13 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			onPublishGist: () => deps.setGistPublishModalOpen(true),
 			hasGist: deps.hasGist,
 			onOpenInGraph: () => {
-				if (deps.previewFile && deps.activeSession) {
+				if (deps.activeFileTab && deps.activeSession) {
 					const graphRootPath = deps.activeSession.projectRoot || deps.activeSession.cwd || '';
-					const relativePath = deps.previewFile.path.startsWith(graphRootPath + '/')
-						? deps.previewFile.path.slice(graphRootPath.length + 1)
-						: deps.previewFile.path.startsWith(graphRootPath)
-							? deps.previewFile.path.slice(graphRootPath.length + 1)
-							: deps.previewFile.name;
+					const relativePath = deps.activeFileTab.path.startsWith(graphRootPath + '/')
+						? deps.activeFileTab.path.slice(graphRootPath.length + 1)
+						: deps.activeFileTab.path.startsWith(graphRootPath)
+							? deps.activeFileTab.path.slice(graphRootPath.length + 1)
+							: deps.activeFileTab.name;
 					deps.setGraphFocusFilePath(relativePath);
 					deps.setLastGraphFocusFilePath(relativePath);
 					deps.setIsGraphViewOpen(true);
@@ -539,7 +535,6 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.slashCommandOpen,
 			deps.slashCommands,
 			deps.selectedSlashCommandIndex,
-			deps.previewFile,
 			deps.filePreviewLoading,
 			deps.markdownEditMode,
 			deps.chatRawTextMode,
@@ -612,7 +607,6 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.setAtMentionFilter,
 			deps.setAtMentionStartIndex,
 			deps.setSelectedAtMentionIndex,
-			deps.setPreviewFile,
 			deps.setMarkdownEditMode,
 			deps.setChatRawTextMode,
 			deps.setAboutModalOpen,

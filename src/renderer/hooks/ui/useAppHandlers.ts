@@ -2,18 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Session, FocusArea } from '../../types';
 import { shouldOpenExternally, getAllFolderPaths } from '../../utils/fileExplorer';
 
-/**
- * File preview information for file explorer navigation.
- */
-export interface FilePreview {
-	name: string;
-	content: string;
-	path: string;
-}
-
-/**
- * Dependencies for the useAppHandlers hook.
- */
 /** Loading state for file preview (shown while fetching remote files) */
 export interface FilePreviewLoading {
 	name: string;
@@ -40,18 +28,8 @@ export interface UseAppHandlersDeps {
 	setSessions: React.Dispatch<React.SetStateAction<Session[]>>;
 	/** Focus area setter */
 	setActiveFocus: React.Dispatch<React.SetStateAction<FocusArea>>;
-	/** File preview setter (legacy overlay mode) */
-	setPreviewFile: (file: FilePreview | null) => void;
 	/** File preview loading state setter (for remote file loading indicator) */
 	setFilePreviewLoading?: (loading: FilePreviewLoading | null) => void;
-	/** File preview history */
-	filePreviewHistory: FilePreview[];
-	/** File preview history setter */
-	setFilePreviewHistory: (history: FilePreview[]) => void;
-	/** Current index in file preview history */
-	filePreviewHistoryIndex: number;
-	/** File preview history index setter */
-	setFilePreviewHistoryIndex: (index: number) => void;
 	/** Confirmation modal message setter */
 	setConfirmModalMessage: (message: string) => void;
 	/** Confirmation modal callback setter */
@@ -127,12 +105,7 @@ export function useAppHandlers(deps: UseAppHandlersDeps): UseAppHandlersReturn {
 		activeSessionId,
 		setSessions,
 		setActiveFocus,
-		setPreviewFile,
 		setFilePreviewLoading,
-		filePreviewHistory,
-		setFilePreviewHistory,
-		filePreviewHistoryIndex,
-		setFilePreviewHistoryIndex,
 		setConfirmModalMessage,
 		setConfirmModalOnConfirm,
 		setConfirmModalOpen,
@@ -247,37 +220,15 @@ export function useAppHandlers(deps: UseAppHandlersDeps): UseAppHandlersReturn {
 					]);
 					const lastModified = stat?.modifiedAt ? new Date(stat.modifiedAt).getTime() : Date.now();
 
-					// If onOpenFileTab is provided, use tab-based file preview
-					if (onOpenFileTab) {
-						onOpenFileTab({
-							path: fullPath,
-							name: node.name,
-							content,
-							sshRemoteId,
-							lastModified,
-						});
-						setActiveFocus('main');
-					} else {
-						// Legacy overlay mode
-						const newFile = {
-							name: node.name,
-							content: content,
-							path: fullPath,
-						};
-
-						// Only add to history if it's a different file than the current one
-						const currentFile = filePreviewHistory[filePreviewHistoryIndex];
-						if (!currentFile || currentFile.path !== fullPath) {
-							// Add to navigation history (truncate forward history if we're not at the end)
-							const newHistory = filePreviewHistory.slice(0, filePreviewHistoryIndex + 1);
-							newHistory.push(newFile);
-							setFilePreviewHistory(newHistory);
-							setFilePreviewHistoryIndex(newHistory.length - 1);
-						}
-
-						setPreviewFile(newFile);
-						setActiveFocus('main');
-					}
+					// Open file in tab-based file preview
+					onOpenFileTab?.({
+						path: fullPath,
+						name: node.name,
+						content,
+						sshRemoteId,
+						lastModified,
+					});
+					setActiveFocus('main');
 				} catch (error) {
 					console.error('Failed to read file:', error);
 				} finally {
@@ -290,14 +241,9 @@ export function useAppHandlers(deps: UseAppHandlersDeps): UseAppHandlersReturn {
 		},
 		[
 			activeSession,
-			filePreviewHistory,
-			filePreviewHistoryIndex,
 			setConfirmModalMessage,
 			setConfirmModalOnConfirm,
 			setConfirmModalOpen,
-			setFilePreviewHistory,
-			setFilePreviewHistoryIndex,
-			setPreviewFile,
 			setActiveFocus,
 			setFilePreviewLoading,
 			onOpenFileTab,
