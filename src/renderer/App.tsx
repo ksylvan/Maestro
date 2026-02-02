@@ -144,6 +144,7 @@ import type {
 	LogEntry,
 	Session,
 	AITab,
+	FilePreviewTab,
 	UsageStats,
 	QueuedItem,
 	BatchRunConfig,
@@ -4749,6 +4750,38 @@ You are taking over this conversation. Based on the context above, provide a bri
 		() => (activeSession ? getActiveTab(activeSession) : undefined),
 		[activeSession?.aiTabs, activeSession?.activeTabId]
 	);
+
+	// UNIFIED TAB SYSTEM: Combine aiTabs and filePreviewTabs according to unifiedTabOrder
+	// This produces a single list for rendering tabs in the correct order (AI and file tabs interspersed)
+	// The type discriminator allows components to render the appropriate content for each tab type
+	type UnifiedTab =
+		| { type: 'ai'; id: string; data: AITab }
+		| { type: 'file'; id: string; data: FilePreviewTab };
+
+	const unifiedTabs = useMemo((): UnifiedTab[] => {
+		if (!activeSession) return [];
+
+		const { aiTabs, filePreviewTabs, unifiedTabOrder } = activeSession;
+		const aiTabMap = new Map(aiTabs.map((tab) => [tab.id, tab]));
+		const fileTabMap = new Map(filePreviewTabs.map((tab) => [tab.id, tab]));
+
+		return unifiedTabOrder
+			.map((ref): UnifiedTab | null => {
+				if (ref.type === 'ai') {
+					const tab = aiTabMap.get(ref.id);
+					return tab ? { type: 'ai', id: ref.id, data: tab } : null;
+				} else {
+					const tab = fileTabMap.get(ref.id);
+					return tab ? { type: 'file', id: ref.id, data: tab } : null;
+				}
+			})
+			.filter((tab): tab is UnifiedTab => tab !== null);
+	}, [
+		activeSession?.aiTabs,
+		activeSession?.filePreviewTabs,
+		activeSession?.unifiedTabOrder,
+	]);
+
 	const isResumingSession = !!activeTab?.agentSessionId;
 	const canAttachImages = useMemo(() => {
 		if (!activeSession || activeSession.inputMode !== 'ai') return false;
