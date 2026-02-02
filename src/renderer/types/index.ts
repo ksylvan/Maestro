@@ -458,6 +458,9 @@ export interface FilePreviewTab {
 	editMode: boolean; // Whether tab was in edit mode
 	editContent: string | undefined; // Unsaved edit content (undefined if no pending changes)
 	createdAt: number; // Timestamp for ordering
+	// SSH remote support
+	sshRemoteId?: string; // SSH remote ID for re-fetching content if needed
+	isLoading?: boolean; // True while content is being loaded (for SSH remote files)
 }
 
 /**

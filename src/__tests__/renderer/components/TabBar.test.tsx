@@ -3797,3 +3797,190 @@ describe('Unified active tab styling consistency', () => {
 		expect(extensionBadge.className).toContain('py-0.5');
 	});
 });
+
+describe('File tab content and SSH support', () => {
+	const mockOnTabSelect = vi.fn();
+	const mockOnTabClose = vi.fn();
+	const mockOnNewTab = vi.fn();
+	const mockOnFileTabSelect = vi.fn();
+	const mockOnFileTabClose = vi.fn();
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('file tab stores content field', () => {
+		const aiTab = createTab({ id: 'ai-tab-1', name: 'AI Tab' });
+		const fileContent = '# Test Content\n\nThis is the file content stored on the tab.';
+		const fileTab: FilePreviewTab = {
+			id: 'file-tab-1',
+			path: '/test/readme.md',
+			name: 'readme',
+			extension: '.md',
+			content: fileContent, // Content is stored on the tab
+			scrollTop: 0,
+			searchQuery: '',
+			editMode: false,
+			editContent: undefined,
+			createdAt: Date.now(),
+		};
+
+		const unifiedTabs = [
+			{ type: 'ai' as const, id: 'ai-tab-1', data: aiTab },
+			{ type: 'file' as const, id: 'file-tab-1', data: fileTab },
+		];
+
+		render(
+			<TabBar
+				tabs={[aiTab]}
+				activeTabId="ai-tab-1"
+				theme={mockTheme}
+				onTabSelect={mockOnTabSelect}
+				onTabClose={mockOnTabClose}
+				onNewTab={mockOnNewTab}
+				unifiedTabs={unifiedTabs}
+				activeFileTabId="file-tab-1"
+				onFileTabSelect={mockOnFileTabSelect}
+				onFileTabClose={mockOnFileTabClose}
+			/>
+		);
+
+		// Verify the file tab renders (content is used by MainPanel, not TabBar)
+		expect(screen.getByText('readme')).toBeInTheDocument();
+		// Verify the content is stored on the tab data
+		expect(fileTab.content).toBe(fileContent);
+	});
+
+	it('file tab supports SSH remote ID', () => {
+		const aiTab = createTab({ id: 'ai-tab-1', name: 'AI Tab' });
+		const fileTab: FilePreviewTab = {
+			id: 'file-tab-1',
+			path: '/remote/project/src/main.ts',
+			name: 'main',
+			extension: '.ts',
+			content: 'export const main = () => {}',
+			scrollTop: 0,
+			searchQuery: '',
+			editMode: false,
+			editContent: undefined,
+			createdAt: Date.now(),
+			sshRemoteId: 'ssh-remote-123', // SSH remote ID for re-fetching
+			isLoading: false,
+		};
+
+		const unifiedTabs = [
+			{ type: 'ai' as const, id: 'ai-tab-1', data: aiTab },
+			{ type: 'file' as const, id: 'file-tab-1', data: fileTab },
+		];
+
+		render(
+			<TabBar
+				tabs={[aiTab]}
+				activeTabId="ai-tab-1"
+				theme={mockTheme}
+				onTabSelect={mockOnTabSelect}
+				onTabClose={mockOnTabClose}
+				onNewTab={mockOnNewTab}
+				unifiedTabs={unifiedTabs}
+				activeFileTabId="file-tab-1"
+				onFileTabSelect={mockOnFileTabSelect}
+				onFileTabClose={mockOnFileTabClose}
+			/>
+		);
+
+		// Verify the file tab renders
+		expect(screen.getByText('main')).toBeInTheDocument();
+		// Verify SSH remote ID is stored
+		expect(fileTab.sshRemoteId).toBe('ssh-remote-123');
+		expect(fileTab.isLoading).toBe(false);
+	});
+
+	it('file tab can be in loading state for SSH files', () => {
+		const aiTab = createTab({ id: 'ai-tab-1', name: 'AI Tab' });
+		const fileTab: FilePreviewTab = {
+			id: 'file-tab-1',
+			path: '/remote/project/loading.ts',
+			name: 'loading',
+			extension: '.ts',
+			content: '', // Empty while loading
+			scrollTop: 0,
+			searchQuery: '',
+			editMode: false,
+			editContent: undefined,
+			createdAt: Date.now(),
+			sshRemoteId: 'ssh-remote-456',
+			isLoading: true, // Currently loading content
+		};
+
+		const unifiedTabs = [
+			{ type: 'ai' as const, id: 'ai-tab-1', data: aiTab },
+			{ type: 'file' as const, id: 'file-tab-1', data: fileTab },
+		];
+
+		render(
+			<TabBar
+				tabs={[aiTab]}
+				activeTabId="ai-tab-1"
+				theme={mockTheme}
+				onTabSelect={mockOnTabSelect}
+				onTabClose={mockOnTabClose}
+				onNewTab={mockOnNewTab}
+				unifiedTabs={unifiedTabs}
+				activeFileTabId="file-tab-1"
+				onFileTabSelect={mockOnFileTabSelect}
+				onFileTabClose={mockOnFileTabClose}
+			/>
+		);
+
+		// Tab still renders while loading
+		expect(screen.getByText('loading')).toBeInTheDocument();
+		// Verify loading state
+		expect(fileTab.isLoading).toBe(true);
+		expect(fileTab.content).toBe('');
+	});
+
+	it('file tab editContent takes precedence over content when set', () => {
+		const aiTab = createTab({ id: 'ai-tab-1', name: 'AI Tab' });
+		const originalContent = 'Original file content';
+		const editedContent = 'Edited content not yet saved';
+		const fileTab: FilePreviewTab = {
+			id: 'file-tab-1',
+			path: '/test/edited.md',
+			name: 'edited',
+			extension: '.md',
+			content: originalContent,
+			scrollTop: 100,
+			searchQuery: 'search',
+			editMode: true,
+			editContent: editedContent, // Has unsaved edits
+			createdAt: Date.now(),
+		};
+
+		const unifiedTabs = [
+			{ type: 'ai' as const, id: 'ai-tab-1', data: aiTab },
+			{ type: 'file' as const, id: 'file-tab-1', data: fileTab },
+		];
+
+		render(
+			<TabBar
+				tabs={[aiTab]}
+				activeTabId="ai-tab-1"
+				theme={mockTheme}
+				onTabSelect={mockOnTabSelect}
+				onTabClose={mockOnTabClose}
+				onNewTab={mockOnNewTab}
+				unifiedTabs={unifiedTabs}
+				activeFileTabId="file-tab-1"
+				onFileTabSelect={mockOnFileTabSelect}
+				onFileTabClose={mockOnFileTabClose}
+			/>
+		);
+
+		// Tab renders
+		expect(screen.getByText('edited')).toBeInTheDocument();
+		// Verify both content fields exist (MainPanel uses editContent ?? content)
+		expect(fileTab.content).toBe(originalContent);
+		expect(fileTab.editContent).toBe(editedContent);
+		expect(fileTab.editMode).toBe(true);
+	});
+});

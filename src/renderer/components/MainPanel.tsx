@@ -1509,7 +1509,7 @@ export const MainPanel = React.memo(
 
 						{/* Show File Preview loading state when fetching remote file */}
 						{/* Show loading for both legacy previewFile and new file tab system */}
-						{filePreviewLoading && !previewFile && !activeFileTabId && (
+						{(filePreviewLoading && !previewFile && !activeFileTabId) && (
 							<div
 								className="flex-1 flex items-center justify-center"
 								style={{ backgroundColor: theme.colors.bgMain }}
@@ -1531,10 +1531,33 @@ export const MainPanel = React.memo(
 							</div>
 						)}
 
+						{/* Show loading state for file tabs (SSH remote file loading) */}
+						{activeFileTab?.isLoading && (
+							<div
+								className="flex-1 flex items-center justify-center"
+								style={{ backgroundColor: theme.colors.bgMain }}
+							>
+								<div className="flex flex-col items-center gap-3">
+									<Loader2
+										className="w-8 h-8 animate-spin"
+										style={{ color: theme.colors.accent }}
+									/>
+									<div className="text-center">
+										<div className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
+											Loading {activeFileTab.name}{activeFileTab.extension}
+										</div>
+										<div className="text-xs mt-1" style={{ color: theme.colors.textDim }}>
+											Fetching from remote server...
+										</div>
+									</div>
+								</div>
+							</div>
+						)}
+
 						{/* Content area: Show FilePreview when file tab is active or previewFile is set, otherwise show terminal output */}
 						{/* Priority: activeFileTabId (new tab system) > previewFile (legacy) > terminal output */}
 						{/* Skip rendering when loading remote file - loading state takes over entire main area */}
-						{filePreviewLoading && !previewFile && !activeFileTabId ? null : activeFileTabId && activeFileTab ? (
+						{(filePreviewLoading && !previewFile && !activeFileTabId) || activeFileTab?.isLoading ? null : activeFileTabId && activeFileTab ? (
 							// New file tab system - FilePreview rendered as tab content (no close button, tab handles closing)
 							<div
 								ref={filePreviewContainerRef}
@@ -1545,7 +1568,7 @@ export const MainPanel = React.memo(
 									ref={filePreviewRef}
 									file={{
 										name: activeFileTab.name + activeFileTab.extension,
-										content: activeFileTab.editContent ?? '', // Content will be fetched in Phase 5
+										content: activeFileTab.editContent ?? activeFileTab.content,
 										path: activeFileTab.path,
 									}}
 									onClose={() => {

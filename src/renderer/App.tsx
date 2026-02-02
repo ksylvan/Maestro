@@ -5157,9 +5157,11 @@ You are taking over this conversation. Based on the context above, provide a bri
 	 * Open a file preview tab. If a tab with the same path already exists, select it.
 	 * Otherwise, create a new FilePreviewTab, add it to filePreviewTabs and unifiedTabOrder,
 	 * and set it as the active file tab (deselecting any active AI tab).
+	 *
+	 * For SSH remote files, pass sshRemoteId so content can be re-fetched if needed.
 	 */
 	const handleOpenFileTab = useCallback(
-		(file: { path: string; name: string; content: string }) => {
+		(file: { path: string; name: string; content: string; sshRemoteId?: string }) => {
 			setSessions((prev) =>
 				prev.map((s) => {
 					if (s.id !== activeSessionIdRef.current) return s;
@@ -5167,9 +5169,15 @@ You are taking over this conversation. Based on the context above, provide a bri
 					// Check if a tab with this path already exists
 					const existingTab = s.filePreviewTabs.find((tab) => tab.path === file.path);
 					if (existingTab) {
-						// Tab exists - select it (deselect AI tab)
+						// Tab exists - update content if provided (e.g., after re-fetch) and select it
+						const updatedTabs = s.filePreviewTabs.map((tab) =>
+							tab.id === existingTab.id
+								? { ...tab, content: file.content, isLoading: false }
+								: tab
+						);
 						return {
 							...s,
+							filePreviewTabs: updatedTabs,
 							activeFileTabId: existingTab.id,
 							activeTabId: s.activeTabId, // Keep AI tab reference but it's not visually active
 						};
@@ -5195,6 +5203,8 @@ You are taking over this conversation. Based on the context above, provide a bri
 						editMode: false,
 						editContent: undefined,
 						createdAt: Date.now(),
+						sshRemoteId: file.sshRemoteId,
+						isLoading: false, // Content is already loaded when this is called
 					};
 
 					// Create the unified tab reference
@@ -5210,6 +5220,138 @@ You are taking over this conversation. Based on the context above, provide a bri
 					};
 				})
 			);
+		},
+		[]
+	);
+
+	/**
+	 * Open a file tab with async content loading (for SSH remote files).
+	 * Creates the tab immediately with loading state, fetches content, then updates the tab.
+	 * If a tab for this path already exists, selects it and optionally refreshes content.
+	 */
+	const handleOpenFileTabAsync = useCallback(
+		async (file: { path: string; name: string; sshRemoteId?: string }) => {
+			const currentSession = sessionsRef.current.find(
+				(s) => s.id === activeSessionIdRef.current
+			);
+			if (!currentSession) return;
+
+			// Get SSH remote ID from the file or from session (convert null to undefined)
+			const sshRemoteId =
+				file.sshRemoteId ||
+				currentSession.sshRemoteId ||
+				currentSession.sessionSshRemoteConfig?.remoteId ||
+				undefined;
+
+			// Check if a tab with this path already exists
+			const existingTab = currentSession.filePreviewTabs.find(
+				(tab) => tab.path === file.path
+			);
+
+			if (existingTab) {
+				// Tab exists - just select it
+				setSessions((prev) =>
+					prev.map((s) =>
+						s.id === currentSession.id
+							? { ...s, activeFileTabId: existingTab.id }
+							: s
+					)
+				);
+				return;
+			}
+
+			// Create a new file tab with loading state
+			const newTabId = generateId();
+			const extension = file.name.includes('.')
+				? '.' + file.name.split('.').pop()
+				: '';
+			const nameWithoutExtension = extension
+				? file.name.slice(0, -extension.length)
+				: file.name;
+
+			const newFileTab: FilePreviewTab = {
+				id: newTabId,
+				path: file.path,
+				name: nameWithoutExtension,
+				extension,
+				content: '', // Will be populated after fetch
+				scrollTop: 0,
+				searchQuery: '',
+				editMode: false,
+				editContent: undefined,
+				createdAt: Date.now(),
+				sshRemoteId,
+				isLoading: true, // Show loading state
+			};
+
+			const newTabRef: UnifiedTabRef = { type: 'file', id: newTabId };
+
+			// Add the tab in loading state
+			setSessions((prev) =>
+				prev.map((s) => {
+					if (s.id !== currentSession.id) return s;
+					return {
+						...s,
+						filePreviewTabs: [...s.filePreviewTabs, newFileTab],
+						unifiedTabOrder: [...s.unifiedTabOrder, newTabRef],
+						activeFileTabId: newTabId,
+					};
+				})
+			);
+
+			// Fetch content asynchronously
+			try {
+				const content = await window.maestro.fs.readFile(file.path, sshRemoteId);
+				// Update the tab with loaded content
+				setSessions((prev) =>
+					prev.map((s) => {
+						if (s.id !== currentSession.id) return s;
+						return {
+							...s,
+							filePreviewTabs: s.filePreviewTabs.map((tab) =>
+								tab.id === newTabId
+									? { ...tab, content, isLoading: false }
+									: tab
+							),
+						};
+					})
+				);
+			} catch (error) {
+				console.error('[handleOpenFileTabAsync] Failed to load file:', error);
+				// Remove the tab on error (or could show error state)
+				setSessions((prev) =>
+					prev.map((s) => {
+						if (s.id !== currentSession.id) return s;
+						// Remove the failed tab
+						const updatedFileTabs = s.filePreviewTabs.filter(
+							(tab) => tab.id !== newTabId
+						);
+						const updatedTabOrder = s.unifiedTabOrder.filter(
+							(ref) => !(ref.type === 'file' && ref.id === newTabId)
+						);
+						// Select next available tab
+						const remainingTabs = updatedTabOrder.length;
+						let newActiveFileTabId: string | null = null;
+						let newActiveTabId = s.activeTabId;
+						if (remainingTabs > 0) {
+							const lastRef = updatedTabOrder[remainingTabs - 1];
+							if (lastRef.type === 'file') {
+								newActiveFileTabId = lastRef.id;
+							} else {
+								newActiveTabId = lastRef.id;
+								newActiveFileTabId = null;
+							}
+						}
+						return {
+							...s,
+							filePreviewTabs: updatedFileTabs,
+							unifiedTabOrder: updatedTabOrder,
+							activeFileTabId: newActiveFileTabId,
+							activeTabId: newActiveTabId,
+						};
+					})
+				);
+			}
 		},
 		[]
 	);
