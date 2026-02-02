@@ -1705,6 +1705,10 @@ export const TerminalOutput = memo(
 						content={saveModalContent}
 						onClose={() => setSaveModalContent(null)}
 						defaultFolder={cwd || session.cwd || ''}
+						isRemoteSession={
+							session.sessionSshRemoteConfig?.enabled &&
+							!!session.sessionSshRemoteConfig?.remoteId
+						}
 					/>
 				)}
 			</div>

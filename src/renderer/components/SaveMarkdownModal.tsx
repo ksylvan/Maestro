@@ -20,6 +20,8 @@ export interface SaveMarkdownModalProps {
 	onClose: () => void;
 	/** Default folder path to show initially */
 	defaultFolder?: string;
+	/** Whether the session is running over SSH (hides folder browser button) */
+	isRemoteSession?: boolean;
 }
 
 export function SaveMarkdownModal({
@@ -27,6 +29,7 @@ export function SaveMarkdownModal({
 	content,
 	onClose,
 	defaultFolder = '',
+	isRemoteSession = false,
 }: SaveMarkdownModalProps) {
 	const [folder, setFolder] = useState(defaultFolder);
 	const [filename, setFilename] = useState('');
@@ -144,18 +147,21 @@ export function SaveMarkdownModal({
 								color: theme.colors.textMain,
 							}}
 						/>
-						<button
-							type="button"
-							onClick={handleBrowseFolder}
-							className="px-3 py-2 rounded border hover:bg-white/5 transition-colors"
-							style={{
-								borderColor: theme.colors.border,
-								color: theme.colors.textMain,
-							}}
-							title="Browse for folder"
-						>
-							<FolderOpen className="w-4 h-4" />
-						</button>
+						{/* Hide folder browser for remote sessions - native dialog can only browse local fs */}
+						{!isRemoteSession && (
+							<button
+								type="button"
+								onClick={handleBrowseFolder}
+								className="px-3 py-2 rounded border hover:bg-white/5 transition-colors"
+								style={{
+									borderColor: theme.colors.border,
+									color: theme.colors.textMain,
+								}}
+								title="Browse for folder"
+							>
+								<FolderOpen className="w-4 h-4" />
+							</button>
+						)}
 					</div>
 				</div>
 
