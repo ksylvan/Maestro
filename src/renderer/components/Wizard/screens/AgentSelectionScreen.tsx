@@ -1254,8 +1254,8 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
 										</span>
 									)}
 
-									{/* "Beta" badge for Codex and OpenCode */}
-									{isSupported && (tile.id === 'codex' || tile.id === 'opencode') && (
+									{/* "Beta" badge for Codex, OpenCode, and Factory Droid */}
+									{isSupported && (tile.id === 'codex' || tile.id === 'opencode' || tile.id === 'factory-droid') && (
 										<span
 											className="absolute top-2 left-2 px-1.5 py-0.5 text-[9px] rounded font-bold uppercase"
 											style={{
