@@ -128,6 +128,8 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				// NOTE: Must use e.code for Alt key combos on macOS because e.key produces special characters
 				const isTabSwitcherShortcut =
 					e.altKey && (e.metaKey || e.ctrlKey) && !e.shiftKey && codeKeyLower === 't';
+				// Allow toggleMode (Cmd+J) to switch to terminal view from file preview
+				const isToggleModeShortcut = ctx.isShortcut(e, 'toggleMode');
 
 				if (ctx.hasOpenModal()) {
 					// TRUE MODAL is open - block most shortcuts from App.tsx
@@ -157,7 +159,8 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 						!isJumpToBottomShortcut &&
 						!isMarkdownToggleShortcut &&
 						!isTabManagementShortcut &&
-						!isTabSwitcherShortcut
+						!isTabSwitcherShortcut &&
+						!isToggleModeShortcut
 					) {
 						return;
 					}

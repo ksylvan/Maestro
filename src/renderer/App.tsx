@@ -9798,7 +9798,15 @@ You are taking over this conversation. Based on the context above, provide a bri
 		setSessions((prev) =>
 			prev.map((s) => {
 				if (s.id !== activeSessionId) return s;
-				return { ...s, inputMode: s.inputMode === 'ai' ? 'terminal' : 'ai' };
+				const newMode = s.inputMode === 'ai' ? 'terminal' : 'ai';
+				// Clear file preview when switching to terminal mode
+				// This ensures cmd+j from file preview goes directly to terminal
+				const clearFileTab = newMode === 'terminal';
+				return {
+					...s,
+					inputMode: newMode,
+					...(clearFileTab && { activeFileTabId: null }),
+				};
 			})
 		);
 		// Close any open dropdowns when switching modes
