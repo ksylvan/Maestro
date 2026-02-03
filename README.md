@@ -168,8 +168,6 @@ Full documentation and usage guide available at **[docs.runmaestro.ai](https://d
 
 ## Contributors
 
-## Contributors
-
 - [@pedramamini](https://github.com/pedramamini) - Creator and Benevolent Dictator
 - [@mattjay](https://github.com/mattjay) - Contributor and tester
 
