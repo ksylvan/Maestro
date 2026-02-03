@@ -8361,19 +8361,24 @@ You are taking over this conversation. Based on the context above, provide a bri
 		(sessionId: string, tabId?: string) => {
 			// Switch to the session
 			setActiveSessionId(sessionId);
-			// If a tab ID is provided, switch to that tab within the session
-			if (tabId) {
-				setSessions((prev) =>
-					prev.map((s) => {
-						if (s.id !== sessionId) return s;
-						// Check if tab exists
-						if (!s.aiTabs?.some((t) => t.id === tabId)) {
-							return s;
-						}
-						return { ...s, activeTabId: tabId, inputMode: 'ai' };
-					})
-				);
-			}
+			// Clear file preview and switch to AI tab (with specific tab if provided)
+			// This ensures clicking a toast always shows the AI terminal, not a file preview
+			setSessions((prev) =>
+				prev.map((s) => {
+					if (s.id !== sessionId) return s;
+					// If a specific tab ID is provided, check if it exists
+					if (tabId && !s.aiTabs?.some((t) => t.id === tabId)) {
+						// Tab doesn't exist, just clear file preview
+						return { ...s, activeFileTabId: null, inputMode: 'ai' };
+					}
+					return {
+						...s,
+						...(tabId && { activeTabId: tabId }),
+						activeFileTabId: null,
+						inputMode: 'ai',
+					};
+				})
+			);
 		},
 		[setActiveSessionId]
 	);
