@@ -336,6 +336,7 @@ describe('MainPanel', () => {
 		slashCommandOpen: false,
 		slashCommands: [],
 		selectedSlashCommandIndex: 0,
+		previewFile: null,
 		markdownEditMode: false,
 		shortcuts: defaultShortcuts,
 		rightPanelOpen: true,
@@ -634,8 +635,100 @@ describe('MainPanel', () => {
 		});
 	});
 
-	// Note: Legacy previewFile tests removed - file preview is now handled via the tab system
-	// File tabs have their own content rendering and closing behavior
+	describe('File Preview mode', () => {
+		it('should render FilePreview when previewFile is set', () => {
+			const previewFile = { name: 'test.ts', content: 'test content', path: '/test/test.ts' };
+			render(<MainPanel {...defaultProps} previewFile={previewFile} />);
+
+			expect(screen.getByTestId('file-preview')).toBeInTheDocument();
+			expect(screen.getByText('File Preview: test.ts')).toBeInTheDocument();
+		});
+
+		it('should hide TabBar when file preview is open', () => {
+			const previewFile = { name: 'test.ts', content: 'test content', path: '/test/test.ts' };
+			render(<MainPanel {...defaultProps} previewFile={previewFile} />);
+
+			expect(screen.queryByTestId('tab-bar')).not.toBeInTheDocument();
+		});
+
+		it('should call setPreviewFile(null) and setActiveFocus when closing preview', () => {
+			const setPreviewFile = vi.fn();
+			const setActiveFocus = vi.fn();
+			const previewFile = { name: 'test.ts', content: 'test content', path: '/test/test.ts' };
+
+			render(
+				<MainPanel
+					{...defaultProps}
+					previewFile={previewFile}
+					setPreviewFile={setPreviewFile}
+					setActiveFocus={setActiveFocus}
+				/>
+			);
+
+			fireEvent.click(screen.getByTestId('file-preview-close'));
+
+			expect(setPreviewFile).toHaveBeenCalledWith(null);
+			expect(setActiveFocus).toHaveBeenCalledWith('right');
+		});
+
+		it('should focus file tree container when closing preview (setTimeout callback)', async () => {
+			vi.useFakeTimers();
+			const setPreviewFile = vi.fn();
+			const setActiveFocus = vi.fn();
+			const previewFile = { name: 'test.ts', content: 'test content', path: '/test/test.ts' };
+			const fileTreeContainerRef = { current: { focus: vi.fn() } };
+
+			render(
+				<MainPanel
+					{...defaultProps}
+					previewFile={previewFile}
+					setPreviewFile={setPreviewFile}
+					setActiveFocus={setActiveFocus}
+					fileTreeContainerRef={fileTreeContainerRef as any}
+					fileTreeFilterOpen={false}
+				/>
+			);
+
+			fireEvent.click(screen.getByTestId('file-preview-close'));
+
+			// Run the setTimeout callback
+			await act(async () => {
+				vi.advanceTimersByTime(1);
+			});
+
+			expect(fileTreeContainerRef.current.focus).toHaveBeenCalled();
+			vi.useRealTimers();
+		});
+
+		it('should focus file tree filter input when closing preview with filter open', async () => {
+			vi.useFakeTimers();
+			const setPreviewFile = vi.fn();
+			const setActiveFocus = vi.fn();
+			const previewFile = { name: 'test.ts', content: 'test content', path: '/test/test.ts' };
+			const fileTreeFilterInputRef = { current: { focus: vi.fn() } };
+
+			render(
+				<MainPanel
+					{...defaultProps}
+					previewFile={previewFile}
+					setPreviewFile={setPreviewFile}
+					setActiveFocus={setActiveFocus}
+					fileTreeFilterInputRef={fileTreeFilterInputRef as any}
+					fileTreeFilterOpen={true}
+				/>
+			);
+
+			fireEvent.click(screen.getByTestId('file-preview-close'));
+
+			// Run the setTimeout callback
+			await act(async () => {
+				vi.advanceTimersByTime(1);
+			});
+
+			expect(fileTreeFilterInputRef.current.focus).toHaveBeenCalled();
+			vi.useRealTimers();
+		});
+	});
 
 	describe('Tab Bar', () => {
 		it('should render TabBar in AI mode with tabs', () => {
@@ -1862,7 +1955,7 @@ describe('MainPanel', () => {
 				<MainPanel {...defaultProps} activeSession={session} getContextColor={getContextColor} />
 			);
 
-			// Context usage should be (50000 + 25000) / 200000 * 100 = 37.5% -> 38%
+			// Context usage: (50000 + 25000 + 0) / 200000 * 100 = 38% (input + cacheRead + cacheCreation)
 			expect(getContextColor).toHaveBeenCalledWith(38, theme);
 		});
 	});
@@ -2143,41 +2236,6 @@ describe('MainPanel', () => {
 
 			expect(writeText).toHaveBeenCalledWith('https://github.com/user/repo.git');
 		});
-
-		it('should open remote URL in system browser when clicked', async () => {
-			setMockGitStatus('session-1', {
-				fileCount: 0,
-				branch: 'main',
-				remote: 'https://github.com/user/repo.git',
-				ahead: 0,
-				behind: 0,
-				totalAdditions: 0,
-				totalDeletions: 0,
-				modifiedCount: 0,
-				fileChanges: [],
-				lastUpdated: Date.now(),
-			});
-
-			const session = createSession({ isGitRepo: true });
-			render(<MainPanel {...defaultProps} activeSession={session} />);
-
-			await waitFor(() => {
-				expect(screen.getByText(/main|GIT/)).toBeInTheDocument();
-			});
-
-			const gitBadge = screen.getByText(/main|GIT/);
-			fireEvent.mouseEnter(gitBadge.parentElement!);
-
-			await waitFor(() => {
-				expect(screen.getByText('github.com/user/repo')).toBeInTheDocument();
-			});
-
-			// Click the remote URL link
-			const remoteLink = screen.getByText('github.com/user/repo');
-			fireEvent.click(remoteLink);
-
-			expect(window.maestro.shell.openExternal).toHaveBeenCalledWith('https://github.com/user/repo');
-		});
 	});
 
 	describe('Edge cases', () => {
@@ -2315,9 +2373,10 @@ describe('MainPanel', () => {
 			expect(screen.queryByText('Context Window')).not.toBeInTheDocument();
 		});
 
-		it('should cap context usage at 100%', () => {
-			const getContextColor = vi.fn().mockReturnValue('#ef4444');
+		it('should use preserved session.contextUsage when accumulated values exceed window', () => {
+			const getContextColor = vi.fn().mockReturnValue('#22c55e');
 			const session = createSession({
+				contextUsage: 45, // Preserved valid percentage from last non-accumulated update
 				aiTabs: [
 					{
 						id: 'tab-1',
@@ -2328,8 +2387,8 @@ describe('MainPanel', () => {
 						usageStats: {
 							inputTokens: 150000,
 							outputTokens: 100000,
-							cacheReadInputTokens: 100000, // Excluded from calculation (cumulative)
-							cacheCreationInputTokens: 100000, // Included in calculation
+							cacheReadInputTokens: 100000, // Accumulated from multi-tool turn
+							cacheCreationInputTokens: 100000, // Accumulated from multi-tool turn
 							totalCostUsd: 0.05,
 							contextWindow: 200000,
 						},
@@ -2342,8 +2401,9 @@ describe('MainPanel', () => {
 				<MainPanel {...defaultProps} activeSession={session} getContextColor={getContextColor} />
 			);
 
-			// Context usage: (150000 + 100000) / 200000 = 125% -> capped at 100%
-			expect(getContextColor).toHaveBeenCalledWith(100, theme);
+			// raw = 150000 + 100000 + 100000 = 350000 > 200000 (accumulated)
+			// Falls back to session.contextUsage = 45%
+			expect(getContextColor).toHaveBeenCalledWith(45, theme);
 		});
 	});
 
@@ -2930,8 +2990,32 @@ describe('MainPanel', () => {
 			expect(screen.getByText(longMessage)).toBeInTheDocument();
 		});
 
-		// Note: Legacy test for previewFile removed - file preview is now handled via the tab system
-		// The error banner still displays above file tabs when activeFileTabId is set
+		it('should still display error banner when previewFile is open', () => {
+			// The error banner appears above file preview in the layout hierarchy
+			// This ensures users see critical errors even while previewing files
+			const previewFile = { name: 'test.ts', content: 'test content', path: '/test/test.ts' };
+			const session = createSession({
+				inputMode: 'ai',
+				aiTabs: [
+					{
+						id: 'tab-1',
+						name: 'Tab 1',
+						isUnread: false,
+						createdAt: Date.now(),
+						agentError: createAgentError(),
+					},
+				],
+				activeTabId: 'tab-1',
+			});
+
+			render(<MainPanel {...defaultProps} activeSession={session} previewFile={previewFile} />);
+
+			// Both error banner and file preview should be visible
+			expect(
+				screen.getByText('Authentication token has expired. Please re-authenticate.')
+			).toBeInTheDocument();
+			expect(screen.getByTestId('file-preview')).toBeInTheDocument();
+		});
 
 		it('should handle error with empty message gracefully', () => {
 			const session = createSession({
@@ -2993,7 +3077,7 @@ describe('MainPanel', () => {
 				previousUIState: {
 					readOnlyMode: false,
 					saveToHistory: true,
-					showThinking: 'off',
+					showThinking: false,
 				},
 			});
 
@@ -3022,7 +3106,7 @@ describe('MainPanel', () => {
 				previousUIState: {
 					readOnlyMode: false,
 					saveToHistory: true,
-					showThinking: 'off',
+					showThinking: false,
 				},
 			});
 
@@ -3044,7 +3128,7 @@ describe('MainPanel', () => {
 				previousUIState: {
 					readOnlyMode: false,
 					saveToHistory: true,
-					showThinking: 'off',
+					showThinking: false,
 				},
 			});
 
@@ -3063,7 +3147,7 @@ describe('MainPanel', () => {
 				previousUIState: {
 					readOnlyMode: false,
 					saveToHistory: true,
-					showThinking: 'off',
+					showThinking: false,
 				},
 			});
 
@@ -3088,7 +3172,7 @@ describe('MainPanel', () => {
 					previousUIState: {
 						readOnlyMode: false,
 						saveToHistory: true,
-						showThinking: 'off',
+						showThinking: false,
 					},
 				},
 				{
@@ -3100,153 +3184,6 @@ describe('MainPanel', () => {
 
 			// The mock component just shows message count, but the agentName is passed through
 			expect(screen.getByTestId('wizard-conversation-view')).toBeInTheDocument();
-		});
-	});
-
-	describe('File Tab Loading State (SSH Remote Files)', () => {
-		// Helper to create a file preview tab
-		const createFileTab = (
-			overrides: Partial<import('../../../renderer/types').FilePreviewTab> = {}
-		): import('../../../renderer/types').FilePreviewTab => ({
-			id: 'file-tab-1',
-			path: '/remote/path/file.ts',
-			name: 'file',
-			extension: '.ts',
-			content: '',
-			scrollTop: 0,
-			searchQuery: '',
-			editMode: false,
-			editContent: undefined,
-			createdAt: Date.now(),
-			lastModified: 0,
-			...overrides,
-		});
-
-		it('should display loading spinner when file tab isLoading is true', () => {
-			const fileTab = createFileTab({
-				sshRemoteId: 'ssh-remote-1',
-				isLoading: true, // SSH remote file loading
-			});
-
-			const session = createSession({
-				inputMode: 'ai',
-				filePreviewTabs: [fileTab],
-				activeFileTabId: 'file-tab-1',
-				unifiedTabOrder: [
-					{ type: 'ai' as const, id: 'tab-1' },
-					{ type: 'file' as const, id: 'file-tab-1' },
-				],
-			});
-
-			render(
-				<MainPanel
-					{...defaultProps}
-					activeSession={session}
-					activeFileTabId="file-tab-1"
-					activeFileTab={fileTab}
-				/>
-			);
-
-			// Should display loading text with file name
-			expect(screen.getByText('Loading file.ts')).toBeInTheDocument();
-			// Should display "Fetching from remote server..." subtitle
-			expect(screen.getByText('Fetching from remote server...')).toBeInTheDocument();
-		});
-
-		it('should render FilePreview when file tab isLoading is false', () => {
-			const fileTab = createFileTab({
-				content: 'const x = 1;',
-				lastModified: Date.now(),
-				sshRemoteId: 'ssh-remote-1',
-				isLoading: false, // Loading complete
-			});
-
-			const session = createSession({
-				inputMode: 'ai',
-				filePreviewTabs: [fileTab],
-				activeFileTabId: 'file-tab-1',
-				unifiedTabOrder: [
-					{ type: 'ai' as const, id: 'tab-1' },
-					{ type: 'file' as const, id: 'file-tab-1' },
-				],
-			});
-
-			render(
-				<MainPanel
-					{...defaultProps}
-					activeSession={session}
-					activeFileTabId="file-tab-1"
-					activeFileTab={fileTab}
-				/>
-			);
-
-			// Should render file preview (mocked component)
-			expect(screen.getByTestId('file-preview')).toBeInTheDocument();
-			// Should NOT display loading state
-			expect(screen.queryByText('Fetching from remote server...')).not.toBeInTheDocument();
-		});
-
-		it('should display loading state for file tab without sshRemoteId (local file loading)', () => {
-			const fileTab = createFileTab({
-				path: '/local/path/config.json',
-				name: 'config',
-				extension: '.json',
-				isLoading: true, // Even local files can show loading briefly
-			});
-
-			const session = createSession({
-				inputMode: 'ai',
-				filePreviewTabs: [fileTab],
-				activeFileTabId: 'file-tab-1',
-				unifiedTabOrder: [
-					{ type: 'ai' as const, id: 'tab-1' },
-					{ type: 'file' as const, id: 'file-tab-1' },
-				],
-			});
-
-			render(
-				<MainPanel
-					{...defaultProps}
-					activeSession={session}
-					activeFileTabId="file-tab-1"
-					activeFileTab={fileTab}
-				/>
-			);
-
-			// Should display loading text with file name
-			expect(screen.getByText('Loading config.json')).toBeInTheDocument();
-		});
-
-		it('should not show loading state when AI tab is active', () => {
-			const fileTab = createFileTab({
-				sshRemoteId: 'ssh-remote-1',
-				isLoading: true, // Loading but not active
-			});
-
-			const session = createSession({
-				inputMode: 'ai',
-				filePreviewTabs: [fileTab],
-				activeFileTabId: null, // AI tab is active, not file tab
-				activeTabId: 'tab-1',
-				unifiedTabOrder: [
-					{ type: 'ai' as const, id: 'tab-1' },
-					{ type: 'file' as const, id: 'file-tab-1' },
-				],
-			});
-
-			render(
-				<MainPanel
-					{...defaultProps}
-					activeSession={session}
-					activeFileTabId={null}
-					activeFileTab={null}
-				/>
-			);
-
-			// Should NOT display loading state (file tab is not active)
-			expect(screen.queryByText('Fetching from remote server...')).not.toBeInTheDocument();
-			// Should display terminal output (default for AI tab)
-			expect(screen.getByTestId('terminal-output')).toBeInTheDocument();
 		});
 	});
 });

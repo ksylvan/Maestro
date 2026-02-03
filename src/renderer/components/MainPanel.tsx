@@ -574,12 +574,14 @@ export const MainPanel = React.memo(
 			return configured > 0 ? configured : reported;
 		}, [configuredContextWindow, activeTab?.usageStats?.contextWindow]);
 
-		// Compute context tokens using agent-specific calculation
-		// SYNC: Uses calculateContextTokens() from shared/contextUsage.ts
-		// See that file for the canonical formula and all locations that must stay in sync.
+		// Compute context tokens using agent-specific calculation.
+		// Claude: input + cacheRead + cacheCreation (total input for the request)
+		// Codex: input + output (combined limit)
+		// When values are accumulated from multi-tool turns, total may exceed contextWindow.
+		// In that case, derive tokens from session.contextUsage (preserved last valid percentage).
 		const activeTabContextTokens = useMemo(() => {
 			if (!activeTab?.usageStats) return 0;
-			return calculateContextTokens(
+			const raw = calculateContextTokens(
 				{
 					inputTokens: activeTab.usageStats.inputTokens,
 					outputTokens: activeTab.usageStats.outputTokens,
@@ -588,43 +590,25 @@ export const MainPanel = React.memo(
 				},
 				activeSession?.toolType
 			);
-		}, [activeTab?.usageStats, activeSession?.toolType]);
 
-		// Compute context usage percentage from context tokens and window size
+			// If raw exceeds window, values are accumulated from multi-tool turns.
+			// Fall back to deriving from the preserved contextUsage percentage.
+			const effectiveWindow = activeTabContextWindow || 200000;
+			if (raw > effectiveWindow && activeSession?.contextUsage != null) {
+				return Math.round((activeSession.contextUsage / 100) * effectiveWindow);
+			}
+
+			return raw;
+		}, [activeTab?.usageStats, activeSession?.toolType, activeTabContextWindow, activeSession?.contextUsage]);
+
+		// Compute context usage percentage from context tokens and window size.
+		// Since we already handle accumulated values in activeTabContextTokens,
+		// we just calculate the percentage directly.
 		const activeTabContextUsage = useMemo(() => {
 			if (!activeTabContextWindow || activeTabContextWindow === 0) return 0;
 			if (activeTabContextTokens === 0) return 0;
-			const percentage = Math.min(
-				Math.round((activeTabContextTokens / activeTabContextWindow) * 100),
-				100
-			);
-
-			// DEBUG: Log MainPanel context display calculation
-			console.log('[MainPanel] Context display calculation', {
-				sessionId: activeSession?.id,
-				tabId: activeTab?.id,
-				usageStats: activeTab?.usageStats
-					? {
-							inputTokens: activeTab.usageStats.inputTokens,
-							outputTokens: activeTab.usageStats.outputTokens,
-							cacheReadInputTokens: activeTab.usageStats.cacheReadInputTokens,
-							cacheCreationInputTokens: activeTab.usageStats.cacheCreationInputTokens,
-							contextWindow: activeTab.usageStats.contextWindow,
-						}
-					: null,
-				activeTabContextTokens,
-				activeTabContextWindow,
-				displayedPercentage: percentage,
-			});
-
-			return percentage;
-		}, [
-			activeTabContextTokens,
-			activeTabContextWindow,
-			activeSession?.id,
-			activeTab?.id,
-			activeTab?.usageStats,
-		]);
+			return Math.round((activeTabContextTokens / activeTabContextWindow) * 100);
+		}, [activeTabContextTokens, activeTabContextWindow]);
 
 		// PERF: Track panel width for responsive widget hiding with threshold-based updates
 		// Only update state when width crosses a meaningful threshold (20px) to prevent

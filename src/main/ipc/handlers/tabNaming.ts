@@ -19,7 +19,7 @@ import { getSshRemoteConfig, createSshRemoteStoreAdapter } from '../../utils/ssh
 import { buildSshCommand } from '../../utils/ssh-command-builder';
 import { tabNamingPrompt } from '../../../prompts';
 import type { ProcessManager } from '../../process-manager';
-import type { AgentDetector } from '../../agent-detector';
+import type { AgentDetector } from '../../agents';
 import type { MaestroSettings } from './persistence';
 
 const LOG_CONTEXT = '[TabNaming]';

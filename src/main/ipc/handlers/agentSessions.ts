@@ -26,7 +26,7 @@ import {
 	getSessionStorage,
 	hasSessionStorage,
 	getAllSessionStorages,
-} from '../../agent-session-storage';
+} from '../../agents';
 import { calculateClaudeCost } from '../../utils/pricing';
 import {
 	loadGlobalStatsCache,
@@ -43,7 +43,7 @@ import type {
 	SessionSearchMode,
 	SessionListOptions,
 	SessionReadOptions,
-} from '../../agent-session-storage';
+} from '../../agents';
 import type { GlobalAgentStats, ProviderStats, SshRemoteConfig } from '../../../shared/types';
 import type { MaestroSettings } from './persistence';
 

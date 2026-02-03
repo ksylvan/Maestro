@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
 import { ipcMain } from 'electron';
 import { registerTabNamingHandlers } from '../../../../main/ipc/handlers/tabNaming';
 import type { ProcessManager } from '../../../../main/process-manager';
-import type { AgentDetector, AgentConfig } from '../../../../main/agent-detector';
+import type { AgentDetector, AgentConfig } from '../../../../main/agents';
 
 // Mock the logger
 vi.mock('../../../../main/utils/logger', () => ({

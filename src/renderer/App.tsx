@@ -186,7 +186,7 @@ import { shouldOpenExternally, flattenTree } from './utils/fileExplorer';
 import type { FileNode } from './types/fileTree';
 import { substituteTemplateVariables } from './utils/templateVariables';
 import { validateNewSession, getProviderDisplayName } from './utils/sessionValidation';
-import { estimateContextUsage, calculateContextTokens } from './utils/contextUsage';
+import { estimateContextUsage } from './utils/contextUsage';
 import { formatLogsForClipboard } from './utils/contextExtractor';
 import {
 	parseSessionId,
@@ -2942,90 +2942,24 @@ function MaestroConsoleInner() {
 			const parsed = parseSessionId(sessionId);
 			const { actualSessionId, tabId, baseSessionId } = parsed;
 
-			// Calculate context window usage percentage from CURRENT (per-turn) tokens.
-			// Claude Code usage is normalized to per-turn values in StdoutHandler before reaching here.
-			//
-			// SYNC: Uses calculateContextTokens() from shared/contextUsage.ts
-			// This MUST match the calculation used in:
-			//   - contextSummarizer.ts (compaction eligibility)
-			//   - MainPanel.tsx (tab context display)
-			//   - TabSwitcherModal.tsx (tab switcher)
-			//   - HistoryDetailModal.tsx (history view)
-			//   - usage-listener.ts (main process usage events)
-			//
-			// @see src/shared/contextUsage.ts for the canonical calculation
+			// Estimate context usage percentage using agent-specific calculation.
+			// estimateContextUsage returns null when values are accumulated across multiple
+			// internal API calls within a complex turn. In that case, the UI may update less
+			// during tool-heavy turns, but it's always accurate when it does update,
+			// keeping the compact warning reliable.
 			// Use baseSessionId for lookup to handle synopsis/batch sessions that inherit parent's agent type
 			const sessionForUsage = sessionsRef.current.find((s) => s.id === baseSessionId);
 			const agentToolType = sessionForUsage?.toolType;
-			const currentContextTokens = calculateContextTokens(
-				{
-					inputTokens: usageStats.inputTokens,
-					outputTokens: usageStats.outputTokens,
-					cacheReadInputTokens: usageStats.cacheReadInputTokens,
-					cacheCreationInputTokens: usageStats.cacheCreationInputTokens,
-				},
-				agentToolType
-			);
-
-			// Calculate context percentage, falling back to agent-specific defaults if contextWindow not provided
-			let contextPercentage: number;
-			const effectiveContextWindow = usageStats.contextWindow > 0 ? usageStats.contextWindow : 200000;
-
-			// Sanity check: if tokens exceed 150% of context window, the data is likely corrupt
-			// (e.g., accumulated session totals instead of per-turn values). In this case,
-			// preserve the previous context percentage rather than showing misleading 100%.
-			if (currentContextTokens > effectiveContextWindow * 1.5) {
-				console.warn('[onUsage] Ignoring anomalous context data - tokens exceed 150% of window', {
-					sessionId: actualSessionId,
-					currentContextTokens,
-					contextWindow: effectiveContextWindow,
-					inputTokens: usageStats.inputTokens,
-					cacheReadInputTokens: usageStats.cacheReadInputTokens,
-					cacheCreationInputTokens: usageStats.cacheCreationInputTokens,
-				});
-				// Keep existing context percentage (don't update)
-				contextPercentage = sessionForUsage?.contextUsage ?? 0;
-				// Skip usage updates to avoid polluting UI with cumulative totals
-				return;
-			} else if (usageStats.contextWindow > 0) {
-				contextPercentage = Math.min(
-					Math.round((currentContextTokens / usageStats.contextWindow) * 100),
-					100
-				);
-			} else {
-				// Use fallback estimation with agent-specific default context window
-				const estimated = estimateContextUsage(usageStats, agentToolType);
-				contextPercentage = estimated ?? 0;
-			}
-
-			// DEBUG: Log context calculation details
-			// Uses calculateContextTokens() from shared/contextUsage.ts for consistency
-			const isCombinedContext = agentToolType === 'codex';
-			console.log('[onUsage] Context calculation', {
-				sessionId: actualSessionId,
-				agentType: agentToolType,
-				raw: {
-					inputTokens: usageStats.inputTokens,
-					outputTokens: usageStats.outputTokens,
-					cacheReadInputTokens: usageStats.cacheReadInputTokens,
-					cacheCreationInputTokens: usageStats.cacheCreationInputTokens,
-					contextWindow: usageStats.contextWindow,
-				},
-				calculated: {
-					currentContextTokens,
-					effectiveContextWindow,
-					contextPercentage,
-					formula: isCombinedContext
-						? 'input + output (combined)'
-						: 'input + cacheRead + cacheCreation',
-				},
-			});
+			const contextPercentage = estimateContextUsage(usageStats, agentToolType);
 
 			// Batch the usage stats update, context percentage, and cycle tokens
 			// The batched updater handles the accumulation logic internally
 			batchedUpdater.updateUsage(actualSessionId, tabId, usageStats);
 			batchedUpdater.updateUsage(actualSessionId, null, usageStats); // Session-level accumulation
-			batchedUpdater.updateContextUsage(actualSessionId, contextPercentage);
+			// Only update context percentage if we got a valid value (not accumulated)
+			if (contextPercentage !== null) {
+				batchedUpdater.updateContextUsage(actualSessionId, contextPercentage);
+			}
 			batchedUpdater.updateCycleTokens(actualSessionId, usageStats.outputTokens);
 
 			// Update persistent global stats (not batched - this is a separate concern)

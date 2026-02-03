@@ -10,7 +10,7 @@ import {
 	applyAgentConfigOverrides,
 	getContextWindowValue,
 } from '../../../main/utils/agent-args';
-import type { AgentConfig } from '../../../main/agent-detector';
+import type { AgentConfig } from '../../../main/agents';
 
 /**
  * Helper to create a minimal AgentConfig for testing.

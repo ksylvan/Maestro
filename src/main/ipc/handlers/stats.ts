@@ -15,8 +15,7 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { logger } from '../../utils/logger';
 import { withIpcErrorLogging, CreateHandlerOptions } from '../../utils/ipcHandler';
-import { getStatsDB, getInitializationResult, clearInitializationResult } from '../../stats-db';
-import { isWebContentsAvailable } from '../../utils/safe-send';
+import { getStatsDB } from '../../stats';
 import {
 	QueryEvent,
 	AutoRunSession,
@@ -59,7 +58,7 @@ function isStatsCollectionEnabled(settingsStore?: { get: (key: string) => unknow
  */
 function broadcastStatsUpdate(getMainWindow: () => BrowserWindow | null): void {
 	const mainWindow = getMainWindow();
-	if (isWebContentsAvailable(mainWindow)) {
+	if (mainWindow && !mainWindow.isDestroyed()) {
 		mainWindow.webContents.send('stats:updated');
 	}
 }
@@ -244,15 +243,6 @@ export function registerStatsHandlers(deps: StatsHandlerDependencies): void {
 		})
 	);
 
-	// Get earliest stat timestamp (for UI display)
-	ipcMain.handle(
-		'stats:get-earliest-timestamp',
-		withIpcErrorLogging(handlerOpts('getEarliestTimestamp'), async () => {
-			const db = getStatsDB();
-			return db.getEarliestStatTimestamp();
-		})
-	);
-
 	// Record session creation (launched)
 	ipcMain.handle(
 		'stats:record-session-created',
@@ -300,24 +290,6 @@ export function registerStatsHandlers(deps: StatsHandlerDependencies): void {
 		withIpcErrorLogging(handlerOpts('getSessionLifecycle'), async (range: StatsTimeRange) => {
 			const db = getStatsDB();
 			return db.getSessionLifecycleEvents(range);
-		})
-	);
-
-	// Get initialization result (for showing database reset notification)
-	// This returns info about whether the database was reset due to corruption
-	ipcMain.handle(
-		'stats:get-initialization-result',
-		withIpcErrorLogging(handlerOpts('getInitializationResult'), async () => {
-			return getInitializationResult();
-		})
-	);
-
-	// Clear initialization result (after user has acknowledged the notification)
-	ipcMain.handle(
-		'stats:clear-initialization-result',
-		withIpcErrorLogging(handlerOpts('clearInitializationResult'), async () => {
-			clearInitializationResult();
-			return true;
 		})
 	);
 }

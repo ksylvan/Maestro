@@ -1,13 +1,5 @@
 /**
  * Tests for context usage estimation utilities
- *
- * Claude Code reports per-turn context window usage directly (no normalization needed).
- * Codex reports cumulative session totals, which are normalized in StdoutHandler.
- *
- * Per Anthropic documentation:
- *   total_context = input_tokens + cache_read_input_tokens + cache_creation_input_tokens
- *
- * @see https://platform.claude.com/docs/en/build-with-claude/prompt-caching
  */
 
 import {
@@ -36,13 +28,11 @@ describe('estimateContextUsage', () => {
 			expect(result).toBe(10);
 		});
 
-		it('should include cacheReadInputTokens in context calculation (per Anthropic docs)', () => {
-			// Per Anthropic docs: total_context = input + cacheRead + cacheCreation
-			// Claude Code reports per-turn values directly, Codex is normalized in StdoutHandler
+		it('should include cacheReadInputTokens in calculation (part of total input context)', () => {
 			const stats = createStats({
 				inputTokens: 1000,
 				outputTokens: 500,
-				cacheReadInputTokens: 50000, // INCLUDED - represents cached context for this turn
+				cacheReadInputTokens: 50000,
 				cacheCreationInputTokens: 5000,
 				contextWindow: 100000,
 			});
@@ -51,17 +41,17 @@ describe('estimateContextUsage', () => {
 			expect(result).toBe(56);
 		});
 
-		it('should cap at 100%', () => {
+		it('should return null when accumulated tokens exceed context window', () => {
 			const stats = createStats({
 				inputTokens: 50000,
 				outputTokens: 50000,
-				cacheReadInputTokens: 100000, // Large cached context
-				cacheCreationInputTokens: 100000, // Large new cache
+				cacheReadInputTokens: 150000,
+				cacheCreationInputTokens: 200000,
 				contextWindow: 200000,
 			});
 			const result = estimateContextUsage(stats, 'claude-code');
-			// (50000 + 100000 + 100000) / 200000 = 125% -> capped at 100%
-			expect(result).toBe(100);
+			// (50000 + 150000 + 200000) = 400000 > 200000 -> null (accumulated values)
+			expect(result).toBeNull();
 		});
 
 		it('should round to nearest integer', () => {
@@ -85,10 +75,16 @@ describe('estimateContextUsage', () => {
 			expect(result).toBe(5);
 		});
 
+		it('should use claude default context window (200k)', () => {
+			const stats = createStats({ contextWindow: 0 });
+			const result = estimateContextUsage(stats, 'claude');
+			expect(result).toBe(5);
+		});
+
 		it('should use codex default context window (200k) and include output tokens', () => {
 			const stats = createStats({ contextWindow: 0 });
 			const result = estimateContextUsage(stats, 'codex');
-			// Codex includes output tokens: (10000 + 5000 + 0 + 0) / 200000 = 7.5% -> 8%
+			// Codex includes output tokens: (10000 + 5000 + 0) / 200000 = 7.5% -> 8%
 			expect(result).toBe(8);
 		});
 
@@ -99,11 +95,10 @@ describe('estimateContextUsage', () => {
 			expect(result).toBe(8);
 		});
 
-		it('should use factory-droid default context window (200k)', () => {
+		it('should use aider default context window (128k)', () => {
 			const stats = createStats({ contextWindow: 0 });
-			const result = estimateContextUsage(stats, 'factory-droid');
-			// (10000 + 0 + 0) / 200000 = 5%
-			expect(result).toBe(5);
+			const result = estimateContextUsage(stats, 'aider');
+			expect(result).toBe(8);
 		});
 
 		it('should return null for terminal agent', () => {
@@ -140,23 +135,24 @@ describe('estimateContextUsage', () => {
 			// @ts-expect-error - testing undefined case
 			stats.cacheReadInputTokens = undefined;
 			const result = estimateContextUsage(stats, 'claude-code');
-			// (10000 + 0 + 0) / 100000 = 10%
+			// (10000 + 0) / 100000 = 10%
 			expect(result).toBe(10);
 		});
 
-		it('should include cache read tokens in context (represents context window usage)', () => {
-			// Per Anthropic docs, cacheRead represents tokens retrieved from cache
-			// and DOES occupy context window space for this turn.
+		it('should return null when accumulated cacheRead tokens cause total to exceed context window', () => {
+			// During multi-tool turns, Claude Code accumulates token values across
+			// internal API calls. When accumulated total exceeds context window,
+			// return null to signal callers should preserve previous valid percentage.
 			const stats = createStats({
 				inputTokens: 500,
 				outputTokens: 1000,
-				cacheReadInputTokens: 100000, // Large cached context for this turn
+				cacheReadInputTokens: 758000, // accumulated across multi-tool turn
 				cacheCreationInputTokens: 50000,
 				contextWindow: 200000,
 			});
 			const result = estimateContextUsage(stats, 'claude-code');
-			// (500 + 100000 + 50000) / 200000 = 75%
-			expect(result).toBe(75);
+			// (500 + 758000 + 50000) = 808500 > 200000 -> null (accumulated values)
+			expect(result).toBeNull();
 		});
 	});
 
@@ -177,17 +173,17 @@ describe('estimateContextUsage', () => {
 			expect(result).toBe(5);
 		});
 
-		it('should handle very large token counts', () => {
+		it('should return null for very large accumulated token counts', () => {
 			const stats = createStats({
 				inputTokens: 250000,
 				outputTokens: 500000,
-				cacheReadInputTokens: 50000,
-				cacheCreationInputTokens: 50000,
+				cacheReadInputTokens: 500000,
+				cacheCreationInputTokens: 250000,
 				contextWindow: 0,
 			});
 			const result = estimateContextUsage(stats, 'claude-code');
-			// (250000 + 50000 + 50000) / 200000 = 175% -> capped at 100%
-			expect(result).toBe(100);
+			// (250000 + 500000 + 250000) = 1000000 > 200000 -> null (accumulated values)
+			expect(result).toBeNull();
 		});
 
 		it('should handle very small percentages', () => {
@@ -198,7 +194,7 @@ describe('estimateContextUsage', () => {
 				contextWindow: 0,
 			});
 			const result = estimateContextUsage(stats, 'claude-code');
-			// (100 + 0 + 0) / 200000 = 0.05% -> 0% (output excluded for Claude)
+			// (100 + 0) / 200000 = 0.05% -> 0% (output excluded for Claude)
 			expect(result).toBe(0);
 		});
 	});
@@ -218,28 +214,34 @@ describe('calculateContextTokens', () => {
 		...overrides,
 	});
 
-	describe('Claude agents (per Anthropic formula: input + cacheRead + cacheCreation)', () => {
-		it('should include all input-related tokens for claude-code', () => {
+	describe('Claude agents (input + cacheRead + cacheCreation)', () => {
+		it('should include input, cacheRead, and cacheCreation tokens for claude-code', () => {
 			const stats = createStats();
 			const result = calculateContextTokens(stats, 'claude-code');
-			// Per Anthropic docs: 10000 + 2000 + 1000 = 13000
+			// 10000 + 2000 + 1000 = 13000 (excludes output only)
 			expect(result).toBe(13000);
 		});
 
-		it('should include all input-related tokens when agent is undefined (defaults to Claude)', () => {
+		it('should include input, cacheRead, and cacheCreation tokens for claude', () => {
+			const stats = createStats();
+			const result = calculateContextTokens(stats, 'claude');
+			expect(result).toBe(13000);
+		});
+
+		it('should include input, cacheRead, and cacheCreation tokens when agent is undefined', () => {
 			const stats = createStats();
 			const result = calculateContextTokens(stats);
-			// Defaults to Claude behavior: input + cacheRead + cacheCreation
+			// Defaults to Claude behavior
 			expect(result).toBe(13000);
 		});
 	});
 
-	describe('OpenAI agents (includes output tokens in combined limit)', () => {
-		it('should include output tokens for codex', () => {
+	describe('OpenAI agents (includes output tokens)', () => {
+		it('should include input, output, and cacheCreation tokens for codex', () => {
 			const stats = createStats();
 			const result = calculateContextTokens(stats, 'codex');
-			// 10000 + 2000 + 1000 + 5000 = 18000 (input + cacheRead + cacheCreation + output)
-			expect(result).toBe(18000);
+			// 10000 + 5000 + 1000 = 16000 (input + output + cacheCreation, excludes cacheRead)
+			expect(result).toBe(16000);
 		});
 	});
 
@@ -266,18 +268,19 @@ describe('calculateContextTokens', () => {
 			expect(result).toBe(10000);
 		});
 
-		it('should include cacheRead in context calculation (per Anthropic docs)', () => {
-			// Per Anthropic documentation, total_context = input + cacheRead + cacheCreation
-			// All three components occupy context window space.
+		it('should include cacheRead in raw calculation (callers detect accumulated values)', () => {
+			// calculateContextTokens returns the raw total including cacheRead.
+			// Callers (estimateContextUsage) detect when total > contextWindow
+			// and return null to signal accumulated values from multi-tool turns.
 			const stats = createStats({
 				inputTokens: 50000,
 				outputTokens: 9000,
-				cacheReadInputTokens: 100000, // INCLUDED - represents cached context
-				cacheCreationInputTokens: 25000,
+				cacheReadInputTokens: 758000,
+				cacheCreationInputTokens: 75000,
 			});
 			const result = calculateContextTokens(stats, 'claude-code');
-			// 50000 + 100000 + 25000 = 175000
-			expect(result).toBe(175000);
+			// 50000 + 758000 + 75000 = 883000 (raw total, callers check against window)
+			expect(result).toBe(883000);
 		});
 	});
 });
@@ -285,9 +288,10 @@ describe('calculateContextTokens', () => {
 describe('DEFAULT_CONTEXT_WINDOWS', () => {
 	it('should have context windows defined for all known agent types', () => {
 		expect(DEFAULT_CONTEXT_WINDOWS['claude-code']).toBe(200000);
+		expect(DEFAULT_CONTEXT_WINDOWS['claude']).toBe(200000);
 		expect(DEFAULT_CONTEXT_WINDOWS['codex']).toBe(200000);
 		expect(DEFAULT_CONTEXT_WINDOWS['opencode']).toBe(128000);
-		expect(DEFAULT_CONTEXT_WINDOWS['factory-droid']).toBe(200000);
+		expect(DEFAULT_CONTEXT_WINDOWS['aider']).toBe(128000);
 		expect(DEFAULT_CONTEXT_WINDOWS['terminal']).toBe(0);
 	});
 });

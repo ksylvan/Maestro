@@ -1,8 +1,7 @@
 import { ipcMain } from 'electron';
 import Store from 'electron-store';
 import * as fs from 'fs';
-import { AgentDetector, AGENT_DEFINITIONS } from '../../agent-detector';
-import { getAgentCapabilities } from '../../agent-capabilities';
+import { AgentDetector, AGENT_DEFINITIONS, getAgentCapabilities } from '../../agents';
 import { execFileNoThrow } from '../../utils/execFile';
 import { logger } from '../../utils/logger';
 import {

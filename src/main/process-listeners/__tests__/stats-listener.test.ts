@@ -8,7 +8,7 @@ import { setupStatsListener } from '../stats-listener';
 import type { ProcessManager } from '../../process-manager';
 import type { SafeSendFn } from '../../utils/safe-send';
 import type { QueryCompleteData } from '../../process-manager/types';
-import type { StatsDB } from '../../stats-db';
+import type { StatsDB } from '../../stats';
 import type { ProcessListenerDependencies } from '../types';
 
 describe('Stats Listener', () => {

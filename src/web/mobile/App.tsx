@@ -23,7 +23,7 @@ import { buildApiUrl } from '../utils/config';
 import { formatCost } from '../../shared/formatters';
 // SYNC: Uses estimateContextUsage() from shared/contextUsage.ts
 // See that file for the canonical formula and all locations that must stay in sync.
-import { estimateContextUsage } from '../../shared/contextUsage';
+import { estimateContextUsage } from '../../renderer/utils/contextUsage';
 import { triggerHaptic, HAPTIC_PATTERNS } from './constants';
 import { webLogger } from '../utils/logger';
 import { SessionPillBar } from './SessionPillBar';
