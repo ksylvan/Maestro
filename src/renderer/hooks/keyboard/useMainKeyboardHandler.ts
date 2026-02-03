@@ -503,19 +503,10 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 							});
 							ctx.setConfirmModalOpen(true);
 						} else {
-							// Regular AI tab - close it
-							const result = ctx.closeTab(
-								ctx.activeSession,
-								closeResult.tabId,
-								ctx.showUnreadOnly,
-								{ skipHistory: false }
-							);
-							if (result) {
-								ctx.setSessions((prev: Session[]) =>
-									prev.map((s: Session) => (s.id === ctx.activeSession!.id ? result.session : s))
-								);
-								trackShortcut('closeTab');
-							}
+							// Regular AI tab - close it using performTabClose
+							// This ensures the tab is added to unifiedClosedTabHistory for Cmd+Shift+T
+							ctx.performTabClose(closeResult.tabId);
+							trackShortcut('closeTab');
 						}
 					}
 					// 'prevented' or 'none' - do nothing (can't close last AI tab)

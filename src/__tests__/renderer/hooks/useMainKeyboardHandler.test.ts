@@ -815,14 +815,12 @@ describe('useMainKeyboardHandler', () => {
 					tabId: 'ai-tab-2',
 					isWizardTab: false,
 				});
-				const mockCloseTab = vi.fn().mockReturnValue({ session: { id: 'session-1' } });
-				const mockSetSessions = vi.fn();
+				const mockPerformTabClose = vi.fn();
 
 				result.current.keyboardHandlerRef.current = createUnifiedTabContext({
 					isTabShortcut: (_e: KeyboardEvent, actionId: string) => actionId === 'closeTab',
 					handleCloseCurrentTab: mockHandleCloseCurrentTab,
-					closeTab: mockCloseTab,
-					setSessions: mockSetSessions,
+					performTabClose: mockPerformTabClose,
 					activeSession: {
 						id: 'session-1',
 						aiTabs: [
@@ -848,26 +846,20 @@ describe('useMainKeyboardHandler', () => {
 				});
 
 				expect(mockHandleCloseCurrentTab).toHaveBeenCalled();
-				expect(mockCloseTab).toHaveBeenCalledWith(
-					expect.objectContaining({ id: 'session-1' }),
-					'ai-tab-2',
-					false,
-					{ skipHistory: false }
-				);
+				// Now uses performTabClose which adds to unifiedClosedTabHistory for Cmd+Shift+T
+				expect(mockPerformTabClose).toHaveBeenCalledWith('ai-tab-2');
 			});
 
 			it('should prevent closing when it is the last AI tab', () => {
 				const { result } = renderHook(() => useMainKeyboardHandler());
 
 				const mockHandleCloseCurrentTab = vi.fn().mockReturnValue({ type: 'prevented' });
-				const mockCloseTab = vi.fn();
-				const mockSetSessions = vi.fn();
+				const mockPerformTabClose = vi.fn();
 
 				result.current.keyboardHandlerRef.current = createUnifiedTabContext({
 					isTabShortcut: (_e: KeyboardEvent, actionId: string) => actionId === 'closeTab',
 					handleCloseCurrentTab: mockHandleCloseCurrentTab,
-					closeTab: mockCloseTab,
-					setSessions: mockSetSessions,
+					performTabClose: mockPerformTabClose,
 					activeSession: {
 						id: 'session-1',
 						aiTabs: [{ id: 'ai-tab-1', name: 'AI Tab 1', logs: [] }],
@@ -889,8 +881,8 @@ describe('useMainKeyboardHandler', () => {
 					);
 				});
 
-				// closeTab should NOT be called when it's the last AI tab
-				expect(mockCloseTab).not.toHaveBeenCalled();
+				// performTabClose should NOT be called when it's the last AI tab
+				expect(mockPerformTabClose).not.toHaveBeenCalled();
 			});
 		});
 
