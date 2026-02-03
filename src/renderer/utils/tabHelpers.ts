@@ -724,12 +724,18 @@ export function reopenUnifiedClosedTab(session: Session): ReopenUnifiedClosedTab
 		}
 
 		// No duplicate - restore the tab
+		// Reset navigation history to just the current file to avoid stale/corrupted breadcrumbs
 		const restoredTab: FilePreviewTab = {
 			...tabToRestore,
 			id: generateId(),
 			// Clear any unsaved edit content since we're restoring from history
 			editContent: undefined,
 			editMode: false,
+			// Reset breadcrumb history - start fresh with just the current file
+			navigationHistory: [
+				{ path: tabToRestore.path, name: tabToRestore.name, scrollTop: tabToRestore.scrollTop },
+			],
+			navigationIndex: 0,
 		};
 
 		// Add to filePreviewTabs

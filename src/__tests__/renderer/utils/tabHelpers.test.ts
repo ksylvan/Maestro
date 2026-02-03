@@ -1842,6 +1842,49 @@ describe('tabHelpers', () => {
 			expect(result!.session.unifiedClosedTabHistory).toHaveLength(0);
 		});
 
+		it('resets navigation history when restoring file tab', () => {
+			const aiTab = createMockTab({ id: 'ai-1' });
+			// Create a file tab with stale navigation history (multiple entries)
+			const closedFileTab = createMockFileTab({
+				id: 'closed-file',
+				path: '/test/fileB.ts',
+				name: 'fileB',
+				scrollTop: 100,
+				navigationHistory: [
+					{ path: '/test/fileA.ts', name: 'fileA', scrollTop: 0 },
+					{ path: '/test/fileB.ts', name: 'fileB', scrollTop: 100 },
+					{ path: '/test/fileC.ts', name: 'fileC', scrollTop: 200 },
+				],
+				navigationIndex: 1, // Currently viewing fileB
+			});
+			const closedEntry = {
+				type: 'file' as const,
+				tab: closedFileTab,
+				unifiedIndex: 1,
+				closedAt: Date.now(),
+			};
+			const session = createMockSession({
+				aiTabs: [aiTab],
+				activeTabId: 'ai-1',
+				filePreviewTabs: [],
+				activeFileTabId: null,
+				unifiedTabOrder: [{ type: 'ai', id: 'ai-1' }],
+				unifiedClosedTabHistory: [closedEntry],
+			});
+
+			const result = reopenUnifiedClosedTab(session);
+
+			expect(result).not.toBeNull();
+			expect(result!.tabType).toBe('file');
+			const restoredTab = result!.session.filePreviewTabs[0];
+			// Navigation history should be reset to just the current file
+			expect(restoredTab.navigationHistory).toHaveLength(1);
+			expect(restoredTab.navigationHistory![0].path).toBe('/test/fileB.ts');
+			expect(restoredTab.navigationHistory![0].name).toBe('fileB');
+			expect(restoredTab.navigationHistory![0].scrollTop).toBe(100);
+			expect(restoredTab.navigationIndex).toBe(0);
+		});
+
 		it('reopens AI tab from unified history', () => {
 			const existingAiTab = createMockTab({ id: 'ai-existing' });
 			const closedAiTab = createMockTab({ id: 'ai-closed', agentSessionId: 'session-456' });
