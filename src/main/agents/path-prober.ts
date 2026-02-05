@@ -474,13 +474,16 @@ export async function checkBinaryExists(binaryName: string): Promise<BinaryDetec
 				.filter((p) => p);
 
 			if (process.platform === 'win32' && matches.length > 0) {
-				// On Windows, prefer .exe over .cmd over extensionless
-				// This helps with proper execution handling
+				// On Windows, prefer .exe > extensionless (shell scripts) > .cmd
+				// This helps avoid cmd.exe limitations and supports PowerShell/bash scripts
 				const exeMatch = matches.find((p) => p.toLowerCase().endsWith('.exe'));
 				const cmdMatch = matches.find((p) => p.toLowerCase().endsWith('.cmd'));
+				const extensionlessMatch = matches.find(
+					(p) => !p.toLowerCase().endsWith('.exe') && !p.toLowerCase().endsWith('.cmd')
+				);
 
-				// Return the best match: .exe > .cmd > first result
-				let bestMatch = exeMatch || cmdMatch || matches[0];
+				// Return the best match: .exe > extensionless shell scripts > .cmd > first result
+				let bestMatch = exeMatch || extensionlessMatch || cmdMatch || matches[0];
 
 				// If the first match doesn't have an extension, check if .cmd or .exe version exists
 				// This handles cases where 'where' returns a path without extension
