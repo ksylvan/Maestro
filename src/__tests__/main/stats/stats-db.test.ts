@@ -851,6 +851,60 @@ describe('Daily backup system', () => {
 			expect(dailyBackupCalls).toHaveLength(0);
 		});
 	});
+
+	describe('WAL checkpoint before backup', () => {
+		it('should checkpoint WAL before creating daily backup', async () => {
+			const today = new Date().toISOString().split('T')[0];
+			mockFsExistsSync.mockImplementation((p: unknown) => {
+				if (typeof p === 'string' && p.includes(`daily.${today}`)) return false;
+				return true;
+			});
+
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			// Should have called wal_checkpoint(TRUNCATE) before copyFileSync
+			expect(mockDb.pragma).toHaveBeenCalledWith('wal_checkpoint(TRUNCATE)');
+		});
+
+		it('should checkpoint WAL before creating manual backup', async () => {
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			mockDb.pragma.mockClear();
+			db.backupDatabase();
+
+			expect(mockDb.pragma).toHaveBeenCalledWith('wal_checkpoint(TRUNCATE)');
+		});
+
+		it('should call checkpoint before copyFileSync (correct ordering)', async () => {
+			const callOrder: string[] = [];
+			mockDb.pragma.mockImplementation((pragmaStr: string) => {
+				if (pragmaStr === 'wal_checkpoint(TRUNCATE)') {
+					callOrder.push('checkpoint');
+				}
+				if (pragmaStr === 'integrity_check') return [{ integrity_check: 'ok' }];
+				return [{ user_version: 3 }];
+			});
+			mockFsCopyFileSync.mockImplementation(() => {
+				callOrder.push('copy');
+			});
+
+			const { StatsDB } = await import('../../../main/stats');
+			const db = new StatsDB();
+			db.initialize();
+
+			mockDb.pragma.mockClear();
+			mockFsCopyFileSync.mockClear();
+			callOrder.length = 0;
+
+			db.backupDatabase();
+
+			expect(callOrder).toEqual(['checkpoint', 'copy']);
+		});
+	});
 });
 
 /**

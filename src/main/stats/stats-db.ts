@@ -322,6 +322,22 @@ export class StatsDB {
 	}
 
 	/**
+	 * Checkpoint WAL to flush pending writes into the main database file,
+	 * then copy the database file to the destination path.
+	 *
+	 * Plain fs.copyFileSync on a WAL-mode database can produce an incomplete
+	 * copy because committed data may still reside in the -wal file.
+	 * PRAGMA wal_checkpoint(TRUNCATE) forces all WAL content into the main
+	 * file and resets the WAL, making the .db file self-contained.
+	 */
+	private safeBackupCopy(destPath: string): void {
+		if (this.db) {
+			this.db.pragma('wal_checkpoint(TRUNCATE)');
+		}
+		fs.copyFileSync(this.dbPath, destPath);
+	}
+
+	/**
 	 * Create a backup of the current database file.
 	 */
 	backupDatabase(): BackupResult {
@@ -333,7 +349,7 @@ export class StatsDB {
 			const timestamp = Date.now();
 			const backupPath = `${this.dbPath}.backup.${timestamp}`;
 
-			fs.copyFileSync(this.dbPath, backupPath);
+			this.safeBackupCopy(backupPath);
 
 			logger.info(`Created database backup at ${backupPath}`, LOG_CONTEXT);
 			return { success: true, backupPath };
@@ -367,8 +383,8 @@ export class StatsDB {
 				return;
 			}
 
-			// Create today's backup
-			fs.copyFileSync(this.dbPath, dailyBackupPath);
+			// Create today's backup (checkpoint WAL first so the copy is self-contained)
+			this.safeBackupCopy(dailyBackupPath);
 			logger.info(`Created daily backup: ${dailyBackupPath}`, LOG_CONTEXT);
 
 			// Rotate old backups (keep last 7 days)
