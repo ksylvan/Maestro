@@ -1134,7 +1134,6 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
 						</div>
 					)}
 				</div>
-
 			</div>
 
 			{/* Section 2: Note box - only shown if user has existing agents */}
@@ -1149,20 +1148,21 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
 					>
 						<Info className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: theme.colors.accent }} />
 						<span style={{ color: theme.colors.textDim }}>
-							<strong style={{ color: theme.colors.textMain }}>Note:</strong> The new agent wizard captures
-							application inputs until complete. For a lighter touch, create a new agent then run{' '}
+							<strong style={{ color: theme.colors.textMain }}>Note:</strong> The new agent wizard
+							captures application inputs until complete. For a lighter touch, create a new agent
+							then run{' '}
 							<code
 								className="px-1 py-0.5 rounded text-[11px]"
 								style={{ backgroundColor: theme.colors.border }}
 							>
 								/wizard
-							</code>
-							{' '}or click the{' '}
+							</code>{' '}
+							or click the{' '}
 							<Wand2
 								className="inline w-3.5 h-3.5 align-text-bottom"
 								style={{ color: theme.colors.accent }}
-							/>
-							{' '}button in the Auto Run panel. The in-tab wizard runs alongside your other work.
+							/>{' '}
+							button in the Auto Run panel. The in-tab wizard runs alongside your other work.
 						</span>
 					</div>
 				</div>
@@ -1313,17 +1313,20 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
 									)}
 
 									{/* "Beta" badge for Codex, OpenCode, and Factory Droid */}
-									{isSupported && (tile.id === 'codex' || tile.id === 'opencode' || tile.id === 'factory-droid') && (
-										<span
-											className="absolute top-2 left-2 px-1.5 py-0.5 text-[9px] rounded font-bold uppercase"
-											style={{
-												backgroundColor: theme.colors.warning + '30',
-												color: theme.colors.warning,
-											}}
-										>
-											Beta
-										</span>
-									)}
+									{isSupported &&
+										(tile.id === 'codex' ||
+											tile.id === 'opencode' ||
+											tile.id === 'factory-droid') && (
+											<span
+												className="absolute top-2 left-2 px-1.5 py-0.5 text-[9px] rounded font-bold uppercase"
+												style={{
+													backgroundColor: theme.colors.warning + '30',
+													color: theme.colors.warning,
+												}}
+											>
+												Beta
+											</span>
+										)}
 
 									{/* Customize button for supported agents (shown even if not detected, so user can set custom path) */}
 									{/* Note: Using div with role="button" to avoid nested button warning */}

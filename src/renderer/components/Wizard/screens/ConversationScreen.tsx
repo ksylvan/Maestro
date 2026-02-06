@@ -681,13 +681,13 @@ export function ConversationScreen({
 				// Fetch existing docs if continuing from previous session
 				const existingDocs = await fetchExistingDocs();
 
-        await conversationManager.startConversation({
-          agentType: state.selectedAgent,
-          directoryPath: state.directoryPath,
-          projectName: state.agentName || 'My Project',
-          existingDocs: existingDocs.length > 0 ? existingDocs : undefined,
-          sshRemoteConfig: state.sessionSshRemoteConfig,
-        });
+				await conversationManager.startConversation({
+					agentType: state.selectedAgent,
+					directoryPath: state.directoryPath,
+					projectName: state.agentName || 'My Project',
+					existingDocs: existingDocs.length > 0 ? existingDocs : undefined,
+					sshRemoteConfig: state.sessionSshRemoteConfig,
+				});
 
 				if (mounted) {
 					setConversationStarted(true);
@@ -814,7 +814,7 @@ export function ConversationScreen({
 					agentType: state.selectedAgent,
 					directoryPath: state.directoryPath,
 					projectName: state.agentName || 'My Project',
-          			sshRemoteConfig: state.sessionSshRemoteConfig,
+					sshRemoteConfig: state.sessionSshRemoteConfig,
 				});
 			}
 
@@ -1064,14 +1064,14 @@ export function ConversationScreen({
 					}
 				}
 
-        await conversationManager.startConversation({
-          agentType: state.selectedAgent,
-          directoryPath: state.directoryPath,
-          projectName: state.agentName || 'My Project',
-          existingDocs: existingDocs.length > 0 ? existingDocs : undefined,
-          sshRemoteConfig: state.sessionSshRemoteConfig,
-        });
-      }
+				await conversationManager.startConversation({
+					agentType: state.selectedAgent,
+					directoryPath: state.directoryPath,
+					projectName: state.agentName || 'My Project',
+					existingDocs: existingDocs.length > 0 ? existingDocs : undefined,
+					sshRemoteConfig: state.sessionSshRemoteConfig,
+				});
+			}
 
 			// Send message and wait for response
 			const result = await conversationManager.sendMessage(

@@ -116,7 +116,14 @@ export const READY_CONFIDENCE_THRESHOLD = 80;
  * @returns The complete system prompt for the agent
  */
 export function generateSystemPrompt(config: SystemPromptConfig): string {
-	const { agentName, agentPath, existingDocs, autoRunFolderPath, historyFilePath, conductorProfile } = config;
+	const {
+		agentName,
+		agentPath,
+		existingDocs,
+		autoRunFolderPath,
+		historyFilePath,
+		conductorProfile,
+	} = config;
 	const projectName = agentName || 'this project';
 
 	// Default Auto Run folder to standard location under working directory

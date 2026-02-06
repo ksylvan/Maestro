@@ -365,9 +365,9 @@ export function registerNotificationsHandlers(): void {
 			// Skip if there's no content to send
 			if (!text || text.trim().length === 0) {
 				logger.info('Notification skipped - empty or whitespace-only content', 'Notification', {
-				textLength: text?.length ?? 0,
-				hasText: !!text,
-			});
+					textLength: text?.length ?? 0,
+					hasText: !!text,
+				});
 				return { success: true }; // Return success since there's nothing to do
 			}
 
@@ -386,7 +386,10 @@ export function registerNotificationsHandlers(): void {
 			// Add to queue and return a promise that resolves when this notification completes
 			return new Promise<NotificationCommandResponse>((resolve) => {
 				notificationQueue.push({ text, command, resolve });
-				logger.debug(`Notification queued, queue length: ${notificationQueue.length}`, 'Notification');
+				logger.debug(
+					`Notification queued, queue length: ${notificationQueue.length}`,
+					'Notification'
+				);
 				processNextNotification();
 			});
 		}
@@ -468,4 +471,3 @@ export function resetNotificationState(): void {
 export function getNotificationMaxQueueSize(): number {
 	return NOTIFICATION_MAX_QUEUE_SIZE;
 }
-

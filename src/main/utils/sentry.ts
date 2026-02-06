@@ -161,11 +161,15 @@ export function startMemoryMonitoring(thresholdMB: number = 500, intervalMs: num
 
 		// Log warning if heap usage exceeds threshold
 		if (heapUsedMB > thresholdMB) {
-			logger.warn(`High memory usage: ${heapUsedMB}MB heap (threshold: ${thresholdMB}MB)`, 'Memory', {
-				heapUsedMB,
-				heapTotalMB,
-				rssMB,
-			});
+			logger.warn(
+				`High memory usage: ${heapUsedMB}MB heap (threshold: ${thresholdMB}MB)`,
+				'Memory',
+				{
+					heapUsedMB,
+					heapTotalMB,
+					rssMB,
+				}
+			);
 			await addBreadcrumb(
 				'memory',
 				`HIGH MEMORY: ${heapUsedMB}MB exceeds ${thresholdMB}MB threshold`,
@@ -175,7 +179,10 @@ export function startMemoryMonitoring(thresholdMB: number = 500, intervalMs: num
 		}
 	}, intervalMs);
 
-	logger.info(`Memory monitoring started (threshold: ${thresholdMB}MB, interval: ${intervalMs}ms)`, 'Memory');
+	logger.info(
+		`Memory monitoring started (threshold: ${thresholdMB}MB, interval: ${intervalMs}ms)`,
+		'Memory'
+	);
 }
 
 /**

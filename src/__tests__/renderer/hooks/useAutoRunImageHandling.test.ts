@@ -231,7 +231,7 @@ describe('useAutoRunImageHandling', () => {
 				expect(result.current.attachmentsList).toHaveLength(2);
 			});
 
-		expect(window.maestro.autorun.listImages).toHaveBeenCalledWith(
+			expect(window.maestro.autorun.listImages).toHaveBeenCalledWith(
 				'/test/autorun',
 				'Phase 1',
 				undefined

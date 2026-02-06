@@ -118,10 +118,7 @@ export function NotificationsPanel({
 						{testNotificationId !== null ? (
 							<button
 								onClick={async () => {
-									console.log(
-										'[Notification] Stop test button clicked, id:',
-										testNotificationId
-									);
+									console.log('[Notification] Stop test button clicked, id:', testNotificationId);
 									try {
 										await window.maestro.notification.stopSpeak(testNotificationId);
 									} catch (err) {

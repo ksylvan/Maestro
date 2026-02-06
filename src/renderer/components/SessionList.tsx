@@ -2788,11 +2788,7 @@ function SessionListInner(props: SessionListProps) {
 						</div>
 					) : groups.length > 0 ? (
 						/* NO UNGROUPED AGENTS - Show drop zone for ungrouping + New Group button */
-						<div
-							className="mt-4 px-3"
-							onDragOver={handleDragOver}
-							onDrop={handleDropOnUngrouped}
-						>
+						<div className="mt-4 px-3" onDragOver={handleDragOver} onDrop={handleDropOnUngrouped}>
 							{/* Drop zone indicator when dragging */}
 							{draggingSessionId && (
 								<div

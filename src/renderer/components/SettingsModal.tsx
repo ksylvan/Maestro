@@ -273,7 +273,15 @@ interface SettingsModalProps {
 	setCrashReportingEnabled: (value: boolean) => void;
 	customAICommands: CustomAICommand[];
 	setCustomAICommands: (commands: CustomAICommand[]) => void;
-	initialTab?: 'general' | 'display' | 'llm' | 'shortcuts' | 'theme' | 'notifications' | 'aicommands' | 'ssh';
+	initialTab?:
+		| 'general'
+		| 'display'
+		| 'llm'
+		| 'shortcuts'
+		| 'theme'
+		| 'notifications'
+		| 'aicommands'
+		| 'ssh';
 	hasNoAgents?: boolean;
 	onThemeImportError?: (message: string) => void;
 	onThemeImportSuccess?: (message: string) => void;
@@ -472,7 +480,14 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 
 		const handleTabNavigation = (e: KeyboardEvent) => {
 			const tabs: Array<
-				'general' | 'display' | 'llm' | 'shortcuts' | 'theme' | 'notifications' | 'aicommands' | 'ssh'
+				| 'general'
+				| 'display'
+				| 'llm'
+				| 'shortcuts'
+				| 'theme'
+				| 'notifications'
+				| 'aicommands'
+				| 'ssh'
 			> = FEATURE_FLAGS.LLM_SETTINGS
 				? ['general', 'display', 'llm', 'shortcuts', 'theme', 'notifications', 'aicommands', 'ssh']
 				: ['general', 'display', 'shortcuts', 'theme', 'notifications', 'aicommands', 'ssh'];
@@ -963,8 +978,8 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 								</label>
 								<p className="text-xs opacity-50 mb-2">
 									Tell us a little about yourself so that agents created under Maestro know how to
-									work and communicate with you. As the conductor, you orchestrate the symphony of AI
-									agents. (Optional, max 1000 characters)
+									work and communicate with you. As the conductor, you orchestrate the symphony of
+									AI agents. (Optional, max 1000 characters)
 								</p>
 								<div className="relative">
 									<textarea
@@ -983,9 +998,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 										className="absolute bottom-2 right-2 text-xs"
 										style={{
 											color:
-												conductorProfile.length > 900
-													? theme.colors.warning
-													: theme.colors.textDim,
+												conductorProfile.length > 900 ? theme.colors.warning : theme.colors.textDim,
 										}}
 									>
 										{conductorProfile.length}/1000
@@ -1352,7 +1365,11 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 												border: `1px solid ${theme.colors.border}`,
 											}}
 										>
-											{props.enterToSendTerminal ? 'Enter' : isMacOS() ? '⌘ + Enter' : 'Ctrl + Enter'}
+											{props.enterToSendTerminal
+												? 'Enter'
+												: isMacOS()
+													? '⌘ + Enter'
+													: 'Ctrl + Enter'}
 										</button>
 									</div>
 									<p className="text-xs opacity-50">
@@ -1399,9 +1416,12 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 										Show AI thinking/reasoning content for new tabs
 									</div>
 									<div className="text-sm opacity-60 mb-3" style={{ color: theme.colors.textDim }}>
-										{props.defaultShowThinking === 'off' && 'Thinking hidden, only final responses shown'}
-										{props.defaultShowThinking === 'on' && 'Thinking streams live, clears on completion'}
-										{props.defaultShowThinking === 'sticky' && 'Thinking streams live and stays visible'}
+										{props.defaultShowThinking === 'off' &&
+											'Thinking hidden, only final responses shown'}
+										{props.defaultShowThinking === 'on' &&
+											'Thinking streams live, clears on completion'}
+										{props.defaultShowThinking === 'sticky' &&
+											'Thinking streams live and stays visible'}
 									</div>
 									<ToggleButtonGroup
 										options={[
@@ -1717,7 +1737,10 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 												? (statsDbSize / 1024 / 1024).toFixed(2) + ' MB'
 												: 'Loading...'}
 											{statsEarliestDate && (
-												<span style={{ color: theme.colors.textDim }}> (since {statsEarliestDate})</span>
+												<span style={{ color: theme.colors.textDim }}>
+													{' '}
+													(since {statsEarliestDate})
+												</span>
 											)}
 										</span>
 									</div>

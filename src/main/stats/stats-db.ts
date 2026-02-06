@@ -561,7 +561,10 @@ export class StatsDB {
 			// Try to restore from the latest backup
 			const backups = this.getAvailableBackups();
 			for (const backup of backups) {
-				logger.info(`Attempting to restore from backup: ${backup.path} (${backup.date})`, LOG_CONTEXT);
+				logger.info(
+					`Attempting to restore from backup: ${backup.path} (${backup.date})`,
+					LOG_CONTEXT
+				);
 
 				// Try to validate the backup before restoring
 				try {
@@ -572,7 +575,10 @@ export class StatsDB {
 					if (result.length === 1 && result[0].integrity_check === 'ok') {
 						// Backup is valid, restore it
 						if (this.restoreFromBackup(backup.path)) {
-							logger.info(`Successfully restored database from backup: ${backup.date}`, LOG_CONTEXT);
+							logger.info(
+								`Successfully restored database from backup: ${backup.date}`,
+								LOG_CONTEXT
+							);
 							return {
 								recovered: true,
 								backupPath: backup.path,
@@ -580,7 +586,10 @@ export class StatsDB {
 							};
 						}
 					} else {
-						logger.warn(`Backup ${backup.date} failed integrity check, trying next...`, LOG_CONTEXT);
+						logger.warn(
+							`Backup ${backup.date} failed integrity check, trying next...`,
+							LOG_CONTEXT
+						);
 					}
 				} catch (error) {
 					logger.warn(`Backup ${backup.date} is unreadable: ${error}, trying next...`, LOG_CONTEXT);

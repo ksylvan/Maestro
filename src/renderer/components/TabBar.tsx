@@ -505,7 +505,15 @@ const Tab = memo(function Tab({
 				zIndex: isActive ? 1 : 0,
 				'--tw-ring-color': isDragOver ? theme.colors.accent : 'transparent',
 			}) as React.CSSProperties,
-		[isActive, isHovered, isDragOver, theme.colors.bgMain, theme.colors.border, theme.colors.accent, hoverBgColor]
+		[
+			isActive,
+			isHovered,
+			isDragOver,
+			theme.colors.bgMain,
+			theme.colors.border,
+			theme.colors.accent,
+			hoverBgColor,
+		]
 	);
 
 	// Browser-style tab: all tabs have borders, active tab "connects" to content
@@ -1297,7 +1305,15 @@ const FileTab = memo(function FileTab({
 				zIndex: isActive ? 1 : 0,
 				'--tw-ring-color': isDragOver ? theme.colors.accent : 'transparent',
 			}) as React.CSSProperties,
-		[isActive, isHovered, isDragOver, theme.colors.bgMain, theme.colors.border, theme.colors.accent, hoverBgColor]
+		[
+			isActive,
+			isHovered,
+			isDragOver,
+			theme.colors.bgMain,
+			theme.colors.border,
+			theme.colors.accent,
+			hoverBgColor,
+		]
 	);
 
 	// Check if tab has unsaved edits
@@ -2015,7 +2031,9 @@ function TabBarInner({
 												? handleTabPublishGist
 												: undefined
 										}
-										onMoveToFirst={!isFirstTab && onUnifiedTabReorder ? handleMoveToFirst : undefined}
+										onMoveToFirst={
+											!isFirstTab && onUnifiedTabReorder ? handleMoveToFirst : undefined
+										}
 										onMoveToLast={!isLastTab && onUnifiedTabReorder ? handleMoveToLast : undefined}
 										isFirstTab={isFirstTab}
 										isLastTab={isLastTab}
@@ -2055,7 +2073,9 @@ function TabBarInner({
 										isDragging={draggingTabId === fileTab.id}
 										isDragOver={dragOverTabId === fileTab.id}
 										registerRef={(el) => registerTabRef(fileTab.id, el)}
-										onMoveToFirst={!isFirstTab && onUnifiedTabReorder ? handleMoveToFirst : undefined}
+										onMoveToFirst={
+											!isFirstTab && onUnifiedTabReorder ? handleMoveToFirst : undefined
+										}
 										onMoveToLast={!isLastTab && onUnifiedTabReorder ? handleMoveToLast : undefined}
 										isFirstTab={isFirstTab}
 										isLastTab={isLastTab}
@@ -2121,9 +2141,7 @@ function TabBarInner({
 											: undefined
 									}
 									onCopyContext={
-										onCopyContext && (tab.logs?.length ?? 0) >= 1
-											? handleTabCopyContext
-											: undefined
+										onCopyContext && (tab.logs?.length ?? 0) >= 1 ? handleTabCopyContext : undefined
 									}
 									onExportHtml={onExportHtml ? handleTabExportHtml : undefined}
 									onPublishGist={

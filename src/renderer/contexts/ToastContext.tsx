@@ -153,7 +153,12 @@ export function ToastProvider({
 		} else if (toast.skipCustomNotification) {
 			console.log('[ToastContext] Custom notification skipped - toast opted out');
 		} else {
-			console.log('[ToastContext] Custom notification skipped - enabled:', audioEnabled, 'command:', audioCommand);
+			console.log(
+				'[ToastContext] Custom notification skipped - enabled:',
+				audioEnabled,
+				'command:',
+				audioCommand
+			);
 		}
 
 		// Show OS notification if enabled

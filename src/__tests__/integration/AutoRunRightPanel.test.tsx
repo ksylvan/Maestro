@@ -293,7 +293,6 @@ const RightPanelTestWrapper = ({
 				filteredFileTree={[]}
 				selectedFileIndex={0}
 				setSelectedFileIndex={() => {}}
-				
 				fileTreeContainerRef={fileTreeContainerRef}
 				fileTreeFilterInputRef={fileTreeFilterInputRef}
 				toggleFolder={() => {}}
@@ -411,7 +410,6 @@ describe('Auto Run + RightPanel Integration', () => {
 								filteredFileTree={[]}
 								selectedFileIndex={0}
 								setSelectedFileIndex={() => {}}
-								
 								fileTreeContainerRef={fileTreeContainerRef}
 								fileTreeFilterInputRef={fileTreeFilterInputRef}
 								toggleFolder={() => {}}
@@ -751,7 +749,6 @@ describe('Auto Run + RightPanel Integration', () => {
 							filteredFileTree={[]}
 							selectedFileIndex={0}
 							setSelectedFileIndex={() => {}}
-							
 							fileTreeContainerRef={fileTreeContainerRef}
 							fileTreeFilterInputRef={fileTreeFilterInputRef}
 							toggleFolder={() => {}}
@@ -864,7 +861,6 @@ describe('Auto Run + RightPanel Integration', () => {
 								filteredFileTree={[]}
 								selectedFileIndex={0}
 								setSelectedFileIndex={() => {}}
-								
 								fileTreeContainerRef={fileTreeContainerRef}
 								fileTreeFilterInputRef={fileTreeFilterInputRef}
 								toggleFolder={() => {}}
@@ -935,7 +931,6 @@ describe('Auto Run + RightPanel Integration', () => {
 						filteredFileTree={[]}
 						selectedFileIndex={0}
 						setSelectedFileIndex={() => {}}
-						
 						fileTreeContainerRef={fileTreeContainerRef}
 						fileTreeFilterInputRef={fileTreeFilterInputRef}
 						toggleFolder={() => {}}
@@ -1019,7 +1014,6 @@ describe('Auto Run + RightPanel Integration', () => {
 						filteredFileTree={[]}
 						selectedFileIndex={0}
 						setSelectedFileIndex={() => {}}
-						
 						fileTreeContainerRef={fileTreeContainerRef}
 						fileTreeFilterInputRef={fileTreeFilterInputRef}
 						toggleFolder={() => {}}
@@ -1127,7 +1121,6 @@ describe('Auto Run + RightPanel Integration', () => {
 								filteredFileTree={[]}
 								selectedFileIndex={0}
 								setSelectedFileIndex={() => {}}
-								
 								fileTreeContainerRef={fileTreeContainerRef}
 								fileTreeFilterInputRef={fileTreeFilterInputRef}
 								toggleFolder={() => {}}
@@ -1216,7 +1209,6 @@ describe('Auto Run + RightPanel Integration', () => {
 								filteredFileTree={[]}
 								selectedFileIndex={0}
 								setSelectedFileIndex={() => {}}
-								
 								fileTreeContainerRef={fileTreeContainerRef}
 								fileTreeFilterInputRef={fileTreeFilterInputRef}
 								toggleFolder={() => {}}
@@ -1290,7 +1282,6 @@ describe('Auto Run + RightPanel Integration', () => {
 					filteredFileTree={[]}
 					selectedFileIndex={0}
 					setSelectedFileIndex={() => {}}
-					
 					fileTreeContainerRef={fileTreeContainerRef}
 					fileTreeFilterInputRef={fileTreeFilterInputRef}
 					toggleFolder={() => {}}
@@ -1399,7 +1390,6 @@ describe('Auto Run + RightPanel Integration', () => {
 					filteredFileTree={[]}
 					selectedFileIndex={0}
 					setSelectedFileIndex={() => {}}
-					
 					fileTreeContainerRef={fileTreeContainerRef}
 					fileTreeFilterInputRef={fileTreeFilterInputRef}
 					toggleFolder={() => {}}
@@ -1480,7 +1470,6 @@ describe('Auto Run + RightPanel Integration', () => {
 							filteredFileTree={[]}
 							selectedFileIndex={0}
 							setSelectedFileIndex={() => {}}
-							
 							fileTreeContainerRef={fileTreeContainerRef}
 							fileTreeFilterInputRef={fileTreeFilterInputRef}
 							toggleFolder={() => {}}

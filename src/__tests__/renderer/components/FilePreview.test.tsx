@@ -74,12 +74,7 @@ const mockContainerClickOutside = { callback: null as (() => void) | null, enabl
 const mockTocClickOutside = { callback: null as (() => void) | null, enabled: false };
 let useClickOutsideCallCount = 0;
 vi.mock('../../../renderer/hooks/ui/useClickOutside', () => ({
-	useClickOutside: (
-		_ref: unknown,
-		callback: () => void,
-		enabled: boolean,
-		_options?: unknown
-	) => {
+	useClickOutside: (_ref: unknown, callback: () => void, enabled: boolean, _options?: unknown) => {
 		// First call is for container (handleEscapeRequest), second is for TOC
 		if (useClickOutsideCallCount % 2 === 0) {
 			mockContainerClickOutside.callback = callback;
@@ -92,8 +87,16 @@ vi.mock('../../../renderer/hooks/ui/useClickOutside', () => ({
 	},
 }));
 // Legacy aliases for backward compatibility with existing tests
-const mockClickOutsideCallback = { get current() { return mockContainerClickOutside.callback; } };
-const mockClickOutsideEnabled = { get current() { return mockContainerClickOutside.enabled; } };
+const mockClickOutsideCallback = {
+	get current() {
+		return mockContainerClickOutside.callback;
+	},
+};
+const mockClickOutsideEnabled = {
+	get current() {
+		return mockContainerClickOutside.enabled;
+	},
+};
 
 // Mock MermaidRenderer
 vi.mock('../../../renderer/components/MermaidRenderer', () => ({

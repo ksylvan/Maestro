@@ -107,10 +107,14 @@ export class StderrHandler {
 				if (actualContent) {
 					// The actual response content should be emitted as regular data, not stderr
 					// since it's the agent's response, not an error
-					logger.debug('[ProcessManager] Codex stdin response extracted from stderr', 'ProcessManager', {
-						sessionId,
-						contentPreview: actualContent.substring(0, 100),
-					});
+					logger.debug(
+						'[ProcessManager] Codex stdin response extracted from stderr',
+						'ProcessManager',
+						{
+							sessionId,
+							contentPreview: actualContent.substring(0, 100),
+						}
+					);
 					this.emitter.emit('data', sessionId, actualContent);
 				}
 				return;

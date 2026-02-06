@@ -233,7 +233,8 @@ export function useAutoRunImageHandling({
 						if (textarea) {
 							const start = textarea.selectionStart ?? 0;
 							const end = textarea.selectionEnd ?? 0;
-							const newContent = localContent.slice(0, start) + trimmedText + localContent.slice(end);
+							const newContent =
+								localContent.slice(0, start) + trimmedText + localContent.slice(end);
 							setLocalContent(newContent);
 							handleContentChange(newContent);
 							// Set cursor position after the pasted text

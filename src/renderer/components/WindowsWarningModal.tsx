@@ -9,7 +9,15 @@
  */
 
 import React, { useState, useRef, useCallback } from 'react';
-import { AlertTriangle, Bug, Wrench, ExternalLink, Command, Check, MessageCircle } from 'lucide-react';
+import {
+	AlertTriangle,
+	Bug,
+	Wrench,
+	ExternalLink,
+	Command,
+	Check,
+	MessageCircle,
+} from 'lucide-react';
 import type { Theme } from '../types';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { Modal, ModalFooter } from './ui/Modal';
@@ -94,7 +102,10 @@ export function WindowsWarningModal({
 
 				{/* Recommendations */}
 				<div className="space-y-3">
-					<h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: theme.colors.textDim }}>
+					<h3
+						className="text-xs font-semibold uppercase tracking-wider"
+						style={{ color: theme.colors.textDim }}
+					>
 						Recommendations
 					</h3>
 
@@ -128,7 +139,9 @@ export function WindowsWarningModal({
 							<div
 								className="absolute w-3.5 h-3.5 rounded-full top-0.5 transition-all flex items-center justify-center"
 								style={{
-									backgroundColor: useBetaChannel ? theme.colors.accentForeground : theme.colors.textDim,
+									backgroundColor: useBetaChannel
+										? theme.colors.accentForeground
+										: theme.colors.textDim,
 									left: useBetaChannel ? 'calc(100% - 18px)' : '2px',
 								}}
 							>
@@ -142,7 +155,9 @@ export function WindowsWarningModal({
 					{/* Report issues */}
 					<button
 						type="button"
-						onClick={() => window.maestro.shell.openExternal('https://github.com/pedramamini/Maestro/issues')}
+						onClick={() =>
+							window.maestro.shell.openExternal('https://github.com/pedramamini/Maestro/issues')
+						}
 						className="w-full flex items-start gap-3 p-3 rounded-lg border hover:bg-white/5 transition-colors text-left"
 						style={{ borderColor: theme.colors.border }}
 					>
@@ -155,7 +170,10 @@ export function WindowsWarningModal({
 								Help improve Windows support by reporting bugs on GitHub. Vetted PRs are welcome!
 							</p>
 						</div>
-						<ExternalLink className="w-3 h-3 shrink-0 mt-1" style={{ color: theme.colors.textDim }} />
+						<ExternalLink
+							className="w-3 h-3 shrink-0 mt-1"
+							style={{ color: theme.colors.textDim }}
+						/>
 					</button>
 
 					{/* Join Discord */}
@@ -165,7 +183,10 @@ export function WindowsWarningModal({
 						className="w-full flex items-start gap-3 p-3 rounded-lg border hover:bg-white/5 transition-colors text-left"
 						style={{ borderColor: theme.colors.border }}
 					>
-						<MessageCircle className="w-4 h-4 mt-0.5 shrink-0" style={{ color: theme.colors.accent }} />
+						<MessageCircle
+							className="w-4 h-4 mt-0.5 shrink-0"
+							style={{ color: theme.colors.accent }}
+						/>
 						<div className="flex-1 min-w-0">
 							<p className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
 								Join Discord
@@ -174,7 +195,10 @@ export function WindowsWarningModal({
 								Connect with other users in our Windows-specific channel for tips and support.
 							</p>
 						</div>
-						<ExternalLink className="w-3 h-3 shrink-0 mt-1" style={{ color: theme.colors.textDim }} />
+						<ExternalLink
+							className="w-3 h-3 shrink-0 mt-1"
+							style={{ color: theme.colors.textDim }}
+						/>
 					</button>
 
 					{/* Create Debug Package */}
@@ -190,17 +214,25 @@ export function WindowsWarningModal({
 								Create Debug Package
 							</p>
 							<p className="text-xs mt-0.5" style={{ color: theme.colors.textDim }}>
-								Accessible anytime via <kbd className="px-1 py-0.5 rounded text-[10px]" style={{ backgroundColor: theme.colors.bgMain }}>Ctrl+K</kbd> → "Create Debug Package" or from the main menu.
+								Accessible anytime via{' '}
+								<kbd
+									className="px-1 py-0.5 rounded text-[10px]"
+									style={{ backgroundColor: theme.colors.bgMain }}
+								>
+									Ctrl+K
+								</kbd>{' '}
+								→ "Create Debug Package" or from the main menu.
 							</p>
 						</div>
-						<ExternalLink className="w-3 h-3 shrink-0 mt-1" style={{ color: theme.colors.textDim }} />
+						<ExternalLink
+							className="w-3 h-3 shrink-0 mt-1"
+							style={{ color: theme.colors.textDim }}
+						/>
 					</button>
 				</div>
 
 				{/* Suppress checkbox */}
-				<label
-					className="flex items-center gap-2 pt-2 cursor-pointer group"
-				>
+				<label className="flex items-center gap-2 pt-2 cursor-pointer group">
 					<div
 						className="w-4 h-4 rounded border flex items-center justify-center transition-colors"
 						style={{

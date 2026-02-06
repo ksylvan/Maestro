@@ -423,7 +423,10 @@ describe('ToastContext', () => {
 				});
 			});
 
-			expect(window.maestro.notification.speak).toHaveBeenCalledWith('Regular task completed', 'say');
+			expect(window.maestro.notification.speak).toHaveBeenCalledWith(
+				'Regular task completed',
+				'say'
+			);
 
 			vi.clearAllMocks();
 

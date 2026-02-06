@@ -5433,7 +5433,19 @@ describe('Performance: Many file tabs (10+)', () => {
 
 	it('renders file tabs with different extensions correctly', () => {
 		const aiTab = createTab({ id: 'ai-tab-1', name: 'AI Tab', agentSessionId: 'sess-1' });
-		const extensions = ['.ts', '.tsx', '.js', '.json', '.md', '.css', '.html', '.py', '.rs', '.go', '.sh'];
+		const extensions = [
+			'.ts',
+			'.tsx',
+			'.js',
+			'.json',
+			'.md',
+			'.css',
+			'.html',
+			'.py',
+			'.rs',
+			'.go',
+			'.sh',
+		];
 		const fileTabs: FilePreviewTab[] = extensions.map((ext, i) => ({
 			id: `file-tab-${i}`,
 			path: `/path/to/files/file-${i}${ext}`,

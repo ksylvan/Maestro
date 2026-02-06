@@ -79,7 +79,7 @@ export interface TemplateContext {
 // Variables marked as autoRunOnly are only shown in Auto Run contexts, not in AI Commands settings
 export const TEMPLATE_VARIABLES = [
 	{ variable: '{{AGENT_GROUP}}', description: 'Agent group name' },
-	{ variable: '{{CONDUCTOR_PROFILE}}', description: 'Conductor\'s About Me profile' },
+	{ variable: '{{CONDUCTOR_PROFILE}}', description: "Conductor's About Me profile" },
 	{ variable: '{{AGENT_HISTORY_PATH}}', description: 'History file path (task recall)' },
 	{ variable: '{{AGENT_NAME}}', description: 'Agent name' },
 	{ variable: '{{AGENT_PATH}}', description: 'Agent home directory path' },

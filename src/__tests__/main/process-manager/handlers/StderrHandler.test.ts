@@ -80,7 +80,10 @@ describe('StderrHandler', () => {
 			const stderrSpy = vi.fn();
 			emitter.on('stderr', stderrSpy);
 
-			handler.handleData(sessionId, 'Pseudo-terminal will not be allocated because stdin is not a terminal.');
+			handler.handleData(
+				sessionId,
+				'Pseudo-terminal will not be allocated because stdin is not a terminal.'
+			);
 
 			expect(stderrSpy).not.toHaveBeenCalled();
 		});
@@ -91,7 +94,10 @@ describe('StderrHandler', () => {
 			const stderrSpy = vi.fn();
 			emitter.on('stderr', stderrSpy);
 
-			handler.handleData(sessionId, 'Warning: Permanently added "example.com" to the list of known hosts.');
+			handler.handleData(
+				sessionId,
+				'Warning: Permanently added "example.com" to the list of known hosts.'
+			);
 
 			expect(stderrSpy).not.toHaveBeenCalled();
 		});

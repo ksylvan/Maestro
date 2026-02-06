@@ -11,7 +11,10 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { WindowsWarningModal, exposeWindowsWarningModalDebug } from '../../../renderer/components/WindowsWarningModal';
+import {
+	WindowsWarningModal,
+	exposeWindowsWarningModalDebug,
+} from '../../../renderer/components/WindowsWarningModal';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme } from '../../../renderer/types';
 
@@ -132,7 +135,13 @@ describe('WindowsWarningModal', () => {
 
 		it('calls onSetUseBetaChannel with true when Enable Beta Updates is clicked', () => {
 			const onSetUseBetaChannel = vi.fn();
-			renderWithLayerStack(<WindowsWarningModal {...defaultProps} useBetaChannel={false} onSetUseBetaChannel={onSetUseBetaChannel} />);
+			renderWithLayerStack(
+				<WindowsWarningModal
+					{...defaultProps}
+					useBetaChannel={false}
+					onSetUseBetaChannel={onSetUseBetaChannel}
+				/>
+			);
 
 			fireEvent.click(screen.getByText('Enable Beta Updates'));
 			expect(onSetUseBetaChannel).toHaveBeenCalledWith(true);
@@ -140,7 +149,13 @@ describe('WindowsWarningModal', () => {
 
 		it('calls onSetUseBetaChannel with false when Beta Updates toggle is clicked while enabled', () => {
 			const onSetUseBetaChannel = vi.fn();
-			renderWithLayerStack(<WindowsWarningModal {...defaultProps} useBetaChannel={true} onSetUseBetaChannel={onSetUseBetaChannel} />);
+			renderWithLayerStack(
+				<WindowsWarningModal
+					{...defaultProps}
+					useBetaChannel={true}
+					onSetUseBetaChannel={onSetUseBetaChannel}
+				/>
+			);
 
 			fireEvent.click(screen.getByText('Enable Beta Updates'));
 			expect(onSetUseBetaChannel).toHaveBeenCalledWith(false);
@@ -150,19 +165,25 @@ describe('WindowsWarningModal', () => {
 			renderWithLayerStack(<WindowsWarningModal {...defaultProps} />);
 
 			fireEvent.click(screen.getByText('Report Issues'));
-			expect(window.maestro.shell.openExternal).toHaveBeenCalledWith('https://github.com/pedramamini/Maestro/issues');
+			expect(window.maestro.shell.openExternal).toHaveBeenCalledWith(
+				'https://github.com/pedramamini/Maestro/issues'
+			);
 		});
 
 		it('opens Discord when Join Discord is clicked', () => {
 			renderWithLayerStack(<WindowsWarningModal {...defaultProps} />);
 
 			fireEvent.click(screen.getByText('Join Discord'));
-			expect(window.maestro.shell.openExternal).toHaveBeenCalledWith('https://discord.gg/FCAh4EWzfD');
+			expect(window.maestro.shell.openExternal).toHaveBeenCalledWith(
+				'https://discord.gg/FCAh4EWzfD'
+			);
 		});
 
 		it('calls onOpenDebugPackage when Create Debug Package is clicked', () => {
 			const onOpenDebugPackage = vi.fn();
-			renderWithLayerStack(<WindowsWarningModal {...defaultProps} onOpenDebugPackage={onOpenDebugPackage} />);
+			renderWithLayerStack(
+				<WindowsWarningModal {...defaultProps} onOpenDebugPackage={onOpenDebugPackage} />
+			);
 
 			fireEvent.click(screen.getByText('Create Debug Package'));
 			expect(onOpenDebugPackage).toHaveBeenCalledTimes(1);
@@ -187,7 +208,9 @@ describe('WindowsWarningModal', () => {
 
 		it('calls onSuppressFuture with false when closed without checking', () => {
 			const onSuppressFuture = vi.fn();
-			renderWithLayerStack(<WindowsWarningModal {...defaultProps} onSuppressFuture={onSuppressFuture} />);
+			renderWithLayerStack(
+				<WindowsWarningModal {...defaultProps} onSuppressFuture={onSuppressFuture} />
+			);
 
 			fireEvent.click(screen.getByRole('button', { name: 'Got it!' }));
 			expect(onSuppressFuture).toHaveBeenCalledWith(false);
@@ -195,7 +218,9 @@ describe('WindowsWarningModal', () => {
 
 		it('calls onSuppressFuture with true when closed with checkbox checked', () => {
 			const onSuppressFuture = vi.fn();
-			renderWithLayerStack(<WindowsWarningModal {...defaultProps} onSuppressFuture={onSuppressFuture} />);
+			renderWithLayerStack(
+				<WindowsWarningModal {...defaultProps} onSuppressFuture={onSuppressFuture} />
+			);
 
 			// Check the checkbox first
 			fireEvent.click(screen.getByRole('checkbox'));

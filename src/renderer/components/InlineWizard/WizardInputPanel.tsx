@@ -323,7 +323,11 @@ export const WizardInputPanel = React.memo(function WizardInputPanel({
 								<button
 									onClick={() => setEnterToSend(!enterToSend)}
 									className="flex items-center gap-1 text-[10px] opacity-50 hover:opacity-100 px-2 py-1 rounded hover:bg-white/5"
-									title={enterToSend ? `Switch to ${isMacOS() ? 'Cmd' : 'Ctrl'}+Enter to send` : 'Switch to Enter to send'}
+									title={
+										enterToSend
+											? `Switch to ${isMacOS() ? 'Cmd' : 'Ctrl'}+Enter to send`
+											: 'Switch to Enter to send'
+									}
 								>
 									<Keyboard className="w-3 h-3" />
 									{enterToSend ? 'Enter' : isMacOS() ? '⌘ + Enter' : 'Ctrl + Enter'}
