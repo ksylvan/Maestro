@@ -1815,6 +1815,10 @@ export function useSettings(): UseSettingsReturn {
 	// Reload settings when system resumes from sleep/suspend
 	// This ensures settings like maxOutputLines aren't reset to defaults
 	useEffect(() => {
+		// Guard against window.maestro not being defined yet (production timing)
+		if (!window.maestro?.app?.onSystemResume) {
+			return;
+		}
 		const cleanup = window.maestro.app.onSystemResume(() => {
 			console.log('[Settings] System resumed from sleep, reloading settings');
 			loadSettings();
