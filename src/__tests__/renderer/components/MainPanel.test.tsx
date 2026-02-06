@@ -148,6 +148,7 @@ vi.mock('../../../renderer/utils/tabHelpers', () => ({
 // Mock shortcut formatter
 vi.mock('../../../renderer/utils/shortcutFormatter', () => ({
 	formatShortcutKeys: vi.fn((keys: string[]) => keys?.join('+') || ''),
+	isMacOS: vi.fn(() => false),
 }));
 
 // Configurable git status data for tests - can be modified in individual tests
@@ -666,11 +667,7 @@ describe('MainPanel', () => {
 		it('should render FilePreview when activeFileTab is set', () => {
 			const activeFileTab = createFileTab();
 			render(
-				<MainPanel
-					{...defaultProps}
-					activeFileTabId="file-tab-1"
-					activeFileTab={activeFileTab}
-				/>
+				<MainPanel {...defaultProps} activeFileTabId="file-tab-1" activeFileTab={activeFileTab} />
 			);
 
 			expect(screen.getByTestId('file-preview')).toBeInTheDocument();
@@ -680,11 +677,7 @@ describe('MainPanel', () => {
 		it('should show TabBar when file preview tab is active (tabs remain visible)', () => {
 			const activeFileTab = createFileTab();
 			render(
-				<MainPanel
-					{...defaultProps}
-					activeFileTabId="file-tab-1"
-					activeFileTab={activeFileTab}
-				/>
+				<MainPanel {...defaultProps} activeFileTabId="file-tab-1" activeFileTab={activeFileTab} />
 			);
 
 			// In the new tab system, TabBar remains visible when file tab is active

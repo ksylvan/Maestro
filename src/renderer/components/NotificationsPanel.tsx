@@ -118,10 +118,7 @@ export function NotificationsPanel({
 						{testNotificationId !== null ? (
 							<button
 								onClick={async () => {
-									console.log(
-										'[Notification] Stop test button clicked, id:',
-										testNotificationId
-									);
+									console.log('[Notification] Stop test button clicked, id:', testNotificationId);
 									try {
 										await window.maestro.notification.stopSpeak(testNotificationId);
 									} catch (err) {
@@ -306,10 +303,6 @@ export function NotificationsPanel({
 				<ul className="text-xs opacity-70 space-y-1" style={{ color: theme.colors.textDim }}>
 					<li>• When an AI task completes</li>
 					<li>• When a long-running command finishes</li>
-					<li>
-						• When the LLM analysis generates a feedback synopsis (custom notification only, if
-						configured)
-					</li>
 				</ul>
 				<div
 					className="text-xs opacity-60 mt-3 pt-3"

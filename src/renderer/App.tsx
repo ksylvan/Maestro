@@ -878,6 +878,12 @@ function MaestroConsoleInner() {
 		window.maestro.app.confirmQuit();
 	}, []);
 
+	const handleConfirmQuitAndDelete = useCallback(() => {
+		setQuitConfirmModalOpen(false);
+		// TODO: Implement working directory deletion before quit
+		window.maestro.app.confirmQuit();
+	}, []);
+
 	const handleCancelQuit = useCallback(() => {
 		setQuitConfirmModalOpen(false);
 		window.maestro.app.cancelQuit();
@@ -4153,6 +4159,10 @@ function MaestroConsoleInner() {
 
 	// Quit confirmation handler - shows modal when trying to quit with busy agents
 	useEffect(() => {
+		// Guard against window.maestro not being defined yet (production timing)
+		if (!window.maestro?.app?.onQuitConfirmationRequest) {
+			return;
+		}
 		const unsubscribe = window.maestro.app.onQuitConfirmationRequest(() => {
 			// Get all busy AI sessions (agents that are actively thinking)
 			const busyAgents = sessions.filter(
@@ -8456,6 +8466,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 				customPath?: string;
 				customArgs?: string;
 				customEnvVars?: Record<string, string>;
+				customModel?: string;
 			}
 		) => {
 			const chat = await window.maestro.groupChat.create(name, moderatorAgentId, moderatorConfig);
@@ -13554,6 +13565,7 @@ You are taking over this conversation. Based on the context above, provide a bri
 					onCloseConfirmModal={handleCloseConfirmModal}
 					quitConfirmModalOpen={quitConfirmModalOpen}
 					onConfirmQuit={handleConfirmQuit}
+					onConfirmQuitAndDelete={handleConfirmQuitAndDelete}
 					onCancelQuit={handleCancelQuit}
 					// AppSessionModals props
 					newInstanceModalOpen={newInstanceModalOpen}
