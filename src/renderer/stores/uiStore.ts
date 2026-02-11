@@ -45,6 +45,12 @@ export interface UIStoreState {
 	outputSearchOpen: boolean;
 	outputSearchQuery: string;
 
+	// Session filter (sidebar agent search)
+	sessionFilterOpen: boolean;
+
+	// History panel search
+	historySearchFilterOpen: boolean;
+
 	// Drag and drop (session dragging in sidebar)
 	draggingSessionId: string | null;
 
@@ -94,6 +100,12 @@ export interface UIStoreActions {
 	setOutputSearchOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
 	setOutputSearchQuery: (query: string | ((prev: string) => string)) => void;
 
+	// Session filter (sidebar agent search)
+	setSessionFilterOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
+
+	// History panel search
+	setHistorySearchFilterOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
+
 	// Drag and drop
 	setDraggingSessionId: (id: string | null | ((prev: string | null) => string | null)) => void;
 
@@ -130,6 +142,8 @@ export const useUIStore = create<UIStore>()((set) => ({
 	successFlashNotification: null,
 	outputSearchOpen: false,
 	outputSearchQuery: '',
+	sessionFilterOpen: false,
+	historySearchFilterOpen: false,
 	draggingSessionId: null,
 	editingGroupId: null,
 	editingSessionId: null,
@@ -169,6 +183,11 @@ export const useUIStore = create<UIStore>()((set) => ({
 
 	setOutputSearchOpen: (v) => set((s) => ({ outputSearchOpen: resolve(v, s.outputSearchOpen) })),
 	setOutputSearchQuery: (v) => set((s) => ({ outputSearchQuery: resolve(v, s.outputSearchQuery) })),
+
+	setSessionFilterOpen: (v) =>
+		set((s) => ({ sessionFilterOpen: resolve(v, s.sessionFilterOpen) })),
+	setHistorySearchFilterOpen: (v) =>
+		set((s) => ({ historySearchFilterOpen: resolve(v, s.historySearchFilterOpen) })),
 
 	setDraggingSessionId: (v) => set((s) => ({ draggingSessionId: resolve(v, s.draggingSessionId) })),
 

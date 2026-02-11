@@ -9,6 +9,7 @@ import { gitService } from '../services/git';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import type { WizardStep } from './Wizard/WizardContext';
 import { useListNavigation } from '../hooks';
+import { useUIStore } from '../stores/uiStore';
 
 interface QuickAction {
 	id: string;
@@ -197,6 +198,13 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
 		onOpenLastDocumentGraph,
 		onOpenSymphony,
 	} = props;
+
+	// UI store actions for search commands (avoid threading more props through 3-layer chain)
+	const setActiveFocus = useUIStore((s) => s.setActiveFocus);
+	const storeSetSessionFilterOpen = useUIStore((s) => s.setSessionFilterOpen);
+	const storeSetOutputSearchOpen = useUIStore((s) => s.setOutputSearchOpen);
+	const storeSetFileTreeFilterOpen = useUIStore((s) => s.setFileTreeFilterOpen);
+	const storeSetHistorySearchFilterOpen = useUIStore((s) => s.setHistorySearchFilterOpen);
 
 	const [search, setSearch] = useState('');
 	const [mode, setMode] = useState<'main' | 'move-to-group'>(initialMode);
@@ -1030,6 +1038,52 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
 					},
 				]
 			: []),
+		// Search actions - focus search inputs in various panels
+		{
+			id: 'searchAgents',
+			label: 'Search: Agents',
+			subtext: 'Filter agents in the sidebar',
+			action: () => {
+				setQuickActionOpen(false);
+				setLeftSidebarOpen(true);
+				setActiveFocus('sidebar');
+				setTimeout(() => storeSetSessionFilterOpen(true), 50);
+			},
+		},
+		{
+			id: 'searchMessages',
+			label: 'Search: Message History',
+			subtext: 'Search messages in the current conversation',
+			action: () => {
+				setQuickActionOpen(false);
+				setActiveFocus('main');
+				setTimeout(() => storeSetOutputSearchOpen(true), 50);
+			},
+		},
+		{
+			id: 'searchFiles',
+			label: 'Search: Files',
+			subtext: 'Filter files in the file explorer',
+			action: () => {
+				setQuickActionOpen(false);
+				setRightPanelOpen(true);
+				setActiveRightTab('files');
+				setActiveFocus('right');
+				setTimeout(() => storeSetFileTreeFilterOpen(true), 50);
+			},
+		},
+		{
+			id: 'searchHistory',
+			label: 'Search: History',
+			subtext: 'Search in the history panel',
+			action: () => {
+				setQuickActionOpen(false);
+				setRightPanelOpen(true);
+				setActiveRightTab('history');
+				setActiveFocus('right');
+				setTimeout(() => storeSetHistorySearchFilterOpen(true), 50);
+			},
+		},
 		// Publish document as GitHub Gist - only when file preview is open, gh CLI is available, and not in edit mode
 		...(isFilePreviewOpen && ghCliAvailable && onPublishGist && !markdownEditMode
 			? [
