@@ -12384,8 +12384,8 @@ You are taking over this conversation. Based on the context above, provide a bri
 									)}
 									onRemoveQueuedItem={handleRemoveGroupChatQueueItem}
 									onReorderQueuedItems={handleReorderGroupChatQueueItems}
-									markdownEditMode={markdownEditMode}
-									onToggleMarkdownEditMode={() => setMarkdownEditMode(!markdownEditMode)}
+									markdownEditMode={chatRawTextMode}
+									onToggleMarkdownEditMode={() => setChatRawTextMode(!chatRawTextMode)}
 									maxOutputLines={maxOutputLines}
 									enterToSendAI={enterToSendAI}
 									setEnterToSendAI={setEnterToSendAI}

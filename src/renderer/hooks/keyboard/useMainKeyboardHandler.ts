@@ -135,16 +135,18 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				if (ctx.hasOpenModal()) {
 					// TRUE MODAL is open - block most shortcuts from App.tsx
 					// The modal's own handler will handle Cmd+Shift+[] if it supports it
-					// BUT allow layout shortcuts (sidebar toggles), system utility shortcuts, session jump, and jumpToBottom to work
+					// BUT allow layout shortcuts (sidebar toggles), system utility shortcuts, session jump,
+					// jumpToBottom, and markdown toggle to work (these are benign viewing preferences)
 					if (
 						!isLayoutShortcut &&
 						!isSystemUtilShortcut &&
 						!isSessionJumpShortcut &&
-						!isJumpToBottomShortcut
+						!isJumpToBottomShortcut &&
+						!isMarkdownToggleShortcut
 					) {
 						return;
 					}
-					// Fall through to handle layout/system utility/session jump/jumpToBottom shortcuts below
+					// Fall through to handle layout/system utility/session jump/jumpToBottom/markdown toggle shortcuts below
 				} else {
 					// Only OVERLAYS are open (file tabs, LogViewer, etc.)
 					// Allow Cmd+Shift+[] to fall through to App.tsx handler

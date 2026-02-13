@@ -2061,6 +2061,7 @@ export function useSettings(): UseSettingsReturn {
 			setLeftSidebarWidth,
 			setRightPanelWidth,
 			setMarkdownEditMode,
+			setChatRawTextMode,
 			setShowHiddenFiles,
 			setTerminalWidth,
 			setLogLevel,
