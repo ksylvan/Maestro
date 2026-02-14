@@ -6,7 +6,7 @@ import type { ContributorStats } from './symphony-types';
 
 // Registry URL (hosted in Maestro repo)
 export const SYMPHONY_REGISTRY_URL =
-  'https://raw.githubusercontent.com/pedramamini/Maestro/main/symphony-registry.json';
+  'https://raw.githubusercontent.com/RunMaestro/Maestro/main/symphony-registry.json';
 
 // GitHub API base
 export const GITHUB_API_BASE = 'https://api.github.com';

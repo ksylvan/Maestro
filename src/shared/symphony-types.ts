@@ -11,7 +11,7 @@
 
 /**
  * The Symphony registry listing all registered repositories.
- * Hosted at: https://raw.githubusercontent.com/pedramamini/Maestro/main/symphony-registry.json
+ * Hosted at: https://raw.githubusercontent.com/RunMaestro/Maestro/main/symphony-registry.json
  */
 export interface SymphonyRegistry {
   /** Schema version for forward compatibility */

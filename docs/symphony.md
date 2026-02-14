@@ -175,7 +175,7 @@ This means issues show as "in progress" once the first commit lands. The claimin
 
 To add your open source project to Symphony:
 
-1. Fork the [Maestro repository](https://github.com/pedramamini/Maestro)
+1. Fork the [Maestro repository](https://github.com/RunMaestro/Maestro)
 2. Add your project to `symphony-registry.json` in the root directory
 3. Submit a pull request to the main Maestro repository
 
@@ -218,7 +218,7 @@ Once merged, your project will appear in the Symphony Projects tab (registry cac
 
 Browse Symphony-ready issues on Maestro itself:
 
-<Card title="Maestro Symphony Issues" icon="github" href="https://github.com/pedramamini/Maestro/issues?q=is%3Aissue%20label%3Arunmaestro.ai">
+<Card title="Maestro Symphony Issues" icon="github" href="https://github.com/RunMaestro/Maestro/issues?q=is%3Aissue%20label%3Arunmaestro.ai">
   View all issues labeled `runmaestro.ai` — ready for AI-assisted contribution
 </Card>
 

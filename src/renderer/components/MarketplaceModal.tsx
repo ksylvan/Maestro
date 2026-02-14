@@ -1165,14 +1165,14 @@ export function MarketplaceModal({
 											<button
 												onClick={() => {
 													window.maestro.shell.openExternal(
-														'https://github.com/pedramamini/Maestro-Playbooks'
+														'https://github.com/RunMaestro/Maestro-Playbooks'
 													);
 													setShowHelp(false);
 												}}
 												className="text-xs hover:opacity-80 transition-colors"
 												style={{ color: theme.colors.accent }}
 											>
-												github.com/pedramamini/Maestro-Playbooks
+												github.com/RunMaestro/Maestro-Playbooks
 											</button>
 											<div
 												className="mt-3 pt-3 border-t"
@@ -1193,7 +1193,7 @@ export function MarketplaceModal({
 								<button
 									onClick={() => {
 										window.maestro.shell.openExternal(
-											'https://github.com/pedramamini/Maestro-Playbooks'
+											'https://github.com/RunMaestro/Maestro-Playbooks'
 										);
 									}}
 									className="px-2 py-1 rounded hover:bg-white/10 transition-colors flex items-center gap-1.5 text-xs"
