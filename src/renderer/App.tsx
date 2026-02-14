@@ -1949,7 +1949,17 @@ function MaestroConsoleInner() {
 
 		const unsubModeratorUsage = window.maestro.groupChat.onModeratorUsage?.((id, usage) => {
 			if (id === activeGroupChatId) {
-				setModeratorUsage(usage);
+				// When contextUsage is -1, tokens were accumulated from multi-tool turns.
+				// Preserve previous context/token values; only update cost.
+				if (usage.contextUsage < 0) {
+					setModeratorUsage((prev) =>
+						prev
+							? { ...prev, totalCost: usage.totalCost }
+							: { contextUsage: 0, totalCost: usage.totalCost, tokenCount: 0 }
+					);
+				} else {
+					setModeratorUsage(usage);
+				}
 			}
 		});
 
@@ -2048,6 +2058,7 @@ function MaestroConsoleInner() {
 	const fileTreeContainerRef = useRef<HTMLDivElement>(null);
 	const fileTreeFilterInputRef = useRef<HTMLInputElement>(null);
 	const fileTreeKeyboardNavRef = useRef(false); // Track if selection change came from keyboard
+	const recentlyCreatedWorktreePathsRef = useRef(new Set<string>()); // Prevent duplicate UI entries from file watcher
 	const rightPanelRef = useRef<RightPanelHandle>(null);
 	const mainPanelRef = useRef<MainPanelHandle>(null);
 
@@ -6234,6 +6245,11 @@ You are taking over this conversation. Based on the context above, provide a bri
 		const cleanup = window.maestro.git.onWorktreeDiscovered(async (data) => {
 			const { sessionId, worktree } = data;
 
+			// Skip worktrees that were just manually created (prevents duplicate UI entries)
+			if (recentlyCreatedWorktreePathsRef.current.has(worktree.path)) {
+				return;
+			}
+
 			// Skip main/master/HEAD branches (already filtered by main process, but double-check)
 			if (
 				worktree.branch === 'main' ||
@@ -6669,13 +6685,14 @@ You are taking over this conversation. Based on the context above, provide a bri
 
 	// Handler to stop batch run (with confirmation)
 	// If targetSessionId is provided, stops that specific session's batch run.
-	// Otherwise, stops the first active batch run or falls back to active session.
+	// Otherwise, falls back to active session, then first active batch run.
 	const handleStopBatchRun = useCallback(
 		(targetSessionId?: string) => {
-			// Use provided targetSessionId, or fall back to first active batch, or active session
+			// Use provided targetSessionId, or fall back to active session, or first active batch
 			const sessionId =
 				targetSessionId ??
-				(activeBatchSessionIds.length > 0 ? activeBatchSessionIds[0] : activeSession?.id);
+				activeSession?.id ??
+				(activeBatchSessionIds.length > 0 ? activeBatchSessionIds[0] : undefined);
 			console.log(
 				'[App:handleStopBatchRun] targetSessionId:',
 				targetSessionId,
@@ -9918,6 +9935,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 					sessionSshRemoteConfig: activeSession.sessionSshRemoteConfig,
 				};
 
+				// Mark path so the file watcher discovery handler skips it
+				recentlyCreatedWorktreePathsRef.current.add(worktreePath);
+				setTimeout(() => recentlyCreatedWorktreePathsRef.current.delete(worktreePath), 10000);
+
 				setSessions((prev) => [...prev, worktreeSession]);
 
 				// Expand parent's worktrees
@@ -10070,6 +10091,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 				// Inherit SSH configuration from parent session
 				sessionSshRemoteConfig: createWorktreeSession.sessionSshRemoteConfig,
 			};
+
+			// Mark path so the file watcher discovery handler skips it
+			recentlyCreatedWorktreePathsRef.current.add(worktreePath);
+			setTimeout(() => recentlyCreatedWorktreePathsRef.current.delete(worktreePath), 10000);
 
 			setSessions((prev) => [...prev, worktreeSession]);
 
