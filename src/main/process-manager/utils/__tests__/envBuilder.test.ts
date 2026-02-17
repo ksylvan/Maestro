@@ -10,10 +10,10 @@
  * - Empty and undefined inputs don't break functionality
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as os from 'os';
 import * as path from 'path';
-import { buildChildProcessEnv, buildPtyTerminalEnv, buildUnixBasePath } from '../envBuilder';
+import { buildChildProcessEnv, buildPtyTerminalEnv } from '../envBuilder';
 
 describe('envBuilder - Global Environment Variables', () => {
 	let originalProcessEnv: NodeJS.ProcessEnv;
@@ -302,7 +302,7 @@ describe('envBuilder - Global Environment Variables', () => {
 			expect(env.PATH).toBeDefined();
 			expect(typeof env.PATH).toBe('string');
 			// The actual value depends on the system, but it should exist
-			expect(env.PATH.length).toBeGreaterThan(0);
+			expect((env.PATH as string).length).toBeGreaterThan(0);
 		});
 	});
 
