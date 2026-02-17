@@ -207,8 +207,18 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 				let shellArgsStr: string | undefined;
 				let shellEnvVars: Record<string, string> | undefined;
 
-				// Always load global shell env vars (applies to both terminals and agents)
-				// Global env vars are set via Settings → General → Shell Configuration
+				// Load global shell environment variables for ALL process types (terminals and agents)
+				//
+				// IMPORTANT: These are the user-defined global env vars from Settings → General → Shell Configuration.
+				// They apply to BOTH terminal sessions AND agent processes. This allows users to set API keys,
+				// proxy settings, and other environment variables once and have them apply everywhere.
+				//
+				// Precedence order (highest to lowest):
+				// 1. Session-level overrides (config.sessionCustomEnvVars)
+				// 2. Global vars (shellEnvVars from Settings) - loaded here
+				// 3. Process defaults (with Electron/IDE vars stripped for agents)
+				//
+				// The actual merging happens in buildChildProcessEnv() or buildPtyTerminalEnv().
 				const globalShellEnvVars = settingsStore.get('shellEnvVars', {}) as Record<string, string>;
 
 				if (config.toolType === 'terminal') {

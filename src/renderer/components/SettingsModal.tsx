@@ -1420,6 +1420,12 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 										</div>
 
 										{/* Shell Environment Variables */}
+										<p className="text-xs opacity-50 mb-2">
+											Environment variables to apply to all terminal sessions and AI agents. Format:
+											KEY=VALUE (one per line). These variables will be available to all agent
+											sessions and override process defaults. Agent-specific settings can override
+											these values.
+										</p>
 										<EnvVarsEditor
 											envVars={props.shellEnvVars}
 											setEnvVars={props.setShellEnvVars}
