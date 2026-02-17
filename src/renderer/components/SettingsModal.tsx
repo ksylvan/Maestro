@@ -534,7 +534,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 
 	// Detect agents when Encore Features tab is active (needed for Director's Notes config)
 	useEffect(() => {
-		if (!isOpen || activeTab !== 'encore') return;
+		if (!isOpen || activeTab !== 'encore' || !encoreFeatures.directorNotes) return;
 		let cancelled = false;
 		setDnIsDetecting(true);
 		window.maestro.agents
@@ -551,7 +551,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 		return () => {
 			cancelled = true;
 		};
-	}, [isOpen, activeTab]);
+	}, [isOpen, activeTab, encoreFeatures.directorNotes]);
 
 	// Sync local Director's Notes custom config state from settings when Encore tab opens
 	useEffect(() => {

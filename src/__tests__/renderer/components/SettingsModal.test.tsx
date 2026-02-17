@@ -2240,6 +2240,30 @@ describe('SettingsModal', () => {
 			});
 		});
 
+		it('should call setEncoreFeatures with false when toggling DN off', async () => {
+			mockSetEncoreFeatures.mockClear();
+
+			render(<SettingsModal {...createDefaultProps({ encoreFeatures: { directorNotes: true } })} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			fireEvent.click(screen.getByTitle('Encore Features'));
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			const dnSection = screen.getByText("Director's Notes").closest('button');
+			expect(dnSection).toBeInTheDocument();
+			fireEvent.click(dnSection!);
+
+			expect(mockSetEncoreFeatures).toHaveBeenCalledWith({
+				directorNotes: false,
+			});
+		});
+
 		describe('with Director\'s Notes enabled', () => {
 			const dnEnabledProps = { encoreFeatures: { directorNotes: true } };
 

@@ -406,7 +406,7 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				trackShortcut('openSymphony');
 			} else if (ctx.isShortcut(e, 'directorNotes') && ctx.encoreFeatures?.directorNotes) {
 				e.preventDefault();
-				ctx.setDirectorNotesOpen(true);
+				ctx.setDirectorNotesOpen?.(true);
 				trackShortcut('directorNotes');
 			} else if (ctx.isShortcut(e, 'jumpToBottom')) {
 				e.preventDefault();
