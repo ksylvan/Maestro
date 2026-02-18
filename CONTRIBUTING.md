@@ -30,7 +30,7 @@ See [Performance Guidelines](#performance-guidelines) for specific practices.
 - [Performance Guidelines](#performance-guidelines)
 - [Debugging Guide](#debugging-guide)
 - [Commit Messages](#commit-messages)
-- [Pull Request Process](#pull-request-process) (includes [CodeRabbit automated review](#automated-code-review-coderabbit))
+- [Pull Request Process](#pull-request-process) (includes [automated code review](#automated-code-review))
 - [Building for Release](#building-for-release)
 - [Documentation](#documentation)
 
@@ -802,15 +802,15 @@ Example: `feat: add context usage visualization`
 
 ## Pull Request Process
 
-### Automated Code Review (CodeRabbit)
+### Automated Code Review
 
-All PRs are automatically reviewed by [CodeRabbit](https://coderabbit.ai), an AI-powered code review tool. When you open or update a PR, CodeRabbit will:
+PRs are automatically reviewed by two AI-powered tools:
+
+**[CodeRabbit](https://coderabbit.ai)** — Line-level code review. When you open or update a PR, CodeRabbit will:
 
 - Post a **PR summary** with a walkthrough of changes
 - Leave **inline review comments** on potential issues
 - Provide a **sequence diagram** for complex changes
-
-**Interacting with CodeRabbit:**
 
 | Command | Effect |
 |---------|--------|
@@ -819,7 +819,15 @@ All PRs are automatically reviewed by [CodeRabbit](https://coderabbit.ai), an AI
 | `@coderabbitai resolve` | Resolve all CodeRabbit review comments |
 | `@coderabbitai configuration` | Show current repo settings |
 
-You can also reply to any CodeRabbit comment to ask follow-up questions or request clarification — it responds conversationally.
+You can reply to any CodeRabbit comment to ask follow-up questions — it responds conversationally.
+
+**[Greptile](https://greptile.com)** — Codebase-aware review with deeper architectural context. Greptile indexes the full repo and reviews PRs with understanding of how changes relate to the broader codebase.
+
+| Command | Effect |
+|---------|--------|
+| `@greptile` | Ask Greptile a question or request a review in any PR comment |
+
+Reply to Greptile comments the same way you would CodeRabbit.
 
 ### Before Opening a PR
 
