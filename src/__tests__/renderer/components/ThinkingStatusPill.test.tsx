@@ -469,8 +469,8 @@ describe('ThinkingStatusPill', () => {
 			const indicator = screen.getByText('+1').parentElement!;
 			fireEvent.mouseEnter(indicator);
 
-			// Dropdown should show both tabs from the same agent
-			expect(screen.getByText('Write')).toBeInTheDocument();
+			// 'Write' appears in both primary pill and dropdown row
+			expect(screen.getAllByText('Write').length).toBeGreaterThanOrEqual(2);
 			expect(screen.getByText('Read')).toBeInTheDocument();
 			// Agent name appears multiple times (pill + 2 dropdown rows)
 			expect(screen.getAllByText('Agent A').length).toBeGreaterThanOrEqual(2);

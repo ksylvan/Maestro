@@ -1979,7 +1979,7 @@ function SessionListInner(props: SessionListProps) {
 			{/* Resize Handle */}
 			{leftSidebarOpen && (
 				<div
-					className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-blue-500 transition-colors z-20"
+					className="absolute top-0 right-0 w-3 h-full cursor-col-resize border-r-4 border-transparent hover:border-blue-500 transition-colors z-20"
 					onMouseDown={onSidebarResizeStart}
 				/>
 			)}
