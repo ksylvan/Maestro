@@ -1558,7 +1558,7 @@ describe('FileExplorerPanel', () => {
 			fireEvent.contextMenu(fileItem!, { clientX: 100, clientY: 200 });
 
 			expect(screen.getByText('Copy Path')).toBeInTheDocument();
-			expect(screen.getByText('Reveal in Finder')).toBeInTheDocument();
+			expect(screen.getByText(/Reveal in (Finder|Explorer)/)).toBeInTheDocument();
 		});
 
 		it('updates selection to right-clicked item when opening context menu', () => {

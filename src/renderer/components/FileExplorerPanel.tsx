@@ -36,6 +36,7 @@ import { getFileIcon } from '../utils/theme';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { useClickOutside } from '../hooks/ui/useClickOutside';
+import { useOsPlatform } from '../hooks/useOsPlatform';
 import { Modal, ModalFooter } from './ui/Modal';
 import { FormInput } from './ui/FormInput';
 
@@ -394,6 +395,7 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 	} = props;
 
 	const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
+	const platform = useOsPlatform();
 	const layerIdRef = useRef<string>();
 	const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -435,6 +437,14 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 		itemCount?: { fileCount: number; folderCount: number };
 	} | null>(null);
 	const [isDeleting, setIsDeleting] = useState(false);
+
+	// Get platform-specific label for reveal action
+	const revealLabel = useMemo(() => {
+		if (platform === 'win32') {
+			return 'Reveal in Explorer';
+		}
+		return 'Reveal in Finder';
+	}, [platform]);
 
 	// Close context menu when clicking outside
 	useClickOutside(
@@ -1444,14 +1454,14 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 								<span>Copy Path</span>
 							</button>
 
-							{/* Reveal in Finder option */}
+							{/* Reveal in Finder / Explorer option */}
 							<button
 								onClick={handleOpenInExplorer}
 								className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
 								style={{ color: theme.colors.textMain }}
 							>
 								<ExternalLink className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
-								<span>Reveal in Finder</span>
+								<span>{revealLabel}</span>
 							</button>
 
 							{/* Divider before destructive actions */}
