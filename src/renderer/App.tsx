@@ -1,13 +1,4 @@
-import React, {
-	useState,
-	useEffect,
-	useRef,
-	useMemo,
-	useCallback,
-	useDeferredValue,
-	lazy,
-	Suspense,
-} from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 // SettingsModal is lazy-loaded for performance (large component, only loaded when settings opened)
 const SettingsModal = lazy(() =>
 	import('./components/SettingsModal').then((m) => ({ default: m.SettingsModal }))
@@ -78,7 +69,6 @@ import {
 	// Settings
 	useSettings,
 	useDebouncedPersistence,
-	useDebouncedValue,
 	// Session management
 	useActivityTracker,
 	useHandsOnTimeTracker,
@@ -88,10 +78,7 @@ import {
 	compareNamesIgnoringEmojis,
 	useGroupManagement,
 	// Input processing
-	useInputSync,
-	useTabCompletion,
-	useAtMentionCompletion,
-	useInputProcessing,
+	useInputHandlers,
 	// Keyboard handling
 	useKeyboardShortcutHelpers,
 	useKeyboardNavigation,
@@ -126,13 +113,11 @@ import {
 	// Session restoration
 	useSessionRestoration,
 	// Input keyboard handling
-	useInputKeyDown,
 	// App initialization effects
 	useAppInitialization,
 	// Session lifecycle operations
 	useSessionLifecycle,
 } from './hooks';
-import type { TabCompletionSuggestion } from './hooks';
 import { useMainPanelProps, useSessionListProps, useRightPanelProps } from './hooks/props';
 import { useAgentListeners } from './hooks/agent/useAgentListeners';
 
@@ -509,9 +494,6 @@ function MaestroConsoleInner() {
 		// Rendering settings
 		disableConfetti,
 
-		// Tab naming settings
-		automaticTabNamingEnabled,
-
 		// File tab refresh settings
 		fileTabAutoRefreshEnabled,
 
@@ -709,21 +691,6 @@ function MaestroConsoleInner() {
 		},
 		[setActiveSessionIdFromContext, setActiveGroupChatId]
 	);
-
-	// Input State - PERFORMANCE CRITICAL: Input values stay in App.tsx local state
-	// to avoid context re-renders on every keystroke. Only completion states are in context.
-	const [terminalInputValue, setTerminalInputValue] = useState('');
-	const [aiInputValueLocal, setAiInputValueLocal] = useState('');
-
-	// PERF: Refs to access current input values without triggering re-renders in memoized callbacks
-	const terminalInputValueRef = useRef(terminalInputValue);
-	const aiInputValueLocalRef = useRef(aiInputValueLocal);
-	useEffect(() => {
-		terminalInputValueRef.current = terminalInputValue;
-	}, [terminalInputValue]);
-	useEffect(() => {
-		aiInputValueLocalRef.current = aiInputValueLocal;
-	}, [aiInputValueLocal]);
 
 	// Completion states from InputContext (these change infrequently)
 	const {
@@ -1236,12 +1203,6 @@ function MaestroConsoleInner() {
 
 	// PERF: Memoize hasNoAgents check for SettingsModal (only depends on session count)
 	const hasNoAgents = useMemo(() => sessions.length === 0, [sessions.length]);
-
-	// Tab completion hook for terminal mode
-	const { getSuggestions: getTabCompletionSuggestions } = useTabCompletion(activeSession);
-
-	// @ mention completion hook for AI mode
-	const { getSuggestions: getAtMentionSuggestions } = useAtMentionCompletion(activeSession);
 
 	// Remote integration hook - handles web interface communication
 	useRemoteIntegration({
@@ -1842,72 +1803,12 @@ You are taking over this conversation. Based on the context above, provide a bri
 		hasActiveSessionCapability,
 	]);
 
-	// Derive current input value and setter based on active session mode
-	// For AI mode: use active tab's inputValue (stored per-tab)
-	// For terminal mode: use local state (shared across tabs)
-	const isAiMode = activeSession?.inputMode === 'ai';
 	const canAttachImages = useMemo(() => {
 		if (!activeSession || activeSession.inputMode !== 'ai') return false;
 		return isResumingSession
 			? hasActiveSessionCapability('supportsImageInputOnResume')
 			: hasActiveSessionCapability('supportsImageInput');
 	}, [activeSession, isResumingSession, hasActiveSessionCapability]);
-	// Track previous active tab to detect tab switches
-	const prevActiveTabIdRef = useRef<string | undefined>(activeTab?.id);
-
-	// Track previous active session to detect session switches (for terminal draft persistence)
-	const prevActiveSessionIdRef = useRef<string | undefined>(activeSession?.id);
-
-	// Sync local AI input with tab's persisted value when switching tabs
-	// Also clear the hasUnread indicator when a tab becomes active
-	useEffect(() => {
-		if (activeTab && activeTab.id !== prevActiveTabIdRef.current) {
-			const prevTabId = prevActiveTabIdRef.current;
-
-			// Save the current AI input to the PREVIOUS tab before loading new tab's input
-			// This ensures we don't lose draft input when clicking directly on another tab
-			// Also ensures clearing the input (empty string) is persisted when switching away
-			if (prevTabId) {
-				setSessions((prev) =>
-					prev.map((s) => ({
-						...s,
-						aiTabs: s.aiTabs.map((tab) =>
-							tab.id === prevTabId ? { ...tab, inputValue: aiInputValueLocal } : tab
-						),
-					}))
-				);
-			}
-
-			// Tab changed - load the new tab's persisted input value
-			setAiInputValueLocal(activeTab.inputValue ?? '');
-			prevActiveTabIdRef.current = activeTab.id;
-
-			// Clear hasUnread indicator on the newly active tab
-			// This is the central place that handles all tab switches regardless of how they happen
-			// (click, keyboard shortcut, programmatic, etc.)
-			if (activeTab.hasUnread && activeSession) {
-				setSessions((prev) =>
-					prev.map((s) => {
-						if (s.id !== activeSession.id) return s;
-						return {
-							...s,
-							aiTabs: s.aiTabs.map((t) => (t.id === activeTab.id ? { ...t, hasUnread: false } : t)),
-						};
-					})
-				);
-			}
-		}
-		// Note: We intentionally only depend on activeTab?.id, NOT activeTab?.inputValue
-		// The inputValue changes when we blur (syncAiInputToSession), but we don't want
-		// to read it back into local state - that would cause a feedback loop.
-		// We only need to load inputValue when switching TO a different tab.
-	}, [activeTab?.id]);
-
-	// Input sync handlers (extracted to useInputSync hook)
-	const { syncAiInputToSession, syncTerminalInputToSession } = useInputSync(activeSession, {
-		setSessions,
-	});
-
 	// Session navigation handlers (extracted to useSessionNavigation hook)
 	const { handleNavBack, handleNavForward } = useSessionNavigation(sessions, {
 		navigateBack,
@@ -1917,160 +1818,9 @@ You are taking over this conversation. Based on the context above, provide a bri
 		cyclePositionRef,
 	});
 
-	// Sync terminal input when switching sessions
-	// Save current terminal input to old session, load from new session
-	useEffect(() => {
-		if (activeSession && activeSession.id !== prevActiveSessionIdRef.current) {
-			const prevSessionId = prevActiveSessionIdRef.current;
-
-			// Save terminal input to the previous session (if there was one and we have input)
-			if (prevSessionId && terminalInputValue) {
-				setSessions((prev) =>
-					prev.map((s) =>
-						s.id === prevSessionId ? { ...s, terminalDraftInput: terminalInputValue } : s
-					)
-				);
-			}
-
-			// Load terminal input from the new session
-			setTerminalInputValue(activeSession.terminalDraftInput ?? '');
-
-			// Update ref to current session
-			prevActiveSessionIdRef.current = activeSession.id;
-		}
-	}, [activeSession?.id]);
-
-	// Use local state for responsive typing - no session state update on every keystroke
-	const inputValue = isAiMode ? aiInputValueLocal : terminalInputValue;
-
-	// PERF: useDeferredValue allows React to defer re-renders of expensive components
-	// that consume the input value for filtering/preview purposes. InputArea uses inputValue
-	// directly for responsive typing, while non-critical consumers like slash command filtering
-	// and prompt composer can use the deferred value to avoid blocking keystrokes.
-	const deferredInputValue = useDeferredValue(inputValue);
-
-	// PERF: Memoize setInputValue to maintain stable reference - prevents child re-renders
-	// when this callback is passed as a prop. The conditional selection based on isAiMode
-	// was creating new function references on every render.
-	const setInputValue = useCallback(
-		(value: string | ((prev: string) => string)) => {
-			if (activeSession?.inputMode === 'ai') {
-				setAiInputValueLocal(value);
-			} else {
-				setTerminalInputValue(value);
-			}
-		},
-		[activeSession?.inputMode]
-	);
-
-	// PERF: Memoize thinkingSessions at App level to avoid passing full sessions array to children.
-	// This prevents InputArea from re-rendering on unrelated session updates (e.g., terminal output).
-	// The computation is O(n) but only runs when sessions array changes, not on every keystroke.
-	const thinkingSessions = useMemo(
-		() => sessions.filter((s) => s.state === 'busy' && s.busySource === 'ai'),
-		[sessions]
-	);
-
-	// Images are stored per-tab and only used in AI mode
-	// Get staged images from the active tab
-	// PERF: Use memoized activeTab instead of calling getActiveTab again
-	const stagedImages = useMemo(() => {
-		if (!activeSession || activeSession.inputMode !== 'ai') return [];
-		return activeTab?.stagedImages || [];
-	}, [activeTab?.stagedImages, activeSession?.inputMode]);
-
-	// Set staged images on the active tab
-	const setStagedImages = useCallback(
-		(imagesOrUpdater: string[] | ((prev: string[]) => string[])) => {
-			if (!activeSession) return;
-			setSessions((prev) =>
-				prev.map((s) => {
-					if (s.id !== activeSession.id) return s;
-					return {
-						...s,
-						aiTabs: s.aiTabs.map((tab) => {
-							if (tab.id !== s.activeTabId) return tab;
-							const currentImages = tab.stagedImages || [];
-							const newImages =
-								typeof imagesOrUpdater === 'function'
-									? imagesOrUpdater(currentImages)
-									: imagesOrUpdater;
-							return { ...tab, stagedImages: newImages };
-						}),
-					};
-				})
-			);
-		},
-		[activeSession]
-	);
-
 	// Log entry helpers - delegates to sessionStore action
 	const addLogToTab = useSessionStore.getState().addLogToTab;
 	const addLogToActiveTab = addLogToTab; // without tabId = active tab (same function)
-
-	// PERF: Extract only the properties we need to avoid re-memoizing on every session change
-	// Note: activeSessionId already exists as state; we just need inputMode
-	const activeSessionInputMode = activeSession?.inputMode;
-
-	// Tab completion suggestions (must be after inputValue is defined)
-	// PERF: Only debounce when menu is open to avoid unnecessary state updates during normal typing
-	const debouncedInputForTabCompletion = useDebouncedValue(tabCompletionOpen ? inputValue : '', 50);
-	const tabCompletionSuggestions = useMemo(() => {
-		if (!tabCompletionOpen || !activeSessionId || activeSessionInputMode !== 'terminal') {
-			return [];
-		}
-		return getTabCompletionSuggestions(debouncedInputForTabCompletion, tabCompletionFilter);
-	}, [
-		tabCompletionOpen,
-		activeSessionId,
-		activeSessionInputMode,
-		debouncedInputForTabCompletion,
-		tabCompletionFilter,
-		getTabCompletionSuggestions,
-	]);
-
-	// @ mention suggestions for AI mode
-	// PERF: Only debounce when menu is open to avoid unnecessary state updates during normal typing
-	// When menu is closed, pass empty string to skip debounce hook overhead entirely
-	const debouncedAtMentionFilter = useDebouncedValue(atMentionOpen ? atMentionFilter : '', 100);
-	const atMentionSuggestions = useMemo(() => {
-		if (!atMentionOpen || !activeSessionId || activeSessionInputMode !== 'ai') {
-			return [];
-		}
-		return getAtMentionSuggestions(debouncedAtMentionFilter);
-	}, [
-		atMentionOpen,
-		activeSessionId,
-		activeSessionInputMode,
-		debouncedAtMentionFilter,
-		getAtMentionSuggestions,
-	]);
-
-	// Sync file tree selection to match tab completion suggestion
-	// This highlights the corresponding file/folder in the right panel when navigating tab completion
-	const syncFileTreeToTabCompletion = useCallback(
-		(suggestion: TabCompletionSuggestion | undefined) => {
-			if (!suggestion || suggestion.type === 'history' || flatFileList.length === 0) return;
-
-			// Strip trailing slash from folder paths to match flatFileList format
-			const targetPath = suggestion.value.replace(/\/$/, '');
-
-			// Also handle paths with command prefix (e.g., "cd src/" -> "src")
-			const pathOnly = targetPath.split(/\s+/).pop() || targetPath;
-
-			const matchIndex = flatFileList.findIndex((item) => item.fullPath === pathOnly);
-
-			if (matchIndex >= 0) {
-				fileTreeKeyboardNavRef.current = true; // Scroll to matched file
-				setSelectedFileIndex(matchIndex);
-				// Ensure Files tab is visible to show the highlight
-				if (activeRightTab !== 'files') {
-					setActiveRightTab('files');
-				}
-			}
-		},
-		[flatFileList, activeRightTab]
-	);
 
 	// --- AGENT EXECUTION ---
 	// Extracted hook for agent spawning and execution operations
@@ -2198,30 +1948,6 @@ You are taking over this conversation. Based on the context above, provide a bri
 			prev.map((s) => (s.id === sessionId ? { ...s, bookmarked: !s.bookmarked } : s))
 		);
 	}, []);
-
-	const handleMainPanelInputBlur = useCallback(() => {
-		// Access current values via refs to avoid dependencies
-		const currentIsAiMode =
-			sessionsRef.current.find((s) => s.id === activeSessionIdRef.current)?.inputMode === 'ai';
-		if (currentIsAiMode) {
-			syncAiInputToSession(aiInputValueLocalRef.current);
-		} else {
-			syncTerminalInputToSession(terminalInputValueRef.current);
-		}
-	}, [syncAiInputToSession, syncTerminalInputToSession]);
-
-	// PERF: Ref to access processInput without dependency - will be set after processInput is defined
-	const processInputRef = useRef<(text?: string) => void>(() => {});
-
-	const handleReplayMessage = useCallback(
-		(text: string, images?: string[]) => {
-			if (images && images.length > 0) {
-				setStagedImages(images);
-			}
-			setTimeout(() => processInputRef.current(text), 0);
-		},
-		[setStagedImages]
-	);
 
 	const handleFocusFileInGraph = useFileExplorerStore.getState().focusFileInGraph;
 	const handleOpenLastDocumentGraph = useFileExplorerStore.getState().openLastDocumentGraph;
@@ -3116,40 +2842,42 @@ You are taking over this conversation. Based on the context above, provide a bri
 		return activeTab?.id === inlineWizardTabId;
 	}, [activeSession, activeSession?.activeTabId, inlineWizardActive, inlineWizardTabId]);
 
-	// Input processing hook - handles sending messages and commands
-	const { processInput, processInputRef: _hookProcessInputRef } = useInputProcessing({
-		activeSession,
-		activeSessionId,
-		setSessions,
+	// --- INPUT HANDLERS (state, completion, processing, keyboard, paste/drop) ---
+	const {
 		inputValue,
+		deferredInputValue,
 		setInputValue,
 		stagedImages,
 		setStagedImages,
+		processInput,
+		handleInputKeyDown,
+		handleMainPanelInputBlur,
+		handleReplayMessage,
+		handlePaste,
+		handleDrop,
+		tabCompletionSuggestions,
+		atMentionSuggestions,
+		thinkingSessions,
+	} = useInputHandlers({
 		inputRef,
-		customAICommands: allCustomCommands, // Use combined custom + speckit commands
-		setSlashCommandOpen,
-		syncAiInputToSession,
-		syncTerminalInputToSession,
-		isAiMode,
-		sessionsRef,
+		terminalOutputRef,
+		fileTreeKeyboardNavRef,
+		dragCounterRef,
+		setIsDraggingImage,
 		getBatchState,
 		activeBatchRunState,
 		processQueuedItemRef,
 		flushBatchedUpdates: batchedUpdater.flushNow,
-		onHistoryCommand: handleHistoryCommand,
-		onWizardCommand: handleWizardCommand,
-		onWizardSendMessage: sendWizardMessageWithThinking,
-		isWizardActive: isWizardActiveForCurrentTab,
-		onSkillsCommand: handleSkillsCommand,
-		automaticTabNamingEnabled,
-		conductorProfile,
+		handleHistoryCommand,
+		handleWizardCommand,
+		sendWizardMessageWithThinking,
+		isWizardActiveForCurrentTab,
+		handleSkillsCommand,
+		allSlashCommands,
+		allCustomCommands,
+		sessionsRef,
+		activeSessionIdRef,
 	});
-
-	// Auto-send context when a tab with autoSendOnActivate becomes active
-	// PERF: Sync processInputRef from hook to our local ref for use in memoized callbacks
-	useEffect(() => {
-		processInputRef.current = processInput;
-	}, [processInput]);
 
 	// This is used by context transfer to automatically send the transferred context to the agent
 	useEffect(() => {
@@ -5270,136 +4998,6 @@ You are taking over this conversation. Based on the context above, provide a bri
 						})
 					);
 				}
-			}
-		}
-	};
-
-	// handleInputKeyDown — provided by useInputKeyDown hook (Phase 2F)
-	const { handleInputKeyDown } = useInputKeyDown({
-		inputValue,
-		setInputValue,
-		tabCompletionSuggestions,
-		atMentionSuggestions,
-		allSlashCommands,
-		syncFileTreeToTabCompletion,
-		processInput,
-		getTabCompletionSuggestions,
-		inputRef,
-		terminalOutputRef,
-	});
-
-	// Image Handlers
-	const handlePaste = (e: React.ClipboardEvent) => {
-		// Allow image pasting in group chat or direct AI mode
-		const isGroupChatActive = !!activeGroupChatId;
-		const isDirectAIMode = activeSession && activeSession.inputMode === 'ai';
-
-		const items = e.clipboardData.items;
-		const hasImage = Array.from(items).some((item) => item.type.startsWith('image/'));
-
-		// Handle text paste with whitespace trimming (for direct input only - GroupChatInput handles its own)
-		if (!hasImage && !isGroupChatActive) {
-			const text = e.clipboardData.getData('text/plain');
-			if (text) {
-				const trimmedText = text.trim();
-				// Only intercept if trimming actually changed the text
-				if (trimmedText !== text) {
-					e.preventDefault();
-					const target = e.target as HTMLTextAreaElement;
-					const start = target.selectionStart ?? 0;
-					const end = target.selectionEnd ?? 0;
-					const currentValue = target.value;
-					const newValue = currentValue.slice(0, start) + trimmedText + currentValue.slice(end);
-					setInputValue(newValue);
-					// Set cursor position after the pasted text
-					requestAnimationFrame(() => {
-						target.selectionStart = target.selectionEnd = start + trimmedText.length;
-					});
-				}
-			}
-			return;
-		}
-
-		// Image handling requires AI mode or group chat
-		if (!isGroupChatActive && !isDirectAIMode) return;
-
-		for (let i = 0; i < items.length; i++) {
-			if (items[i].type.indexOf('image') !== -1) {
-				e.preventDefault();
-				const blob = items[i].getAsFile();
-				if (blob) {
-					const reader = new FileReader();
-					reader.onload = (event) => {
-						if (event.target?.result) {
-							const imageData = event.target!.result as string;
-							if (isGroupChatActive) {
-								setGroupChatStagedImages((prev) => {
-									if (prev.includes(imageData)) {
-										setSuccessFlashNotification('Duplicate image ignored');
-										setTimeout(() => setSuccessFlashNotification(null), 2000);
-										return prev;
-									}
-									return [...prev, imageData];
-								});
-							} else {
-								setStagedImages((prev) => {
-									if (prev.includes(imageData)) {
-										setSuccessFlashNotification('Duplicate image ignored');
-										setTimeout(() => setSuccessFlashNotification(null), 2000);
-										return prev;
-									}
-									return [...prev, imageData];
-								});
-							}
-						}
-					};
-					reader.readAsDataURL(blob);
-				}
-			}
-		}
-	};
-
-	const handleDrop = (e: React.DragEvent) => {
-		e.preventDefault();
-		dragCounterRef.current = 0;
-		setIsDraggingImage(false);
-
-		// Allow image dropping in group chat or direct AI mode
-		const isGroupChatActive = !!activeGroupChatId;
-		const isDirectAIMode = activeSession && activeSession.inputMode === 'ai';
-
-		if (!isGroupChatActive && !isDirectAIMode) return;
-
-		const files = e.dataTransfer.files;
-
-		for (let i = 0; i < files.length; i++) {
-			if (files[i].type.startsWith('image/')) {
-				const reader = new FileReader();
-				reader.onload = (event) => {
-					if (event.target?.result) {
-						const imageData = event.target!.result as string;
-						if (isGroupChatActive) {
-							setGroupChatStagedImages((prev) => {
-								if (prev.includes(imageData)) {
-									setSuccessFlashNotification('Duplicate image ignored');
-									setTimeout(() => setSuccessFlashNotification(null), 2000);
-									return prev;
-								}
-								return [...prev, imageData];
-							});
-						} else {
-							setStagedImages((prev) => {
-								if (prev.includes(imageData)) {
-									setSuccessFlashNotification('Duplicate image ignored');
-									setTimeout(() => setSuccessFlashNotification(null), 2000);
-									return prev;
-								}
-								return [...prev, imageData];
-							});
-						}
-					}
-				};
-				reader.readAsDataURL(files[i]);
 			}
 		}
 	};
