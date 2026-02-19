@@ -6,13 +6,7 @@ const SettingsModal = lazy(() =>
 import { SessionList } from './components/SessionList';
 import { RightPanel, RightPanelHandle } from './components/RightPanel';
 import { slashCommands } from './slashCommands';
-import {
-	AppModals,
-	type PRDetails,
-	type FlatFileItem,
-	type MergeOptions,
-	type SendToAgentOptions,
-} from './components/AppModals';
+import { AppModals, type PRDetails, type FlatFileItem } from './components/AppModals';
 import { DEFAULT_BATCH_PROMPT } from './components/BatchRunnerModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MainPanel, type MainPanelHandle } from './components/MainPanel';
@@ -87,8 +81,7 @@ import {
 	useAgentSessionManagement,
 	useAgentExecution,
 	useAgentCapabilities,
-	useMergeSessionWithSessions,
-	useSendToAgentWithSessions,
+	useMergeTransferHandlers,
 	useSummarizeAndContinue,
 	// Git
 	useFileTreeManagement,
@@ -140,7 +133,7 @@ import { ToastContainer } from './components/Toast';
 import { gitService } from './services/git';
 
 // Import prompts and synopsis parsing
-import { autorunSynopsisPrompt, maestroSystemPrompt } from '../prompts';
+import { autorunSynopsisPrompt } from '../prompts';
 import { parseSynopsis } from '../shared/synopsis';
 import { formatRelativeTime } from '../shared/formatters';
 
@@ -178,7 +171,6 @@ import {
 } from './utils/tabHelpers';
 import { shouldOpenExternally, flattenTree } from './utils/fileExplorer';
 import type { FileNode } from './types/fileTree';
-import { substituteTemplateVariables } from './utils/templateVariables';
 import { validateNewSession } from './utils/sessionValidation';
 import { formatLogsForClipboard } from './utils/contextExtractor';
 import { getSlashCommandDescription } from './constants/app';
@@ -1223,411 +1215,30 @@ function MaestroConsoleInner() {
 		activeSession?.toolType
 	);
 
-	// Merge session hook for context merge operations (non-blocking, per-tab)
+	// Merge & Transfer handlers (Phase 2.5)
 	const {
 		mergeState,
-		progress: mergeProgress,
-		error: _mergeError,
-		startTime: mergeStartTime,
-		sourceName: mergeSourceName,
-		targetName: mergeTargetName,
-		executeMerge,
-		cancelTab: cancelMergeTab,
-		cancelMerge: _cancelMerge,
-		clearTabState: clearMergeTabState,
-		reset: resetMerge,
-	} = useMergeSessionWithSessions({
-		sessions,
-		setSessions,
-		activeTabId: activeSession?.activeTabId,
-		onSessionCreated: (info) => {
-			// Navigate to the newly created merged session
-			setActiveSessionId(info.sessionId);
-			setMergeSessionModalOpen(false);
-
-			// Build informative message with token info
-			const tokenInfo = info.estimatedTokens
-				? ` (~${info.estimatedTokens.toLocaleString()} tokens)`
-				: '';
-			const savedInfo =
-				info.tokensSaved && info.tokensSaved > 0
-					? ` Saved ~${info.tokensSaved.toLocaleString()} tokens.`
-					: '';
-			const sourceInfo =
-				info.sourceSessionName && info.targetSessionName
-					? `"${info.sourceSessionName}" + "${info.targetSessionName}"`
-					: info.sessionName;
-
-			// Show toast notification in the UI
-			notifyToast({
-				type: 'success',
-				title: 'Session Merged',
-				message: `Created "${info.sessionName}" from ${sourceInfo}${tokenInfo}.${savedInfo}`,
-				sessionId: info.sessionId,
-			});
-
-			// Show desktop notification for visibility when app is not focused
-			window.maestro.notification.show(
-				'Session Merged',
-				`Created "${info.sessionName}" with merged context`
-			);
-
-			// Clear the merge state for the source tab after a short delay
-			if (activeSession?.activeTabId) {
-				setTimeout(() => {
-					clearMergeTabState(activeSession.activeTabId);
-				}, 1000);
-			}
-		},
-		onMergeComplete: (sourceTabId, result) => {
-			// For merge into existing tab, navigate to target and show toast
-			if (activeSession && result.success && result.targetSessionId) {
-				const tokenInfo = result.estimatedTokens
-					? ` (~${result.estimatedTokens.toLocaleString()} tokens)`
-					: '';
-				const savedInfo =
-					result.tokensSaved && result.tokensSaved > 0
-						? ` Saved ~${result.tokensSaved.toLocaleString()} tokens.`
-						: '';
-
-				// Navigate to the target session/tab so autoSendOnActivate will trigger
-				// This ensures the merged context is immediately sent to the agent
-				setActiveSessionId(result.targetSessionId);
-				if (result.targetTabId) {
-					const targetTabId = result.targetTabId; // Extract to satisfy TypeScript narrowing
-					setSessions((prev) =>
-						prev.map((s) => {
-							if (s.id !== result.targetSessionId) return s;
-							return { ...s, activeTabId: targetTabId };
-						})
-					);
-				}
-
-				notifyToast({
-					type: 'success',
-					title: 'Context Merged',
-					message: `"${result.sourceSessionName || 'Current Session'}" → "${
-						result.targetSessionName || 'Selected Session'
-					}"${tokenInfo}.${savedInfo}`,
-				});
-
-				// Clear the merge state for the source tab
-				setTimeout(() => {
-					clearMergeTabState(sourceTabId);
-				}, 1000);
-			}
-		},
-	});
-
-	// Send to Agent hook for cross-agent context transfer operations
-	// Track the source/target agents for the transfer progress modal
-	const [transferSourceAgent, setTransferSourceAgent] = useState<ToolType | null>(null);
-	const [transferTargetAgent, setTransferTargetAgent] = useState<ToolType | null>(null);
-	const {
+		mergeProgress,
+		mergeStartTime,
+		mergeSourceName,
+		mergeTargetName,
+		cancelMergeTab,
 		transferState,
-		progress: transferProgress,
-		error: _transferError,
-		executeTransfer: _executeTransfer,
-		cancelTransfer,
-		reset: resetTransfer,
-	} = useSendToAgentWithSessions({
-		sessions,
-		setSessions,
-		onSessionCreated: (sessionId, sessionName) => {
-			// Navigate to the newly created transferred session
-			setActiveSessionId(sessionId);
-			setSendToAgentModalOpen(false);
-
-			// Show toast notification in the UI
-			notifyToast({
-				type: 'success',
-				title: 'Context Transferred',
-				message: `Created "${sessionName}" with transferred context`,
-			});
-
-			// Show desktop notification for visibility when app is not focused
-			window.maestro.notification.show(
-				'Context Transferred',
-				`Created "${sessionName}" with transferred context`
-			);
-
-			// Reset the transfer state after a short delay to allow progress modal to show "Complete"
-			setTimeout(() => {
-				resetTransfer();
-				setTransferSourceAgent(null);
-				setTransferTargetAgent(null);
-			}, 1500);
-		},
+		transferProgress,
+		transferSourceAgent,
+		transferTargetAgent,
+		handleCloseMergeSession,
+		handleMerge,
+		handleCancelTransfer,
+		handleCompleteTransfer,
+		handleSendToAgent,
+		handleMergeWith,
+		handleOpenSendToAgentModal,
+	} = useMergeTransferHandlers({
+		sessionsRef,
+		activeSessionIdRef,
+		setActiveSessionId,
 	});
-
-	// --- STABLE HANDLERS FOR APP AGENT MODALS ---
-
-	// MergeSessionModal handlers
-	const handleCloseMergeSession = useCallback(() => {
-		setMergeSessionModalOpen(false);
-		resetMerge();
-	}, [resetMerge]);
-
-	const handleMerge = useCallback(
-		async (targetSessionId: string, targetTabId: string | undefined, options: MergeOptions) => {
-			// Close the modal - merge will show in the input area overlay
-			setMergeSessionModalOpen(false);
-
-			// Execute merge using the hook (callbacks handle toasts and navigation)
-			const result = await executeMerge(
-				activeSession!,
-				activeSession!.activeTabId,
-				targetSessionId,
-				targetTabId,
-				options
-			);
-
-			if (!result.success) {
-				notifyToast({
-					type: 'error',
-					title: 'Merge Failed',
-					message: result.error || 'Failed to merge contexts',
-				});
-			}
-			// Note: Success toasts are handled by onSessionCreated (for new sessions)
-			// and onMergeComplete (for merging into existing sessions) callbacks
-
-			return result;
-		},
-		[activeSession, executeMerge]
-	);
-
-	// TransferProgressModal handlers
-	const handleCancelTransfer = useCallback(() => {
-		cancelTransfer();
-		setTransferSourceAgent(null);
-		setTransferTargetAgent(null);
-	}, [cancelTransfer]);
-
-	const handleCompleteTransfer = useCallback(() => {
-		resetTransfer();
-		setTransferSourceAgent(null);
-		setTransferTargetAgent(null);
-	}, [resetTransfer]);
-
-	const handleSendToAgent = useCallback(
-		async (targetSessionId: string, options: SendToAgentOptions) => {
-			// Find the target session
-			const targetSession = sessions.find((s) => s.id === targetSessionId);
-			if (!targetSession) {
-				return { success: false, error: 'Target session not found' };
-			}
-
-			// Store source and target agents for progress modal display
-			setTransferSourceAgent(activeSession!.toolType);
-			setTransferTargetAgent(targetSession.toolType);
-
-			// Close the selection modal - progress modal will take over
-			setSendToAgentModalOpen(false);
-
-			// Get source tab context
-			const sourceTab = activeSession!.aiTabs.find((t) => t.id === activeSession!.activeTabId);
-			if (!sourceTab) {
-				return { success: false, error: 'Source tab not found' };
-			}
-
-			// Format the context as text to be sent to the agent
-			// Only include user messages and AI responses, not system messages
-			const formattedContext = sourceTab.logs
-				.filter(
-					(log) =>
-						log.text &&
-						log.text.trim() &&
-						(log.source === 'user' || log.source === 'ai' || log.source === 'stdout')
-				)
-				.map((log) => {
-					const role = log.source === 'user' ? 'User' : 'Assistant';
-					return `${role}: ${log.text}`;
-				})
-				.join('\n\n');
-
-			const sourceName =
-				activeSession!.name || activeSession!.projectRoot.split('/').pop() || 'Unknown';
-			const sourceAgentName = activeSession!.toolType;
-
-			// Create the context message to be sent directly to the agent
-			const contextMessage = formattedContext
-				? `# Context from Previous Session
-
-The following is a conversation from another session ("${sourceName}" using ${sourceAgentName}). Review this context to understand the prior work and decisions made.
-
----
-
-${formattedContext}
-
----
-
-# Your Task
-
-You are taking over this conversation. Based on the context above, provide a brief summary of where things left off and ask what the user would like to focus on next.`
-				: 'No context available from the previous session.';
-
-			// Transfer context to the target session's active tab
-			// Create a new tab in the target session and immediately send context to agent
-			const newTabId = `tab-${Date.now()}`;
-			const transferNotice: LogEntry = {
-				id: `transfer-notice-${Date.now()}`,
-				timestamp: Date.now(),
-				source: 'system',
-				text: `Context transferred from "${sourceName}" (${sourceAgentName})${
-					options.groomContext ? ' - cleaned to reduce size' : ''
-				}`,
-			};
-
-			// Create user message entry for the context being sent
-			const userContextMessage: LogEntry = {
-				id: `user-context-${Date.now()}`,
-				timestamp: Date.now(),
-				source: 'user',
-				text: contextMessage,
-			};
-
-			const newTab: AITab = {
-				id: newTabId,
-				name: `From: ${sourceName}`,
-				logs: [transferNotice, userContextMessage],
-				agentSessionId: null,
-				starred: false,
-				inputValue: '',
-				stagedImages: [],
-				createdAt: Date.now(),
-				state: 'busy', // Start in busy state since we're spawning immediately
-				thinkingStartTime: Date.now(),
-				awaitingSessionId: true, // Mark as awaiting session ID
-			};
-
-			// Add the new tab to the target session and set it as active
-			setSessions((prev) =>
-				prev.map((s) => {
-					if (s.id === targetSessionId) {
-						return {
-							...s,
-							state: 'busy',
-							busySource: 'ai',
-							thinkingStartTime: Date.now(),
-							aiTabs: [...s.aiTabs, newTab],
-							activeTabId: newTabId,
-						};
-					}
-					return s;
-				})
-			);
-
-			// Navigate to the target session
-			setActiveSessionId(targetSessionId);
-
-			// Calculate estimated tokens for the toast
-			const estimatedTokens = sourceTab.logs
-				.filter((log) => log.text && log.source !== 'system')
-				.reduce((sum, log) => sum + Math.round((log.text?.length || 0) / 4), 0);
-			const tokenInfo = estimatedTokens > 0 ? ` (~${estimatedTokens.toLocaleString()} tokens)` : '';
-
-			// Show success toast
-			notifyToast({
-				type: 'success',
-				title: 'Context Sent',
-				message: `"${sourceName}" → "${targetSession.name}"${tokenInfo}`,
-				sessionId: targetSessionId,
-				tabId: newTabId,
-			});
-
-			// Reset transfer state
-			resetTransfer();
-			setTransferSourceAgent(null);
-			setTransferTargetAgent(null);
-
-			// Spawn the agent with the context - do this after state updates
-			(async () => {
-				try {
-					// Get agent configuration
-					const agent = await window.maestro.agents.get(targetSession.toolType);
-					if (!agent) throw new Error(`${targetSession.toolType} agent not found`);
-
-					const baseArgs = agent.args ?? [];
-					const commandToUse = agent.path || agent.command;
-
-					// Build the full prompt with Maestro system prompt for new sessions
-					let effectivePrompt = contextMessage;
-
-					// Get git branch for template substitution
-					let gitBranch: string | undefined;
-					if (targetSession.isGitRepo) {
-						try {
-							const status = await gitService.getStatus(targetSession.cwd);
-							gitBranch = status.branch;
-						} catch {
-							// Ignore git errors
-						}
-					}
-
-					// Prepend Maestro system prompt since this is a new session
-					if (maestroSystemPrompt) {
-						const substitutedSystemPrompt = substituteTemplateVariables(maestroSystemPrompt, {
-							session: targetSession,
-							gitBranch,
-							conductorProfile,
-						});
-						effectivePrompt = `${substitutedSystemPrompt}\n\n---\n\n# User Request\n\n${effectivePrompt}`;
-					}
-
-					// Spawn agent
-					const spawnSessionId = `${targetSessionId}-ai-${newTabId}`;
-					await window.maestro.process.spawn({
-						sessionId: spawnSessionId,
-						toolType: targetSession.toolType,
-						cwd: targetSession.cwd,
-						command: commandToUse,
-						args: [...baseArgs],
-						prompt: effectivePrompt,
-						// Per-session config overrides (if set)
-						sessionCustomPath: targetSession.customPath,
-						sessionCustomArgs: targetSession.customArgs,
-						sessionCustomEnvVars: targetSession.customEnvVars,
-						sessionCustomModel: targetSession.customModel,
-						sessionCustomContextWindow: targetSession.customContextWindow,
-						sessionSshRemoteConfig: targetSession.sessionSshRemoteConfig,
-					});
-				} catch (error) {
-					console.error('Failed to spawn agent for context transfer:', error);
-					const errorLog: LogEntry = {
-						id: `error-${Date.now()}`,
-						timestamp: Date.now(),
-						source: 'system',
-						text: `Error: Failed to spawn agent - ${(error as Error).message}`,
-					};
-					setSessions((prev) =>
-						prev.map((s) => {
-							if (s.id !== targetSessionId) return s;
-							return {
-								...s,
-								state: 'idle',
-								busySource: undefined,
-								thinkingStartTime: undefined,
-								aiTabs: s.aiTabs.map((tab) =>
-									tab.id === newTabId
-										? {
-												...tab,
-												state: 'idle' as const,
-												thinkingStartTime: undefined,
-												logs: [...tab.logs, errorLog],
-											}
-										: tab
-								),
-							};
-						})
-					);
-				}
-			})();
-
-			return { success: true, newSessionId: targetSessionId, newTabId };
-		},
-		[activeSession, sessions, setSessions, setActiveSessionId, resetTransfer]
-	);
 
 	// Summarize & Continue hook for context compaction (non-blocking, per-tab)
 	const {
@@ -1985,26 +1596,6 @@ You are taking over this conversation. Based on the context above, provide a bri
 		},
 		[handleOpenFileTab]
 	);
-
-	const handleMergeWith = useCallback((tabId: string) => {
-		const currentSession = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
-		if (currentSession) {
-			setSessions((prev) =>
-				prev.map((s) => (s.id === currentSession.id ? { ...s, activeTabId: tabId } : s))
-			);
-		}
-		setMergeSessionModalOpen(true);
-	}, []);
-
-	const handleOpenSendToAgentModal = useCallback((tabId: string) => {
-		const currentSession = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
-		if (currentSession) {
-			setSessions((prev) =>
-				prev.map((s) => (s.id === currentSession.id ? { ...s, activeTabId: tabId } : s))
-			);
-		}
-		setSendToAgentModalOpen(true);
-	}, []);
 
 	const handleCopyContext = useCallback((tabId: string) => {
 		const currentSession = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
