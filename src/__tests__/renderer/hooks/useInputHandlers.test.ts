@@ -1353,7 +1353,7 @@ describe('useInputHandlers', () => {
 			expect(s1?.terminalDraftInput).toBe('my command');
 		});
 
-		it('does not save empty terminal input on session switch', () => {
+		it('saves empty terminal input on session switch (persists cleared input)', () => {
 			const session1 = createMockSession({
 				id: 'session-1',
 				inputMode: 'terminal',
@@ -1385,10 +1385,10 @@ describe('useInputHandlers', () => {
 
 			rerender();
 
-			// Session-1 should still have its original terminalDraftInput (not overwritten with '')
+			// Session-1 terminalDraftInput should be overwritten with '' (cleared input is persisted)
 			const sessions = useSessionStore.getState().sessions;
 			const s1 = sessions.find((s: any) => s.id === 'session-1');
-			expect(s1?.terminalDraftInput).toBe('previously saved');
+			expect(s1?.terminalDraftInput).toBe('');
 		});
 	});
 

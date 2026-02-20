@@ -19,6 +19,7 @@ import { getActiveTab } from '../../utils/tabHelpers';
 import { generateId } from '../../utils/ids';
 import { substituteTemplateVariables } from '../../utils/templateVariables';
 import { gitService } from '../../services/git';
+import * as Sentry from '@sentry/electron/renderer';
 
 // ============================================================================
 // Dependencies interface
@@ -179,7 +180,14 @@ export function useRemoteHandlers(deps: UseRemoteHandlersDeps): UseRemoteHandler
 					});
 					console.log('[Remote] Terminal command completed successfully');
 				} catch (error: unknown) {
-					console.error('[Remote] Terminal command failed:', error);
+					Sentry.captureException(error, {
+						extra: {
+							sessionId,
+							toolType: session.toolType,
+							mode: 'terminal',
+							operation: 'remote-command',
+						},
+					});
 					const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 					setSessions((prev) =>
 						prev.map((s) => {
@@ -400,7 +408,9 @@ export function useRemoteHandlers(deps: UseRemoteHandlersDeps): UseRemoteHandler
 
 				console.log(`[Remote] ${session.toolType} spawn initiated successfully`);
 			} catch (error: unknown) {
-				console.error('[Remote] Failed to spawn Claude:', error);
+				Sentry.captureException(error, {
+					extra: { sessionId, toolType: session.toolType, mode: 'ai', operation: 'remote-spawn' },
+				});
 				const errorMessage = error instanceof Error ? error.message : String(error);
 				const errorLogEntry: LogEntry = {
 					id: generateId(),

@@ -23,6 +23,7 @@ import { useUIStore } from '../../stores/uiStore';
 import { notifyToast } from '../../stores/notificationStore';
 import { getActiveTab } from '../../utils/tabHelpers';
 import { useNavigationHistory } from './useNavigationHistory';
+import * as Sentry from '@sentry/electron/renderer';
 
 // ============================================================================
 // Dependencies interface
@@ -258,7 +259,9 @@ export function useSessionLifecycle(deps: SessionLifecycleDeps): SessionLifecycl
 			try {
 				await window.maestro.playbooks.deleteAll(id);
 			} catch (error) {
-				console.error('Failed to delete playbooks:', error);
+				Sentry.captureException(error, {
+					extra: { sessionId: id, operation: 'delete-playbooks' },
+				});
 			}
 
 			// If this is a worktree session, track its path to prevent re-discovery
@@ -271,7 +274,9 @@ export function useSessionLifecycle(deps: SessionLifecycleDeps): SessionLifecycl
 				try {
 					await window.maestro.shell.trashItem(session.cwd);
 				} catch (error) {
-					console.error('Failed to move working directory to trash:', error);
+					Sentry.captureException(error, {
+						extra: { sessionId: id, cwd: session.cwd, operation: 'trash-working-directory' },
+					});
 					notifyToast({
 						title: 'Failed to Erase Directory',
 						message: error instanceof Error ? error.message : 'Unknown error',

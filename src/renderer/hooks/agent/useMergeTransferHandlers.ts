@@ -27,6 +27,7 @@ import { maestroSystemPrompt } from '../../../prompts';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useMergeSessionWithSessions } from './useMergeSession';
 import { useSendToAgentWithSessions } from './useSendToAgent';
+import * as Sentry from '@sentry/electron/renderer';
 
 // ============================================================================
 // Dependencies interface
@@ -306,6 +307,8 @@ export function useMergeTransferHandlers(
 			// Get source tab context
 			const sourceTab = activeSession!.aiTabs.find((t) => t.id === activeSession!.activeTabId);
 			if (!sourceTab) {
+				setTransferSourceAgent(null);
+				setTransferTargetAgent(null);
 				return { success: false, error: 'Source tab not found' };
 			}
 
@@ -478,7 +481,14 @@ You are taking over this conversation. Based on the context above, provide a bri
 						sessionSshRemoteConfig: targetSession.sessionSshRemoteConfig,
 					});
 				} catch (error) {
-					console.error('Failed to spawn agent for context transfer:', error);
+					Sentry.captureException(error, {
+						extra: {
+							targetSessionId,
+							toolType: targetSession.toolType,
+							newTabId,
+							operation: 'context-transfer-spawn',
+						},
+					});
 					const errorLog: LogEntry = {
 						id: `error-${Date.now()}`,
 						timestamp: Date.now(),

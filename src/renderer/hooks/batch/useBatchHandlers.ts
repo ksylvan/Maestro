@@ -31,6 +31,7 @@ import { generateId } from '../../utils/ids';
 import { useBatchProcessor } from './useBatchProcessor';
 import type { RightPanelHandle } from '../../components/RightPanel';
 import type { AgentSpawnResult } from '../agent/useAgentExecution';
+import * as Sentry from '@sentry/electron/renderer';
 
 // ============================================================================
 // Dependencies interface
@@ -368,8 +369,10 @@ export function useBatchHandlers(deps: UseBatchHandlersDeps): UseBatchHandlersRe
 									}
 								}
 							})
-							.catch(() => {
-								// Silent failure - leaderboard submission is not critical
+							.catch((error) => {
+								Sentry.captureException(error, {
+									extra: { operation: 'leaderboard-submit', badgeLevel: updatedBadgeLevel },
+								});
 							});
 					}
 				}

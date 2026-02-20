@@ -22,6 +22,7 @@ import { useUIStore } from '../../stores/uiStore';
 import { useFileExplorerStore } from '../../stores/fileExplorerStore';
 import { shouldOpenExternally, flattenTree, type FlatTreeNode } from '../../utils/fileExplorer';
 import { useLayerStack } from '../../contexts/LayerStackContext';
+import * as Sentry from '@sentry/electron/renderer';
 
 // ============================================================================
 // Dependencies interface
@@ -157,7 +158,14 @@ export function useFileExplorerEffects(
 				);
 				setActiveFocus('main');
 			} catch (error) {
-				console.error('[onFileClick] Failed to read file:', error);
+				Sentry.captureException(error, {
+					extra: {
+						fullPath: `${currentSession.fullPath}/${relativePath}`,
+						filename,
+						sshRemoteId,
+						operation: 'file-open',
+					},
+				});
 			}
 		},
 		[handleOpenFileTab, sessionsRef, activeSessionIdRef, setActiveFocus]

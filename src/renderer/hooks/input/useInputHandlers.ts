@@ -320,8 +320,8 @@ export function useInputHandlers(deps: UseInputHandlersDeps): UseInputHandlersRe
 		if (activeSession && activeSession.id !== prevActiveSessionIdRef.current) {
 			const prevSessionId = prevActiveSessionIdRef.current;
 
-			// Save terminal input to the previous session
-			if (prevSessionId && terminalInputValue) {
+			// Save terminal input to the previous session (including empty string to persist cleared input)
+			if (prevSessionId) {
 				setSessions((prev) =>
 					prev.map((s) =>
 						s.id === prevSessionId ? { ...s, terminalDraftInput: terminalInputValue } : s
