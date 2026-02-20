@@ -25,15 +25,16 @@ import { getAutoRunFolderPath } from './existingDocsDetector';
  * Single source of truth — used by useTabHandlers and tabStore selectors.
  */
 export function buildUnifiedTabs(session: Session): UnifiedTab[] {
+	if (!session) return [];
 	const { aiTabs, filePreviewTabs, unifiedTabOrder } = session;
 
-	const aiTabMap = new Map(aiTabs.map((tab) => [tab.id, tab]));
-	const fileTabMap = new Map(filePreviewTabs.map((tab) => [tab.id, tab]));
+	const aiTabMap = new Map((aiTabs || []).map((tab) => [tab.id, tab]));
+	const fileTabMap = new Map((filePreviewTabs || []).map((tab) => [tab.id, tab]));
 
 	const result: UnifiedTab[] = [];
 
 	// Follow unified order for tabs that have entries
-	for (const ref of unifiedTabOrder) {
+	for (const ref of unifiedTabOrder || []) {
 		if (ref.type === 'ai') {
 			const tab = aiTabMap.get(ref.id);
 			if (tab) {

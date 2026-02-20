@@ -38,6 +38,9 @@ const mockWindowInstance = {
 	}),
 };
 
+// Track constructor options for assertions
+let lastBrowserWindowOptions: Record<string, unknown> | null = null;
+
 // Create a class-based mock for BrowserWindow
 class MockBrowserWindow {
 	loadURL = mockWindowInstance.loadURL;
@@ -50,8 +53,8 @@ class MockBrowserWindow {
 	webContents = mockWindowInstance.webContents;
 	on = mockWindowInstance.on;
 
-	constructor(_options: unknown) {
-		// Constructor accepts options but we don't need them for the mock
+	constructor(options: unknown) {
+		lastBrowserWindowOptions = options as Record<string, unknown>;
 	}
 }
 
@@ -106,6 +109,7 @@ describe('app-lifecycle/window-manager', () => {
 		vi.clearAllMocks();
 		vi.resetModules(); // Reset module cache to clear devStubsRegistered flag
 		windowCloseHandler = null;
+		lastBrowserWindowOptions = null;
 
 		mockWindowStateStore = {
 			store: {
@@ -544,6 +548,46 @@ describe('app-lifecycle/window-manager', () => {
 			expect(mockEvent.preventDefault).not.toHaveBeenCalled();
 		});
 
+		it('should omit titleBarStyle when useNativeTitleBar is true', async () => {
+			const { createWindowManager } = await import('../../../main/app-lifecycle/window-manager');
+
+			const windowManager = createWindowManager({
+				windowStateStore: mockWindowStateStore as unknown as Parameters<
+					typeof createWindowManager
+				>[0]['windowStateStore'],
+				isDevelopment: false,
+				preloadPath: '/path/to/preload.js',
+				rendererPath: '/path/to/index.html',
+				devServerUrl: 'http://localhost:5173',
+				useNativeTitleBar: true,
+				autoHideMenuBar: false,
+			});
+
+			windowManager.createWindow();
+
+			expect(lastBrowserWindowOptions).not.toHaveProperty('titleBarStyle');
+		});
+
+		it('should include autoHideMenuBar when autoHideMenuBar is true', async () => {
+			const { createWindowManager } = await import('../../../main/app-lifecycle/window-manager');
+
+			const windowManager = createWindowManager({
+				windowStateStore: mockWindowStateStore as unknown as Parameters<
+					typeof createWindowManager
+				>[0]['windowStateStore'],
+				isDevelopment: false,
+				preloadPath: '/path/to/preload.js',
+				rendererPath: '/path/to/index.html',
+				devServerUrl: 'http://localhost:5173',
+				useNativeTitleBar: false,
+				autoHideMenuBar: true,
+			});
+
+			windowManager.createWindow();
+
+			expect(lastBrowserWindowOptions).toHaveProperty('autoHideMenuBar', true);
+		});
+
 		it('should allow clipboard permissions and deny all others', async () => {
 			const { createWindowManager } = await import('../../../main/app-lifecycle/window-manager');
 
@@ -561,12 +605,11 @@ describe('app-lifecycle/window-manager', () => {
 
 			windowManager.createWindow();
 
-			expect(
-				mockWebContents.session.setPermissionRequestHandler
-			).toHaveBeenCalledWith(expect.any(Function));
+			expect(mockWebContents.session.setPermissionRequestHandler).toHaveBeenCalledWith(
+				expect.any(Function)
+			);
 
-			const handler =
-				mockWebContents.session.setPermissionRequestHandler.mock.calls[0][0];
+			const handler = mockWebContents.session.setPermissionRequestHandler.mock.calls[0][0];
 
 			// Clipboard permissions should be allowed
 			const allowedCb = vi.fn();

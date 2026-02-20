@@ -2575,22 +2575,18 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 									{/* Native Title Bar */}
 									<div className="flex items-center justify-between">
 										<div>
-											<p
-												className="text-sm"
-												style={{ color: theme.colors.textMain }}
-											>
+											<p className="text-sm" style={{ color: theme.colors.textMain }}>
 												Use native title bar
 											</p>
 											<p className="text-xs opacity-50 mt-0.5">
-												Use the OS native title bar instead of
-												Maestro&apos;s custom title bar. Requires restart.
+												Use the OS native title bar instead of Maestro&apos;s custom title bar.
+												Requires restart.
 											</p>
 										</div>
 										<button
-											onClick={() =>
-												setUseNativeTitleBar(!useNativeTitleBar)
-											}
-											className="relative w-10 h-5 rounded-full transition-colors flex-shrink-0"
+											onClick={() => setUseNativeTitleBar(!useNativeTitleBar)}
+											className="relative w-10 h-5 rounded-full transition-colors flex-shrink-0 outline-none"
+											tabIndex={0}
 											style={{
 												backgroundColor: useNativeTitleBar
 													? theme.colors.accent
@@ -2601,9 +2597,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 										>
 											<span
 												className={`absolute left-0 top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-													useNativeTitleBar
-														? 'translate-x-5'
-														: 'translate-x-0.5'
+													useNativeTitleBar ? 'translate-x-5' : 'translate-x-0.5'
 												}`}
 											/>
 										</button>
@@ -2615,23 +2609,18 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 										style={{ borderColor: theme.colors.border }}
 									>
 										<div>
-											<p
-												className="text-sm"
-												style={{ color: theme.colors.textMain }}
-											>
+											<p className="text-sm" style={{ color: theme.colors.textMain }}>
 												Auto-hide menu bar
 											</p>
 											<p className="text-xs opacity-50 mt-0.5">
-												Hide the application menu bar. Press Alt to toggle
-												visibility. Applies to Windows and Linux. Requires
-												restart.
+												Hide the application menu bar. Press Alt to toggle visibility. Applies to
+												Windows and Linux. Requires restart.
 											</p>
 										</div>
 										<button
-											onClick={() =>
-												setAutoHideMenuBar(!autoHideMenuBar)
-											}
-											className="relative w-10 h-5 rounded-full transition-colors flex-shrink-0"
+											onClick={() => setAutoHideMenuBar(!autoHideMenuBar)}
+											className="relative w-10 h-5 rounded-full transition-colors flex-shrink-0 outline-none"
+											tabIndex={0}
 											style={{
 												backgroundColor: autoHideMenuBar
 													? theme.colors.accent
@@ -2642,9 +2631,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 										>
 											<span
 												className={`absolute left-0 top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-													autoHideMenuBar
-														? 'translate-x-5'
-														: 'translate-x-0.5'
+													autoHideMenuBar ? 'translate-x-5' : 'translate-x-0.5'
 												}`}
 											/>
 										</button>
