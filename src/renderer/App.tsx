@@ -151,6 +151,7 @@ import type {
 	BatchRunConfig,
 	CustomAICommand,
 	ThinkingMode,
+	ThinkingItem,
 } from './types';
 import { THEMES } from './constants/themes';
 import { generateId } from './utils/ids';
@@ -488,6 +489,9 @@ function MaestroConsoleInner() {
 
 		// File tab refresh settings
 		fileTabAutoRefreshEnabled,
+
+		// Window chrome settings
+		useNativeTitleBar,
 
 		// Auto-scroll settings
 		autoScrollAiMode,
@@ -1411,6 +1415,28 @@ function MaestroConsoleInner() {
 		setSessions,
 		cyclePositionRef,
 	});
+
+	// PERF: Memoize thinkingItems at App level to avoid passing full sessions array to children.
+	// This prevents InputArea from re-rendering on unrelated session updates (e.g., terminal output).
+	// Flat list of (session, tab) pairs — one entry per busy tab across all sessions.
+	// This allows the ThinkingStatusPill to show all active work, even when multiple tabs
+	// within the same agent are busy in parallel.
+	const thinkingItems: ThinkingItem[] = useMemo(() => {
+		const items: ThinkingItem[] = [];
+		for (const session of sessions) {
+			if (session.state !== 'busy' || session.busySource !== 'ai') continue;
+			const busyTabs = session.aiTabs?.filter((t) => t.state === 'busy');
+			if (busyTabs && busyTabs.length > 0) {
+				for (const tab of busyTabs) {
+					items.push({ session, tab });
+				}
+			} else {
+				// Legacy: session is busy but no individual tab-level tracking
+				items.push({ session, tab: null });
+			}
+		}
+		return items;
+	}, [sessions]);
 
 	// Log entry helpers - delegates to sessionStore action
 	const addLogToTab = useSessionStore.getState().addLogToTab;
@@ -2382,7 +2408,6 @@ function MaestroConsoleInner() {
 		handleDrop,
 		tabCompletionSuggestions,
 		atMentionSuggestions,
-		thinkingSessions,
 	} = useInputHandlers({
 		inputRef,
 		terminalOutputRef,
@@ -4896,7 +4921,7 @@ function MaestroConsoleInner() {
 		agentSessionsOpen,
 		activeAgentSessionId,
 		activeSession,
-		thinkingSessions,
+		thinkingItems,
 		theme,
 		fontFamily,
 		isMobileLandscape,
@@ -5349,7 +5374,7 @@ function MaestroConsoleInner() {
 		<GitStatusProvider sessions={sessions} activeSessionId={activeSessionId}>
 			<div
 				className={`flex h-screen w-full font-mono overflow-hidden transition-colors duration-300 ${
-					isMobileLandscape ? 'pt-0' : 'pt-10'
+					isMobileLandscape || useNativeTitleBar ? 'pt-0' : 'pt-10'
 				}`}
 				style={{
 					backgroundColor: theme.colors.bgMain,
@@ -5396,8 +5421,8 @@ function MaestroConsoleInner() {
 					</div>
 				)}
 
-				{/* --- DRAGGABLE TITLE BAR (hidden in mobile landscape) --- */}
-				{!isMobileLandscape && (
+				{/* --- DRAGGABLE TITLE BAR (hidden in mobile landscape or when using native title bar) --- */}
+				{!isMobileLandscape && !useNativeTitleBar && (
 					<div
 						className="fixed top-0 left-0 right-0 h-10 flex items-center justify-center"
 						style={

@@ -776,6 +776,871 @@ describe('useFileExplorerEffects', () => {
 	});
 
 	// ====================================================================
+	// handleMainPanelFileClick — additional coverage
+	// ====================================================================
+
+	describe('handleMainPanelFileClick — additional coverage', () => {
+		it('passes SSH remote ID to readFile and handleOpenFileTab', async () => {
+			const useFileExplorerEffects = await loadHook();
+			const { shouldOpenExternally } = await import('../../../renderer/utils/fileExplorer');
+			vi.mocked(shouldOpenExternally).mockReturnValue(false);
+
+			const session = createMockSession({
+				sshRemoteId: 'ssh-remote-1',
+			});
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const handleOpenFileTab = vi.fn();
+			const deps = createDeps({
+				sessionsRef: { current: [session] },
+				activeSessionIdRef: { current: 'session-1' },
+				handleOpenFileTab,
+			});
+
+			const { result } = renderHook(() => useFileExplorerEffects(deps));
+
+			await act(async () => {
+				await result.current.handleMainPanelFileClick('src/index.ts');
+			});
+
+			expect((window as any).maestro.fs.readFile).toHaveBeenCalledWith(
+				'/test/project/src/index.ts',
+				'ssh-remote-1'
+			);
+			expect(handleOpenFileTab).toHaveBeenCalledWith(
+				expect.objectContaining({
+					sshRemoteId: 'ssh-remote-1',
+				}),
+				expect.anything()
+			);
+		});
+
+		it('reads SSH remote ID from sessionSshRemoteConfig when sshRemoteId is not set', async () => {
+			const useFileExplorerEffects = await loadHook();
+			const { shouldOpenExternally } = await import('../../../renderer/utils/fileExplorer');
+			vi.mocked(shouldOpenExternally).mockReturnValue(false);
+
+			const session = createMockSession({
+				sessionSshRemoteConfig: { enabled: true, remoteId: 'config-remote-1' },
+			});
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const handleOpenFileTab = vi.fn();
+			const deps = createDeps({
+				sessionsRef: { current: [session] },
+				activeSessionIdRef: { current: 'session-1' },
+				handleOpenFileTab,
+			});
+
+			const { result } = renderHook(() => useFileExplorerEffects(deps));
+
+			await act(async () => {
+				await result.current.handleMainPanelFileClick('src/index.ts');
+			});
+
+			expect((window as any).maestro.fs.readFile).toHaveBeenCalledWith(
+				'/test/project/src/index.ts',
+				'config-remote-1'
+			);
+		});
+
+		it('skips external open for SSH sessions even if shouldOpenExternally returns true', async () => {
+			const useFileExplorerEffects = await loadHook();
+			const { shouldOpenExternally } = await import('../../../renderer/utils/fileExplorer');
+			vi.mocked(shouldOpenExternally).mockReturnValue(true);
+
+			const session = createMockSession({
+				sshRemoteId: 'ssh-remote-1',
+			});
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const handleOpenFileTab = vi.fn();
+			const deps = createDeps({
+				sessionsRef: { current: [session] },
+				activeSessionIdRef: { current: 'session-1' },
+				handleOpenFileTab,
+			});
+
+			const { result } = renderHook(() => useFileExplorerEffects(deps));
+
+			await act(async () => {
+				await result.current.handleMainPanelFileClick('docs/manual.pdf');
+			});
+
+			// Should NOT open externally — SSH files are read via the remote
+			expect((window as any).maestro.shell.openExternal).not.toHaveBeenCalled();
+			// Should read file and open in tab instead
+			expect(handleOpenFileTab).toHaveBeenCalled();
+		});
+
+		it('sets activeFocus to main after opening file', async () => {
+			const useFileExplorerEffects = await loadHook();
+			const { shouldOpenExternally } = await import('../../../renderer/utils/fileExplorer');
+			vi.mocked(shouldOpenExternally).mockReturnValue(false);
+
+			const session = createMockSession();
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const deps = createDeps({
+				sessionsRef: { current: [session] },
+				activeSessionIdRef: { current: 'session-1' },
+			});
+
+			// Start with focus on right
+			useUIStore.setState({ activeFocus: 'right' });
+
+			const { result } = renderHook(() => useFileExplorerEffects(deps));
+
+			await act(async () => {
+				await result.current.handleMainPanelFileClick('src/index.ts');
+			});
+
+			expect(useUIStore.getState().activeFocus).toBe('main');
+		});
+
+		it('passes lastModified from stat to handleOpenFileTab', async () => {
+			const useFileExplorerEffects = await loadHook();
+			const { shouldOpenExternally } = await import('../../../renderer/utils/fileExplorer');
+			vi.mocked(shouldOpenExternally).mockReturnValue(false);
+
+			((window as any).maestro.fs.stat as ReturnType<typeof vi.fn>).mockResolvedValue({
+				modifiedAt: '2024-06-15T12:00:00Z',
+			});
+
+			const session = createMockSession();
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const handleOpenFileTab = vi.fn();
+			const deps = createDeps({
+				sessionsRef: { current: [session] },
+				activeSessionIdRef: { current: 'session-1' },
+				handleOpenFileTab,
+			});
+
+			const { result } = renderHook(() => useFileExplorerEffects(deps));
+
+			await act(async () => {
+				await result.current.handleMainPanelFileClick('src/index.ts');
+			});
+
+			expect(handleOpenFileTab).toHaveBeenCalledWith(
+				expect.objectContaining({
+					lastModified: new Date('2024-06-15T12:00:00Z').getTime(),
+				}),
+				expect.anything()
+			);
+		});
+
+		it('handles stat failure gracefully (lastModified = undefined)', async () => {
+			const useFileExplorerEffects = await loadHook();
+			const { shouldOpenExternally } = await import('../../../renderer/utils/fileExplorer');
+			vi.mocked(shouldOpenExternally).mockReturnValue(false);
+
+			((window as any).maestro.fs.stat as ReturnType<typeof vi.fn>).mockRejectedValue(
+				new Error('ENOENT')
+			);
+
+			const session = createMockSession();
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const handleOpenFileTab = vi.fn();
+			const deps = createDeps({
+				sessionsRef: { current: [session] },
+				activeSessionIdRef: { current: 'session-1' },
+				handleOpenFileTab,
+			});
+
+			const { result } = renderHook(() => useFileExplorerEffects(deps));
+
+			await act(async () => {
+				await result.current.handleMainPanelFileClick('src/index.ts');
+			});
+
+			// stat fails → caught → returns null → lastModified = undefined
+			expect(handleOpenFileTab).toHaveBeenCalledWith(
+				expect.objectContaining({
+					lastModified: undefined,
+				}),
+				expect.anything()
+			);
+		});
+	});
+
+	// ====================================================================
+	// Scroll restore — additional coverage
+	// ====================================================================
+
+	describe('scroll restore — additional coverage', () => {
+		it('does not set scrollTop when fileExplorerScrollPos is undefined', async () => {
+			const useFileExplorerEffects = await loadHook();
+
+			const mockDiv = { scrollTop: 42 } as HTMLDivElement;
+			const session = createMockSession({ fileExplorerScrollPos: undefined });
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const deps = createDeps({
+				fileTreeContainerRef: { current: mockDiv },
+			});
+
+			renderHook(() => useFileExplorerEffects(deps));
+
+			// scrollTop should remain unchanged
+			expect(mockDiv.scrollTop).toBe(42);
+		});
+	});
+
+	// ====================================================================
+	// Flat file list computation — additional coverage
+	// ====================================================================
+
+	describe('flat file list computation — additional coverage', () => {
+		it('passes all files through when showHiddenFiles is true', async () => {
+			const useFileExplorerEffects = await loadHook();
+			const { flattenTree } = await import('../../../renderer/utils/fileExplorer');
+			vi.mocked(flattenTree).mockReturnValue([]);
+
+			useSettingsStore.setState({ showHiddenFiles: true } as any);
+
+			const tree: FileNode[] = [
+				{ name: '.hidden', type: 'folder', children: [] },
+				{ name: 'visible', type: 'folder', children: [] },
+			];
+
+			const session = createMockSession({
+				fileExplorerExpanded: [],
+				fileTree: tree,
+			});
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const deps = createDeps({ filteredFileTree: tree });
+			renderHook(() => useFileExplorerEffects(deps));
+
+			// flattenTree should be called with ALL files (including .hidden)
+			const calledTree = vi.mocked(flattenTree).mock.calls[0]?.[0];
+			expect(calledTree).toBeDefined();
+			expect(calledTree?.some((n: any) => n.name === '.hidden')).toBe(true);
+			expect(calledTree?.some((n: any) => n.name === 'visible')).toBe(true);
+		});
+
+		it('preserves selection by path when flat list changes', async () => {
+			const useFileExplorerEffects = await loadHook();
+			const { flattenTree } = await import('../../../renderer/utils/fileExplorer');
+
+			// Initial flat list with selectedFileIndex = 1 pointing to 'lib'
+			const initialFlatList = [
+				{ name: 'src', fullPath: 'src', isFolder: true, type: 'folder' as const },
+				{ name: 'lib', fullPath: 'lib', isFolder: true, type: 'folder' as const },
+			];
+			useFileExplorerStore.setState({ flatFileList: initialFlatList, selectedFileIndex: 1 });
+
+			// New flat list has 'lib' at index 2 (a new item inserted before it)
+			const newFlatList = [
+				{ name: 'src', fullPath: 'src', isFolder: true, type: 'folder' as const },
+				{ name: 'docs', fullPath: 'docs', isFolder: true, type: 'folder' as const },
+				{ name: 'lib', fullPath: 'lib', isFolder: true, type: 'folder' as const },
+			];
+			vi.mocked(flattenTree).mockReturnValue(newFlatList);
+
+			const tree: FileNode[] = [
+				{ name: 'src', type: 'folder', children: [] },
+				{ name: 'docs', type: 'folder', children: [] },
+				{ name: 'lib', type: 'folder', children: [] },
+			];
+			const session = createMockSession({
+				fileExplorerExpanded: ['src'],
+				fileTree: tree,
+			});
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const deps = createDeps({ filteredFileTree: tree });
+			renderHook(() => useFileExplorerEffects(deps));
+
+			// Selection should follow 'lib' to its new index 2
+			expect(useFileExplorerStore.getState().selectedFileIndex).toBe(2);
+		});
+
+		it('clamps selection when selected path is removed', async () => {
+			const useFileExplorerEffects = await loadHook();
+			const { flattenTree } = await import('../../../renderer/utils/fileExplorer');
+
+			// Initial: selectedFileIndex=2 pointing to 'tests' (which will be removed)
+			const initialFlatList = [
+				{ name: 'src', fullPath: 'src', isFolder: true, type: 'folder' as const },
+				{ name: 'lib', fullPath: 'lib', isFolder: true, type: 'folder' as const },
+				{ name: 'tests', fullPath: 'tests', isFolder: true, type: 'folder' as const },
+			];
+			useFileExplorerStore.setState({ flatFileList: initialFlatList, selectedFileIndex: 2 });
+
+			// New flat list doesn't have 'tests'
+			const newFlatList = [
+				{ name: 'src', fullPath: 'src', isFolder: true, type: 'folder' as const },
+				{ name: 'lib', fullPath: 'lib', isFolder: true, type: 'folder' as const },
+			];
+			vi.mocked(flattenTree).mockReturnValue(newFlatList);
+
+			const tree: FileNode[] = [
+				{ name: 'src', type: 'folder', children: [] },
+				{ name: 'lib', type: 'folder', children: [] },
+			];
+			const session = createMockSession({
+				fileExplorerExpanded: [],
+				fileTree: tree,
+			});
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const deps = createDeps({ filteredFileTree: tree });
+			renderHook(() => useFileExplorerEffects(deps));
+
+			// Should clamp to last item (index 1)
+			expect(useFileExplorerStore.getState().selectedFileIndex).toBe(1);
+		});
+
+		it('filters hidden children recursively', async () => {
+			const useFileExplorerEffects = await loadHook();
+			const { flattenTree } = await import('../../../renderer/utils/fileExplorer');
+			vi.mocked(flattenTree).mockReturnValue([]);
+
+			useSettingsStore.setState({ showHiddenFiles: false } as any);
+
+			const tree: FileNode[] = [
+				{
+					name: 'src',
+					type: 'folder',
+					children: [
+						{ name: '.env', type: 'file' },
+						{ name: 'index.ts', type: 'file' },
+					],
+				},
+			];
+
+			const session = createMockSession({
+				fileExplorerExpanded: ['src'],
+				fileTree: tree,
+			});
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const deps = createDeps({ filteredFileTree: tree });
+			renderHook(() => useFileExplorerEffects(deps));
+
+			const calledTree = vi.mocked(flattenTree).mock.calls[0]?.[0];
+			// 'src' folder should be passed through
+			const srcFolder = calledTree?.find((n: any) => n.name === 'src');
+			expect(srcFolder).toBeDefined();
+			// Its children should not include '.env'
+			expect(srcFolder?.children?.some((n: any) => n.name === '.env')).toBe(false);
+			expect(srcFolder?.children?.some((n: any) => n.name === 'index.ts')).toBe(true);
+		});
+	});
+
+	// ====================================================================
+	// Keyboard navigation — additional coverage
+	// ====================================================================
+
+	describe('keyboard navigation — additional coverage', () => {
+		it('Cmd+ArrowUp jumps to first item', async () => {
+			const useFileExplorerEffects = await loadHook();
+			useUIStore.setState({ activeFocus: 'right', activeRightTab: 'files' });
+
+			const session = createMockSession();
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const deps = createDeps();
+			const { rerender } = renderHook(() => useFileExplorerEffects(deps));
+
+			const flatList = [
+				{ name: 'a', fullPath: 'a', isFolder: false, type: 'file' as const },
+				{ name: 'b', fullPath: 'b', isFolder: false, type: 'file' as const },
+				{ name: 'c', fullPath: 'c', isFolder: false, type: 'file' as const },
+			];
+			act(() => {
+				useFileExplorerStore.setState({ flatFileList: flatList, selectedFileIndex: 2 });
+			});
+			rerender();
+
+			act(() => {
+				window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', metaKey: true }));
+			});
+
+			expect(useFileExplorerStore.getState().selectedFileIndex).toBe(0);
+		});
+
+		it('Ctrl+ArrowUp jumps to first item (cross-platform)', async () => {
+			const useFileExplorerEffects = await loadHook();
+			useUIStore.setState({ activeFocus: 'right', activeRightTab: 'files' });
+
+			const session = createMockSession();
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const deps = createDeps();
+			const { rerender } = renderHook(() => useFileExplorerEffects(deps));
+
+			const flatList = [
+				{ name: 'a', fullPath: 'a', isFolder: false, type: 'file' as const },
+				{ name: 'b', fullPath: 'b', isFolder: false, type: 'file' as const },
+			];
+			act(() => {
+				useFileExplorerStore.setState({ flatFileList: flatList, selectedFileIndex: 1 });
+			});
+			rerender();
+
+			act(() => {
+				window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', ctrlKey: true }));
+			});
+
+			expect(useFileExplorerStore.getState().selectedFileIndex).toBe(0);
+		});
+
+		it('Option+ArrowDown pages down 10 items', async () => {
+			const useFileExplorerEffects = await loadHook();
+			useUIStore.setState({ activeFocus: 'right', activeRightTab: 'files' });
+
+			const session = createMockSession();
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const deps = createDeps();
+			const { rerender } = renderHook(() => useFileExplorerEffects(deps));
+
+			// Create a list of 20 items
+			const flatList = Array.from({ length: 20 }, (_, i) => ({
+				name: `file-${i}`,
+				fullPath: `file-${i}`,
+				isFolder: false,
+				type: 'file' as const,
+			}));
+			act(() => {
+				useFileExplorerStore.setState({ flatFileList: flatList, selectedFileIndex: 5 });
+			});
+			rerender();
+
+			act(() => {
+				window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true }));
+			});
+
+			expect(useFileExplorerStore.getState().selectedFileIndex).toBe(15);
+		});
+
+		it('Option+ArrowUp pages up 10 items', async () => {
+			const useFileExplorerEffects = await loadHook();
+			useUIStore.setState({ activeFocus: 'right', activeRightTab: 'files' });
+
+			const session = createMockSession();
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const deps = createDeps();
+			const { rerender } = renderHook(() => useFileExplorerEffects(deps));
+
+			const flatList = Array.from({ length: 20 }, (_, i) => ({
+				name: `file-${i}`,
+				fullPath: `file-${i}`,
+				isFolder: false,
+				type: 'file' as const,
+			}));
+			act(() => {
+				useFileExplorerStore.setState({ flatFileList: flatList, selectedFileIndex: 15 });
+			});
+			rerender();
+
+			act(() => {
+				window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true }));
+			});
+
+			expect(useFileExplorerStore.getState().selectedFileIndex).toBe(5);
+		});
+
+		it('Option+ArrowDown clamps to last item', async () => {
+			const useFileExplorerEffects = await loadHook();
+			useUIStore.setState({ activeFocus: 'right', activeRightTab: 'files' });
+
+			const session = createMockSession();
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const deps = createDeps();
+			const { rerender } = renderHook(() => useFileExplorerEffects(deps));
+
+			const flatList = Array.from({ length: 5 }, (_, i) => ({
+				name: `file-${i}`,
+				fullPath: `file-${i}`,
+				isFolder: false,
+				type: 'file' as const,
+			}));
+			act(() => {
+				useFileExplorerStore.setState({ flatFileList: flatList, selectedFileIndex: 3 });
+			});
+			rerender();
+
+			act(() => {
+				window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true }));
+			});
+
+			// 3 + 10 = 13, but clamped to 4 (last index)
+			expect(useFileExplorerStore.getState().selectedFileIndex).toBe(4);
+		});
+
+		it('ArrowDown clamps at last item', async () => {
+			const useFileExplorerEffects = await loadHook();
+			useUIStore.setState({ activeFocus: 'right', activeRightTab: 'files' });
+
+			const session = createMockSession();
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const deps = createDeps();
+			const { rerender } = renderHook(() => useFileExplorerEffects(deps));
+
+			const flatList = [
+				{ name: 'a', fullPath: 'a', isFolder: false, type: 'file' as const },
+				{ name: 'b', fullPath: 'b', isFolder: false, type: 'file' as const },
+			];
+			act(() => {
+				useFileExplorerStore.setState({ flatFileList: flatList, selectedFileIndex: 1 });
+			});
+			rerender();
+
+			act(() => {
+				window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
+			});
+
+			// Already at last item, should stay at 1
+			expect(useFileExplorerStore.getState().selectedFileIndex).toBe(1);
+		});
+
+		it('ArrowUp clamps at first item', async () => {
+			const useFileExplorerEffects = await loadHook();
+			useUIStore.setState({ activeFocus: 'right', activeRightTab: 'files' });
+
+			const session = createMockSession();
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const deps = createDeps();
+			const { rerender } = renderHook(() => useFileExplorerEffects(deps));
+
+			const flatList = [
+				{ name: 'a', fullPath: 'a', isFolder: false, type: 'file' as const },
+				{ name: 'b', fullPath: 'b', isFolder: false, type: 'file' as const },
+			];
+			act(() => {
+				useFileExplorerStore.setState({ flatFileList: flatList, selectedFileIndex: 0 });
+			});
+			rerender();
+
+			act(() => {
+				window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp' }));
+			});
+
+			// Already at first item, should stay at 0
+			expect(useFileExplorerStore.getState().selectedFileIndex).toBe(0);
+		});
+
+		it('ArrowLeft collapses an expanded folder', async () => {
+			const useFileExplorerEffects = await loadHook();
+			useUIStore.setState({ activeFocus: 'right', activeRightTab: 'files' });
+
+			const session = createMockSession({
+				fileExplorerExpanded: ['src'],
+			});
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const toggleFolder = vi.fn();
+			const deps = createDeps({ toggleFolder });
+			const { rerender } = renderHook(() => useFileExplorerEffects(deps));
+
+			const flatList = [
+				{ name: 'src', fullPath: 'src', isFolder: true, type: 'folder' as const },
+				{ name: 'index.ts', fullPath: 'src/index.ts', isFolder: false, type: 'file' as const },
+			];
+			act(() => {
+				useFileExplorerStore.setState({ flatFileList: flatList, selectedFileIndex: 0 });
+			});
+			rerender();
+
+			act(() => {
+				window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+			});
+
+			// Should collapse 'src' folder
+			expect(toggleFolder).toHaveBeenCalledWith('src', 'session-1', expect.any(Function));
+		});
+
+		it('ArrowLeft on file navigates to parent folder', async () => {
+			const useFileExplorerEffects = await loadHook();
+			useUIStore.setState({ activeFocus: 'right', activeRightTab: 'files' });
+
+			const session = createMockSession({
+				fileExplorerExpanded: ['src'],
+			});
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const toggleFolder = vi.fn();
+			const deps = createDeps({ toggleFolder });
+			const { rerender } = renderHook(() => useFileExplorerEffects(deps));
+
+			const flatList = [
+				{ name: 'src', fullPath: 'src', isFolder: true, type: 'folder' as const },
+				{ name: 'index.ts', fullPath: 'src/index.ts', isFolder: false, type: 'file' as const },
+			];
+			act(() => {
+				useFileExplorerStore.setState({ flatFileList: flatList, selectedFileIndex: 1 });
+			});
+			rerender();
+
+			act(() => {
+				window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+			});
+
+			// Should collapse parent 'src' and navigate to it
+			expect(toggleFolder).toHaveBeenCalledWith('src', 'session-1', expect.any(Function));
+			expect(useFileExplorerStore.getState().selectedFileIndex).toBe(0);
+		});
+
+		it('ArrowRight expands a collapsed folder', async () => {
+			const useFileExplorerEffects = await loadHook();
+			useUIStore.setState({ activeFocus: 'right', activeRightTab: 'files' });
+
+			const session = createMockSession({
+				fileExplorerExpanded: [], // 'src' is NOT expanded
+			});
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const toggleFolder = vi.fn();
+			const deps = createDeps({ toggleFolder });
+			const { rerender } = renderHook(() => useFileExplorerEffects(deps));
+
+			const flatList = [{ name: 'src', fullPath: 'src', isFolder: true, type: 'folder' as const }];
+			act(() => {
+				useFileExplorerStore.setState({ flatFileList: flatList, selectedFileIndex: 0 });
+			});
+			rerender();
+
+			act(() => {
+				window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+			});
+
+			// Should expand 'src' folder
+			expect(toggleFolder).toHaveBeenCalledWith('src', 'session-1', expect.any(Function));
+		});
+
+		it('ArrowRight does nothing on already-expanded folder', async () => {
+			const useFileExplorerEffects = await loadHook();
+			useUIStore.setState({ activeFocus: 'right', activeRightTab: 'files' });
+
+			const session = createMockSession({
+				fileExplorerExpanded: ['src'], // already expanded
+			});
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const toggleFolder = vi.fn();
+			const deps = createDeps({ toggleFolder });
+			const { rerender } = renderHook(() => useFileExplorerEffects(deps));
+
+			const flatList = [{ name: 'src', fullPath: 'src', isFolder: true, type: 'folder' as const }];
+			act(() => {
+				useFileExplorerStore.setState({ flatFileList: flatList, selectedFileIndex: 0 });
+			});
+			rerender();
+
+			act(() => {
+				window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+			});
+
+			// Should NOT toggle — already expanded
+			expect(toggleFolder).not.toHaveBeenCalled();
+		});
+
+		it('ignores keys when activeRightTab is not files', async () => {
+			const useFileExplorerEffects = await loadHook();
+			useUIStore.setState({ activeFocus: 'right', activeRightTab: 'history' });
+
+			const session = createMockSession();
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const deps = createDeps();
+			const { rerender } = renderHook(() => useFileExplorerEffects(deps));
+
+			const flatList = [
+				{ name: 'a', fullPath: 'a', isFolder: false, type: 'file' as const },
+				{ name: 'b', fullPath: 'b', isFolder: false, type: 'file' as const },
+			];
+			act(() => {
+				useFileExplorerStore.setState({ flatFileList: flatList, selectedFileIndex: 0 });
+			});
+			rerender();
+
+			act(() => {
+				window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
+			});
+
+			expect(useFileExplorerStore.getState().selectedFileIndex).toBe(0);
+		});
+
+		it('ignores keys when flatFileList is empty', async () => {
+			const useFileExplorerEffects = await loadHook();
+			useUIStore.setState({ activeFocus: 'right', activeRightTab: 'files' });
+
+			const session = createMockSession();
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const toggleFolder = vi.fn();
+			const deps = createDeps({ toggleFolder });
+			const { rerender } = renderHook(() => useFileExplorerEffects(deps));
+
+			act(() => {
+				useFileExplorerStore.setState({ flatFileList: [], selectedFileIndex: 0 });
+			});
+			rerender();
+
+			act(() => {
+				window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+			});
+
+			expect(toggleFolder).not.toHaveBeenCalled();
+		});
+
+		it('cleans up keyboard listener on unmount', async () => {
+			const useFileExplorerEffects = await loadHook();
+			useUIStore.setState({ activeFocus: 'right', activeRightTab: 'files' });
+
+			const session = createMockSession();
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'session-1',
+			});
+
+			const deps = createDeps();
+			const { rerender, unmount } = renderHook(() => useFileExplorerEffects(deps));
+
+			const flatList = [
+				{ name: 'a', fullPath: 'a', isFolder: false, type: 'file' as const },
+				{ name: 'b', fullPath: 'b', isFolder: false, type: 'file' as const },
+			];
+			act(() => {
+				useFileExplorerStore.setState({ flatFileList: flatList, selectedFileIndex: 0 });
+			});
+			rerender();
+
+			// Unmount to trigger cleanup
+			unmount();
+
+			// Dispatch after unmount — should have no effect
+			act(() => {
+				window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
+			});
+
+			// Index should remain 0 (listener was removed)
+			expect(useFileExplorerStore.getState().selectedFileIndex).toBe(0);
+		});
+	});
+
+	// ====================================================================
+	// stableFileTree — additional coverage
+	// ====================================================================
+
+	describe('stableFileTree — additional coverage', () => {
+		it('returns new reference when fileTree changes', async () => {
+			const useFileExplorerEffects = await loadHook();
+
+			const tree1: FileNode[] = [{ name: 'src', type: 'folder', children: [] }];
+			const session1 = createMockSession({ fileTree: tree1 });
+			useSessionStore.setState({
+				sessions: [session1],
+				activeSessionId: 'session-1',
+			});
+
+			const deps = createDeps();
+			const { result } = renderHook(() => useFileExplorerEffects(deps));
+
+			const ref1 = result.current.stableFileTree;
+
+			// Update to a new file tree
+			const tree2: FileNode[] = [
+				{ name: 'src', type: 'folder', children: [] },
+				{ name: 'lib', type: 'folder', children: [] },
+			];
+			act(() => {
+				useSessionStore.setState({
+					sessions: [createMockSession({ fileTree: tree2 })],
+				});
+			});
+
+			const ref2 = result.current.stableFileTree;
+
+			// Should be a different reference since tree changed
+			expect(ref1).not.toBe(ref2);
+			expect(ref2).toBe(tree2);
+		});
+	});
+
+	// ====================================================================
 	// Return stability
 	// ====================================================================
 

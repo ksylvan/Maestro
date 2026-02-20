@@ -33,6 +33,29 @@ import { SaveMarkdownModal } from './SaveMarkdownModal';
 import { generateTerminalProseStyles } from '../utils/markdownConfig';
 
 // ============================================================================
+// Tool display helpers (pure functions, hoisted out of render path)
+// ============================================================================
+
+/** Type-safe string extraction — returns null for non-strings */
+const safeStr = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+
+/** Handle command values that may be strings or string arrays (Codex uses arrays) */
+const safeCommand = (v: unknown): string | null => {
+	if (typeof v === 'string') return v;
+	if (Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === 'string')) {
+		return v.join(' ');
+	}
+	return null;
+};
+
+/** Truncate a value to max length with ellipsis, returns null for non-strings */
+const truncateStr = (v: unknown, max: number): string | null => {
+	const s = safeStr(v);
+	if (!s) return null;
+	return s.length > max ? s.substring(0, max) + '\u2026' : s;
+};
+
+// ============================================================================
 // LogItem - Memoized component for individual log entries
 // ============================================================================
 
@@ -499,19 +522,22 @@ const LogItemComponent = memo(
 					{log.source === 'tool' &&
 						(() => {
 							// Extract tool input details for display
-							// Use type checks to ensure we only render strings (prevents React error #31)
 							const toolInput = log.metadata?.toolState?.input as
 								| Record<string, unknown>
 								| undefined;
-							const safeStr = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 							const toolDetail = toolInput
-								? safeStr(toolInput.command) ||
+								? safeCommand(toolInput.command) ||
 									safeStr(toolInput.pattern) ||
 									safeStr(toolInput.file_path) ||
 									safeStr(toolInput.query) ||
 									safeStr(toolInput.description) || // Task tool
 									safeStr(toolInput.prompt) || // Task tool fallback
 									safeStr(toolInput.task_id) || // TaskOutput tool
+									// Codex-specific tool arg patterns
+									safeStr(toolInput.path) || // Codex file operations
+									safeStr(toolInput.cmd) || // Codex shell commands
+									safeStr(toolInput.code) || // Codex code execution
+									truncateStr(toolInput.content, 100) || // Codex write operations (truncated)
 									null
 								: null;
 
@@ -1089,6 +1115,9 @@ export const TerminalOutput = memo(
 		const prevIsAtBottomRef = useRef(true);
 		// Track whether auto-scroll is paused because user scrolled up (state so button re-renders)
 		const [autoScrollPaused, setAutoScrollPaused] = useState(false);
+		// Guard flag: prevents the scroll handler from pausing auto-scroll
+		// during programmatic scrollTo() calls from the MutationObserver effect.
+		const isProgrammaticScrollRef = useRef(false);
 
 		// Track read state per tab - stores the log count when user scrolled to bottom
 		const tabReadStateRef = useRef<Map<string, number>>(new Map());
@@ -1349,8 +1378,16 @@ export const TerminalOutput = memo(
 					tabReadStateRef.current.set(activeTabId, filteredLogs.length);
 				}
 			} else if (autoScrollAiMode) {
-				// Pause auto-scroll when user scrolls away from bottom
-				setAutoScrollPaused(true);
+				if (isProgrammaticScrollRef.current) {
+					// This scroll event was triggered by our own scrollTo() call —
+					// consume the guard flag here inside the throttled handler to avoid
+					// the race where queueMicrotask clears the flag before a deferred
+					// throttled invocation fires (throttle delay is 16ms > microtask).
+					isProgrammaticScrollRef.current = false;
+				} else {
+					// Genuine user scroll away from bottom — pause auto-scroll
+					setAutoScrollPaused(true);
+				}
 			}
 
 			// Throttled scroll position save (200ms)
@@ -1363,7 +1400,13 @@ export const TerminalOutput = memo(
 					scrollSaveTimerRef.current = null;
 				}, 200);
 			}
-		}, [activeTabId, filteredLogs.length, onScrollPositionChange, onAtBottomChange, autoScrollAiMode]);
+		}, [
+			activeTabId,
+			filteredLogs.length,
+			onScrollPositionChange,
+			onAtBottomChange,
+			autoScrollAiMode,
+		]);
 
 		// PERF: Throttle at 16ms (60fps) instead of 4ms to reduce state updates during scroll
 		const handleScroll = useThrottledCallback(handleScrollInner, 16);
@@ -1406,7 +1449,11 @@ export const TerminalOutput = memo(
 			lastLogCountRef.current = currentCount;
 		}, [activeTabId]); // Only run when tab changes, not when filteredLogs changes
 
-		// Detect new messages when user is not at bottom (while staying on same tab)
+		// Detect new messages when user is not at bottom (while staying on same tab).
+		// NOTE: This intentionally uses filteredLogs.length (not the MutationObserver) because
+		// unread badge counts should only increment on NEW log entries, not on in-place text
+		// updates (thinking stream growth). The MutationObserver handles scroll triggering;
+		// this effect handles the unread badge.
 		useEffect(() => {
 			const currentCount = filteredLogs.length;
 			if (currentCount > lastLogCountRef.current) {
@@ -1441,27 +1488,62 @@ export const TerminalOutput = memo(
 			}
 		}, [autoScrollAiMode]);
 
-		// Auto-scroll to bottom when new output arrives
-		// Terminal mode always auto-scrolls; AI mode auto-scrolls when autoScrollAiMode is enabled
-		// Auto-scroll pauses when user scrolls up, resumes when they scroll back to bottom
+		// Auto-scroll to bottom when DOM content changes in the scroll container.
+		// Uses MutationObserver to detect ALL content mutations — new nodes (log entries),
+		// text changes (thinking stream growth), and attribute changes (tool status updates).
+		// This replaces the previous filteredLogs.length dependency, which missed in-place
+		// text updates during thinking/tool streaming (GitHub issue #402).
 		useEffect(() => {
-			const shouldAutoScroll =
+			const container = scrollContainerRef.current;
+			if (!container) return;
+
+			const shouldAutoScroll = () =>
 				session.inputMode === 'terminal' ||
 				(session.inputMode === 'ai' && autoScrollAiMode && !autoScrollPaused);
-			if (shouldAutoScroll && scrollContainerRef.current) {
-				// Use requestAnimationFrame to ensure DOM has updated with new content
+
+			const scrollToBottom = () => {
+				if (!scrollContainerRef.current) return;
 				requestAnimationFrame(() => {
 					if (scrollContainerRef.current) {
+						// Set guard flag BEFORE scrollTo — the throttled scroll handler
+						// checks this flag and consumes it (clears it) when it fires,
+						// preventing the programmatic scroll from being misinterpreted
+						// as a user scroll-up that should pause auto-scroll.
+						isProgrammaticScrollRef.current = true;
 						scrollContainerRef.current.scrollTo({
 							top: scrollContainerRef.current.scrollHeight,
-							// Use 'auto' (instant) for continuous auto-scroll to prevent jitter
-							// when messages arrive rapidly during streaming
 							behavior: 'auto',
 						});
+						// Fallback: if scrollTo is a no-op (already at bottom), the browser
+						// won't fire a scroll event, so the handler never consumes the guard.
+						// Clear it after 32ms (2x the 16ms throttle window) to prevent a
+						// stale true from eating the next genuine user scroll-up.
+						setTimeout(() => {
+							isProgrammaticScrollRef.current = false;
+						}, 32);
 					}
 				});
+			};
+
+			// Initial scroll on mount/dep change
+			if (shouldAutoScroll()) {
+				scrollToBottom();
 			}
-		}, [session.inputMode, filteredLogs.length, autoScrollAiMode, autoScrollPaused]);
+
+			const observer = new MutationObserver(() => {
+				if (shouldAutoScroll()) {
+					scrollToBottom();
+				}
+			});
+
+			observer.observe(container, {
+				childList: true, // New/removed DOM nodes (new log entries, tool events)
+				subtree: true, // Watch all descendants, not just direct children
+				characterData: true, // Text node mutations (thinking stream text growth)
+			});
+
+			return () => observer.disconnect();
+		}, [session.inputMode, autoScrollAiMode, autoScrollPaused]);
 
 		// Restore scroll position when component mounts or initialScrollTop changes
 		// Uses requestAnimationFrame to ensure DOM is ready
@@ -1717,43 +1799,62 @@ export const TerminalOutput = memo(
 
 				{/* Auto-scroll toggle — positioned opposite AI response side (AI mode only) */}
 				{/* Visible when: not at bottom (dimmed, click to pin) OR pinned at bottom (accent, click to unpin) */}
-				{session.inputMode === 'ai' && setAutoScrollAiMode && (!isAtBottom || isAutoScrollActive) && (
-					<button
-						onClick={() => {
-							if (isAutoScrollActive && isAtBottom) {
-								// Currently pinned at bottom — unpin
-								setAutoScrollAiMode(false);
-							} else {
-								// Not pinned — jump to bottom and pin
-								setAutoScrollPaused(false);
-								setAutoScrollAiMode(true);
-								setHasNewMessages(false);
-								setNewMessageCount(0);
-								if (scrollContainerRef.current) {
-									scrollContainerRef.current.scrollTo({
-										top: scrollContainerRef.current.scrollHeight,
-										behavior: 'smooth',
-									});
+				{session.inputMode === 'ai' &&
+					setAutoScrollAiMode &&
+					(!isAtBottom || isAutoScrollActive) && (
+						<button
+							onClick={() => {
+								if (isAutoScrollActive && isAtBottom) {
+									// Currently pinned at bottom — unpin
+									setAutoScrollAiMode(false);
+								} else {
+									// Not pinned — jump to bottom and pin
+									setAutoScrollPaused(false);
+									setAutoScrollAiMode(true);
+									setHasNewMessages(false);
+									setNewMessageCount(0);
+									if (scrollContainerRef.current) {
+										scrollContainerRef.current.scrollTo({
+											top: scrollContainerRef.current.scrollHeight,
+											behavior: 'smooth',
+										});
+									}
 								}
+							}}
+							className={`absolute bottom-4 ${userMessageAlignment === 'right' ? 'left-6' : 'right-6'} flex items-center gap-2 px-3 py-2 rounded-full shadow-lg transition-all hover:scale-105 z-20`}
+							style={{
+								backgroundColor: isAutoScrollActive
+									? theme.colors.accent
+									: hasNewMessages
+										? theme.colors.accent
+										: theme.colors.bgSidebar,
+								color: isAutoScrollActive
+									? theme.colors.accentForeground
+									: hasNewMessages
+										? theme.colors.accentForeground
+										: theme.colors.textDim,
+								border: `1px solid ${isAutoScrollActive || hasNewMessages ? 'transparent' : theme.colors.border}`,
+								animation:
+									hasNewMessages && !isAutoScrollActive
+										? 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+										: undefined,
+							}}
+							title={
+								isAutoScrollActive
+									? 'Auto-scroll ON (click to unpin)'
+									: hasNewMessages
+										? 'New messages (click to pin to bottom)'
+										: 'Scroll to bottom (click to pin)'
 							}
-						}}
-						className={`absolute bottom-4 ${userMessageAlignment === 'right' ? 'left-6' : 'right-6'} flex items-center gap-2 px-3 py-2 rounded-full shadow-lg transition-all hover:scale-105 z-20`}
-						style={{
-							backgroundColor: isAutoScrollActive ? theme.colors.accent : hasNewMessages ? theme.colors.accent : theme.colors.bgSidebar,
-							color: isAutoScrollActive ? theme.colors.accentForeground : hasNewMessages ? theme.colors.accentForeground : theme.colors.textDim,
-							border: `1px solid ${isAutoScrollActive || hasNewMessages ? 'transparent' : theme.colors.border}`,
-							animation: hasNewMessages && !isAutoScrollActive ? 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' : undefined,
-						}}
-						title={isAutoScrollActive ? 'Auto-scroll ON (click to unpin)' : hasNewMessages ? 'New messages (click to pin to bottom)' : 'Scroll to bottom (click to pin)'}
-					>
-						<ArrowDown className="w-4 h-4" />
-						{newMessageCount > 0 && !isAutoScrollActive && (
-							<span className="text-xs font-bold">
-								{newMessageCount > 99 ? '99+' : newMessageCount}
-							</span>
-						)}
-					</button>
-				)}
+						>
+							<ArrowDown className="w-4 h-4" />
+							{newMessageCount > 0 && !isAutoScrollActive && (
+								<span className="text-xs font-bold">
+									{newMessageCount > 99 ? '99+' : newMessageCount}
+								</span>
+							)}
+						</button>
+					)}
 
 				{/* Copied to Clipboard Notification */}
 				{showCopiedNotification && (

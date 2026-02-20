@@ -390,6 +390,10 @@ You are taking over this conversation. Based on the context above, provide a bri
 							thinkingStartTime: Date.now(),
 							aiTabs: [...s.aiTabs, newTab],
 							activeTabId: newTabId,
+							unifiedTabOrder: [
+								...(s.unifiedTabOrder || []),
+								{ type: 'ai' as const, id: newTabId },
+							],
 						};
 					}
 					return s;

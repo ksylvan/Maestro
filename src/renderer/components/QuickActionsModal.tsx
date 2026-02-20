@@ -646,6 +646,15 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
 			},
 		},
 		{
+			id: 'configureEnvVars',
+			label: 'Configure Global Environment Variables',
+			action: () => {
+				setSettingsModalOpen(true);
+				setSettingsTab('general');
+				setQuickActionOpen(false);
+			},
+		},
+		{
 			id: 'shortcuts',
 			label: 'View Shortcuts',
 			shortcut: shortcuts.help,
@@ -1030,7 +1039,9 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
 			? [
 					{
 						id: 'toggleAutoScroll',
-						label: autoScrollAiMode ? 'Disable Auto-Scroll AI Output' : 'Enable Auto-Scroll AI Output',
+						label: autoScrollAiMode
+							? 'Disable Auto-Scroll AI Output'
+							: 'Enable Auto-Scroll AI Output',
 						shortcut: shortcuts.toggleAutoScroll,
 						action: () => {
 							setAutoScrollAiMode(!autoScrollAiMode);

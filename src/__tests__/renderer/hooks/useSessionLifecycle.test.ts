@@ -1103,4 +1103,371 @@ describe('useSessionLifecycle', () => {
 			expect(result.current.toggleUnreadFilter).toBeTypeOf('function');
 		});
 	});
+
+	// ======================================================================
+	// handleSaveEditAgent edge cases
+	// ======================================================================
+
+	describe('handleSaveEditAgent edge cases', () => {
+		it('does not modify sessions when sessionId does not match any session', () => {
+			const session = createMockSession({ id: 'session-1', name: 'Original' });
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+
+			const { result } = renderHook(() => useSessionLifecycle(createDeps()));
+
+			act(() => {
+				result.current.handleSaveEditAgent('non-existent-id', 'New Name');
+			});
+
+			const sessions = useSessionStore.getState().sessions;
+			expect(sessions).toHaveLength(1);
+			expect(sessions[0].name).toBe('Original');
+		});
+
+		it('updates session name to empty string when provided', () => {
+			const session = createMockSession({ id: 'session-1', name: 'Old Name' });
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+
+			const { result } = renderHook(() => useSessionLifecycle(createDeps()));
+
+			act(() => {
+				result.current.handleSaveEditAgent('session-1', '');
+			});
+
+			const updated = useSessionStore.getState().sessions[0];
+			expect(updated.name).toBe('');
+		});
+	});
+
+	// ======================================================================
+	// handleRenameTab edge cases
+	// ======================================================================
+
+	describe('handleRenameTab edge cases', () => {
+		it('still updates session when renameTabId does not match any tab in aiTabs', () => {
+			const tab = createMockAITab({ id: 'tab-1', agentSessionId: 'ag-1', name: 'Tab 1' });
+			const session = createMockSession({
+				id: 'session-1',
+				aiTabs: [tab],
+				activeTabId: 'tab-1',
+			});
+
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+			// Set renameTabId to a tab that doesn't exist in the session
+			useModalStore.getState().openModal('renameTab', { tabId: 'tab-999', initialName: '' });
+
+			const { result } = renderHook(() => useSessionLifecycle(createDeps()));
+
+			act(() => {
+				result.current.handleRenameTab('New Name');
+			});
+
+			// The tab with id tab-1 should remain unchanged (renameTabId=tab-999 doesn't match)
+			const updatedTab = useSessionStore.getState().sessions[0].aiTabs[0];
+			expect(updatedTab.name).toBe('Tab 1');
+			// Logger should still be called with undefined tab fields
+			expect(window.maestro.logger.log).toHaveBeenCalledWith(
+				'info',
+				expect.any(String),
+				'TabNaming',
+				expect.objectContaining({
+					tabId: 'tab-999',
+					sessionId: 'session-1',
+				})
+			);
+		});
+
+		it('clears isGeneratingName when renaming a tab that has isGeneratingName=true', () => {
+			const tab = createMockAITab({
+				id: 'tab-1',
+				agentSessionId: 'ag-1',
+				name: 'Auto Name',
+				isGeneratingName: true,
+			} as any);
+			const session = createMockSession({
+				id: 'session-1',
+				aiTabs: [tab],
+				activeTabId: 'tab-1',
+			});
+
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+			useModalStore.getState().openModal('renameTab', { tabId: 'tab-1', initialName: 'Auto Name' });
+
+			const { result } = renderHook(() => useSessionLifecycle(createDeps()));
+
+			act(() => {
+				result.current.handleRenameTab('Manual Name');
+			});
+
+			const updated = useSessionStore.getState().sessions[0].aiTabs[0];
+			expect(updated.name).toBe('Manual Name');
+			expect(updated.isGeneratingName).toBe(false);
+		});
+
+		it('uses claude-code persistence path when toolType is undefined', () => {
+			const tab = createMockAITab({ id: 'tab-1', agentSessionId: 'ag-1' });
+			const session = createMockSession({
+				id: 'session-1',
+				toolType: undefined as any,
+				aiTabs: [tab],
+				activeTabId: 'tab-1',
+			});
+
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+			useModalStore.getState().openModal('renameTab', { tabId: 'tab-1', initialName: '' });
+
+			const { result } = renderHook(() => useSessionLifecycle(createDeps()));
+
+			act(() => {
+				result.current.handleRenameTab('Renamed');
+			});
+
+			// Should fall back to claude-code path when toolType is falsy
+			expect(window.maestro.claude.updateSessionName).toHaveBeenCalledWith(
+				'/projects/myapp',
+				'ag-1',
+				'Renamed'
+			);
+			expect(window.maestro.agentSessions.setSessionName).not.toHaveBeenCalled();
+		});
+	});
+
+	// ======================================================================
+	// performDeleteSession edge cases
+	// ======================================================================
+
+	describe('performDeleteSession edge cases', () => {
+		it('continues cleanup when playbooks.deleteAll throws an error', async () => {
+			(window.maestro.playbooks.deleteAll as ReturnType<typeof vi.fn>).mockRejectedValue(
+				new Error('Storage error')
+			);
+			const session = createMockSession({ id: 'session-1', cwd: '/projects/myapp' });
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+
+			const { result } = renderHook(() => useSessionLifecycle(createDeps()));
+
+			await act(async () => {
+				await result.current.performDeleteSession(session, false);
+			});
+
+			// Session should still be removed despite playbook deletion failure
+			expect(useSessionStore.getState().sessions).toHaveLength(0);
+			expect(useSessionStore.getState().activeSessionId).toBe('');
+		});
+
+		it('does not trash when session has no cwd', async () => {
+			const session = createMockSession({
+				id: 'session-1',
+				cwd: '' as any,
+			});
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+
+			const { result } = renderHook(() => useSessionLifecycle(createDeps()));
+
+			await act(async () => {
+				await result.current.performDeleteSession(session, true);
+			});
+
+			// eraseWorkingDirectory is true but cwd is empty, so trashItem should not be called
+			expect(window.maestro.shell.trashItem).not.toHaveBeenCalled();
+			// Session should still be removed
+			expect(useSessionStore.getState().sessions).toHaveLength(0);
+		});
+
+		it('activates first session when deleting the middle session from three sessions', async () => {
+			const session1 = createMockSession({ id: 'session-1', name: 'First' });
+			const session2 = createMockSession({ id: 'session-2', name: 'Middle' });
+			const session3 = createMockSession({ id: 'session-3', name: 'Last' });
+			useSessionStore.setState({
+				sessions: [session1, session2, session3],
+				activeSessionId: 'session-2',
+			});
+
+			const { result } = renderHook(() => useSessionLifecycle(createDeps()));
+
+			await act(async () => {
+				await result.current.performDeleteSession(session2, false);
+			});
+
+			const state = useSessionStore.getState();
+			expect(state.sessions).toHaveLength(2);
+			expect(state.sessions[0].id).toBe('session-1');
+			expect(state.sessions[1].id).toBe('session-3');
+			// First remaining session becomes active
+			expect(state.activeSessionId).toBe('session-1');
+		});
+
+		it('still deletes playbooks and removes session when both process kills fail', async () => {
+			(window.maestro.process.kill as ReturnType<typeof vi.fn>).mockRejectedValue(
+				new Error('Process not found')
+			);
+			const session = createMockSession({ id: 'session-1' });
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+
+			const { result } = renderHook(() => useSessionLifecycle(createDeps()));
+
+			await act(async () => {
+				await result.current.performDeleteSession(session, false);
+			});
+
+			// Both kills failed, but cleanup should continue
+			expect(window.maestro.process.kill).toHaveBeenCalledTimes(2);
+			expect(window.maestro.playbooks.deleteAll).toHaveBeenCalledWith('session-1');
+			expect(useSessionStore.getState().sessions).toHaveLength(0);
+		});
+	});
+
+	// ======================================================================
+	// toggleTabStar edge cases
+	// ======================================================================
+
+	describe('toggleTabStar edge cases', () => {
+		it('only toggles the active tab when session has multiple tabs', () => {
+			const tab1 = createMockAITab({ id: 'tab-1', starred: false, agentSessionId: 'ag-1' });
+			const tab2 = createMockAITab({ id: 'tab-2', starred: false, agentSessionId: 'ag-2' });
+			const session = createMockSession({
+				id: 'session-1',
+				aiTabs: [tab1, tab2],
+				activeTabId: 'tab-1',
+			});
+
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+
+			const { result } = renderHook(() => useSessionLifecycle(createDeps()));
+
+			act(() => {
+				result.current.toggleTabStar();
+			});
+
+			const tabs = useSessionStore.getState().sessions[0].aiTabs;
+			expect(tabs[0].starred).toBe(true); // active tab toggled
+			expect(tabs[1].starred).toBe(false); // other tab unchanged
+		});
+
+		it('uses claude-code persistence fallback when toolType is undefined', () => {
+			const tab = createMockAITab({ id: 'tab-1', starred: false, agentSessionId: 'ag-1' });
+			const session = createMockSession({
+				id: 'session-1',
+				toolType: undefined as any,
+				aiTabs: [tab],
+				activeTabId: 'tab-1',
+			});
+
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+
+			const { result } = renderHook(() => useSessionLifecycle(createDeps()));
+
+			act(() => {
+				result.current.toggleTabStar();
+			});
+
+			// Should fall back to claude-code path when toolType is falsy
+			expect(window.maestro.claude.updateSessionStarred).toHaveBeenCalledWith(
+				'/projects/myapp',
+				'ag-1',
+				true
+			);
+			expect(window.maestro.agentSessions.setSessionStarred).not.toHaveBeenCalled();
+		});
+	});
+
+	// ======================================================================
+	// toggleTabUnread edge cases
+	// ======================================================================
+
+	describe('toggleTabUnread edge cases', () => {
+		it('returns early if session has no tabs (no active tab)', () => {
+			const session = createMockSession({
+				id: 'session-1',
+				aiTabs: [],
+				activeTabId: '',
+			});
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+
+			const { result } = renderHook(() => useSessionLifecycle(createDeps()));
+
+			const sessionsBefore = useSessionStore.getState().sessions;
+
+			act(() => {
+				result.current.toggleTabUnread();
+			});
+
+			// Sessions should be unchanged (no update applied)
+			expect(useSessionStore.getState().sessions[0].aiTabs).toEqual(sessionsBefore[0].aiTabs);
+		});
+	});
+
+	// ======================================================================
+	// toggleUnreadFilter edge cases
+	// ======================================================================
+
+	describe('toggleUnreadFilter edge cases', () => {
+		it('saves null as preFilterActiveTabId when entering filter mode with no activeTabId', () => {
+			const session = createMockSession({
+				id: 'session-1',
+				aiTabs: [],
+				activeTabId: '',
+			});
+
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+			useUIStore.setState({ showUnreadOnly: false, preFilterActiveTabId: null });
+
+			const { result } = renderHook(() => useSessionLifecycle(createDeps()));
+
+			act(() => {
+				result.current.toggleUnreadFilter();
+			});
+
+			expect(useUIStore.getState().showUnreadOnly).toBe(true);
+			// Empty string activeTabId is falsy, so `session?.activeTabId || null` resolves to null
+			expect(useUIStore.getState().preFilterActiveTabId).toBeNull();
+		});
+
+		it('clears filter and does not restore tab when preFilterActiveTabId is null on exit', () => {
+			const tab = createMockAITab({ id: 'tab-1' });
+			const session = createMockSession({
+				id: 'session-1',
+				aiTabs: [tab],
+				activeTabId: 'tab-1',
+			});
+
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+			useUIStore.setState({ showUnreadOnly: true, preFilterActiveTabId: null });
+
+			const { result } = renderHook(() => useSessionLifecycle(createDeps()));
+
+			act(() => {
+				result.current.toggleUnreadFilter();
+			});
+
+			expect(useUIStore.getState().showUnreadOnly).toBe(false);
+			// activeTabId should remain unchanged since preFilterActiveTabId was null
+			expect(useSessionStore.getState().sessions[0].activeTabId).toBe('tab-1');
+		});
+	});
+
+	// ======================================================================
+	// Navigation history edge cases
+	// ======================================================================
+
+	describe('navigation history edge cases', () => {
+		it('tracks tabId as undefined when session has aiTabs but inputMode is terminal', () => {
+			const tab = createMockAITab({ id: 'tab-1' });
+			const session = createMockSession({
+				id: 'session-1',
+				inputMode: 'terminal' as any,
+				aiTabs: [tab],
+				activeTabId: 'tab-1',
+			});
+
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+
+			renderHook(() => useSessionLifecycle(createDeps()));
+
+			expect(mockPushNavigation).toHaveBeenCalledWith({
+				sessionId: 'session-1',
+				tabId: undefined,
+			});
+		});
+	});
 });

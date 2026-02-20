@@ -1198,6 +1198,536 @@ describe('useBatchHandlers', () => {
 	// Return value stability
 	// ====================================================================
 
+	// ====================================================================
+	// handleStopBatchRun edge cases
+	// ====================================================================
+
+	describe('handleStopBatchRun edge cases', () => {
+		it('does NOT call stopBatchRun when user cancels confirmation', () => {
+			const session = createMockSession({ id: 'session-1', name: 'My Agent' });
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+
+			const { result } = renderHook(() => useBatchHandlers(createDeps()));
+
+			act(() => {
+				result.current.handleStopBatchRun('session-1');
+			});
+
+			// Confirm modal is open but user does NOT call onConfirm
+			const confirmModal = useModalStore.getState().modals.get('confirm');
+			expect(confirmModal?.open).toBe(true);
+
+			// Simulate cancel by closing the modal without calling onConfirm
+			act(() => {
+				useModalStore.getState().closeModal('confirm');
+			});
+
+			// stopBatchRun should NOT have been called
+			expect(mockStopBatchRun).not.toHaveBeenCalled();
+		});
+
+		it('uses "this session" as fallback when session not found in sessions array', () => {
+			// Session ID resolves but the session is not in the sessions list
+			useSessionStore.setState({ sessions: [], activeSessionId: '' });
+			mockActiveBatchSessionIds = ['unknown-session'];
+
+			const { result } = renderHook(() => useBatchHandlers(createDeps()));
+
+			act(() => {
+				result.current.handleStopBatchRun();
+			});
+
+			const confirmModal = useModalStore.getState().modals.get('confirm');
+			expect(confirmModal?.open).toBe(true);
+			expect(confirmModal?.data?.message).toContain('this session');
+		});
+
+		it('prioritizes targetSessionId over activeSession and activeBatchSessionIds', () => {
+			const session1 = createMockSession({ id: 'session-1', name: 'Agent One' });
+			const session2 = createMockSession({ id: 'session-2', name: 'Agent Two' });
+			const session3 = createMockSession({ id: 'session-3', name: 'Agent Three' });
+			useSessionStore.setState({
+				sessions: [session1, session2, session3],
+				activeSessionId: 'session-2',
+			});
+			mockActiveBatchSessionIds = ['session-3'];
+
+			const { result } = renderHook(() => useBatchHandlers(createDeps()));
+
+			act(() => {
+				result.current.handleStopBatchRun('session-1');
+			});
+
+			const confirmModal = useModalStore.getState().modals.get('confirm');
+			expect(confirmModal?.open).toBe(true);
+			expect(confirmModal?.data?.message).toContain('Agent One');
+
+			// Confirm and verify correct session ID was stopped
+			act(() => {
+				confirmModal?.data?.onConfirm?.();
+			});
+
+			expect(mockStopBatchRun).toHaveBeenCalledWith('session-1');
+		});
+
+		it('falls back to activeSession when no targetSessionId is provided', () => {
+			const session1 = createMockSession({ id: 'session-1', name: 'Active Agent' });
+			const session2 = createMockSession({ id: 'session-2', name: 'Batch Agent' });
+			useSessionStore.setState({
+				sessions: [session1, session2],
+				activeSessionId: 'session-1',
+			});
+			mockActiveBatchSessionIds = ['session-2'];
+
+			const { result } = renderHook(() => useBatchHandlers(createDeps()));
+
+			act(() => {
+				result.current.handleStopBatchRun();
+			});
+
+			const confirmModal = useModalStore.getState().modals.get('confirm');
+			expect(confirmModal?.open).toBe(true);
+			expect(confirmModal?.data?.message).toContain('Active Agent');
+
+			act(() => {
+				confirmModal?.data?.onConfirm?.();
+			});
+
+			expect(mockStopBatchRun).toHaveBeenCalledWith('session-1');
+		});
+	});
+
+	// ====================================================================
+	// handleSyncAutoRunStats edge cases
+	// ====================================================================
+
+	describe('handleSyncAutoRunStats edge cases', () => {
+		it('syncs badge tracking fields to match currentBadgeLevel from payload', () => {
+			useSettingsStore.setState({
+				autoRunStats: {
+					cumulativeTimeMs: 100,
+					totalRuns: 1,
+					currentBadgeLevel: 1,
+					longestRunMs: 50,
+					longestRunTimestamp: 1000,
+					lastBadgeUnlockLevel: 0,
+					lastAcknowledgedBadgeLevel: 0,
+				},
+			});
+
+			const { result } = renderHook(() => useBatchHandlers(createDeps()));
+
+			act(() => {
+				result.current.handleSyncAutoRunStats({
+					cumulativeTimeMs: 50000,
+					totalRuns: 20,
+					currentBadgeLevel: 5,
+					longestRunMs: 10000,
+					longestRunTimestamp: 5000,
+				});
+			});
+
+			const stats = useSettingsStore.getState().autoRunStats;
+			expect(stats.lastBadgeUnlockLevel).toBe(5);
+			expect(stats.lastAcknowledgedBadgeLevel).toBe(5);
+			expect(stats.currentBadgeLevel).toBe(5);
+		});
+
+		it('does not preserve existing higher badge level — synced value overwrites', () => {
+			// The sync function unconditionally sets badge tracking to the synced level.
+			// This tests that existing higher values are overwritten (server is source of truth).
+			useSettingsStore.setState({
+				autoRunStats: {
+					cumulativeTimeMs: 100000,
+					totalRuns: 50,
+					currentBadgeLevel: 8,
+					longestRunMs: 20000,
+					longestRunTimestamp: 3000,
+					lastBadgeUnlockLevel: 8,
+					lastAcknowledgedBadgeLevel: 8,
+				},
+			});
+
+			const { result } = renderHook(() => useBatchHandlers(createDeps()));
+
+			act(() => {
+				result.current.handleSyncAutoRunStats({
+					cumulativeTimeMs: 5000,
+					totalRuns: 5,
+					currentBadgeLevel: 3,
+					longestRunMs: 2000,
+					longestRunTimestamp: 1500,
+				});
+			});
+
+			const stats = useSettingsStore.getState().autoRunStats;
+			// Server says badge level 3, so all badge tracking fields reflect 3
+			expect(stats.currentBadgeLevel).toBe(3);
+			expect(stats.lastBadgeUnlockLevel).toBe(3);
+			expect(stats.lastAcknowledgedBadgeLevel).toBe(3);
+			expect(stats.cumulativeTimeMs).toBe(5000);
+			expect(stats.totalRuns).toBe(5);
+		});
+	});
+
+	// ====================================================================
+	// Quit confirmation edge cases
+	// ====================================================================
+
+	describe('quit confirmation edge cases', () => {
+		it('shows modal (does not confirm) when both busy agents AND active auto-runs exist', () => {
+			const busySession = createMockSession({
+				id: 'session-1',
+				state: 'busy',
+				busySource: 'ai',
+				toolType: 'claude-code',
+			});
+			const autoRunSession = createMockSession({
+				id: 'session-2',
+				state: 'idle',
+				toolType: 'claude-code',
+			});
+			useSessionStore.setState({
+				sessions: [busySession, autoRunSession],
+				activeSessionId: 'session-1',
+			});
+
+			let quitCallback: () => void = () => {};
+			(window.maestro.app.onQuitConfirmationRequest as any).mockImplementation((cb: () => void) => {
+				quitCallback = cb;
+				return vi.fn();
+			});
+
+			const { result } = renderHook(() => useBatchHandlers(createDeps()));
+
+			// Make getBatchStateRef return running for session-2
+			result.current.getBatchStateRef.current = (sessionId: string) => {
+				if (sessionId === 'session-2') return createDefaultBatchState({ isRunning: true });
+				return createDefaultBatchState({ isRunning: false });
+			};
+
+			act(() => {
+				quitCallback();
+			});
+
+			expect(window.maestro.app.confirmQuit).not.toHaveBeenCalled();
+			const quitModal = useModalStore.getState().modals.get('quitConfirm');
+			expect(quitModal?.open).toBe(true);
+		});
+
+		it('shows modal for busy session with busySource=terminal for non-terminal agent type', () => {
+			// A non-terminal agent (e.g. claude-code) that is busy with source 'ai' should block quit.
+			// But busySource='terminal' on a non-terminal agent should also be checked.
+			// Per the code: filter is s.state === 'busy' && s.busySource === 'ai' && s.toolType !== 'terminal'
+			// So busySource='terminal' actually does NOT count as a busy agent.
+			const session = createMockSession({
+				id: 'session-1',
+				state: 'busy',
+				busySource: 'terminal' as any,
+				toolType: 'claude-code',
+			});
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+			mockGetBatchState.mockReturnValue(createDefaultBatchState({ isRunning: false }));
+
+			let quitCallback: () => void = () => {};
+			(window.maestro.app.onQuitConfirmationRequest as any).mockImplementation((cb: () => void) => {
+				quitCallback = cb;
+				return vi.fn();
+			});
+
+			renderHook(() => useBatchHandlers(createDeps()));
+
+			act(() => {
+				quitCallback();
+			});
+
+			// busySource is 'terminal' not 'ai', so agent is NOT in busyAgents filter
+			// No active auto-runs either, so quit should be confirmed
+			expect(window.maestro.app.confirmQuit).toHaveBeenCalled();
+		});
+
+		it('confirms quit immediately when there are no sessions at all', () => {
+			useSessionStore.setState({ sessions: [], activeSessionId: '' });
+
+			let quitCallback: () => void = () => {};
+			(window.maestro.app.onQuitConfirmationRequest as any).mockImplementation((cb: () => void) => {
+				quitCallback = cb;
+				return vi.fn();
+			});
+
+			renderHook(() => useBatchHandlers(createDeps()));
+
+			act(() => {
+				quitCallback();
+			});
+
+			expect(window.maestro.app.confirmQuit).toHaveBeenCalled();
+			const quitModal = useModalStore.getState().modals.get('quitConfirm');
+			expect(quitModal?.open).not.toBe(true);
+		});
+	});
+
+	// ====================================================================
+	// onUpdateSession edge cases
+	// ====================================================================
+
+	describe('onUpdateSession edge cases', () => {
+		it('leaves sessions unchanged when updating non-existent session ID', () => {
+			const session1 = createMockSession({ id: 'session-1', state: 'idle' });
+			const session2 = createMockSession({ id: 'session-2', state: 'idle' });
+			useSessionStore.setState({
+				sessions: [session1, session2],
+				activeSessionId: 'session-1',
+			});
+
+			renderHook(() => useBatchHandlers(createDeps()));
+
+			const callArgs = vi.mocked(useBatchProcessor).mock.calls[0][0];
+
+			act(() => {
+				callArgs.onUpdateSession('nonexistent-session', { state: 'busy' as any });
+			});
+
+			const sessions = useSessionStore.getState().sessions;
+			expect(sessions).toHaveLength(2);
+			expect(sessions[0].state).toBe('idle');
+			expect(sessions[1].state).toBe('idle');
+		});
+
+		it('preserves other fields when applying a partial update (just one field)', () => {
+			const session = createMockSession({
+				id: 'session-1',
+				state: 'idle',
+				name: 'My Agent',
+				cwd: '/original/path',
+			});
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+
+			renderHook(() => useBatchHandlers(createDeps()));
+
+			const callArgs = vi.mocked(useBatchProcessor).mock.calls[0][0];
+
+			act(() => {
+				callArgs.onUpdateSession('session-1', { state: 'busy' as any });
+			});
+
+			const updated = useSessionStore.getState().sessions[0];
+			expect(updated.state).toBe('busy');
+			expect(updated.name).toBe('My Agent');
+			expect(updated.cwd).toBe('/original/path');
+			expect(updated.id).toBe('session-1');
+		});
+	});
+
+	// ====================================================================
+	// onAddHistoryEntry edge cases
+	// ====================================================================
+
+	describe('onAddHistoryEntry edge cases', () => {
+		it('adds history via IPC without crashing when rightPanelRef.current is null', async () => {
+			// rightPanelRef.current is null by default in createDeps
+			const rightPanelRef = { current: null } as any;
+
+			renderHook(() => useBatchHandlers(createDeps({ rightPanelRef })));
+
+			const callArgs = vi.mocked(useBatchProcessor).mock.calls[0][0];
+
+			await act(async () => {
+				await callArgs.onAddHistoryEntry({
+					type: 'AUTO',
+					timestamp: Date.now(),
+					summary: 'Test entry with null panel',
+					fullResponse: 'Details',
+					projectPath: '/test',
+					sessionId: 'session-1',
+					success: true,
+				} as any);
+			});
+
+			// IPC history.add should still be called
+			expect(window.maestro.history.add).toHaveBeenCalled();
+			// Should not throw — no crash from null ref
+		});
+	});
+
+	// ====================================================================
+	// onProcessQueueAfterCompletion edge cases
+	// ====================================================================
+
+	describe('onProcessQueueAfterCompletion edge cases', () => {
+		it('adds log entry to target tab for queue item with type=message', () => {
+			const mockProcessQueuedItem = vi.fn().mockResolvedValue(undefined);
+			const processQueuedItemRef = { current: mockProcessQueuedItem };
+
+			const session = createMockSession({
+				id: 'session-1',
+				aiTabs: [
+					{
+						id: 'tab-1',
+						label: 'AI',
+						type: 'ai',
+						logs: [],
+						state: 'idle',
+					},
+				],
+				activeTabId: 'tab-1',
+				executionQueue: [{ id: 'q1', type: 'message', text: 'Hello world', tabId: 'tab-1' }] as any,
+			});
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+
+			renderHook(() => useBatchHandlers(createDeps({ processQueuedItemRef })));
+
+			const callArgs = vi.mocked(useBatchProcessor).mock.calls[0][0];
+
+			act(() => {
+				callArgs.onProcessQueueAfterCompletion('session-1');
+			});
+
+			const updatedSession = useSessionStore.getState().sessions[0];
+			const targetTab = updatedSession.aiTabs.find((t: any) => t.id === 'tab-1');
+			// A log entry with user source and the message text should have been added
+			expect(targetTab?.logs).toHaveLength(1);
+			expect(targetTab?.logs[0].source).toBe('user');
+			expect(targetTab?.logs[0].text).toBe('Hello world');
+		});
+
+		it('targets specific tab by tabId from queue item', () => {
+			const mockProcessQueuedItem = vi.fn().mockResolvedValue(undefined);
+			const processQueuedItemRef = { current: mockProcessQueuedItem };
+
+			const session = createMockSession({
+				id: 'session-1',
+				aiTabs: [
+					{
+						id: 'tab-1',
+						label: 'AI Tab 1',
+						type: 'ai',
+						logs: [],
+						state: 'idle',
+					},
+					{
+						id: 'tab-2',
+						label: 'AI Tab 2',
+						type: 'ai',
+						logs: [],
+						state: 'idle',
+					},
+				],
+				activeTabId: 'tab-1',
+				executionQueue: [{ id: 'q1', type: 'message', text: 'For tab 2', tabId: 'tab-2' }] as any,
+			});
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+
+			renderHook(() => useBatchHandlers(createDeps({ processQueuedItemRef })));
+
+			const callArgs = vi.mocked(useBatchProcessor).mock.calls[0][0];
+
+			act(() => {
+				callArgs.onProcessQueueAfterCompletion('session-1');
+			});
+
+			const updatedSession = useSessionStore.getState().sessions[0];
+			const tab1 = updatedSession.aiTabs.find((t: any) => t.id === 'tab-1');
+			const tab2 = updatedSession.aiTabs.find((t: any) => t.id === 'tab-2');
+
+			// Log should only be on tab-2 (the target), not tab-1
+			expect(tab1?.logs).toHaveLength(0);
+			expect(tab2?.logs).toHaveLength(1);
+			expect(tab2?.logs[0].text).toBe('For tab 2');
+
+			// Active tab should be switched to tab-2
+			expect(updatedSession.activeTabId).toBe('tab-2');
+		});
+
+		it('shifts queue (removes first item) after processing', () => {
+			const mockProcessQueuedItem = vi.fn().mockResolvedValue(undefined);
+			const processQueuedItemRef = { current: mockProcessQueuedItem };
+
+			const session = createMockSession({
+				id: 'session-1',
+				executionQueue: [
+					{ id: 'q1', type: 'message', text: 'First', tabId: 'tab-1' },
+					{ id: 'q2', type: 'message', text: 'Second', tabId: 'tab-1' },
+					{ id: 'q3', type: 'message', text: 'Third', tabId: 'tab-1' },
+				] as any,
+			});
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+
+			renderHook(() => useBatchHandlers(createDeps({ processQueuedItemRef })));
+
+			const callArgs = vi.mocked(useBatchProcessor).mock.calls[0][0];
+
+			act(() => {
+				callArgs.onProcessQueueAfterCompletion('session-1');
+			});
+
+			const updatedSession = useSessionStore.getState().sessions[0];
+			// First item was dequeued, leaving 2 items
+			expect(updatedSession.executionQueue).toHaveLength(2);
+			expect((updatedSession.executionQueue[0] as any).id).toBe('q2');
+			expect((updatedSession.executionQueue[1] as any).id).toBe('q3');
+
+			// processQueuedItem was called with the first item
+			expect(mockProcessQueuedItem).toHaveBeenCalledWith(
+				'session-1',
+				expect.objectContaining({ id: 'q1', text: 'First' })
+			);
+		});
+	});
+
+	// ====================================================================
+	// activeBatchRunState edge cases
+	// ====================================================================
+
+	describe('activeBatchRunState edge cases', () => {
+		it('uses first active batch session state when multiple are active', () => {
+			mockActiveBatchSessionIds = ['session-a', 'session-b', 'session-c'];
+			const stateA = createDefaultBatchState({ isRunning: true, totalTasks: 10 });
+			const stateB = createDefaultBatchState({ isRunning: true, totalTasks: 20 });
+			const stateC = createDefaultBatchState({ isRunning: true, totalTasks: 30 });
+
+			mockGetBatchState.mockImplementation((id: string) => {
+				if (id === 'session-a') return stateA;
+				if (id === 'session-b') return stateB;
+				if (id === 'session-c') return stateC;
+				return createDefaultBatchState();
+			});
+
+			const { result } = renderHook(() => useBatchHandlers(createDeps()));
+
+			// Should use the FIRST active batch session (session-a)
+			expect(result.current.activeBatchRunState).toBe(stateA);
+			expect(result.current.activeBatchRunState.totalTasks).toBe(10);
+		});
+
+		it('prioritizes active batch session over active session for activeBatchRunState', () => {
+			const session = createMockSession({ id: 'session-1' });
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+
+			mockActiveBatchSessionIds = ['session-2'];
+			const batchState = createDefaultBatchState({ isRunning: true, totalTasks: 7 });
+			const sessionState = createDefaultBatchState({ isRunning: false, totalTasks: 0 });
+
+			mockGetBatchState.mockImplementation((id: string) => {
+				if (id === 'session-2') return batchState;
+				if (id === 'session-1') return sessionState;
+				return createDefaultBatchState();
+			});
+
+			const { result } = renderHook(() => useBatchHandlers(createDeps()));
+
+			// Even though session-1 is the active session, activeBatchRunState
+			// should prefer the running batch session-2
+			expect(result.current.activeBatchRunState).toBe(batchState);
+			expect(result.current.activeBatchRunState.isRunning).toBe(true);
+			expect(result.current.activeBatchRunState.totalTasks).toBe(7);
+		});
+	});
+
+	// ====================================================================
+	// Return value stability
+	// ====================================================================
+
 	describe('return value stability', () => {
 		it('handler functions are stable across re-renders when deps do not change', () => {
 			const session = createMockSession({ id: 'session-1' });

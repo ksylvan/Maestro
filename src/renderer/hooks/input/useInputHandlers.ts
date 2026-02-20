@@ -119,15 +119,12 @@ export interface UseInputHandlersReturn {
 	atMentionSuggestions: AtMentionSuggestion[];
 	/** Sync file tree highlight to match tab completion suggestion */
 	syncFileTreeToTabCompletion: (suggestion: TabCompletionSuggestion | undefined) => void;
-	/** Sessions currently in thinking/busy AI state */
-	thinkingSessions: Session[];
 }
 
 // ============================================================================
 // Selectors
 // ============================================================================
 
-const selectSessions = (s: ReturnType<typeof useSessionStore.getState>) => s.sessions;
 const selectActiveRightTab = (s: ReturnType<typeof useUIStore.getState>) => s.activeRightTab;
 
 // ============================================================================
@@ -157,7 +154,6 @@ export function useInputHandlers(deps: UseInputHandlersDeps): UseInputHandlersRe
 	} = deps;
 
 	// --- Store subscriptions (reactive) ---
-	const sessions = useSessionStore(selectSessions);
 	const activeSession = useSessionStore(selectActiveSession);
 	const activeSessionId = useSessionStore((s) => s.activeSessionId);
 	const setSessions = useMemo(() => useSessionStore.getState().setSessions, []);
@@ -258,15 +254,6 @@ export function useInputHandlers(deps: UseInputHandlersDeps): UseInputHandlersRe
 			);
 		},
 		[activeSession]
-	);
-
-	// ====================================================================
-	// Thinking sessions (memoized for MainPanel)
-	// ====================================================================
-
-	const thinkingSessions = useMemo(
-		() => sessions.filter((s) => s.state === 'busy' && s.busySource === 'ai'),
-		[sessions]
 	);
 
 	// ====================================================================
@@ -617,6 +604,5 @@ export function useInputHandlers(deps: UseInputHandlersDeps): UseInputHandlersRe
 		tabCompletionSuggestions,
 		atMentionSuggestions,
 		syncFileTreeToTabCompletion,
-		thinkingSessions,
 	};
 }

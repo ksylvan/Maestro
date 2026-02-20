@@ -2,6 +2,7 @@ import React, { memo, useMemo, useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
+import DOMPurify from 'dompurify';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Clipboard, Loader2, ImageOff } from 'lucide-react';
@@ -224,7 +225,7 @@ interface MarkdownRendererProps {
 	projectRoot?: string;
 	/** Callback when a file link is clicked */
 	onFileClick?: (path: string) => void;
-	/** Allow raw HTML passthrough via rehype-raw (may break GFM table rendering) */
+	/** Allow raw HTML passthrough via rehype-raw (sanitized with DOMPurify for XSS protection) */
 	allowRawHtml?: boolean;
 	/** SSH remote ID for remote file operations */
 	sshRemoteId?: string;
@@ -278,6 +279,15 @@ export const MarkdownRenderer = memo(
 			return plugins;
 		}, [fileTree, fileTreeIndices, cwd, projectRoot]);
 
+		// Defense-in-depth: sanitize raw HTML with DOMPurify before markdown parsing
+		// to strip script tags, event handlers, and other XSS vectors
+		const sanitizedContent = useMemo(() => {
+			if (allowRawHtml) {
+				return DOMPurify.sanitize(content);
+			}
+			return content;
+		}, [content, allowRawHtml]);
+
 		return (
 			<div
 				className={`prose prose-sm max-w-none text-sm ${className}`}
@@ -312,7 +322,10 @@ export const MarkdownRenderer = memo(
 												// Attempt to convert non-standard URLs (e.g. git@host:user/repo)
 												try {
 													const converted = href.startsWith('git@')
-														? href.replace(/^git@/, 'https://').replace(/:([^/])/, '/$1').replace(/\.git$/, '')
+														? href
+																.replace(/^git@/, 'https://')
+																.replace(/:([^/])/, '/$1')
+																.replace(/\.git$/, '')
 														: href;
 													if (/^https?:\/\//.test(converted)) {
 														window.maestro.shell.openExternal(converted);
@@ -423,7 +436,7 @@ export const MarkdownRenderer = memo(
 						),
 					}}
 				>
-					{content}
+					{sanitizedContent}
 				</ReactMarkdown>
 			</div>
 		);

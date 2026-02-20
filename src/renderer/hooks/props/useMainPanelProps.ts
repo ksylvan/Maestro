@@ -21,6 +21,7 @@ import type {
 	AITab,
 	UnifiedTab,
 	FilePreviewTab,
+	ThinkingItem,
 } from '../../types';
 import type { FileTreeChanges } from '../../utils/fileExplorer';
 import type { TabCompletionSuggestion, TabCompletionFilter } from '../input/useTabCompletion';
@@ -43,7 +44,7 @@ export interface UseMainPanelPropsDeps {
 	agentSessionsOpen: boolean;
 	activeAgentSessionId: string | null;
 	activeSession: Session | null;
-	thinkingSessions: Session[];
+	thinkingItems: ThinkingItem[];
 	theme: Theme;
 	fontFamily: string;
 	isMobileLandscape: boolean;
@@ -231,7 +232,11 @@ export interface UseMainPanelPropsDeps {
 	handleFileTabSelect: (tabId: string) => void;
 	handleFileTabClose: (tabId: string) => void;
 	handleFileTabEditModeChange: (tabId: string, editMode: boolean) => void;
-	handleFileTabEditContentChange: (tabId: string, editContent: string | undefined, savedContent?: string) => void;
+	handleFileTabEditContentChange: (
+		tabId: string,
+		editContent: string | undefined,
+		savedContent?: string
+	) => void;
 	handleFileTabScrollPositionChange: (tabId: string, scrollTop: number) => void;
 	handleFileTabSearchQueryChange: (tabId: string, searchQuery: string) => void;
 	handleReloadFileTab: (tabId: string) => void;
@@ -290,7 +295,12 @@ export interface UseMainPanelPropsDeps {
 	refreshFileTree: (sessionId: string) => Promise<FileTreeChanges | undefined>;
 
 	// Open saved file in tab
-	onOpenSavedFileInTab?: (file: { path: string; name: string; content: string; sshRemoteId?: string }) => void;
+	onOpenSavedFileInTab?: (file: {
+		path: string;
+		name: string;
+		content: string;
+		sshRemoteId?: string;
+	}) => void;
 
 	// Complex wizard handlers (passed through from App.tsx)
 	onWizardComplete?: () => void;
@@ -317,7 +327,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			agentSessionsOpen: deps.agentSessionsOpen,
 			activeAgentSessionId: deps.activeAgentSessionId,
 			activeSession: deps.activeSession,
-			thinkingSessions: deps.thinkingSessions,
+			thinkingItems: deps.thinkingItems,
 			theme: deps.theme,
 			fontFamily: deps.fontFamily,
 			isMobileLandscape: deps.isMobileLandscape,
@@ -541,7 +551,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.activeSession?.inputMode,
 			deps.activeSession?.projectRoot,
 			deps.activeSession?.cwd,
-			deps.thinkingSessions,
+			deps.thinkingItems,
 			deps.theme,
 			deps.fontFamily,
 			deps.isMobileLandscape,
