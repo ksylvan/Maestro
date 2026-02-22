@@ -28,11 +28,15 @@ export function WorktreeRunSection({
 	const [baseBranch, setBaseBranch] = useState('');
 	const [newBranchName, setNewBranchName] = useState('');
 	const [selectedValue, setSelectedValue] = useState('');
+	const [availableWorktrees, setAvailableWorktrees] = useState<Array<{ path: string; name: string; branch: string | null }>>([]);
+	const [isScanning, setIsScanning] = useState(false);
 
 	// Worktree children of the active session
 	const worktreeChildren = sessions.filter(
 		(s) => s.parentSessionId === activeSession.id
 	);
+
+	const sshRemoteId = activeSession.sshRemoteId || activeSession.sessionSshRemoteConfig?.remoteId || undefined;
 
 	// Fetch branches when "Create New Worktree" is selected
 	useEffect(() => {
@@ -62,6 +66,40 @@ export function WorktreeRunSection({
 		};
 	}, [selectedValue, activeSession.cwd]); // eslint-disable-line react-hooks/exhaustive-deps
 
+	// Scan for available worktrees on disk when toggle is enabled
+	useEffect(() => {
+		const basePath = activeSession.worktreeConfig?.basePath;
+		if (!isEnabled || !basePath) {
+			setAvailableWorktrees([]);
+			return;
+		}
+
+		let cancelled = false;
+		setIsScanning(true);
+
+		window.maestro.git.scanWorktreeDirectory(basePath, sshRemoteId).then((result) => {
+			if (cancelled) return;
+			// Filter out worktrees already open in Maestro
+			const openPaths = new Set(
+				worktreeChildren.map((s) => s.cwd)
+			);
+			const filtered = result.gitSubdirs.filter(
+				(wt) => !openPaths.has(wt.path)
+			);
+			setAvailableWorktrees(filtered);
+			setIsScanning(false);
+		}).catch(() => {
+			if (!cancelled) {
+				setAvailableWorktrees([]);
+				setIsScanning(false);
+			}
+		});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [isEnabled, activeSession.worktreeConfig?.basePath, sshRemoteId, worktreeChildren.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
 	// Update branch name when base branch changes
 	const handleBaseBranchChange = useCallback(
 		(branch: string) => {
@@ -83,6 +121,12 @@ export function WorktreeRunSection({
 					mode: 'create-new',
 					baseBranch: baseBranch || undefined,
 					newBranchName: newBranchName || undefined,
+					createPROnCompletion: prFlag,
+				});
+			} else if (value.startsWith('__closed__:')) {
+				onWorktreeTargetChange({
+					mode: 'existing-closed',
+					worktreePath: value.slice('__closed__:'.length),
 					createPROnCompletion: prFlag,
 				});
 			} else if (value) {
@@ -234,6 +278,21 @@ export function WorktreeRunSection({
 										</option>
 									);
 								})}
+							</optgroup>
+						)}
+						{(availableWorktrees.length > 0 || isScanning) && (
+							<optgroup label="Available Worktrees">
+								{isScanning && (
+									<option disabled>Scanning...</option>
+								)}
+								{availableWorktrees.map((wt) => (
+									<option
+										key={wt.path}
+										value={'__closed__:' + wt.path}
+									>
+										{wt.branch || wt.name}
+									</option>
+								))}
 							</optgroup>
 						)}
 						<option value="__create_new__">Create New Worktree</option>

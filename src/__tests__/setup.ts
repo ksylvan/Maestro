@@ -245,6 +245,7 @@ const mockMaestro = {
 		commitCount: vi.fn().mockResolvedValue({ count: 0, error: null }),
 		show: vi.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 }),
 		getRemoteUrl: vi.fn().mockResolvedValue(null),
+		scanWorktreeDirectory: vi.fn().mockResolvedValue({ gitSubdirs: [] }),
 		info: vi.fn().mockResolvedValue({
 			branch: 'main',
 			remote: '',
