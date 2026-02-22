@@ -659,4 +659,119 @@ describe('WorktreeRunSection', () => {
 		fireEvent.click(screen.getByText(/Configure Worktrees/));
 		expect(mockOnOpenWorktreeConfig).toHaveBeenCalledOnce();
 	});
+
+	// -----------------------------------------------------------------------
+	// Edge case: No worktrees found
+	// -----------------------------------------------------------------------
+
+	it('shows "No worktrees found" message and auto-selects create-new when no agents or worktrees exist', async () => {
+		const session = createMockSession();
+		const scanMock = vi.fn().mockResolvedValue({ gitSubdirs: [] });
+		(window.maestro.git as Record<string, unknown>).scanWorktreeDirectory = scanMock;
+
+		render(
+			<WorktreeRunSection
+				theme={theme}
+				activeSession={session}
+				sessions={[session]}
+				worktreeTarget={{ mode: 'create-new', createPROnCompletion: false }}
+				onWorktreeTargetChange={mockOnWorktreeTargetChange}
+				onOpenWorktreeConfig={mockOnOpenWorktreeConfig}
+			/>
+		);
+
+		// Wait for scanning to finish
+		await waitFor(() => {
+			expect(scanMock).toHaveBeenCalled();
+		});
+
+		// Should show "No worktrees found" message
+		await waitFor(() => {
+			const options = screen.getAllByRole('option');
+			const noWorktreesOption = options.find((o) => o.textContent?.includes('No worktrees found'));
+			expect(noWorktreesOption).toBeTruthy();
+			expect((noWorktreesOption as HTMLOptionElement).disabled).toBe(true);
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// Edge case: getBranches failure
+	// -----------------------------------------------------------------------
+
+	it('shows error message when getBranches fails', async () => {
+		const session = createMockSession();
+		const scanMock = vi.fn().mockResolvedValue({ gitSubdirs: [] });
+		(window.maestro.git as Record<string, unknown>).scanWorktreeDirectory = scanMock;
+		vi.mocked(gitService.getBranches).mockRejectedValue(new Error('git not found'));
+
+		render(
+			<WorktreeRunSection
+				theme={theme}
+				activeSession={session}
+				sessions={[session]}
+				worktreeTarget={{ mode: 'create-new', createPROnCompletion: false }}
+				onWorktreeTargetChange={mockOnWorktreeTargetChange}
+				onOpenWorktreeConfig={mockOnOpenWorktreeConfig}
+			/>
+		);
+
+		// Select "Create New Worktree" to trigger branch loading
+		const select = screen.getAllByRole('combobox')[0] as HTMLSelectElement;
+		await act(async () => {
+			fireEvent.change(select, { target: { value: '__create_new__' } });
+		});
+
+		// Wait for error to appear
+		await waitFor(() => {
+			expect(screen.getByText('Could not load branches')).toBeTruthy();
+		});
+
+		// Base branch dropdown should be disabled
+		const comboboxes = screen.getAllByRole('combobox');
+		if (comboboxes.length > 1) {
+			expect((comboboxes[1] as HTMLSelectElement).disabled).toBe(true);
+		}
+	});
+
+	// -----------------------------------------------------------------------
+	// Edge case: Empty branch name
+	// -----------------------------------------------------------------------
+
+	it('shows validation message when branch name is empty', async () => {
+		const session = createMockSession();
+		const scanMock = vi.fn().mockResolvedValue({ gitSubdirs: [] });
+		(window.maestro.git as Record<string, unknown>).scanWorktreeDirectory = scanMock;
+		vi.mocked(gitService.getBranches).mockResolvedValue(['main']);
+
+		render(
+			<WorktreeRunSection
+				theme={theme}
+				activeSession={session}
+				sessions={[session]}
+				worktreeTarget={{ mode: 'create-new', createPROnCompletion: false }}
+				onWorktreeTargetChange={mockOnWorktreeTargetChange}
+				onOpenWorktreeConfig={mockOnOpenWorktreeConfig}
+			/>
+		);
+
+		// Select "Create New Worktree"
+		const select = screen.getAllByRole('combobox')[0] as HTMLSelectElement;
+		await act(async () => {
+			fireEvent.change(select, { target: { value: '__create_new__' } });
+		});
+
+		// Wait for branch inputs to appear
+		await waitFor(() => {
+			expect(screen.getByText('Branch Name')).toBeTruthy();
+		});
+
+		// Clear the branch name input
+		const branchInput = screen.getByDisplayValue(/auto-run-/) as HTMLInputElement;
+		await act(async () => {
+			fireEvent.change(branchInput, { target: { value: '' } });
+		});
+
+		// Should show validation message
+		expect(screen.getByText('Branch name is required')).toBeTruthy();
+	});
 });

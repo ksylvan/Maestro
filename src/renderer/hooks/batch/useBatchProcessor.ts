@@ -609,11 +609,24 @@ export function useBatchProcessor({
 			// Use sessionsRef to get latest sessions (handles case where session was just created)
 			const session = sessionsRef.current.find((s) => s.id === sessionId);
 			if (!session) {
+				const worktreeInfo = config.worktreeTarget
+					? ` (worktree mode: ${config.worktreeTarget.mode}, path: ${
+							config.worktreeTarget.mode === 'existing-closed'
+								? config.worktreeTarget.worktreePath
+								: config.worktreeTarget.mode === 'create-new'
+									? config.worktreeTarget.newBranchName
+									: config.worktreeTarget.sessionId
+						})`
+					: '';
 				window.maestro.logger.log(
 					'error',
-					'Session not found for batch processing',
+					`Session not found for batch processing${worktreeInfo}`,
 					'BatchProcessor',
-					{ sessionId }
+					{
+						sessionId,
+						worktreeTargetMode: config.worktreeTarget?.mode,
+						availableSessionIds: sessionsRef.current.map((s) => s.id),
+					}
 				);
 				return;
 			}

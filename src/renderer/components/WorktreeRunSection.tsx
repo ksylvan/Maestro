@@ -30,6 +30,7 @@ export function WorktreeRunSection({
 	const [selectedValue, setSelectedValue] = useState('');
 	const [availableWorktrees, setAvailableWorktrees] = useState<Array<{ path: string; name: string; branch: string | null }>>([]);
 	const [isScanning, setIsScanning] = useState(false);
+	const [branchLoadError, setBranchLoadError] = useState(false);
 
 	// Worktree children of the active session
 	const worktreeChildren = sessions.filter(
@@ -43,6 +44,7 @@ export function WorktreeRunSection({
 		if (selectedValue !== '__create_new__') return;
 
 		let cancelled = false;
+		setBranchLoadError(false);
 		gitService.getBranches(activeSession.cwd).then((result) => {
 			if (cancelled) return;
 			// Sort so main/master appears first
@@ -58,6 +60,11 @@ export function WorktreeRunSection({
 				setBaseBranch(sorted[0]);
 				const mmdd = `${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}`;
 				setNewBranchName(`auto-run-${sorted[0]}-${mmdd}`);
+			}
+		}).catch(() => {
+			if (!cancelled) {
+				setBranchLoadError(true);
+				setBranches([]);
 			}
 		});
 
@@ -99,6 +106,18 @@ export function WorktreeRunSection({
 			cancelled = true;
 		};
 	}, [isEnabled, activeSession.worktreeConfig?.basePath, sshRemoteId, worktreeChildren.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+	// Detect when no worktrees are available and auto-select "Create New Worktree"
+	const hasNoWorktrees = isEnabled && !isScanning && worktreeChildren.length === 0 && availableWorktrees.length === 0;
+	useEffect(() => {
+		if (hasNoWorktrees && selectedValue !== '__create_new__') {
+			setSelectedValue('__create_new__');
+			onWorktreeTargetChange({
+				mode: 'create-new',
+				createPROnCompletion: createPROnCompletion,
+			});
+		}
+	}, [hasNoWorktrees]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	// Update branch name when base branch changes
 	const handleBaseBranchChange = useCallback(
@@ -295,6 +314,9 @@ export function WorktreeRunSection({
 								))}
 							</optgroup>
 						)}
+						{hasNoWorktrees && (
+							<option disabled value="">No worktrees found — create one below</option>
+						)}
 						<option value="__create_new__">Create New Worktree</option>
 					</select>
 
@@ -313,10 +335,11 @@ export function WorktreeRunSection({
 									onChange={(e) =>
 										handleBaseBranchChange(e.target.value)
 									}
+									disabled={branchLoadError}
 									className="w-full rounded-lg border px-3 py-1.5 text-sm outline-none"
 									style={{
 										backgroundColor: theme.colors.bgMain,
-										borderColor: theme.colors.border,
+										borderColor: branchLoadError ? theme.colors.error : theme.colors.border,
 										color: theme.colors.textMain,
 									}}
 								>
@@ -326,6 +349,14 @@ export function WorktreeRunSection({
 										</option>
 									))}
 								</select>
+								{branchLoadError && (
+									<span
+										className="text-xs"
+										style={{ color: theme.colors.error }}
+									>
+										Could not load branches
+									</span>
+								)}
 							</label>
 							<label className="flex flex-col gap-1">
 								<span
@@ -343,10 +374,18 @@ export function WorktreeRunSection({
 									className="w-full rounded-lg border px-3 py-1.5 text-sm outline-none"
 									style={{
 										backgroundColor: theme.colors.bgMain,
-										borderColor: theme.colors.border,
+										borderColor: !newBranchName.trim() ? theme.colors.warning : theme.colors.border,
 										color: theme.colors.textMain,
 									}}
 								/>
+								{!newBranchName.trim() && (
+									<span
+										className="text-xs"
+										style={{ color: theme.colors.warning }}
+									>
+										Branch name is required
+									</span>
+								)}
 							</label>
 						</div>
 					)}

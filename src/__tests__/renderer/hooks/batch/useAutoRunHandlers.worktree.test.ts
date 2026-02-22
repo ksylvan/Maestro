@@ -180,6 +180,18 @@ describe('handleStartBatchRun — worktree dispatch integration', () => {
 			const session = createMockSession();
 			const deps = createMockDeps();
 
+			// Populate store with both parent and target session so existence check passes
+			const worktreeChild = createMockSession({
+				id: 'worktree-child-42',
+				name: 'Worktree Child',
+				state: 'idle',
+				parentSessionId: session.id,
+			});
+			useSessionStore.setState({
+				sessions: [session, worktreeChild],
+				activeSessionId: session.id,
+			} as any);
+
 			const config: BatchRunConfig = {
 				documents: baseDocuments,
 				prompt: 'Run in worktree',
@@ -211,6 +223,17 @@ describe('handleStartBatchRun — worktree dispatch integration', () => {
 			});
 			const deps = createMockDeps();
 
+			// Populate store with target session
+			const worktreeChild = createMockSession({
+				id: 'worktree-child-99',
+				state: 'idle',
+				parentSessionId: session.id,
+			});
+			useSessionStore.setState({
+				sessions: [session, worktreeChild],
+				activeSessionId: session.id,
+			} as any);
+
 			const config: BatchRunConfig = {
 				documents: baseDocuments,
 				prompt: 'Go',
@@ -237,6 +260,17 @@ describe('handleStartBatchRun — worktree dispatch integration', () => {
 			const session = createMockSession();
 			const deps = createMockDeps();
 
+			// Populate store with target session
+			const openChild = createMockSession({
+				id: 'open-child',
+				state: 'idle',
+				parentSessionId: session.id,
+			});
+			useSessionStore.setState({
+				sessions: [session, openChild],
+				activeSessionId: session.id,
+			} as any);
+
 			const config: BatchRunConfig = {
 				documents: baseDocuments,
 				prompt: 'Go',
@@ -255,6 +289,96 @@ describe('handleStartBatchRun — worktree dispatch integration', () => {
 			});
 
 			expect(window.maestro.git.worktreeSetup).not.toHaveBeenCalled();
+		});
+
+		it('falls back to active session with warning toast when target session is removed', async () => {
+			const session = createMockSession();
+			const deps = createMockDeps();
+
+			// Store has NO sessions matching the target ID (session was removed)
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: session.id,
+			} as any);
+
+			const config: BatchRunConfig = {
+				documents: baseDocuments,
+				prompt: 'Go',
+				loopEnabled: false,
+				worktreeTarget: {
+					mode: 'existing-open',
+					sessionId: 'removed-session-id',
+					createPROnCompletion: false,
+				},
+			};
+
+			const { result } = renderHook(() => useAutoRunHandlers(session, deps));
+
+			await act(async () => {
+				await result.current.handleStartBatchRun(config);
+			});
+
+			// Should fall back to active session
+			expect(deps.startBatchRun).toHaveBeenCalledWith(
+				'parent-session-1',
+				config,
+				'/projects/autorun-docs'
+			);
+
+			// Should show warning toast
+			expect(notifyToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: 'warning',
+					title: 'Worktree Agent Not Found',
+				})
+			);
+		});
+
+		it('shows warning toast and does not dispatch when target session is busy', async () => {
+			const session = createMockSession();
+			const deps = createMockDeps();
+
+			// Add a busy session to the store
+			const busySession = {
+				...session,
+				id: 'busy-child',
+				name: 'Busy Child',
+				state: 'busy',
+				parentSessionId: session.id,
+			};
+			useSessionStore.setState({
+				sessions: [session, busySession],
+				activeSessionId: session.id,
+			} as any);
+
+			const config: BatchRunConfig = {
+				documents: baseDocuments,
+				prompt: 'Go',
+				loopEnabled: false,
+				worktreeTarget: {
+					mode: 'existing-open',
+					sessionId: 'busy-child',
+					createPROnCompletion: false,
+				},
+			};
+
+			const { result } = renderHook(() => useAutoRunHandlers(session, deps));
+
+			await act(async () => {
+				await result.current.handleStartBatchRun(config);
+			});
+
+			// Should NOT dispatch
+			expect(deps.startBatchRun).not.toHaveBeenCalled();
+
+			// Should show warning toast
+			expect(notifyToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: 'warning',
+					title: 'Target Agent Busy',
+					message: 'Target agent is busy. Please try again.',
+				})
+			);
 		});
 	});
 

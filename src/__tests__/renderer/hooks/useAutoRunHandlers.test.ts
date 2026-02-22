@@ -1145,6 +1145,19 @@ describe('useAutoRunHandlers', () => {
 			const mockSession = createMockSession();
 			const mockDeps = createMockDeps();
 
+			// Populate store with the target worktree session so existence check passes
+			useSessionStore.setState({
+				sessions: [
+					mockSession,
+					createMockSession({
+						id: 'worktree-session-123',
+						state: 'idle',
+						parentSessionId: mockSession.id,
+					}),
+				],
+				activeSessionId: mockSession.id,
+			} as any);
+
 			const config: BatchRunConfig = {
 				documents: [{ id: '1', filename: 'Phase 1', resetOnCompletion: false, isDuplicate: false }],
 				prompt: 'Test prompt',

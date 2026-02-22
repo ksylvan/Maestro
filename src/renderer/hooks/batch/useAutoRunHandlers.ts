@@ -306,7 +306,39 @@ export function useAutoRunHandlers(
 			// Determine target session ID — may differ from activeSession when running in a worktree
 			let targetSessionId = activeSession.id;
 			if (config.worktreeTarget?.mode === 'existing-open' && config.worktreeTarget.sessionId) {
-				targetSessionId = config.worktreeTarget.sessionId;
+				// Verify the target session still exists (could have been removed while modal was open)
+				const targetSession = useSessionStore.getState().sessions.find(
+					(s) => s.id === config.worktreeTarget!.sessionId
+				);
+				if (!targetSession) {
+					window.maestro.logger.log(
+						'warn',
+						`Target worktree session no longer exists: ${config.worktreeTarget.sessionId}. Falling back to active session.`,
+						'AutoRunHandlers'
+					);
+					notifyToast({
+						type: 'warning',
+						title: 'Worktree Agent Not Found',
+						message: 'The selected worktree agent was removed. Running on the active agent instead.',
+					});
+					// Fall back to active session
+					targetSessionId = activeSession.id;
+				} else if (targetSession.state === 'busy' || targetSession.state === 'connecting') {
+					// Race condition: agent became busy after user selected it
+					window.maestro.logger.log(
+						'warn',
+						`Target worktree session is busy: ${config.worktreeTarget.sessionId}`,
+						'AutoRunHandlers'
+					);
+					notifyToast({
+						type: 'warning',
+						title: 'Target Agent Busy',
+						message: 'Target agent is busy. Please try again.',
+					});
+					return;
+				} else {
+					targetSessionId = config.worktreeTarget.sessionId;
+				}
 			} else if (
 				config.worktreeTarget?.mode === 'create-new' ||
 				config.worktreeTarget?.mode === 'existing-closed'
