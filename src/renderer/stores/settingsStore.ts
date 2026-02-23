@@ -1469,7 +1469,9 @@ export async function loadAllSettings(): Promise<void> {
 			patch.totalActiveTimeMs = allSettings['totalActiveTimeMs'] as number;
 		} else {
 			// One-time migration: copy from globalStats.totalActiveTimeMs if it exists and is > 0
-			const legacyGlobalStats = allSettings['globalStats'] as { totalActiveTimeMs?: number } | undefined;
+			const legacyGlobalStats = allSettings['globalStats'] as
+				| { totalActiveTimeMs?: number }
+				| undefined;
 			if (legacyGlobalStats?.totalActiveTimeMs && legacyGlobalStats.totalActiveTimeMs > 0) {
 				patch.totalActiveTimeMs = legacyGlobalStats.totalActiveTimeMs;
 				window.maestro.settings.set('totalActiveTimeMs', legacyGlobalStats.totalActiveTimeMs);

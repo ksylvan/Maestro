@@ -16,9 +16,7 @@ const PERSIST_INTERVAL_MS = 30000; // Persist to settings every 30 seconds
  * This is a global tracker - it doesn't care which session is active,
  * just that the user is actively using Maestro.
  */
-export function useHandsOnTimeTracker(
-	addTotalActiveTimeMs: (delta: number) => void
-): void {
+export function useHandsOnTimeTracker(addTotalActiveTimeMs: (delta: number) => void): void {
 	const lastActivityRef = useRef<number>(Date.now());
 	const isActiveRef = useRef<boolean>(false);
 	const accumulatedTimeRef = useRef<number>(0);
