@@ -885,7 +885,11 @@ export const FilePreview = React.memo(
 										targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
 									}
 								} else if (href) {
-									window.maestro.shell.openExternal(href);
+									if (/^file:\/\//.test(href)) {
+										window.maestro.shell.openPath(href.replace(/^file:\/\//, ''));
+									} else {
+										window.maestro.shell.openExternal(href);
+									}
 								}
 							}}
 							style={{ color: theme.colors.accent, textDecoration: 'underline', cursor: 'pointer' }}
@@ -984,6 +988,13 @@ export const FilePreview = React.memo(
 
 		// Extract directory path without filename
 		const directoryPath = file ? file.path.substring(0, file.path.lastIndexOf('/')) : '';
+
+		// Icon-only buttons size up when path isn't consuming vertical space
+		const showPath = showStatsBar && !!directoryPath;
+		const headerIconClass = showPath ? 'w-4 h-4' : 'w-5 h-5';
+		const headerBtnClass = showPath
+			? 'p-2 rounded hover:bg-white/10 transition-colors'
+			: 'p-2.5 rounded hover:bg-white/10 transition-colors';
 
 		// Fetch file stats when file changes
 		useEffect(() => {
@@ -1788,23 +1799,16 @@ export const FilePreview = React.memo(
 				<div className="shrink-0" style={{ backgroundColor: theme.colors.bgSidebar }}>
 					{/* Main header row */}
 					<div
-						className="border-b flex items-center justify-between px-6 py-3"
+						className="border-b px-6 py-3"
 						style={{ borderColor: theme.colors.border }}
 					>
-						<div className="flex items-center gap-3">
-							<FileCode className="w-5 h-5 shrink-0" style={{ color: theme.colors.accent }} />
-							<div className="min-w-0">
-								<div className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
+						<div className="flex items-center justify-between">
+							<div className="flex items-center gap-3 min-w-0">
+								<FileCode className="w-5 h-5 shrink-0" style={{ color: theme.colors.accent }} />
+								<div className="text-sm font-medium truncate" style={{ color: theme.colors.textMain }}>
 									{file.name}
 								</div>
-								<div
-									className="text-xs opacity-50 truncate"
-									style={{ color: theme.colors.textDim }}
-								>
-									{directoryPath}
-								</div>
 							</div>
-						</div>
 						<div className="flex items-center gap-2 shrink-0">
 							{/* Save button - shown in edit mode with changes for any editable text file */}
 							{isEditableText && markdownEditMode && onSave && (
@@ -1836,27 +1840,27 @@ export const FilePreview = React.memo(
 							{isMarkdown && !markdownEditMode && (
 								<button
 									onClick={() => setShowRemoteImages(!showRemoteImages)}
-									className="p-2 rounded hover:bg-white/10 transition-colors"
+									className={headerBtnClass}
 									style={{ color: showRemoteImages ? theme.colors.accent : theme.colors.textDim }}
 									title={showRemoteImages ? 'Hide remote images' : 'Show remote images'}
 								>
-									<Globe className="w-4 h-4" />
+									<Globe className={headerIconClass} />
 								</button>
 							)}
 							{/* Toggle between edit and preview/view mode - for any editable text file */}
 							{isEditableText && (
 								<button
 									onClick={() => setMarkdownEditMode(!markdownEditMode)}
-									className="p-2 rounded hover:bg-white/10 transition-colors"
+									className={headerBtnClass}
 									style={{ color: markdownEditMode ? theme.colors.accent : theme.colors.textDim }}
 									title={`${markdownEditMode ? (isMarkdown ? 'Show preview' : 'View file') : 'Edit file'} (${formatShortcut('toggleMarkdownMode')})`}
 								>
-									{markdownEditMode ? <Eye className="w-4 h-4" /> : <Edit className="w-4 h-4" />}
+									{markdownEditMode ? <Eye className={headerIconClass} /> : <Edit className={headerIconClass} />}
 								</button>
 							)}
 							<button
 								onClick={copyContentToClipboard}
-								className="p-2 rounded hover:bg-white/10 transition-colors"
+								className={headerBtnClass}
 								style={{ color: theme.colors.textDim }}
 								title={
 									isImage
@@ -1864,49 +1868,58 @@ export const FilePreview = React.memo(
 										: 'Copy content to clipboard'
 								}
 							>
-								<Clipboard className="w-4 h-4" />
+								<Clipboard className={headerIconClass} />
 							</button>
 							{/* Publish as Gist button - only show if gh CLI is available and not in edit mode */}
 							{ghCliAvailable && !markdownEditMode && onPublishGist && !isImage && (
 								<button
 									onClick={onPublishGist}
-									className="p-2 rounded hover:bg-white/10 transition-colors"
+									className={headerBtnClass}
 									style={{ color: hasGist ? theme.colors.accent : theme.colors.textDim }}
 									title={hasGist ? 'View published gist' : 'Publish as GitHub Gist'}
 								>
-									<Share2 className="w-4 h-4" />
+									<Share2 className={headerIconClass} />
 								</button>
 							)}
 							{/* Document Graph button - show for markdown files when callback is available */}
 							{isMarkdown && onOpenInGraph && (
 								<button
 									onClick={onOpenInGraph}
-									className="p-2 rounded hover:bg-white/10 transition-colors"
+									className={headerBtnClass}
 									style={{ color: theme.colors.textDim }}
 									title={`View in Document Graph (${formatShortcutKeys(['Meta', 'Shift', 'g'])})`}
 								>
-									<GitGraph className="w-4 h-4" />
+									<GitGraph className={headerIconClass} />
 								</button>
 							)}
 							{!sshRemoteId && (
 								<button
-									onClick={() => window.maestro?.shell?.openExternal(`file://${file.path}`)}
-									className="p-2 rounded hover:bg-white/10 transition-colors"
+									onClick={() => window.maestro?.shell?.openPath(file.path)}
+									className={headerBtnClass}
 									style={{ color: theme.colors.textDim }}
 									title="Open in Default App"
 								>
-									<ExternalLink className="w-4 h-4" />
+									<ExternalLink className={headerIconClass} />
 								</button>
 							)}
 							<button
 								onClick={copyPathToClipboard}
-								className="p-2 rounded hover:bg-white/10 transition-colors"
+								className={headerBtnClass}
 								style={{ color: theme.colors.textDim }}
 								title="Copy full path to clipboard"
 							>
-								<FolderOpen className="w-4 h-4" />
+								<FolderOpen className={headerIconClass} />
 							</button>
 						</div>
+						</div>
+						{showPath && (
+						<div
+							className="text-xs opacity-50 truncate mt-1"
+							style={{ color: theme.colors.textDim }}
+						>
+							{directoryPath}
+						</div>
+						)}
 					</div>
 					{/* File Stats subbar - hidden on scroll */}
 					{((fileStats || tokenCount !== null || taskCounts) && showStatsBar) ||
@@ -2208,7 +2221,7 @@ export const FilePreview = React.memo(
 									This file cannot be displayed as text.
 								</p>
 								<button
-									onClick={() => window.maestro.shell.openExternal(`file://${file.path}`)}
+									onClick={() => window.maestro.shell.openPath(file.path)}
 									className="mt-4 px-4 py-2 rounded text-sm hover:opacity-80 transition-opacity"
 									style={{
 										backgroundColor: theme.colors.accent,
