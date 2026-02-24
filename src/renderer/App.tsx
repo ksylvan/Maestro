@@ -193,7 +193,6 @@ function MaestroConsoleInner() {
 		newInstanceModalOpen,
 		setNewInstanceModalOpen,
 		duplicatingSessionId,
-		setDuplicatingSessionId,
 		// Edit Agent Modal
 		editAgentModalOpen,
 		setEditAgentModalOpen,
@@ -268,7 +267,6 @@ function MaestroConsoleInner() {
 		renameInstanceValue,
 		setRenameInstanceValue,
 		renameInstanceSessionId,
-		setRenameInstanceSessionId,
 		// Rename Tab Modal
 		renameTabModalOpen,
 		setRenameTabModalOpen,
@@ -413,8 +411,6 @@ function MaestroConsoleInner() {
 		setDefaultSaveToHistory,
 		defaultShowThinking,
 		setDefaultShowThinking,
-		leftSidebarWidth,
-		setLeftSidebarWidth,
 		rightPanelWidth,
 		setRightPanelWidth,
 		markdownEditMode,
@@ -614,7 +610,6 @@ function MaestroConsoleInner() {
 		setActiveRightTab,
 		setActiveFocus,
 		setBookmarksCollapsed,
-		setGroupChatsExpanded,
 		setEditingGroupId,
 		setEditingSessionId,
 		setDraggingSessionId,
@@ -641,8 +636,6 @@ function MaestroConsoleInner() {
 	const groupChatParticipantColors = useGroupChatStore((s) => s.groupChatParticipantColors);
 	const moderatorUsage = useGroupChatStore((s) => s.moderatorUsage);
 	const participantStates = useGroupChatStore((s) => s.participantStates);
-	const groupChatStates = useGroupChatStore((s) => s.groupChatStates);
-	const allGroupChatParticipantStates = useGroupChatStore((s) => s.allGroupChatParticipantStates);
 	const groupChatError = useGroupChatStore((s) => s.groupChatError);
 
 	// Stable actions from groupChatStore (non-reactive)
@@ -5150,81 +5143,20 @@ function MaestroConsoleInner() {
 	});
 
 	const sessionListProps = useSessionListProps({
-		// Core state
+		// Theme (computed externally from settingsStore + themeId)
 		theme,
-		sessions,
-		groups,
-		sortedSessions,
-		activeSessionId,
-		leftSidebarOpen,
-		leftSidebarWidth,
-		activeFocus,
-		selectedSidebarIndex,
-		editingGroupId,
-		editingSessionId,
-		draggingSessionId,
-		shortcuts,
 
-		// Global Live Mode
+		// Computed values (not raw store fields)
+		sortedSessions,
 		isLiveMode,
 		webInterfaceUrl,
-
-		// Web Interface Port Settings
-		webInterfaceUseCustomPort: settings.webInterfaceUseCustomPort,
-		webInterfaceCustomPort: settings.webInterfaceCustomPort,
-
-		// Folder states
-		bookmarksCollapsed,
-		ungroupedCollapsed: settings.ungroupedCollapsed,
-
-		// Auto mode
-		activeBatchSessionIds,
-
-		// Session jump shortcuts
 		showSessionJumpNumbers,
 		visibleSessions,
 
-		// Achievement system
-		autoRunStats,
+		// Ref
+		sidebarContainerRef,
 
-		// Group Chat state
-		groupChats,
-		activeGroupChatId,
-		groupChatsExpanded,
-		groupChatState,
-		participantStates,
-		groupChatStates,
-		allGroupChatParticipantStates,
-
-		// Setters
-		setWebInterfaceUseCustomPort: settings.setWebInterfaceUseCustomPort,
-		setWebInterfaceCustomPort: settings.setWebInterfaceCustomPort,
-		setBookmarksCollapsed,
-		setUngroupedCollapsed: settings.setUngroupedCollapsed,
-		setActiveFocus,
-		setActiveSessionId,
-		setLeftSidebarOpen,
-		setLeftSidebarWidth,
-		setShortcutsHelpOpen,
-		setSettingsModalOpen,
-		setSettingsTab,
-		setAboutModalOpen,
-		setUpdateCheckModalOpen,
-		setLogViewerOpen,
-		setProcessMonitorOpen,
-		setUsageDashboardOpen,
-		setSymphonyModalOpen,
-		setDirectorNotesOpen: encoreFeatures.directorNotes ? setDirectorNotesOpen : undefined,
-		setGroups,
-		setSessions,
-		setRenameInstanceModalOpen,
-		setRenameInstanceValue,
-		setRenameInstanceSessionId,
-		setDuplicatingSessionId,
-		setGroupChatsExpanded,
-		setQuickActionOpen,
-
-		// Handlers
+		// Domain handlers
 		toggleGlobalLive,
 		restartWebServer,
 		toggleGroup,
@@ -5257,13 +5189,6 @@ function MaestroConsoleInner() {
 		handleEditGroupChat,
 		handleOpenRenameGroupChatModal,
 		handleOpenDeleteGroupChatModal,
-
-		// Context warning thresholds
-		contextWarningYellowThreshold: contextManagementSettings.contextWarningYellowThreshold,
-		contextWarningRedThreshold: contextManagementSettings.contextWarningRedThreshold,
-
-		// Ref
-		sidebarContainerRef,
 	});
 
 	const rightPanelProps = useRightPanelProps({
