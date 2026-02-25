@@ -359,7 +359,7 @@ function MaestroConsoleInner() {
 	const isMobileLandscape = useMobileLandscape();
 
 	// --- NAVIGATION HISTORY (back/forward through sessions and tabs) ---
-	const { navigateBack, navigateForward } = useNavigationHistory();
+	const { pushNavigation, navigateBack, navigateForward } = useNavigationHistory();
 
 	// --- WIZARD (onboarding wizard for new users) ---
 	const {
@@ -1393,9 +1393,10 @@ function MaestroConsoleInner() {
 	const { handleNavBack, handleNavForward } = useSessionNavigation(sessions, {
 		navigateBack,
 		navigateForward,
-		setActiveSessionId: setActiveSessionIdInternal,
+		setActiveSessionId, // Uses the wrapper that also dismisses active group chat
 		setSessions,
 		cyclePositionRef,
+		onNavigateToGroupChat: handleOpenGroupChat,
 	});
 
 	// PERF: Memoize thinkingItems at App level to avoid passing full sessions array to children.
@@ -2671,6 +2672,7 @@ function MaestroConsoleInner() {
 	} = useSessionLifecycle({
 		flushSessionPersistence,
 		setRemovedWorktreePaths,
+		pushNavigation,
 	});
 
 	// NOTE: Theme CSS variables and scrollbar fade animations are now handled by useThemeStyles hook

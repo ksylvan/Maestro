@@ -13,7 +13,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { GroupChatInput } from '../../../renderer/components/GroupChatInput';
-import type { Theme, Session, GroupChatParticipant } from '../../../renderer/types';
+import type { Theme, Session, Group, GroupChatParticipant } from '../../../renderer/types';
+import { useSessionStore } from '../../../renderer/stores/sessionStore';
 
 // =============================================================================
 // TEST HELPERS
@@ -90,6 +91,13 @@ function createMockParticipant(name: string, agentId: string): GroupChatParticip
 }
 
 /**
+ * Creates a mock group for testing
+ */
+function createMockGroup(id: string, name: string, emoji: string = '📁'): Group {
+	return { id, name, emoji, collapsed: false };
+}
+
+/**
  * Default props for GroupChatInput
  */
 function createDefaultProps(overrides: Partial<Parameters<typeof GroupChatInput>[0]> = {}) {
@@ -116,6 +124,11 @@ function typeInTextarea(textarea: HTMLTextAreaElement, value: string) {
 // =============================================================================
 
 describe('GroupChatInput', () => {
+	beforeEach(() => {
+		// Reset session store between tests (groups now read from store)
+		useSessionStore.setState({ groups: [] });
+	});
+
 	describe('@mention autocomplete', () => {
 		it('shows mention dropdown when typing @', () => {
 			const sessions = [
@@ -417,6 +430,137 @@ describe('GroupChatInput', () => {
 
 			// Should find the PascalCase session
 			expect(screen.getByText('@MyAgent')).toBeInTheDocument();
+		});
+	});
+
+	describe('group @ mentions', () => {
+		it('shows groups in mention dropdown', () => {
+			const groups = [createMockGroup('group-1', 'PROJECTS', '📁')];
+			const sessions = [
+				{ ...createMockSession('session-1', 'Agent1', 'claude-code'), groupId: 'group-1' },
+				{ ...createMockSession('session-2', 'Agent2', 'claude-code'), groupId: 'group-1' },
+			];
+			useSessionStore.setState({ groups });
+
+			render(<GroupChatInput {...createDefaultProps({ sessions })} />);
+
+			const textarea = screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement;
+			typeInTextarea(textarea, '@');
+
+			// Should show the group in the dropdown
+			expect(screen.getByText('@PROJECTS')).toBeInTheDocument();
+			expect(screen.getByText(/group · 2/)).toBeInTheDocument();
+		});
+
+		it('shows groups before individual agents', () => {
+			const groups = [createMockGroup('group-1', 'PROJECTS', '📁')];
+			const sessions = [
+				{ ...createMockSession('session-1', 'Agent1', 'claude-code'), groupId: 'group-1' },
+			];
+			useSessionStore.setState({ groups });
+
+			render(<GroupChatInput {...createDefaultProps({ sessions })} />);
+
+			const textarea = screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement;
+			typeInTextarea(textarea, '@');
+
+			// Get all buttons in the dropdown
+			const buttons = screen.getAllByRole('button');
+			const mentionButtons = buttons.filter(
+				(btn) => btn.textContent?.includes('@PROJECTS') || btn.textContent?.includes('@Agent1')
+			);
+
+			// Group should appear first
+			expect(mentionButtons.length).toBeGreaterThanOrEqual(2);
+			expect(mentionButtons[0].textContent).toContain('@PROJECTS');
+		});
+
+		it('expands group into all member mentions on click', () => {
+			const groups = [createMockGroup('group-1', 'PROJECTS', '📁')];
+			const sessions = [
+				{ ...createMockSession('session-1', 'Agent1', 'claude-code'), groupId: 'group-1' },
+				{ ...createMockSession('session-2', 'Agent2', 'claude-code'), groupId: 'group-1' },
+			];
+			useSessionStore.setState({ groups });
+
+			render(<GroupChatInput {...createDefaultProps({ sessions })} />);
+
+			const textarea = screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement;
+			typeInTextarea(textarea, '@');
+
+			// Click the group
+			fireEvent.click(screen.getByText('@PROJECTS'));
+
+			// Should expand to all member @mentions
+			expect(textarea.value).toBe('@Agent1 @Agent2 ');
+		});
+
+		it('expands group via Tab key', () => {
+			const groups = [createMockGroup('group-1', 'PROJECTS', '📁')];
+			const sessions = [
+				{ ...createMockSession('session-1', 'Agent1', 'claude-code'), groupId: 'group-1' },
+				{ ...createMockSession('session-2', 'Agent2', 'claude-code'), groupId: 'group-1' },
+			];
+			useSessionStore.setState({ groups });
+
+			render(<GroupChatInput {...createDefaultProps({ sessions })} />);
+
+			const textarea = screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement;
+			typeInTextarea(textarea, '@');
+
+			// Tab to select first item (group)
+			fireEvent.keyDown(textarea, { key: 'Tab' });
+
+			expect(textarea.value).toBe('@Agent1 @Agent2 ');
+		});
+
+		it('excludes empty groups (no non-terminal members)', () => {
+			const groups = [createMockGroup('group-1', 'TERMINALS', '💻')];
+			const sessions = [
+				{ ...createMockSession('session-1', 'Term1', 'terminal'), groupId: 'group-1' },
+			];
+			useSessionStore.setState({ groups });
+
+			render(<GroupChatInput {...createDefaultProps({ sessions })} />);
+
+			const textarea = screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement;
+			typeInTextarea(textarea, '@');
+
+			// Group should not appear since it has no non-terminal members
+			expect(screen.queryByText('@TERMINALS')).not.toBeInTheDocument();
+		});
+
+		it('filters groups by name', () => {
+			const groups = [
+				createMockGroup('group-1', 'PROJECTS', '📁'),
+				createMockGroup('group-2', 'TOOLS', '🔧'),
+			];
+			const sessions = [
+				{ ...createMockSession('session-1', 'Agent1', 'claude-code'), groupId: 'group-1' },
+				{ ...createMockSession('session-2', 'Agent2', 'claude-code'), groupId: 'group-2' },
+			];
+			useSessionStore.setState({ groups });
+
+			render(<GroupChatInput {...createDefaultProps({ sessions })} />);
+
+			const textarea = screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement;
+			typeInTextarea(textarea, '@proj');
+
+			// Only the matching group should show
+			expect(screen.getByText('@PROJECTS')).toBeInTheDocument();
+			expect(screen.queryByText('@TOOLS')).not.toBeInTheDocument();
+		});
+
+		it('works without groups prop', () => {
+			const sessions = [createMockSession('session-1', 'Agent1', 'claude-code')];
+
+			render(<GroupChatInput {...createDefaultProps({ sessions })} />);
+
+			const textarea = screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement;
+			typeInTextarea(textarea, '@');
+
+			// Should still show individual agents
+			expect(screen.getByText('@Agent1')).toBeInTheDocument();
 		});
 	});
 });

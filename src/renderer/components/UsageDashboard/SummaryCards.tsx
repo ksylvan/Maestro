@@ -17,7 +17,7 @@
  * - Formatted values for readability
  */
 
-import React, { useMemo } from 'react';
+import React, { memo, useMemo } from 'react';
 import {
 	MessageSquare,
 	Clock,
@@ -91,7 +91,13 @@ interface MetricCardProps {
 	animationIndex?: number;
 }
 
-function MetricCard({ icon, label, value, theme, animationIndex = 0 }: MetricCardProps) {
+const MetricCard = memo(function MetricCard({
+	icon,
+	label,
+	value,
+	theme,
+	animationIndex = 0,
+}: MetricCardProps) {
 	return (
 		<div
 			className="p-4 rounded-lg flex items-start gap-3 dashboard-card-enter"
@@ -125,7 +131,7 @@ function MetricCard({ icon, label, value, theme, animationIndex = 0 }: MetricCar
 			</div>
 		</div>
 	);
-}
+});
 
 /**
  * Format hour number (0-23) to human-readable time
@@ -137,7 +143,12 @@ function formatHour(hour: number): string {
 	return `${displayHour} ${suffix}`;
 }
 
-export function SummaryCards({ data, theme, columns = 3, sessions }: SummaryCardsProps) {
+export const SummaryCards = memo(function SummaryCards({
+	data,
+	theme,
+	columns = 3,
+	sessions,
+}: SummaryCardsProps) {
 	// Count agent sessions (exclude terminal-only sessions) for accurate total
 	const agentCount = useMemo(() => {
 		if (sessions) {
@@ -270,6 +281,6 @@ export function SummaryCards({ data, theme, columns = 3, sessions }: SummaryCard
 			))}
 		</div>
 	);
-}
+});
 
 export default SummaryCards;
