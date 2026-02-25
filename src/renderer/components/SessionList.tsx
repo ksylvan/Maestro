@@ -55,7 +55,7 @@ import { useUIStore } from '../stores/uiStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useBatchStore, selectActiveBatchSessionIds } from '../stores/batchStore';
-import { useShallow } from 'zustand/shallow';
+import { shallow } from 'zustand/shallow';
 import { useGroupChatStore } from '../stores/groupChatStore';
 import { getModalActions } from '../stores/modalStore';
 
@@ -1103,7 +1103,7 @@ function SessionListInner(props: SessionListProps) {
 	const contextWarningRedThreshold = useSettingsStore(
 		(s) => s.contextManagementSettings.contextWarningRedThreshold
 	);
-	const activeBatchSessionIds = useBatchStore(useShallow(selectActiveBatchSessionIds));
+	const activeBatchSessionIds = useBatchStore(selectActiveBatchSessionIds, shallow);
 	const groupChats = useGroupChatStore((s) => s.groupChats);
 	const activeGroupChatId = useGroupChatStore((s) => s.activeGroupChatId);
 	const groupChatState = useGroupChatStore((s) => s.groupChatState);
