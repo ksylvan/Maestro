@@ -116,6 +116,9 @@ export async function ensureForkSetup(
 		}
 	}
 
+	// Set HEAD for origin so getDefaultBranch() works correctly with fork remotes
+	await execFileNoThrow('git', ['remote', 'set-head', 'origin', '-a'], repoPath);
+
 	logger.info(`Fork setup complete: ${forkSlug}`, LOG_CONTEXT);
 	return { isFork: true, forkSlug };
 }

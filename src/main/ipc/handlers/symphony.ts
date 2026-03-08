@@ -1782,10 +1782,12 @@ This PR will be updated automatically when the Auto Run completes.`;
 				await writeState(app, state);
 
 				// Mark PR as ready (use upstreamSlug for fork contributions)
+				const upstreamSlug =
+					contribution.isFork && contribution.upstreamSlug ? contribution.upstreamSlug : undefined;
 				const readyResult = await markPRReady(
 					contribution.localPath,
 					contribution.draftPrNumber,
-					contribution.isFork ? contribution.upstreamSlug : undefined
+					upstreamSlug
 				);
 				if (!readyResult.success) {
 					contribution.status = 'failed';
@@ -1808,7 +1810,7 @@ This PR will be updated automatically when the Auto Run completes.`;
 					contribution.localPath,
 					contribution.draftPrNumber,
 					commentStats,
-					contribution.isFork ? contribution.upstreamSlug : undefined
+					upstreamSlug
 				);
 
 				if (!commentResult.success) {
@@ -2070,7 +2072,12 @@ This PR will be updated automatically when the Auto Run completes.`;
 								});
 							}
 							// Sync fork info from metadata to state
-							if (metadata.isFork && !contribution.isFork) {
+							if (
+								metadata.isFork &&
+								metadata.forkSlug &&
+								metadata.upstreamSlug &&
+								!contribution.isFork
+							) {
 								contribution.isFork = metadata.isFork;
 								contribution.forkSlug = metadata.forkSlug;
 								contribution.upstreamSlug = metadata.upstreamSlug;
@@ -2259,7 +2266,12 @@ This PR will be updated automatically when the Auto Run completes.`;
 								});
 							}
 							// Sync fork info from metadata to state
-							if (metadata.isFork && !contribution.isFork) {
+							if (
+								metadata.isFork &&
+								metadata.forkSlug &&
+								metadata.upstreamSlug &&
+								!contribution.isFork
+							) {
 								contribution.isFork = metadata.isFork;
 								contribution.forkSlug = metadata.forkSlug;
 								contribution.upstreamSlug = metadata.upstreamSlug;

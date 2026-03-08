@@ -2142,8 +2142,7 @@ describe('Symphony IPC handlers', () => {
 						return { stdout: '', stderr: '', exitCode: 0 };
 					if (cmd === 'git' && args?.[0] === 'rev-parse')
 						return { stdout: 'symphony/issue-42-abc', stderr: '', exitCode: 0 };
-					if (cmd === 'git' && args?.[0] === 'push')
-						return { stdout: '', stderr: '', exitCode: 0 };
+					if (cmd === 'git' && args?.[0] === 'push') return { stdout: '', stderr: '', exitCode: 0 };
 					if (cmd === 'gh' && args?.[0] === 'pr')
 						return { stdout: 'https://github.com/owner/repo/pull/1', stderr: '', exitCode: 0 };
 					return { stdout: '', stderr: '', exitCode: 0 };
@@ -2152,10 +2151,7 @@ describe('Symphony IPC handlers', () => {
 				const handler = getStartHandler();
 				await handler!({} as any, validStartParams);
 
-				expect(ensureForkSetup).toHaveBeenCalledWith(
-					expect.stringContaining('repo'),
-					'owner/repo'
-				);
+				expect(ensureForkSetup).toHaveBeenCalledWith(expect.stringContaining('repo'), 'owner/repo');
 			});
 
 			it('should return error when fork setup fails', async () => {
@@ -2193,8 +2189,7 @@ describe('Symphony IPC handlers', () => {
 						return { stdout: '', stderr: '', exitCode: 0 };
 					if (cmd === 'git' && args?.[0] === 'rev-parse')
 						return { stdout: 'symphony/issue-42-abc', stderr: '', exitCode: 0 };
-					if (cmd === 'git' && args?.[0] === 'push')
-						return { stdout: '', stderr: '', exitCode: 0 };
+					if (cmd === 'git' && args?.[0] === 'push') return { stdout: '', stderr: '', exitCode: 0 };
 					if (cmd === 'gh' && args?.[0] === 'pr')
 						return { stdout: 'https://github.com/owner/repo/pull/1', stderr: '', exitCode: 0 };
 					return { stdout: '', stderr: '', exitCode: 0 };
@@ -2204,9 +2199,11 @@ describe('Symphony IPC handlers', () => {
 				await handler!({} as any, validStartParams);
 
 				// Verify the state was written with fork info
-				const writeStateCall = vi.mocked(fs.writeFile).mock.calls.find(
-					(call) => typeof call[0] === 'string' && call[0].includes('symphony-state.json')
-				);
+				const writeStateCall = vi
+					.mocked(fs.writeFile)
+					.mock.calls.find(
+						(call) => typeof call[0] === 'string' && call[0].includes('symphony-state.json')
+					);
 				expect(writeStateCall).toBeDefined();
 				const savedState = JSON.parse(writeStateCall![1] as string);
 				const savedContrib = savedState.active[0];
@@ -2229,8 +2226,7 @@ describe('Symphony IPC handlers', () => {
 						return { stdout: '', stderr: '', exitCode: 0 };
 					if (cmd === 'git' && args?.[0] === 'rev-parse')
 						return { stdout: 'symphony/issue-42-abc', stderr: '', exitCode: 0 };
-					if (cmd === 'git' && args?.[0] === 'push')
-						return { stdout: '', stderr: '', exitCode: 0 };
+					if (cmd === 'git' && args?.[0] === 'push') return { stdout: '', stderr: '', exitCode: 0 };
 					if (cmd === 'gh' && args?.[0] === 'pr')
 						return { stdout: 'https://github.com/owner/repo/pull/1', stderr: '', exitCode: 0 };
 					return { stdout: '', stderr: '', exitCode: 0 };
@@ -2240,9 +2236,11 @@ describe('Symphony IPC handlers', () => {
 				await handler!({} as any, validStartParams);
 
 				// Verify gh pr create was called with --head chris:branchName and --repo owner/repo
-				const prCall = vi.mocked(execFileNoThrow).mock.calls.find(
-					(call) => call[0] === 'gh' && call[1]?.[0] === 'pr' && call[1]?.[1] === 'create'
-				);
+				const prCall = vi
+					.mocked(execFileNoThrow)
+					.mock.calls.find(
+						(call) => call[0] === 'gh' && call[1]?.[0] === 'pr' && call[1]?.[1] === 'create'
+					);
 				expect(prCall).toBeDefined();
 				const prArgs = prCall![1] as string[];
 				// Should have --head chris:branchName
@@ -4656,8 +4654,7 @@ describe('Symphony IPC handlers', () => {
 						return { stdout: 'abc123\trefs/heads/main', stderr: '', exitCode: 0 };
 					if (cmd === 'git' && args?.[0] === 'rev-parse')
 						return { stdout: 'symphony/issue-42-abc', stderr: '', exitCode: 0 };
-					if (cmd === 'git' && args?.[0] === 'push')
-						return { stdout: '', stderr: '', exitCode: 0 };
+					if (cmd === 'git' && args?.[0] === 'push') return { stdout: '', stderr: '', exitCode: 0 };
 					if (cmd === 'gh' && args?.[0] === 'pr')
 						return { stdout: 'https://github.com/owner/repo/pull/1', stderr: '', exitCode: 0 };
 					return { stdout: '', stderr: '', exitCode: 0 };
@@ -4704,8 +4701,7 @@ describe('Symphony IPC handlers', () => {
 						return { stdout: 'abc123\trefs/heads/main', stderr: '', exitCode: 0 };
 					if (cmd === 'git' && args?.[0] === 'rev-parse')
 						return { stdout: 'symphony/issue-42-abc', stderr: '', exitCode: 0 };
-					if (cmd === 'git' && args?.[0] === 'push')
-						return { stdout: '', stderr: '', exitCode: 0 };
+					if (cmd === 'git' && args?.[0] === 'push') return { stdout: '', stderr: '', exitCode: 0 };
 					if (cmd === 'gh' && args?.[0] === 'pr')
 						return { stdout: 'https://github.com/owner/repo/pull/1', stderr: '', exitCode: 0 };
 					return { stdout: '', stderr: '', exitCode: 0 };
@@ -4715,9 +4711,11 @@ describe('Symphony IPC handlers', () => {
 				await handler!({} as any, validStartContributionParams);
 
 				// Verify metadata was written with fork info
-				const metadataCall = vi.mocked(fs.writeFile).mock.calls.find(
-					(call) => typeof call[0] === 'string' && call[0].includes('metadata.json')
-				);
+				const metadataCall = vi
+					.mocked(fs.writeFile)
+					.mock.calls.find(
+						(call) => typeof call[0] === 'string' && call[0].includes('metadata.json')
+					);
 				expect(metadataCall).toBeDefined();
 				const metadata = JSON.parse(metadataCall![1] as string);
 				expect(metadata.isFork).toBe(true);
@@ -5260,8 +5258,7 @@ describe('Symphony IPC handlers', () => {
 						return { stdout: '1', stderr: '', exitCode: 0 };
 					if (cmd === 'git' && args?.[0] === 'rev-parse')
 						return { stdout: 'symphony/issue-42-abc123', stderr: '', exitCode: 0 };
-					if (cmd === 'git' && args?.[0] === 'push')
-						return { stdout: '', stderr: '', exitCode: 0 };
+					if (cmd === 'git' && args?.[0] === 'push') return { stdout: '', stderr: '', exitCode: 0 };
 					if (cmd === 'gh' && args?.[0] === 'pr')
 						return { stdout: 'https://github.com/owner/repo/pull/50', stderr: '', exitCode: 0 };
 					return { stdout: '', stderr: '', exitCode: 0 };
@@ -5273,9 +5270,11 @@ describe('Symphony IPC handlers', () => {
 				expect(result.success).toBe(true);
 
 				// Verify gh pr create was called with fork args
-				const prCall = vi.mocked(execFileNoThrow).mock.calls.find(
-					(call) => call[0] === 'gh' && call[1]?.[0] === 'pr' && call[1]?.[1] === 'create'
-				);
+				const prCall = vi
+					.mocked(execFileNoThrow)
+					.mock.calls.find(
+						(call) => call[0] === 'gh' && call[1]?.[0] === 'pr' && call[1]?.[1] === 'create'
+					);
 				expect(prCall).toBeDefined();
 				const prArgs = prCall![1] as string[];
 				// Should have --head chris:branchName
@@ -5319,8 +5318,7 @@ describe('Symphony IPC handlers', () => {
 						return { stdout: '1', stderr: '', exitCode: 0 };
 					if (cmd === 'git' && args?.[0] === 'rev-parse')
 						return { stdout: 'symphony/issue-42-abc123', stderr: '', exitCode: 0 };
-					if (cmd === 'git' && args?.[0] === 'push')
-						return { stdout: '', stderr: '', exitCode: 0 };
+					if (cmd === 'git' && args?.[0] === 'push') return { stdout: '', stderr: '', exitCode: 0 };
 					if (cmd === 'gh' && args?.[0] === 'pr')
 						return { stdout: 'https://github.com/owner/repo/pull/50', stderr: '', exitCode: 0 };
 					return { stdout: '', stderr: '', exitCode: 0 };
@@ -5332,9 +5330,11 @@ describe('Symphony IPC handlers', () => {
 				expect(result.success).toBe(true);
 
 				// Verify gh pr create was called WITHOUT --repo flag
-				const prCall = vi.mocked(execFileNoThrow).mock.calls.find(
-					(call) => call[0] === 'gh' && call[1]?.[0] === 'pr' && call[1]?.[1] === 'create'
-				);
+				const prCall = vi
+					.mocked(execFileNoThrow)
+					.mock.calls.find(
+						(call) => call[0] === 'gh' && call[1]?.[0] === 'pr' && call[1]?.[1] === 'create'
+					);
 				expect(prCall).toBeDefined();
 				const prArgs = prCall![1] as string[];
 				expect(prArgs).not.toContain('--repo');

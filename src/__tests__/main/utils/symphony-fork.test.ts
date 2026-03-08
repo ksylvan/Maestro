@@ -69,7 +69,8 @@ describe('ensureForkSetup', () => {
 			.mockResolvedValueOnce(ok('')) // gh repo fork
 			.mockResolvedValueOnce(ok('https://github.com/chris/repo.git\n')) // clone url
 			.mockResolvedValueOnce(ok('')) // git remote rename
-			.mockResolvedValueOnce(ok('')); // git remote add
+			.mockResolvedValueOnce(ok('')) // git remote add
+			.mockResolvedValueOnce(ok('')); // git remote set-head origin -a
 
 		const result = await ensureForkSetup('/tmp/repo', 'owner/repo');
 
@@ -77,17 +78,31 @@ describe('ensureForkSetup', () => {
 
 		// Verify fork command
 		expect(mockExecFileNoThrow).toHaveBeenCalledWith(
-			'gh', ['repo', 'fork', 'owner/repo', '--clone=false'], undefined, expect.any(Object)
+			'gh',
+			['repo', 'fork', 'owner/repo', '--clone=false'],
+			undefined,
+			expect.any(Object)
 		);
 
 		// Verify remote rename
 		expect(mockExecFileNoThrow).toHaveBeenCalledWith(
-			'git', ['remote', 'rename', 'origin', 'upstream'], '/tmp/repo'
+			'git',
+			['remote', 'rename', 'origin', 'upstream'],
+			'/tmp/repo'
 		);
 
 		// Verify remote add
 		expect(mockExecFileNoThrow).toHaveBeenCalledWith(
-			'git', ['remote', 'add', 'origin', 'https://github.com/chris/repo.git'], '/tmp/repo'
+			'git',
+			['remote', 'add', 'origin', 'https://github.com/chris/repo.git'],
+			'/tmp/repo'
+		);
+
+		// Verify set-head for correct default branch resolution
+		expect(mockExecFileNoThrow).toHaveBeenCalledWith(
+			'git',
+			['remote', 'set-head', 'origin', '-a'],
+			'/tmp/repo'
 		);
 	});
 
@@ -98,7 +113,8 @@ describe('ensureForkSetup', () => {
 			.mockResolvedValueOnce(fail('repo already exists', 1)) // gh repo fork - already exists
 			.mockResolvedValueOnce(ok('https://github.com/chris/repo.git\n')) // clone url
 			.mockResolvedValueOnce(ok('')) // git remote rename
-			.mockResolvedValueOnce(ok('')); // git remote add
+			.mockResolvedValueOnce(ok('')) // git remote add
+			.mockResolvedValueOnce(ok('')); // git remote set-head origin -a
 
 		const result = await ensureForkSetup('/tmp/repo', 'owner/repo');
 
@@ -124,7 +140,8 @@ describe('ensureForkSetup', () => {
 			.mockResolvedValueOnce(ok('')) // gh repo fork
 			.mockResolvedValueOnce(ok('https://github.com/chris/repo.git\n')) // clone url
 			.mockResolvedValueOnce(fail('upstream already exists')) // remote rename fails
-			.mockResolvedValueOnce(ok('')); // git remote set-url (fallback)
+			.mockResolvedValueOnce(ok('')) // git remote set-url (fallback)
+			.mockResolvedValueOnce(ok('')); // git remote set-head origin -a
 
 		const result = await ensureForkSetup('/tmp/repo', 'owner/repo');
 
@@ -132,7 +149,9 @@ describe('ensureForkSetup', () => {
 
 		// Verify fallback to set-url
 		expect(mockExecFileNoThrow).toHaveBeenCalledWith(
-			'git', ['remote', 'set-url', 'origin', 'https://github.com/chris/repo.git'], '/tmp/repo'
+			'git',
+			['remote', 'set-url', 'origin', 'https://github.com/chris/repo.git'],
+			'/tmp/repo'
 		);
 	});
 

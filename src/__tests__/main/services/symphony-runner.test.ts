@@ -1344,7 +1344,7 @@ describe('Symphony Runner Service', () => {
 			expect(result.success).toBe(true);
 		});
 
-		it('adds --repo flag for fork contributions', async () => {
+		it('adds --repo flag without --delete-branch for fork contributions', async () => {
 			vi.mocked(execFileNoThrow).mockResolvedValueOnce({
 				stdout: '',
 				stderr: '',
@@ -1355,7 +1355,7 @@ describe('Symphony Runner Service', () => {
 
 			expect(execFileNoThrow).toHaveBeenCalledWith(
 				'gh',
-				['pr', 'close', '42', '--delete-branch', '--repo', 'upstream-owner/repo'],
+				['pr', 'close', '42', '--repo', 'upstream-owner/repo'],
 				'/tmp/test-repo'
 			);
 		});
@@ -1398,8 +1398,12 @@ describe('Symphony Runner Service', () => {
 					.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 }) // config user.email
 					.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 }) // commit --allow-empty
 					.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 }) // push
-					.mockResolvedValueOnce({ stdout: 'symphony/test-branch', stderr: '', exitCode: 0 }) // git rev-parse HEAD
-					.mockResolvedValueOnce({ stdout: 'https://github.com/upstream-owner/repo/pull/5', stderr: '', exitCode: 0 }); // pr create
+					.mockResolvedValueOnce({ stdout: 'symphony/test-branch', stderr: '', exitCode: 0 }) // git rev-parse --abbrev-ref HEAD
+					.mockResolvedValueOnce({
+						stdout: 'https://github.com/upstream-owner/repo/pull/5',
+						stderr: '',
+						exitCode: 0,
+					}); // pr create
 
 				const result = await startContribution(defaultOptions);
 
@@ -1420,16 +1424,18 @@ describe('Symphony Runner Service', () => {
 					.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 }) // config user.email
 					.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 }) // commit --allow-empty
 					.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 }) // push
-					.mockResolvedValueOnce({ stdout: 'symphony/test-branch', stderr: '', exitCode: 0 }) // git rev-parse HEAD
-					.mockResolvedValueOnce({ stdout: 'https://github.com/upstream-owner/repo/pull/5', stderr: '', exitCode: 0 }); // pr create
+					.mockResolvedValueOnce({ stdout: 'symphony/test-branch', stderr: '', exitCode: 0 }) // git rev-parse --abbrev-ref HEAD
+					.mockResolvedValueOnce({
+						stdout: 'https://github.com/upstream-owner/repo/pull/5',
+						stderr: '',
+						exitCode: 0,
+					}); // pr create
 
 				await startContribution(defaultOptions);
 
 				const prCreateCall = vi
 					.mocked(execFileNoThrow)
-					.mock.calls.find(
-						(call) => call[0] === 'gh' && call[1]?.includes('create')
-					);
+					.mock.calls.find((call) => call[0] === 'gh' && call[1]?.includes('create'));
 				expect(prCreateCall).toBeDefined();
 				expect(prCreateCall![1]).toContain('--repo');
 				expect(prCreateCall![1]).toContain('upstream-owner/repo');
@@ -1461,9 +1467,7 @@ describe('Symphony Runner Service', () => {
 
 				const prCreateCall = vi
 					.mocked(execFileNoThrow)
-					.mock.calls.find(
-						(call) => call[0] === 'gh' && call[1]?.includes('create')
-					);
+					.mock.calls.find((call) => call[0] === 'gh' && call[1]?.includes('create'));
 				expect(prCreateCall).toBeDefined();
 				expect(prCreateCall![1]).not.toContain('--repo');
 				expect(prCreateCall![1]).not.toContain('--head');
@@ -1474,35 +1478,23 @@ describe('Symphony Runner Service', () => {
 			it('adds --repo flag to gh pr ready, edit, and view for fork contributions', async () => {
 				mockFinalizeWorkflow('https://github.com/upstream-owner/repo/pull/5');
 
-				await finalizeContribution(
-					'/tmp/test-repo',
-					5,
-					42,
-					'Test Issue',
-					'upstream-owner/repo'
-				);
+				await finalizeContribution('/tmp/test-repo', 5, 42, 'Test Issue', 'upstream-owner/repo');
 
 				const readyCall = vi
 					.mocked(execFileNoThrow)
-					.mock.calls.find(
-						(call) => call[0] === 'gh' && call[1]?.includes('ready')
-					);
+					.mock.calls.find((call) => call[0] === 'gh' && call[1]?.includes('ready'));
 				expect(readyCall![1]).toContain('--repo');
 				expect(readyCall![1]).toContain('upstream-owner/repo');
 
 				const editCall = vi
 					.mocked(execFileNoThrow)
-					.mock.calls.find(
-						(call) => call[0] === 'gh' && call[1]?.includes('edit')
-					);
+					.mock.calls.find((call) => call[0] === 'gh' && call[1]?.includes('edit'));
 				expect(editCall![1]).toContain('--repo');
 				expect(editCall![1]).toContain('upstream-owner/repo');
 
 				const viewCall = vi
 					.mocked(execFileNoThrow)
-					.mock.calls.find(
-						(call) => call[0] === 'gh' && call[1]?.includes('view')
-					);
+					.mock.calls.find((call) => call[0] === 'gh' && call[1]?.includes('view'));
 				expect(viewCall![1]).toContain('--repo');
 				expect(viewCall![1]).toContain('upstream-owner/repo');
 			});
@@ -1514,9 +1506,7 @@ describe('Symphony Runner Service', () => {
 
 				const readyCall = vi
 					.mocked(execFileNoThrow)
-					.mock.calls.find(
-						(call) => call[0] === 'gh' && call[1]?.includes('ready')
-					);
+					.mock.calls.find((call) => call[0] === 'gh' && call[1]?.includes('ready'));
 				expect(readyCall![1]).not.toContain('--repo');
 			});
 		});

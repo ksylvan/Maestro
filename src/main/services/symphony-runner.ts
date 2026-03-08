@@ -123,8 +123,10 @@ Closes #${issueNumber}
 
 	const args = ['pr', 'create', '--draft', '--title', title, '--body', body];
 
-	if (upstreamSlug && forkOwner) {
+	if (upstreamSlug) {
 		args.push('--repo', upstreamSlug);
+	}
+	if (upstreamSlug && forkOwner) {
 		// For cross-fork PRs, --head must specify the fork owner and branch
 		const branchResult = await execFileNoThrow(
 			'git',
@@ -132,6 +134,9 @@ Closes #${issueNumber}
 			localPath
 		);
 		const branchName = branchResult.stdout.trim();
+		if (!branchName || branchResult.exitCode !== 0) {
+			return { success: false, error: 'Failed to determine current branch name' };
+		}
 		args.push('--head', `${forkOwner}:${branchName}`);
 	}
 
@@ -408,8 +413,13 @@ export async function cancelContribution(
 	upstreamSlug?: string
 ): Promise<{ success: boolean; error?: string }> {
 	// Close the draft PR
-	const closeArgs = ['pr', 'close', prNumber.toString(), '--delete-branch'];
-	if (upstreamSlug) closeArgs.push('--repo', upstreamSlug);
+	const closeArgs = ['pr', 'close', prNumber.toString()];
+	if (!upstreamSlug) {
+		// Only delete branch for non-fork PRs — cross-fork delete-branch fails due to permissions
+		closeArgs.push('--delete-branch');
+	} else {
+		closeArgs.push('--repo', upstreamSlug);
+	}
 	const closeResult = await execFileNoThrow('gh', closeArgs, localPath);
 	if (closeResult.exitCode !== 0) {
 		logger.warn('Failed to close PR', LOG_CONTEXT, { prNumber, error: closeResult.stderr });
