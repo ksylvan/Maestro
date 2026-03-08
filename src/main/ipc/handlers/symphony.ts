@@ -839,13 +839,15 @@ async function markPRReady(
  */
 async function discoverPRByBranch(
 	repoSlug: string,
-	branchName: string
+	branchName: string,
+	headOwner?: string
 ): Promise<{ prNumber?: number; prUrl?: string }> {
 	try {
 		// Query GitHub API for PRs with this head branch
 		// API: GET /repos/{owner}/{repo}/pulls?head={owner}:{branch}&state=all
+		// For cross-fork PRs, headOwner is the fork owner (branch lives on fork, PR targets upstream)
 		const [owner] = repoSlug.split('/');
-		const headRef = `${owner}:${branchName}`;
+		const headRef = `${headOwner || owner}:${branchName}`;
 		const apiUrl = `${GITHUB_API_BASE}/repos/${repoSlug}/pulls?head=${encodeURIComponent(headRef)}&state=all&per_page=1`;
 
 		const response = await fetch(apiUrl, {
@@ -2094,9 +2096,13 @@ This PR will be updated automatically when the Auto Run completes.`;
 				// This handles PRs created manually via gh CLI or GitHub UI
 				for (const contribution of state.active) {
 					if (!contribution.draftPrNumber && contribution.branchName && contribution.repoSlug) {
+						const forkHeadOwner = contribution.isFork
+							? contribution.forkSlug?.split('/')[0]
+							: undefined;
 						const discovered = await discoverPRByBranch(
 							contribution.repoSlug,
-							contribution.branchName
+							contribution.branchName,
+							forkHeadOwner
 						);
 						if (discovered.prNumber) {
 							contribution.draftPrNumber = discovered.prNumber;
@@ -2286,9 +2292,13 @@ This PR will be updated automatically when the Auto Run completes.`;
 					// Step 2: If still no PR, try to discover it from GitHub by branch name
 					// This handles PRs created manually via gh CLI or GitHub UI
 					if (!contribution.draftPrNumber && contribution.branchName && contribution.repoSlug) {
+						const forkHeadOwner = contribution.isFork
+							? contribution.forkSlug?.split('/')[0]
+							: undefined;
 						const discovered = await discoverPRByBranch(
 							contribution.repoSlug,
-							contribution.branchName
+							contribution.branchName,
+							forkHeadOwner
 						);
 						if (discovered.prNumber) {
 							contribution.draftPrNumber = discovered.prNumber;
@@ -2707,6 +2717,7 @@ This PR will be updated automatically when the Auto Run completes.`;
 								resolvedDocs,
 								startedAt: new Date().toISOString(),
 								prCreated: false,
+								upstreamDefaultBranch,
 								isFork: forkResult.isFork,
 								...(forkResult.isFork && {
 									forkSlug: forkResult.forkSlug,
@@ -2868,6 +2879,7 @@ This PR will be updated automatically when the Auto Run completes.`;
 					prCreated: boolean;
 					draftPrNumber?: number;
 					draftPrUrl?: string;
+					upstreamDefaultBranch?: string;
 					isFork?: boolean;
 					forkSlug?: string;
 					upstreamSlug?: string;
@@ -2907,7 +2919,8 @@ This PR will be updated automatically when the Auto Run completes.`;
 
 				// Check if there are any commits on this branch
 				// Use rev-list to count commits not in the default branch
-				const baseBranch = await getDefaultBranch(localPath);
+				// Prefer persisted upstream default branch (fork setup may have reconfigured origin)
+				const baseBranch = metadata.upstreamDefaultBranch ?? (await getDefaultBranch(localPath));
 				const commitCheckResult = await execFileNoThrow(
 					'git',
 					['rev-list', '--count', `${baseBranch}..HEAD`],

@@ -2152,6 +2152,18 @@ describe('Symphony IPC handlers', () => {
 				await handler!({} as any, validStartParams);
 
 				expect(ensureForkSetup).toHaveBeenCalledWith(expect.stringContaining('repo'), 'owner/repo');
+
+				// Verify fork setup runs after branch creation (checkout -b)
+				const checkoutIdx = vi
+					.mocked(execFileNoThrow)
+					.mock.calls.findIndex(
+						(call) => call[0] === 'git' && (call[1] as string[])?.[0] === 'checkout'
+					);
+				const checkoutCallOrder = vi.mocked(execFileNoThrow).mock.invocationCallOrder[checkoutIdx];
+				const forkSetupCallOrder = vi.mocked(ensureForkSetup).mock.invocationCallOrder[0];
+				expect(checkoutCallOrder).toBeDefined();
+				expect(forkSetupCallOrder).toBeDefined();
+				expect(checkoutCallOrder).toBeLessThan(forkSetupCallOrder!);
 			});
 
 			it('should return error when fork setup fails', async () => {
