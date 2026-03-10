@@ -10,6 +10,7 @@ import { AgentConfigPanel } from './shared/AgentConfigPanel';
 import { SshRemoteSelector } from './shared/SshRemoteSelector';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { safeClipboardWrite } from '../utils/clipboard';
+import { isBetaAgent } from '../../shared/agentMetadata';
 
 // Maximum character length for nudge message
 const NUDGE_MESSAGE_MAX_LENGTH = 1000;
@@ -808,9 +809,7 @@ export function NewInstanceModal({
 													)}
 													<span className="font-medium">{agent.name}</span>
 													{/* "Beta" badge for Codex, OpenCode, and Factory Droid */}
-													{(agent.id === 'codex' ||
-														agent.id === 'opencode' ||
-														agent.id === 'factory-droid') && (
+													{isBetaAgent(agent.id) && (
 														<span
 															className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase"
 															style={{
