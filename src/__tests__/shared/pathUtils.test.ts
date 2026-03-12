@@ -30,6 +30,7 @@ vi.mock('os', async () => {
 	return {
 		...actual,
 		homedir: vi.fn(() => '/Users/testuser'),
+		tmpdir: () => '/tmp',
 	};
 });
 
@@ -281,7 +282,7 @@ describe('buildExpandedPath', () => {
 		it('should prepend detected Node version manager bin paths', () => {
 			process.env.PATH = '/usr/bin';
 			const originalNvmDir = process.env.NVM_DIR;
-			const tempNvmDir = fs.mkdtempSync('/tmp/maestro-nvm-');
+			const tempNvmDir = fs.mkdtempSync(path.join(os.tmpdir(), 'maestro-nvm-'));
 			process.env.NVM_DIR = tempNvmDir;
 			fs.mkdirSync(path.join(tempNvmDir, 'current', 'bin'), { recursive: true });
 			fs.mkdirSync(path.join(tempNvmDir, 'versions', 'node', 'v22.10.0', 'bin'), {

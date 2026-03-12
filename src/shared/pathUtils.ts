@@ -388,7 +388,8 @@ export function buildExpandedPath(customPaths?: string[]): string {
 		];
 	}
 
-	// Add custom paths first (if provided)
+	// Iterate in reverse because each entry is prepended with unshift().
+	// This preserves the caller's intended left-to-right path precedence.
 	if (customPaths && customPaths.length > 0) {
 		for (let i = customPaths.length - 1; i >= 0; i--) {
 			const p = customPaths[i];
