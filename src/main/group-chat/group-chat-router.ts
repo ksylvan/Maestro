@@ -112,6 +112,14 @@ let sshStore: SshRemoteSettingsStore | null = null;
 const pendingParticipantResponses = new Map<string, Set<string>>();
 
 /**
+ * Tracks which participants in each group chat were triggered via !autorun directives.
+ * Used to gate emitAutoRunBatchComplete so it only fires for autorun participants,
+ * not for normal @mention participants sharing the same timeout path.
+ * Maps groupChatId -> Set<participantName>
+ */
+const autoRunParticipantTracker = new Map<string, Set<string>>();
+
+/**
  * Tracks per-participant response timeout handles.
  * Maps `${groupChatId}:${participantName}` -> NodeJS.Timeout
  * Timeouts fire if a participant never responds (hung process, lost IPC, etc.)
@@ -167,15 +175,31 @@ function setParticipantResponseTimeout(
 					`[Timed out — no response after ${PARTICIPANT_RESPONSE_TIMEOUT_MS / 60000} minutes]`
 				);
 			}
-		} catch {
-			// Non-critical — synthesize anyway
+		} catch (err) {
+			// Non-critical — synthesize anyway, but log and report so we can diagnose
+			logger.error('Failed to log timeout response', LOG_CONTEXT, {
+				groupChatId,
+				participantName,
+				error: err,
+			});
+			captureException(err, {
+				operation: 'groupChat:logTimeoutResponse',
+				groupChatId,
+				participantName,
+			});
 		}
 
 		// Reset participant state and force-complete the batch so the AUTO badge
 		// and progress bar clear immediately — the batch loop may still be awaiting
 		// a process exit that will never come.
 		groupChatEmitters.emitParticipantState?.(groupChatId, participantName, 'idle');
-		groupChatEmitters.emitAutoRunBatchComplete?.(groupChatId, participantName);
+		// Only emit batch-complete for participants triggered via !autorun, not normal @mentions
+		const autoRunSet = autoRunParticipantTracker.get(groupChatId);
+		if (autoRunSet?.has(participantName)) {
+			groupChatEmitters.emitAutoRunBatchComplete?.(groupChatId, participantName);
+			autoRunSet.delete(participantName);
+			if (autoRunSet.size === 0) autoRunParticipantTracker.delete(groupChatId);
+		}
 
 		const isLast = markParticipantResponded(groupChatId, participantName);
 		if (isLast && processManager && agentDetector) {
@@ -1012,6 +1036,11 @@ export async function routeModeratorResponse(
 			groupChatEmitters.emitParticipantState?.(groupChatId, participant.name, 'working');
 			groupChatEmitters.emitAutoRunTriggered?.(groupChatId, participant.name, targetFilename);
 			participantsToRespond.add(participant.name);
+			// Track as autorun so timeout path only emits batch-complete for autorun participants
+			if (!autoRunParticipantTracker.has(groupChatId)) {
+				autoRunParticipantTracker.set(groupChatId, new Set());
+			}
+			autoRunParticipantTracker.get(groupChatId)!.add(participant.name);
 			console.log(
 				`[GroupChat:Debug] Emitted autoRunTriggered for @${participant.name}${targetFilename ? `:${targetFilename}` : ''} in chat ${groupChatId}`
 			);
@@ -1236,14 +1265,16 @@ export async function routeModeratorResponse(
 			}
 		}
 		console.log(`[GroupChat:Debug] =================================================`);
-	} else if (mentionsToSpawn.length === 0 && autoRunParticipants.length === 0) {
+	}
+
+	// If no actionable participant work was started (all directives invalid/skipped, no mentions),
+	// clean up lifecycle state so power blocks don't leak.
+	if (participantsToRespond.size === 0) {
 		console.log(
-			`[GroupChat:Debug] No participant @mentions or autorun directives found - moderator response is final`
+			`[GroupChat:Debug] No actionable participant work started - moderator response is final`
 		);
-		// Set state back to idle since no agents are being spawned
 		groupChatEmitters.emitStateChange?.(groupChatId, 'idle');
 		console.log(`[GroupChat:Debug] Emitted state change: idle`);
-		// Remove power block reason since round is complete
 		powerManager.removeBlockReason(`groupchat:${groupChatId}`);
 	}
 

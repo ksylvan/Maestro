@@ -1065,10 +1065,7 @@ describe('groupChat IPC handlers', () => {
 	describe('groupChat:reportAutoRunComplete', () => {
 		it('should route agent response and mark participant as responded', async () => {
 			vi.mocked(groupChatRouter.routeAgentResponse).mockResolvedValue(undefined);
-			vi.mocked(groupChatRouter.markParticipantResponded).mockReturnValue({
-				allResponded: false,
-				isLastParticipant: false,
-			} as any);
+			vi.mocked(groupChatRouter.markParticipantResponded).mockReturnValue(false);
 
 			const handler = handlers.get('groupChat:reportAutoRunComplete');
 			await handler!({} as any, 'gc-autorun', 'Worker 1', 'Task completed successfully');
@@ -1083,10 +1080,7 @@ describe('groupChat IPC handlers', () => {
 
 		it('should trigger synthesis when all participants have responded', async () => {
 			vi.mocked(groupChatRouter.routeAgentResponse).mockResolvedValue(undefined);
-			vi.mocked(groupChatRouter.markParticipantResponded).mockReturnValue({
-				allResponded: true,
-				isLastParticipant: true,
-			} as any);
+			vi.mocked(groupChatRouter.markParticipantResponded).mockReturnValue(true);
 			vi.mocked(groupChatRouter.spawnModeratorSynthesis).mockResolvedValue(undefined);
 
 			const handler = handlers.get('groupChat:reportAutoRunComplete');

@@ -235,14 +235,27 @@ export function useGroupChatHandlers(): GroupChatHandlersReturn {
 		// Fired by the main process on both normal completion (reportAutoRunComplete) and
 		// on the participant timeout, so the AUTO badge and progress bar always clear.
 		const unsubBatchComplete = window.maestro.groupChat.onAutoRunBatchComplete?.(
-			(_groupChatId, participantName) => {
-				const session = useSessionStore.getState().sessions.find((s) => s.name === participantName);
-				if (!session) return;
-				// Dispatch COMPLETE_BATCH — no-op if already completed, cleans up if stuck.
-				useBatchStore.getState().dispatchBatch({
-					type: 'COMPLETE_BATCH',
-					sessionId: session.id,
-				});
+			(groupChatId, participantName) => {
+				// Prefer group-chat-scoped autorun registry to avoid name collisions across chats
+				const autoRunSessionIds = getAutoRunSessionsForGroupChat(groupChatId);
+				if (autoRunSessionIds.length > 0) {
+					for (const sessionId of autoRunSessionIds) {
+						useBatchStore.getState().dispatchBatch({
+							type: 'COMPLETE_BATCH',
+							sessionId,
+						});
+					}
+				} else {
+					// Fallback: resolve by participant name if registry entry was already consumed
+					const session = useSessionStore
+						.getState()
+						.sessions.find((s) => s.name === participantName);
+					if (!session) return;
+					useBatchStore.getState().dispatchBatch({
+						type: 'COMPLETE_BATCH',
+						sessionId: session.id,
+					});
+				}
 			}
 		);
 
@@ -619,6 +632,11 @@ export function useGroupChatHandlers(): GroupChatHandlersReturn {
 			await window.maestro.groupChat.stopAll(activeGroupChatId);
 		} catch (error) {
 			console.error('[GroupChat] Failed to stop all:', error);
+			notifyToast({
+				type: 'error',
+				title: 'Stop Failed',
+				message: 'Failed to stop all group chat conversations. Please try again.',
+			});
 		}
 	}, []);
 
