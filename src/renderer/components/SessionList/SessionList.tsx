@@ -114,6 +114,7 @@ function SessionListInner(props: SessionListProps) {
 	const groupChatsExpanded = useUIStore((s) => s.groupChatsExpanded);
 	const shortcuts = useSettingsStore((s) => s.shortcuts);
 	const leftSidebarWidthState = useSettingsStore((s) => s.leftSidebarWidth);
+	const persistentWebLink = useSettingsStore((s) => s.persistentWebLink);
 	const webInterfaceUseCustomPort = useSettingsStore((s) => s.webInterfaceUseCustomPort);
 	const webInterfaceCustomPort = useSettingsStore((s) => s.webInterfaceCustomPort);
 	const ungroupedCollapsed = useSettingsStore((s) => s.ungroupedCollapsed);
@@ -148,6 +149,7 @@ function SessionListInner(props: SessionListProps) {
 	);
 	const setSessions = useSessionStore.getState().setSessions;
 	const setGroups = useSessionStore.getState().setGroups;
+	const setPersistentWebLink = useSettingsStore.getState().setPersistentWebLink;
 	const setWebInterfaceUseCustomPort = useSettingsStore.getState().setWebInterfaceUseCustomPort;
 	const setWebInterfaceCustomPort = useSettingsStore.getState().setWebInterfaceCustomPort;
 	const setUngroupedCollapsed = useSettingsStore.getState().setUngroupedCollapsed;
@@ -629,7 +631,7 @@ function SessionListInner(props: SessionListProps) {
 
 			{/* Branding Header */}
 			<div
-				className="p-4 border-b flex items-center justify-between h-16 shrink-0"
+				className="p-4 border-b flex items-center justify-between h-16 shrink-0 relative z-20"
 				style={{ borderColor: theme.colors.border }}
 			>
 				{leftSidebarOpen ? (
@@ -660,7 +662,7 @@ function SessionListInner(props: SessionListProps) {
 								</button>
 							)}
 							{/* Global LIVE Toggle */}
-							<div className="ml-2 relative" ref={liveOverlayRef} data-tour="remote-control">
+							<div className="ml-2 relative z-10" ref={liveOverlayRef} data-tour="remote-control">
 								<button
 									onClick={() => {
 										if (!isLiveMode) {
@@ -701,6 +703,8 @@ function SessionListInner(props: SessionListProps) {
 										copyFlash={copyFlash}
 										setCopyFlash={setCopyFlash}
 										handleTunnelToggle={handleTunnelToggle}
+										persistentWebLink={persistentWebLink}
+										setPersistentWebLink={setPersistentWebLink}
 										webInterfaceUseCustomPort={webInterfaceUseCustomPort}
 										webInterfaceCustomPort={webInterfaceCustomPort}
 										setWebInterfaceUseCustomPort={setWebInterfaceUseCustomPort}
@@ -714,7 +718,7 @@ function SessionListInner(props: SessionListProps) {
 							</div>
 						</div>
 						{/* Hamburger Menu */}
-						<div className="relative" ref={menuRef} data-tour="hamburger-menu">
+						<div className="relative z-10" ref={menuRef} data-tour="hamburger-menu">
 							<button
 								onClick={() => setMenuOpen(!menuOpen)}
 								className="p-2 rounded hover:bg-white/10 transition-colors"
@@ -731,7 +735,7 @@ function SessionListInner(props: SessionListProps) {
 									style={{
 										backgroundColor: theme.colors.bgSidebar,
 										border: `1px solid ${theme.colors.border}`,
-										maxHeight: 'calc(100vh - 90px)',
+										maxHeight: 'calc(100vh - 120px)',
 									}}
 								>
 									<HamburgerMenuContent
@@ -764,7 +768,7 @@ function SessionListInner(props: SessionListProps) {
 								style={{
 									backgroundColor: theme.colors.bgSidebar,
 									border: `1px solid ${theme.colors.border}`,
-									maxHeight: 'calc(100vh - 90px)',
+									maxHeight: 'calc(100vh - 120px)',
 								}}
 							>
 								<HamburgerMenuContent

@@ -855,7 +855,7 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 			if (!nodes) return [];
 			if (showHiddenFiles) return nodes;
 			return nodes
-				.filter((node) => !node.name.startsWith('.'))
+				.filter((node) => !node.name.startsWith('.') || node.name === '.maestro')
 				.map((node) => ({
 					...node,
 					children: node.children ? filterHiddenFiles(node.children) : undefined,
@@ -882,11 +882,12 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 			// Guard: deduplicate sibling nodes by name within the same parent
 			const seenNames = new Set<string>();
 			for (const node of nodes) {
-				if (seenNames.has(node.name)) {
+				const normalizedName = node.name.normalize('NFC');
+				if (seenNames.has(normalizedName)) {
 					console.warn('[FileExplorer] Duplicate sibling skipped:', currentPath, node.name);
 					continue;
 				}
-				seenNames.add(node.name);
+				seenNames.add(normalizedName);
 
 				const fullPath = currentPath ? `${currentPath}/${node.name}` : node.name;
 

@@ -10,6 +10,7 @@ import { AgentConfigPanel } from './shared/AgentConfigPanel';
 import { SshRemoteSelector } from './shared/SshRemoteSelector';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { safeClipboardWrite } from '../utils/clipboard';
+import { isBetaAgent, getAgentDisplayName } from '../../shared/agentMetadata';
 
 // Maximum character length for nudge message
 const NUDGE_MESSAGE_MAX_LENGTH = 1000;
@@ -147,8 +148,16 @@ export function NewInstanceModal({
 		if (!name || !expandedDir || !selectedAgent) {
 			return { valid: true }; // Don't show errors until fields are filled
 		}
-		return validateNewSession(name, expandedDir, selectedAgent as ToolType, existingSessions);
-	}, [instanceName, workingDir, selectedAgent, existingSessions, homeDir]);
+		const sshConfig = agentSshRemoteConfigs[selectedAgent] || agentSshRemoteConfigs['_pending_'];
+		const sshRemoteId = sshConfig?.enabled ? sshConfig?.remoteId : null;
+		return validateNewSession(
+			name,
+			expandedDir,
+			selectedAgent as ToolType,
+			existingSessions,
+			sshRemoteId
+		);
+	}, [instanceName, workingDir, selectedAgent, existingSessions, homeDir, agentSshRemoteConfigs]);
 
 	// Check if SSH remote is enabled for the selected agent or pending config
 	// When no agent is selected, check the _pending_ config (user may select SSH before choosing agent)
@@ -421,11 +430,14 @@ export function NewInstanceModal({
 		const expandedWorkingDir = expandTilde(workingDir.trim());
 
 		// Validate before creating
+		const sshConfig = agentSshRemoteConfigs[selectedAgent] || agentSshRemoteConfigs['_pending_'];
+		const sshRemoteId = sshConfig?.enabled ? sshConfig?.remoteId : null;
 		const result = validateNewSession(
 			name,
 			expandedWorkingDir,
 			selectedAgent as ToolType,
-			existingSessions
+			existingSessions,
+			sshRemoteId
 		);
 		if (!result.valid) return;
 
@@ -797,9 +809,7 @@ export function NewInstanceModal({
 													)}
 													<span className="font-medium">{agent.name}</span>
 													{/* "Beta" badge for Codex, OpenCode, and Factory Droid */}
-													{(agent.id === 'codex' ||
-														agent.id === 'opencode' ||
-														agent.id === 'factory-droid') && (
+													{isBetaAgent(agent.id) && (
 														<span
 															className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase"
 															style={{
@@ -1537,14 +1547,7 @@ export function EditAgentModal({
 
 	if (!isOpen || !session) return null;
 
-	// Get agent name for display
-	const agentNameMap: Record<string, string> = {
-		'claude-code': 'Claude Code',
-		codex: 'Codex',
-		opencode: 'OpenCode',
-		'factory-droid': 'Factory Droid',
-	};
-	const agentName = agentNameMap[selectedToolType] || selectedToolType;
+	const agentName = getAgentDisplayName(selectedToolType);
 
 	return (
 		<div onKeyDown={handleKeyDown} role="group" aria-label="Edit agent dialog">
@@ -1636,7 +1639,7 @@ export function EditAgentModal({
 						>
 							{SUPPORTED_AGENTS.map((agentId) => (
 								<option key={agentId} value={agentId}>
-									{agentNameMap[agentId] || agentId}
+									{getAgentDisplayName(agentId)}
 								</option>
 							))}
 						</select>

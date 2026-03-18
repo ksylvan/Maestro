@@ -73,8 +73,13 @@ interface AgentCapabilities {
 	supportsResultMessages: boolean;
 	supportsModelSelection: boolean;
 	supportsStreamJsonInput: boolean;
+	supportsThinkingDisplay: boolean;
 	supportsContextMerge: boolean;
 	supportsContextExport: boolean;
+	supportsWizard: boolean;
+	supportsGroupChatModeration: boolean;
+	usesJsonLineOutput: boolean;
+	usesCombinedContextWindow: boolean;
 }
 
 interface AgentConfig {
@@ -88,6 +93,8 @@ interface AgentConfig {
 	args?: string[];
 	hidden?: boolean;
 	configOptions?: AgentConfigOption[];
+	yoloModeArgs?: string[];
+	readOnlyCliEnforced?: boolean;
 	capabilities?: AgentCapabilities;
 }
 
@@ -110,6 +117,10 @@ interface AgentCapabilities {
 	supportsStreamJsonInput: boolean;
 	supportsContextMerge: boolean;
 	supportsContextExport: boolean;
+	supportsWizard: boolean;
+	supportsGroupChatModeration: boolean;
+	usesJsonLineOutput: boolean;
+	usesCombinedContextWindow: boolean;
 }
 
 interface DirectoryEntry {
@@ -669,6 +680,8 @@ interface MaestroAPI {
 		disableAll: () => Promise<{ success: boolean; count: number }>;
 		startServer: () => Promise<{ success: boolean; url?: string; error?: string }>;
 		stopServer: () => Promise<{ success: boolean; error?: string }>;
+		persistCurrentToken: () => Promise<{ success: boolean; message?: string }>;
+		clearPersistentToken: () => Promise<{ success: boolean; message?: string }>;
 	};
 	agents: {
 		detect: (sshRemoteId?: string) => Promise<AgentConfig[]>;
