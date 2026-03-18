@@ -217,7 +217,10 @@ export function SessionListItem({
 					{session.origin === 'user' && (
 						<span
 							className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-							style={{ backgroundColor: theme.colors.accent + '40', color: theme.colors.accentText }}
+							style={{
+								backgroundColor: theme.colors.accent + '40',
+								color: theme.colors.accentText,
+							}}
 							title="User-initiated through Maestro"
 						>
 							MAESTRO
@@ -281,7 +284,10 @@ export function SessionListItem({
 					{searchResultInfo && searchResultInfo.matchCount > 0 && searchMode !== 'title' && (
 						<span
 							className="flex items-center gap-1 px-1.5 py-0.5 rounded"
-							style={{ backgroundColor: theme.colors.accent + '30', color: theme.colors.accentText }}
+							style={{
+								backgroundColor: theme.colors.accent + '30',
+								color: theme.colors.accentText,
+							}}
 						>
 							<Search className="w-3 h-3" />
 							{searchResultInfo.matchCount}
