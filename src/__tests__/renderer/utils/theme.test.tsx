@@ -500,6 +500,24 @@ describe('theme utilities', () => {
 			expect(icon?.getAttribute('data-file-explorer-icon-key')).toBe('readme');
 		});
 
+		it('returns the JSON icon for rich JSON files', () => {
+			const { container } = render(
+				getExplorerFileIcon('package.json', mockTheme, undefined, 'rich')
+			);
+			const icon = container.querySelector('img[data-file-explorer-icon-theme="rich"]');
+
+			expect(icon?.getAttribute('data-file-explorer-icon-key')).toBe('package');
+		});
+
+		it('returns the YAML icon for rich YAML files', () => {
+			const { container } = render(
+				getExplorerFileIcon('config.yaml', mockTheme, undefined, 'rich')
+			);
+			const icon = container.querySelector('img[data-file-explorer-icon-theme="rich"]');
+
+			expect(icon?.getAttribute('data-file-explorer-icon-key')).toBe('yaml');
+		});
+
 		it('returns rich folder icons with open and closed states', () => {
 			const closed = render(getExplorerFolderIcon('src', false, mockTheme, 'rich'));
 			const open = render(getExplorerFolderIcon('src', true, mockTheme, 'rich'));

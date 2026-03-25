@@ -166,9 +166,6 @@ export const getRichExplorerFileIcon = (
 	if (normalized.includes('schema') && ext === 'json') {
 		return renderRichIcon(jsonSchemaIcon, 'json-schema');
 	}
-	if (CONFIG_FILE_NAMES.has(normalized) || CONFIG_EXTENSIONS.has(ext)) {
-		return renderRichIcon(settingsIcon, 'settings');
-	}
 	if (isExplorerTestFile(fileName)) {
 		return renderRichIcon(getRichTestIcon(normalized), 'test');
 	}
@@ -189,6 +186,9 @@ export const getRichExplorerFileIcon = (
 	}
 	if (ext === 'yaml' || ext === 'yml') {
 		return renderRichIcon(yamlIcon, 'yaml');
+	}
+	if (CONFIG_FILE_NAMES.has(normalized) || CONFIG_EXTENSIONS.has(ext)) {
+		return renderRichIcon(settingsIcon, 'settings');
 	}
 	if (ext === 'html' || ext === 'htm') {
 		return renderRichIcon(htmlIcon, 'html');
