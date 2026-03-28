@@ -139,12 +139,11 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 					// Ask renderer to check for busy agents
 					if (isWebContentsAvailable(mainWindow)) {
 						state.isRequestingConfirmation = true;
-						logger.info('Requesting quit confirmation from renderer', 'Window');
-						mainWindow.webContents.send('app:requestQuitConfirmation');
 
-						// Safety timeout: if the renderer never responds (e.g., window is mid-teardown,
-						// renderer crashed, or webContents is in a transitional state), force-quit to
-						// prevent the app from lingering in the background with no window (issue #623).
+						// Arm safety timeout BEFORE send() so it's always active even if
+						// send() throws (e.g., renderer disposed between the availability
+						// check and the actual IPC call). Prevents the app from lingering
+						// in the background with no window (issue #623).
 						state.confirmationTimeout = setTimeout(() => {
 							if (state.isRequestingConfirmation) {
 								logger.warn(
@@ -156,6 +155,9 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 								app.quit();
 							}
 						}, QUIT_CONFIRMATION_TIMEOUT_MS);
+
+						logger.info('Requesting quit confirmation from renderer', 'Window');
+						mainWindow.webContents.send('app:requestQuitConfirmation');
 					} else {
 						// No window, just quit
 						state.quitConfirmed = true;
