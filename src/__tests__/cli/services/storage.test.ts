@@ -1222,6 +1222,11 @@ describe('storage service', () => {
 	});
 
 	describe('writeSettingValue', () => {
+		beforeEach(() => {
+			// Reset writeFileSync to plain mock (may have been set to throw by earlier tests)
+			vi.mocked(fs.writeFileSync).mockReset();
+		});
+
 		it('should write a top-level setting', () => {
 			const settings = { fontSize: 14 };
 			vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(settings));
@@ -1269,6 +1274,10 @@ describe('storage service', () => {
 	});
 
 	describe('deleteSettingValue', () => {
+		beforeEach(() => {
+			vi.mocked(fs.writeFileSync).mockReset();
+		});
+
 		it('should delete a top-level setting', () => {
 			const settings = { fontSize: 16, activeThemeId: 'monokai' };
 			vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(settings));
@@ -1350,6 +1359,10 @@ describe('storage service', () => {
 	});
 
 	describe('writeAgentConfigValue', () => {
+		beforeEach(() => {
+			vi.mocked(fs.writeFileSync).mockReset();
+		});
+
 		it('should write a config value for an existing agent', () => {
 			const data = { configs: { codex: { model: 'gpt-4o' } } };
 			vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(data));
@@ -1375,6 +1388,10 @@ describe('storage service', () => {
 	});
 
 	describe('deleteAgentConfigValue', () => {
+		beforeEach(() => {
+			vi.mocked(fs.writeFileSync).mockReset();
+		});
+
 		it('should delete a config key', () => {
 			const data = { configs: { codex: { model: 'gpt-4o', contextWindow: 400000 } } };
 			vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(data));
