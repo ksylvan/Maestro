@@ -18,10 +18,13 @@ import { getTerminalTabDisplayName } from '../../utils/terminalTabHelpers';
 import { captureException } from '../../utils/sentry';
 
 /** Errors we expect during teardown / pre-init — silently ignore. Anything else
- *  bubbles up to Sentry so we can see real bridge failures in production. */
+ *  bubbles up to Sentry so we can see real bridge failures in production.
+ *  Note: "cannot be cloned" is *not* in this list — that's a structured-clone
+ *  bug (caller put something non-serializable in the payload), and we want
+ *  Sentry to see it so it gets fixed instead of swallowed. */
 function isExpectedTeardownIpcError(err: unknown): boolean {
 	if (!(err instanceof Error)) return false;
-	return /No handler registered|Object has been destroyed|cannot be cloned/i.test(err.message);
+	return /No handler registered|Object has been destroyed/i.test(err.message);
 }
 
 function reportIfUnexpected(err: unknown, scope: string): void {
@@ -86,6 +89,10 @@ export function useCoworkingRegistrySync(): void {
 				await bridge.syncSessionTerminals(sessionId, records);
 			} catch (err) {
 				reportIfUnexpected(err, 'sync');
+				// Roll back the optimistic payload-cache write so the next effect run
+				// retries instead of treating the same payload as already-synced and
+				// leaving the main-process registry stale forever.
+				lastPayloadRef.current = '';
 			}
 		})();
 	}, [enabled, activeSession]);
