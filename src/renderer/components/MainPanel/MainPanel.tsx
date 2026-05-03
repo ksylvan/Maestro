@@ -22,6 +22,8 @@ import { useSessionStore } from '../../stores/sessionStore';
 import { useTabStore } from '../../stores/tabStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useTerminalMounting } from '../../hooks/terminal/useTerminalMounting';
+import { useCoworkingBufferResponder } from '../../hooks/coworking/useCoworkingBufferResponder';
+import { useCoworkingRegistrySync } from '../../hooks/coworking/useCoworkingRegistrySync';
 import { getTerminalTabDisplayName } from '../../utils/terminalTabHelpers';
 import { useSshRemoteName } from '../../hooks/mainPanel/useSshRemoteName';
 import { useContextWindow } from '../../hooks/mainPanel/useContextWindow';
@@ -162,6 +164,13 @@ export const MainPanel = React.memo(
 			terminalSearchOpen,
 			setTerminalSearchOpen,
 		} = useTerminalMounting(activeSession);
+
+		// Coworking — mirror active session's terminal tabs into the main-process registry
+		// so the MCP `list_terminals` tool is accurate, and answer buffer-fetch requests
+		// from main via the per-session TerminalView ref map. Both hooks no-op when the
+		// `coworking` Encore flag is off.
+		useCoworkingRegistrySync();
+		useCoworkingBufferResponder(terminalViewRefs);
 
 		// Extract tab handlers from props
 		const {

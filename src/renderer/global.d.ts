@@ -3239,6 +3239,40 @@ interface MaestroAPI {
 			agentId?: string
 		) => Promise<{ success: boolean; path?: string; error?: string }>;
 	};
+
+	// Coworking API (per-agent MCP installer + terminal registry sync)
+	coworking: {
+		getInstallStatus: () => Promise<
+			Array<{ agentId: string; configPath: string; installed: boolean }>
+		>;
+		install: (agentId: string) => Promise<void>;
+		uninstall: (agentId: string) => Promise<void>;
+		installAll: () => Promise<Array<{ agentId: string; ok: boolean; error?: string }>>;
+		setActiveSession: (sessionId: string | null) => Promise<void>;
+		syncSessionTerminals: (
+			sessionId: string,
+			records: Array<{
+				id: string;
+				cwd: string;
+				title: string;
+				tabUuid: string;
+				sessionId: string;
+			}>
+		) => Promise<void>;
+		upsertTerminal: (record: {
+			id: string;
+			cwd: string;
+			title: string;
+			tabUuid: string;
+			sessionId: string;
+		}) => Promise<void>;
+		removeTerminal: (tabUuid: string) => Promise<void>;
+		removeSession: (sessionId: string) => Promise<void>;
+		onRequestBuffer: (
+			callback: (tabUuid: string, sessionId: string | null, responseChannel: string) => void
+		) => () => void;
+		sendBufferResponse: (responseChannel: string, content: string) => void;
+	};
 }
 
 declare global {

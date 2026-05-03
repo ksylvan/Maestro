@@ -513,6 +513,10 @@ export interface TerminalTab {
 	exitCode?: number; // Exit code when state === 'exited'
 	scrollTop?: number; // Saved scroll position (restored on tab re-focus)
 	searchQuery?: string; // Preserved search query for the xterm.js search addon
+	// Stable, monotonic, per-session readable id used by the coworking MCP server
+	// (e.g. shown as "term:3"). Assigned on add, never reused on close. Undefined
+	// for tabs that predate the coworking feature; treated as "no pill, no MCP exposure."
+	coworkingId?: number;
 }
 
 /**
@@ -699,6 +703,9 @@ export interface Session {
 	terminalTabs: TerminalTab[];
 	// Currently active terminal tab ID (null if an AI or file tab is active)
 	activeTerminalTabId: string | null;
+	// Monotonic counter for TerminalTab.coworkingId (used by the coworking MCP server).
+	// Increments on add, never decrements — readable ids never repeat within a session.
+	nextCoworkingId?: number;
 
 	// Unified tab ordering - determines visual order of all tabs (AI, file, browser, and terminal)
 	unifiedTabOrder: UnifiedTabRef[];
@@ -955,6 +962,10 @@ export interface EncoreFeatureFlags {
 	usageStats: boolean;
 	symphony: boolean;
 	maestroCue: boolean;
+	// Coworking — agents can read terminal scrollback via per-agent MCP server.
+	// Off by default. Optional so existing literals (older test fixtures, persisted
+	// settings without the key) continue to type-check.
+	coworking?: boolean;
 }
 
 // Director's Notes settings for synopsis generation

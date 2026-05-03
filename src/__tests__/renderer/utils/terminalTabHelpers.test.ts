@@ -149,6 +149,32 @@ describe('addTerminalTab', () => {
 		expect(updated.unifiedTabOrder).toContainEqual({ type: 'terminal', id: 'new-tab' });
 	});
 
+	it('mints a coworkingId starting at 1 and increments the session counter', () => {
+		const session = createMockSession();
+		const tab = createMockTerminalTab({ id: 'new-tab' });
+		const updated = addTerminalTab(session, tab);
+		expect(updated.terminalTabs![0].coworkingId).toBe(1);
+		expect(updated.nextCoworkingId).toBe(2);
+	});
+
+	it('coworkingId is monotonic and never reused after close', () => {
+		let session = createMockSession();
+		session = addTerminalTab(session, createMockTerminalTab({ id: 'a' })); // id=1
+		session = addTerminalTab(session, createMockTerminalTab({ id: 'b' })); // id=2
+		session = addTerminalTab(session, createMockTerminalTab({ id: 'c' })); // id=3
+		// Drop the middle tab manually (closeTerminalTab path tested elsewhere) and add another.
+		session = {
+			...session,
+			terminalTabs: session.terminalTabs!.filter((t) => t.id !== 'b'),
+		};
+		session = addTerminalTab(session, createMockTerminalTab({ id: 'd' })); // must be id=4, not 2
+		const ids = session.terminalTabs!.map((t) => t.coworkingId);
+		expect(ids).toContain(1);
+		expect(ids).toContain(3);
+		expect(ids).toContain(4);
+		expect(ids).not.toContain(2);
+	});
+
 	it('preserves existing tabs', () => {
 		const existingTab = createMockTerminalTab({ id: 'existing' });
 		const session = createMockSession({

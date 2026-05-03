@@ -109,19 +109,30 @@ export function parseTerminalSessionId(
  * Appends the tab to terminalTabs, inserts it into unifiedTabOrder directly to
  * the right of the currently active tab, and makes it the active terminal tab.
  *
+ * Mints a stable, monotonic, never-reused `coworkingId` (used by the coworking
+ * MCP server to address terminals as "term:N") via the session-level counter
+ * `nextCoworkingId`. The counter increments on every add and never decrements,
+ * so closed-tab ids are never reused within the same session lifetime.
+ *
  * @param session - The Maestro session to add the tab to
  * @param tab - The TerminalTab to add (created via createTerminalTab)
  * @returns New session with the tab added and set as active
  */
 export function addTerminalTab(session: Session, tab: TerminalTab): Session {
+	const nextCoworkingId = session.nextCoworkingId ?? 1;
+	const tabWithCoworkingId: TerminalTab = {
+		...tab,
+		coworkingId: tab.coworkingId ?? nextCoworkingId,
+	};
 	const newTabRef: UnifiedTabRef = { type: 'terminal', id: tab.id };
 	return {
 		...session,
-		terminalTabs: [...(session.terminalTabs || []), tab],
+		terminalTabs: [...(session.terminalTabs || []), tabWithCoworkingId],
 		activeTerminalTabId: tab.id,
 		activeFileTabId: null,
 		activeBrowserTabId: null,
 		unifiedTabOrder: insertAfterActiveInUnifiedTabOrder(session, newTabRef),
+		nextCoworkingId: nextCoworkingId + 1,
 	};
 }
 

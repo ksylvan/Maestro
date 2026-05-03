@@ -1,0 +1,145 @@
+/**
+ * Coworking IPC handlers.
+ *
+ * Bridges the renderer (Settings UI + tab event source) to the main-process
+ * coworking subsystem (registry, tools, bridge, installers).
+ */
+
+import { BrowserWindow, ipcMain } from 'electron';
+import { withIpcErrorLogging, CreateHandlerOptions } from '../../utils/ipcHandler';
+import { coworkingRegistry } from '../../coworking/coworking-registry';
+import { setTerminalBufferResolver } from '../../coworking/coworking-tools';
+import {
+	getInstallStatus,
+	installFor,
+	installForAll,
+	uninstallFor,
+} from '../../coworking/coworking-installer';
+import type {
+	CoworkingInstallStatus,
+	CoworkingTerminalRecord,
+} from '../../coworking/coworking-types';
+
+const LOG_CTX = '[Coworking][IPC]';
+
+const handlerOpts = (operation: string): Pick<CreateHandlerOptions, 'context' | 'operation'> => ({
+	context: LOG_CTX,
+	operation,
+});
+
+export interface CoworkingHandlerDependencies {
+	getMainWindow: () => BrowserWindow | null;
+}
+
+export function registerCoworkingHandlers(deps: CoworkingHandlerDependencies): void {
+	// ---- Settings panel ----
+
+	ipcMain.handle(
+		'coworking:getInstallStatus',
+		withIpcErrorLogging(
+			handlerOpts('getInstallStatus'),
+			async (): Promise<CoworkingInstallStatus[]> => getInstallStatus()
+		)
+	);
+
+	ipcMain.handle(
+		'coworking:install',
+		withIpcErrorLogging(handlerOpts('install'), async (agentId: string): Promise<void> => {
+			await installFor(agentId);
+		})
+	);
+
+	ipcMain.handle(
+		'coworking:uninstall',
+		withIpcErrorLogging(handlerOpts('uninstall'), async (agentId: string): Promise<void> => {
+			await uninstallFor(agentId);
+		})
+	);
+
+	ipcMain.handle(
+		'coworking:installAll',
+		withIpcErrorLogging(handlerOpts('installAll'), async () => installForAll())
+	);
+
+	// ---- Registry sync (renderer → main) ----
+
+	ipcMain.handle(
+		'coworking:setActiveSession',
+		withIpcErrorLogging(
+			handlerOpts('setActiveSession'),
+			async (sessionId: string | null): Promise<void> => {
+				coworkingRegistry.setActiveSession(sessionId);
+			}
+		)
+	);
+
+	ipcMain.handle(
+		'coworking:syncSessionTerminals',
+		withIpcErrorLogging(
+			handlerOpts('syncSessionTerminals'),
+			async (sessionId: string, records: CoworkingTerminalRecord[]): Promise<void> => {
+				coworkingRegistry.syncSessionTerminals(sessionId, records);
+			}
+		)
+	);
+
+	ipcMain.handle(
+		'coworking:upsertTerminal',
+		withIpcErrorLogging(
+			handlerOpts('upsertTerminal'),
+			async (record: CoworkingTerminalRecord): Promise<void> => {
+				coworkingRegistry.upsertTerminal(record);
+			}
+		)
+	);
+
+	ipcMain.handle(
+		'coworking:removeTerminal',
+		withIpcErrorLogging(handlerOpts('removeTerminal'), async (tabUuid: string): Promise<void> => {
+			coworkingRegistry.removeTerminal(tabUuid);
+		})
+	);
+
+	ipcMain.handle(
+		'coworking:removeSession',
+		withIpcErrorLogging(handlerOpts('removeSession'), async (sessionId: string): Promise<void> => {
+			coworkingRegistry.removeSession(sessionId);
+		})
+	);
+
+	// ---- Buffer-request resolver (main → renderer → main) ----
+	//
+	// The MCP server bridge calls into `readTerminal`, which calls this resolver
+	// with the renderer-side tabUuid. We webContents.send a request with a unique
+	// responseChannel + the owning sessionId (so the renderer picks the correct
+	// TerminalView from its per-session ref map); the renderer answers via
+	// ipcRenderer.send(responseChannel, content).
+	let nextRequestId = 1;
+	const BUFFER_REQUEST_TIMEOUT_MS = 5000;
+
+	setTerminalBufferResolver(async (tabUuid: string): Promise<string> => {
+		const win = deps.getMainWindow();
+		if (!win || win.isDestroyed()) {
+			throw new Error('Coworking: main window is not available to read terminal buffer');
+		}
+		// Find the owning session via the registry (the tools layer just gave us tabUuid).
+		const sessionId = (() => {
+			for (const sid of [coworkingRegistry.getActiveSessionId()]) {
+				if (sid) return sid;
+			}
+			return null;
+		})();
+		const responseChannel = `coworking:bufferResponse:${nextRequestId++}`;
+		return new Promise<string>((resolve, reject) => {
+			const timer = setTimeout(() => {
+				ipcMain.removeAllListeners(responseChannel);
+				reject(new Error('Coworking: timed out waiting for terminal buffer from renderer'));
+			}, BUFFER_REQUEST_TIMEOUT_MS);
+			ipcMain.once(responseChannel, (_event, content: string) => {
+				clearTimeout(timer);
+				resolve(typeof content === 'string' ? content : '');
+			});
+			win.webContents.send('coworking:requestBuffer', tabUuid, sessionId, responseChannel);
+		});
+	});
+}

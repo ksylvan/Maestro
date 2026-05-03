@@ -56,6 +56,7 @@ import { registerTabNamingHandlers, TabNamingHandlerDependencies } from './tabNa
 import { registerDirectorNotesHandlers, DirectorNotesHandlerDependencies } from './director-notes';
 import { registerCueHandlers, CueHandlerDependencies } from './cue';
 import { registerWakatimeHandlers } from './wakatime';
+import { registerCoworkingHandlers } from './coworking';
 import { registerFeedbackHandlers } from './feedback';
 import { registerMaestroCliHandlers } from './maestro-cli';
 import { registerPromptsHandlers } from './prompts';
@@ -110,6 +111,7 @@ export type { DirectorNotesHandlerDependencies };
 export { registerCueHandlers };
 export type { CueHandlerDependencies };
 export { registerWakatimeHandlers };
+export { registerCoworkingHandlers };
 export { registerFeedbackHandlers };
 export { registerMaestroCliHandlers };
 export { registerPromptsHandlers };
@@ -303,6 +305,8 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
 	registerPromptsHandlers();
 	// Register project Memory handlers (Claude Code per-project memory viewer)
 	registerMemoryHandlers();
+	// Register Coworking handlers (per-agent MCP installer + terminal registry sync)
+	registerCoworkingHandlers({ getMainWindow: deps.getMainWindow });
 	// Setup logger event forwarding to renderer
 	setupLoggerEventForwarding(deps.getMainWindow);
 }

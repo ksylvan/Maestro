@@ -20,6 +20,7 @@ import {
 	Zap,
 	Timer,
 	Key,
+	Network,
 } from 'lucide-react';
 import { useSettings } from '../../../hooks';
 import { useAgentConfiguration } from '../../../hooks/agent/useAgentConfiguration';
@@ -29,6 +30,7 @@ import { AgentConfigPanel } from '../../shared/AgentConfigPanel';
 import { AGENT_TILES } from '../../Wizard/screens/AgentSelectionScreen';
 import { isBetaAgent } from '../../../../shared/agentMetadata';
 import { SYMPHONY_REGISTRY_URL } from '../../../../shared/symphony-constants';
+import { CoworkingSetup } from '../CoworkingSetup';
 
 export interface EncoreTabProps {
 	theme: Theme;
@@ -716,6 +718,71 @@ export function EncoreTab({ theme, isOpen }: EncoreTabProps) {
 						/>
 					</div>
 				</button>
+			</div>
+
+			{/* Coworking Feature Section */}
+			<div
+				data-setting-id="encore-coworking"
+				className="rounded-lg border"
+				style={{
+					borderColor: encoreFeatures.coworking ? theme.colors.accent : theme.colors.border,
+					backgroundColor: encoreFeatures.coworking ? `${theme.colors.accent}08` : 'transparent',
+				}}
+			>
+				<button
+					className="w-full flex items-center justify-between p-4 text-left"
+					onClick={() =>
+						setEncoreFeatures({
+							...encoreFeatures,
+							coworking: !encoreFeatures.coworking,
+						})
+					}
+				>
+					<div className="flex items-center gap-3">
+						<Network
+							className="w-5 h-5"
+							style={{
+								color: encoreFeatures.coworking ? theme.colors.accent : theme.colors.textDim,
+							}}
+						/>
+						<div>
+							<div
+								className="text-sm font-bold flex items-center gap-2"
+								style={{ color: theme.colors.textMain }}
+							>
+								Coworking
+								<span
+									className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
+									style={{
+										backgroundColor: theme.colors.warning + '30',
+										color: theme.colors.warning,
+									}}
+								>
+									Beta
+								</span>
+							</div>
+							<div className="text-xs mt-0.5" style={{ color: theme.colors.textDim }}>
+								Let agents read terminal scrollback on demand. Terminals get a `term:N` pill; agents
+								call `read_terminal` via the per-agent MCP server.
+							</div>
+						</div>
+					</div>
+					<div
+						className={`relative w-10 h-5 rounded-full transition-colors ${encoreFeatures.coworking ? '' : 'opacity-50'}`}
+						style={{
+							backgroundColor: encoreFeatures.coworking ? theme.colors.accent : theme.colors.border,
+						}}
+					>
+						<div
+							className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform"
+							style={{
+								transform: encoreFeatures.coworking ? 'translateX(22px)' : 'translateX(2px)',
+							}}
+						/>
+					</div>
+				</button>
+
+				{encoreFeatures.coworking && <CoworkingSetup theme={theme} />}
 			</div>
 
 			{/* Director's Notes Feature Section */}

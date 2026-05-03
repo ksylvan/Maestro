@@ -73,10 +73,13 @@ import {
 	registerMaestroCliHandlers,
 	registerPromptsHandlers,
 	registerMemoryHandlers,
+	registerCoworkingHandlers,
 	setupLoggerEventForwarding,
 	cleanupAllGroomingSessions,
 	getActiveGroomingSessionCount,
 } from './ipc/handlers';
+import { startCoworkingBridge, stopCoworkingBridge } from './coworking/coworking-bridge';
+import { ensureCoworkingServerScript } from './coworking/coworking-server-paths';
 import { initializeStatsDB, closeStatsDB, getStatsDB } from './stats';
 import { groupChatEmitters } from './ipc/handlers/groupChat';
 import {
@@ -846,6 +849,10 @@ const quitHandler = createQuitHandler({
 		if (cueEngine?.isEnabled()) {
 			cueEngine.stop();
 		}
+		// Stop the coworking bridge socket so the file/pipe doesn't outlive the app.
+		stopCoworkingBridge().catch(() => {
+			/* best-effort on quit */
+		});
 	},
 	stopSettingsWatcher: () => settingsWatcher.stop(),
 	powerManager,
@@ -1018,6 +1025,20 @@ function setupIpcHandlers() {
 
 	// Register project Memory handlers (Claude Code per-project memory viewer)
 	registerMemoryHandlers();
+
+	// Register Coworking handlers + start the IPC bridge socket and refresh the bundled
+	// MCP-server script. The bridge runs whenever Maestro is up; per-agent activation
+	// is opt-in via Settings → Encore Features → Coworking Setup. Bridge startup is
+	// non-fatal — feature degrades to "not available" until next launch.
+	registerCoworkingHandlers({ getMainWindow: () => mainWindow });
+	void (async () => {
+		try {
+			await ensureCoworkingServerScript();
+			await startCoworkingBridge();
+		} catch (err) {
+			logger.warn(`Failed to start coworking bridge: ${String(err)}`, 'Startup');
+		}
+	})();
 
 	// Register Context Merge handlers for session context transfer and grooming
 	registerContextHandlers({

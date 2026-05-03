@@ -15,6 +15,7 @@ import { getTerminalTabDisplayName } from '../../utils/terminalTabHelpers';
 import { useTabHoverOverlay } from '../../hooks/tabs/useTabHoverOverlay';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { formatShortcutKeys } from '../../utils/shortcutFormatter';
+import { flashCopiedToClipboard } from '../../utils/flashCopiedToClipboard';
 
 /**
  * Props for the TerminalTabItem component.
@@ -104,6 +105,19 @@ export const TerminalTabItem = memo(function TerminalTabItem({
 	} = useTabHoverOverlay({ registerRef });
 
 	const tabShortcuts = useSettingsStore((s) => s.tabShortcuts);
+	const coworkingEnabled = useSettingsStore((s) => s.encoreFeatures?.coworking ?? false);
+	const coworkingPillId =
+		coworkingEnabled && typeof tab.coworkingId === 'number' ? `term:${tab.coworkingId}` : null;
+	const handleCoworkingPillClick = useCallback(
+		(e: React.MouseEvent) => {
+			if (!coworkingPillId) return;
+			e.stopPropagation();
+			void navigator.clipboard.writeText(coworkingPillId).then(() => {
+				flashCopiedToClipboard();
+			});
+		},
+		[coworkingPillId]
+	);
 
 	const ShortcutHint = ({ keys }: { keys: string[] }) => (
 		<span
@@ -334,6 +348,23 @@ export const TerminalTabItem = memo(function TerminalTabItem({
 			>
 				{displayName}
 			</span>
+
+			{/* Coworking id pill — agents address terminals via this id (e.g. "term:3"). Click to copy. */}
+			{coworkingPillId && (
+				<button
+					type="button"
+					onClick={handleCoworkingPillClick}
+					className="px-1 py-px rounded text-[9px] font-mono shrink-0 transition-colors hover:bg-white/10"
+					title={`Coworking id — click to copy "${coworkingPillId}"`}
+					style={{
+						backgroundColor: theme.colors.bgActivity,
+						color: theme.colors.textDim,
+						border: `1px solid ${theme.colors.border}`,
+					}}
+				>
+					{coworkingPillId}
+				</button>
+			)}
 
 			{/* Exit code badge — only when exited with non-zero code */}
 			{tab.state === 'exited' && (tab.exitCode ?? 0) !== 0 && (
