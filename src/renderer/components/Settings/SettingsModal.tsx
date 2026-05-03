@@ -454,7 +454,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 							onClear={search.clear}
 						/>
 					</div>
-					<button onClick={onClose} className="cursor-pointer px-4">
+					<button onClick={onClose} className="cursor-pointer pl-4 pr-6">
 						<X className="w-5 h-5 opacity-50 hover:opacity-100" />
 					</button>
 				</div>
