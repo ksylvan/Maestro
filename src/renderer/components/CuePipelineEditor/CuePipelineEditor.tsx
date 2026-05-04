@@ -28,7 +28,6 @@ import { usePipelineContextMenu } from '../../hooks/cue/usePipelineContextMenu';
 import { PipelineToolbar } from './PipelineToolbar';
 import { PipelineCanvas, type CanvasInteractionMode } from './PipelineCanvas';
 import { PipelineContextMenu } from './PipelineContextMenu';
-import { notifyCenterFlash } from '../../stores/centerFlashStore';
 import type { TriggerNodeData } from '../../../shared/cue-pipeline-types';
 
 export { validatePipelines, DEFAULT_TRIGGER_LABELS } from '../../hooks/cue/usePipelineState';
@@ -213,13 +212,11 @@ function CuePipelineEditorInner({
 	} = selectionHook;
 
 	// Wrap the manual-trigger handler so the click produces immediate UI feedback:
-	//  - Center flash so the user sees acknowledgement before the IPC roundtrip
-	//  - Mark the owning pipeline as optimistically triggered so the trigger
-	//    spinner flips synchronously and every edge in the pipeline animates
-	//    for a brief window — covers fast shell-only triggers that would
-	//    otherwise complete before activeRuns polling caught the run.
-	// Falls through to the original handler so the actual dispatch still goes
-	// through useCue.triggerSubscription (which surfaces success/failure toasts).
+	// mark the owning pipeline as optimistically triggered so the trigger
+	// spinner flips synchronously and every edge in the pipeline animates for
+	// a brief window — covers fast shell-only triggers that would otherwise
+	// complete before activeRuns polling caught the run. Success/failure toast
+	// comes from useCue.triggerSubscription downstream.
 	const handleTriggerPipeline = useCallback(
 		(subscriptionName: string) => {
 			let owningPipelineId: string | null = null;
@@ -240,10 +237,6 @@ function CuePipelineEditorInner({
 			if (owningPipelineId) {
 				markPipelineTriggered(owningPipelineId, subscriptionName);
 			}
-			notifyCenterFlash({
-				message: `Triggered "${subscriptionName}"`,
-				color: 'theme',
-			});
 			onTriggerPipeline?.(subscriptionName);
 		},
 		[pipelineState.pipelines, markPipelineTriggered, onTriggerPipeline]
@@ -295,6 +288,7 @@ function CuePipelineEditorInner({
 					isSaved: !isDirty,
 					runningPipelineIds,
 					runningSubscriptionsByPipeline,
+					runningAgentsByPipeline,
 				},
 				theme,
 				stableYOffsets
@@ -307,6 +301,7 @@ function CuePipelineEditorInner({
 			isDirty,
 			runningPipelineIds,
 			runningSubscriptionsByPipeline,
+			runningAgentsByPipeline,
 			theme,
 			stableYOffsets,
 		]

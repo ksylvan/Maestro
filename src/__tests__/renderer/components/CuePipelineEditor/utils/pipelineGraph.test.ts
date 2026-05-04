@@ -1127,6 +1127,36 @@ describe('convertToReactFlowNodes triggerOptions', () => {
 		// Falsy matches the old `undefined` semantics for the Play button.
 		expect(triggerData.isRunning).toBe(false);
 	});
+
+	it('agent node carries isRunning when its sessionName is in runningAgentsByPipeline', () => {
+		// runningAgentsByPipeline drives the running-agent pulse animation.
+		// The agent node only pulses when its sessionName matches a name in
+		// the set keyed by its owning pipeline id — runs in OTHER pipelines
+		// must not light up an unrelated sibling that happens to share a name.
+		const pipeline = makePipeline('p1', {
+			nodes: [
+				makeTrigger('t1', 'time.heartbeat'),
+				makeAgent('a', 'sess-a', 'A'),
+				makeAgent('b', 'sess-b', 'B'),
+			],
+		});
+		const runningAgents = new Map<string, Set<string>>([['p1', new Set(['A'])]]);
+		const nodes = convertToReactFlowNodes([pipeline], 'p1', undefined, {
+			runningAgentsByPipeline: runningAgents,
+		});
+		const byId = Object.fromEntries(nodes.map((n) => [n.id, n.data as { isRunning?: boolean }]));
+		expect(byId['p1:a'].isRunning).toBe(true);
+		expect(byId['p1:b'].isRunning).toBe(false);
+	});
+
+	it('agent node isRunning defaults to false when runningAgentsByPipeline omitted', () => {
+		const pipeline = makePipeline('p1', {
+			nodes: [makeTrigger('t1', 'time.heartbeat'), makeAgent('a', 'sess-a', 'A')],
+		});
+		const nodes = convertToReactFlowNodes([pipeline], 'p1');
+		const agent = nodes.find((n) => n.id === 'p1:a')!;
+		expect((agent.data as { isRunning?: boolean }).isRunning).toBe(false);
+	});
 });
 
 // ─── Per-trigger isRunning (one sub → one trigger spinner) ───────────────────

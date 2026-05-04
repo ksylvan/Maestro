@@ -425,14 +425,24 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 		return () => clearTimeout(timer);
 	}, []);
 
-	// Track scroll position to determine which items are visible
+	// Track scroll position to determine which items are visible.
+	// Items have variable height (subtext / runningInfo presence, plus LIVE/IDLE
+	// section headers that interleave with — but aren't part of — `filtered`),
+	// so a magic itemHeight constant drifts. Measure real button positions
+	// against the container's viewport instead.
 	const handleScroll = () => {
-		if (scrollContainerRef.current) {
-			const scrollTop = scrollContainerRef.current.scrollTop;
-			const itemHeight = 52; // Approximate height of each item (py-3 = 12px top + 12px bottom + content)
-			const visibleIndex = Math.floor(scrollTop / itemHeight);
-			setFirstVisibleIndex(visibleIndex);
+		const container = scrollContainerRef.current;
+		if (!container) return;
+		const containerTop = container.getBoundingClientRect().top;
+		const buttons = container.querySelectorAll<HTMLButtonElement>(':scope > button');
+		let visibleIndex = Math.max(0, buttons.length - 1);
+		for (let i = 0; i < buttons.length; i++) {
+			if (buttons[i].getBoundingClientRect().bottom > containerTop) {
+				visibleIndex = i;
+				break;
+			}
 		}
+		setFirstVisibleIndex(visibleIndex);
 	};
 
 	const handleRenameSession = () => {

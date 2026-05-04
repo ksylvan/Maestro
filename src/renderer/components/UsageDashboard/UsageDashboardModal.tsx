@@ -60,7 +60,6 @@ import { PERFORMANCE_THRESHOLDS } from '../../../shared/performance-metrics';
 const OVERVIEW_SECTIONS = [
 	'year-in-pixels',
 	'summary-cards',
-	'agent-comparison',
 	'source-distribution',
 	'location-distribution',
 	'radial-activity',
@@ -835,34 +834,6 @@ export function UsageDashboardModal({
 												data={data}
 												theme={theme}
 												columns={layout.summaryCardsCols}
-												sessions={sessions}
-											/>
-										</ChartErrorBoundary>
-									</div>
-
-									{/* Agent Comparison Chart - Full width bar chart */}
-									<div
-										ref={setSectionRef('agent-comparison')}
-										tabIndex={0}
-										role="region"
-										aria-label={getSectionLabel('agent-comparison')}
-										onKeyDown={(e) => handleSectionKeyDown(e, 'agent-comparison')}
-										className="outline-none rounded-lg transition-shadow dashboard-section-enter"
-										style={{
-											minHeight: '180px',
-											boxShadow:
-												focusedSection === 'agent-comparison'
-													? `0 0 0 2px ${theme.colors.accent}`
-													: 'none',
-											animationDelay: '100ms',
-										}}
-										data-testid="section-agent-comparison"
-									>
-										<ChartErrorBoundary theme={theme} chartName="Agent Comparison">
-											<AgentComparisonChart
-												data={data}
-												theme={theme}
-												colorBlindMode={colorBlindMode}
 												sessions={sessions}
 											/>
 										</ChartErrorBoundary>

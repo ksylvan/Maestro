@@ -3200,6 +3200,7 @@ interface MaestroAPI {
 		getStatus: () => Promise<CueSessionStatus[]>;
 		getGraphData: () => Promise<CueGraphSession[]>;
 		getActiveRuns: () => Promise<CueRunResult[]>;
+		getRunLiveOutput: (runId: string) => Promise<{ stdout: string; stderr: string } | null>;
 		getActivityLog: (limit?: number) => Promise<CueRunResult[]>;
 		getEventCount: () => Promise<number>;
 		enable: () => Promise<void>;

@@ -37,6 +37,7 @@ import {
 	type CueEvent,
 	type CueSubscription,
 } from './cue-types';
+import { getCueRunLiveOutput } from './cue-executor';
 import { createCueActivityLog } from './cue-activity-log';
 import type { CueActivityLog } from './cue-activity-log';
 import { createCueHeartbeat } from './cue-heartbeat';
@@ -613,6 +614,16 @@ export class CueEngine {
 	/** Returns currently running Cue executions */
 	getActiveRuns(): CueRunResult[] {
 		return this.runManager.getActiveRuns();
+	}
+
+	/**
+	 * Snapshot the live stdout/stderr buffers for an in-flight Cue run. Returns
+	 * null when the runId isn't currently active. Used by the dashboard's
+	 * "expand to see live logs" UX so the user can introspect a long-running
+	 * agent without leaving the modal.
+	 */
+	getRunLiveOutput(runId: string): { stdout: string; stderr: string } | null {
+		return getCueRunLiveOutput(runId);
 	}
 
 	/** Returns recent completed/failed runs */

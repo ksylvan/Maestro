@@ -162,6 +162,10 @@ export function convertToReactFlowNodes(
 		 *  when the trigger has no `subscriptionName` stamped (legacy
 		 *  never-saved pipelines) so the spinner still surfaces something. */
 		runningSubscriptionsByPipeline?: Map<string, Set<string>>;
+		/** Per-pipeline set of agent `sessionName`s currently executing a Cue
+		 *  run. Used to pulse running agent nodes so the active leg is visible
+		 *  even when the user isn't watching the edges between them. */
+		runningAgentsByPipeline?: Map<string, Set<string>>;
 	},
 	theme?: Theme,
 	/** Pre-computed Y-offsets to use instead of recomputing from bounding boxes.
@@ -345,6 +349,8 @@ export function convertToReactFlowNodes(
 					const srcNode = pipeline.nodes.find((n) => n.id === e.source);
 					return srcNode?.type === 'agent';
 				}).length;
+				const runningAgentsForPipeline = triggerOptions?.runningAgentsByPipeline?.get(pipeline.id);
+				const isAgentRunning = !!runningAgentsForPipeline?.has(agentData.sessionName);
 				const nodeData: AgentNodeDataProps = {
 					compositeId,
 					sessionId: agentData.sessionId,
@@ -358,6 +364,7 @@ export function convertToReactFlowNodes(
 					pipelineCount: agentPipelineCount.get(agentData.sessionId) ?? 1,
 					pipelineColors,
 					onConfigure: onConfigureNode,
+					isRunning: isAgentRunning,
 					theme,
 				};
 				nodes.push({

@@ -299,6 +299,14 @@ interface AgentOverviewCardsProps {
 	onShowAgentDetails?: (session: Session) => void;
 }
 
+type SortMode = 'name' | 'queries' | 'tabs';
+
+const SORT_OPTIONS: { value: SortMode; label: string }[] = [
+	{ value: 'name', label: 'Name' },
+	{ value: 'queries', label: 'Queries' },
+	{ value: 'tabs', label: 'Tabs' },
+];
+
 export const AgentOverviewCards = memo(function AgentOverviewCards({
 	sessions,
 	data,
@@ -306,41 +314,97 @@ export const AgentOverviewCards = memo(function AgentOverviewCards({
 	activeFilterKey = null,
 	onShowAgentDetails,
 }: AgentOverviewCardsProps) {
+	const [sortMode, setSortMode] = useState<SortMode>('name');
+
 	// Terminal sessions aren't "agents" — exclude them so the card row
-	// matches the agent count shown elsewhere in the dashboard. Sort by
-	// agent name (case-insensitive, locale-aware) so the grid is easy to
-	// scan in alphabetical order.
+	// matches the agent count shown elsewhere in the dashboard. Default sort
+	// is alphabetical (ascending); the user can switch to query or tab count
+	// (descending) via the sort control above the grid.
 	const activeSessions = useMemo(() => {
-		return sessions
-			.filter((s) => s.toolType !== 'terminal')
-			.slice()
-			.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-	}, [sessions]);
+		const filtered = sessions.filter((s) => s.toolType !== 'terminal');
+		const byName = (a: Session, b: Session) =>
+			a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+
+		if (sortMode === 'name') {
+			return filtered.slice().sort(byName);
+		}
+
+		// Pre-sort alphabetically so equal counts fall back to a stable, scannable order.
+		const alphabetical = filtered.slice().sort(byName);
+
+		if (sortMode === 'queries') {
+			return alphabetical
+				.slice()
+				.sort(
+					(a, b) =>
+						getSessionQueryCount(b, data, alphabetical) -
+						getSessionQueryCount(a, data, alphabetical)
+				);
+		}
+
+		// 'tabs'
+		return alphabetical.slice().sort((a, b) => (b.aiTabs?.length ?? 0) - (a.aiTabs?.length ?? 0));
+	}, [sessions, data, sortMode]);
 
 	if (activeSessions.length === 0) return null;
 
 	return (
-		<div
-			className="grid gap-3"
-			style={{
-				gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-			}}
-			data-testid="agent-overview-cards"
-			role="region"
-			aria-label="Active agents overview"
-		>
-			{activeSessions.map((session, index) => (
-				<AgentCard
-					key={session.id}
-					session={session}
-					data={data}
-					theme={theme}
-					animationIndex={index}
-					isSelected={isSessionHighlighted(session, activeFilterKey)}
-					visibleSessions={activeSessions}
-					onShowDetails={onShowAgentDetails}
-				/>
-			))}
+		<div className="flex flex-col gap-3">
+			<div className="flex items-center justify-end gap-2">
+				<span className="text-xs" style={{ color: theme.colors.textDim }}>
+					Sort by:
+				</span>
+				<div
+					className="flex rounded overflow-hidden border"
+					style={{ borderColor: theme.colors.border }}
+					role="radiogroup"
+					aria-label="Sort agents"
+					data-testid="agent-overview-sort"
+				>
+					{SORT_OPTIONS.map((opt, i) => {
+						const isActive = sortMode === opt.value;
+						return (
+							<button
+								key={opt.value}
+								type="button"
+								onClick={() => setSortMode(opt.value)}
+								className="px-2 py-1 text-xs transition-colors"
+								style={{
+									backgroundColor: isActive ? `${theme.colors.accent}20` : 'transparent',
+									color: isActive ? theme.colors.accent : theme.colors.textDim,
+									borderLeft: i === 0 ? undefined : `1px solid ${theme.colors.border}`,
+								}}
+								aria-pressed={isActive}
+								data-testid={`agent-overview-sort-${opt.value}`}
+							>
+								{opt.label}
+							</button>
+						);
+					})}
+				</div>
+			</div>
+			<div
+				className="grid gap-3"
+				style={{
+					gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+				}}
+				data-testid="agent-overview-cards"
+				role="region"
+				aria-label="Active agents overview"
+			>
+				{activeSessions.map((session, index) => (
+					<AgentCard
+						key={session.id}
+						session={session}
+						data={data}
+						theme={theme}
+						animationIndex={index}
+						isSelected={isSessionHighlighted(session, activeFilterKey)}
+						visibleSessions={activeSessions}
+						onShowDetails={onShowAgentDetails}
+					/>
+				))}
+			</div>
 		</div>
 	);
 });
