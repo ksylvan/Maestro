@@ -4,13 +4,14 @@
  * buffer of the running process.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Trash2, StopCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import type { Theme } from '../../types';
 import type { CueRunResult } from '../../hooks/useCue';
 import { getModalActions } from '../../stores/modalStore';
 import { CUE_COLOR } from '../../../shared/cue-pipeline-types';
 import { cueService } from '../../services/cue';
+import { parsePeekOutput, type PeekLine } from '../../utils/peekOutputParser';
 import { PipelineDot } from './StatusDot';
 import { formatElapsed, getPipelineForSubscription } from './cueModalUtils';
 
@@ -156,6 +157,7 @@ function LiveOutputPanel({ runId, theme }: LiveOutputPanelProps) {
 	const [stderr, setStderr] = useState('');
 	const [error, setError] = useState<string | null>(null);
 	const [stale, setStale] = useState(false);
+	const [showRaw, setShowRaw] = useState(false);
 	const preRef = useRef<HTMLPreElement>(null);
 	const userScrolledUpRef = useRef(false);
 
@@ -187,12 +189,23 @@ function LiveOutputPanel({ runId, theme }: LiveOutputPanelProps) {
 		};
 	}, [runId]);
 
+	const tailStdout =
+		stdout.length > LIVE_OUTPUT_TAIL_CHARS ? stdout.slice(-LIVE_OUTPUT_TAIL_CHARS) : stdout;
+	const tailStderr =
+		stderr.length > LIVE_OUTPUT_TAIL_CHARS ? stderr.slice(-LIVE_OUTPUT_TAIL_CHARS) : stderr;
+
+	// Parse stdout into structured peek lines so each event renders as a
+	// readable summary (assistant text, tool calls, thinking, results) rather
+	// than raw JSONL. Falls back to raw text for non-JSON / unknown formats.
+	const parsedLines = useMemo(() => parsePeekOutput(tailStdout), [tailStdout]);
+	const hasAny = parsedLines.length > 0 || tailStderr.length > 0;
+
 	// Auto-scroll to bottom on new content unless the user scrolled up.
 	useEffect(() => {
 		const el = preRef.current;
 		if (!el || userScrolledUpRef.current) return;
 		el.scrollTop = el.scrollHeight;
-	}, [stdout, stderr]);
+	}, [parsedLines, tailStderr, showRaw]);
 
 	const handleScroll = () => {
 		const el = preRef.current;
@@ -201,29 +214,32 @@ function LiveOutputPanel({ runId, theme }: LiveOutputPanelProps) {
 		userScrolledUpRef.current = distanceFromBottom > 20;
 	};
 
-	const tailStdout =
-		stdout.length > LIVE_OUTPUT_TAIL_CHARS ? stdout.slice(-LIVE_OUTPUT_TAIL_CHARS) : stdout;
-	const tailStderr =
-		stderr.length > LIVE_OUTPUT_TAIL_CHARS ? stderr.slice(-LIVE_OUTPUT_TAIL_CHARS) : stderr;
-	const hasAny = tailStdout.length > 0 || tailStderr.length > 0;
-
 	return (
 		<div className="px-3 pb-3 text-xs" style={{ borderTop: `1px solid ${theme.colors.border}` }}>
+			<div className="flex items-center justify-between mt-2 mb-1">
+				<span style={{ color: theme.colors.textDim }}>
+					{stale
+						? 'Run finished — last buffered output (full result lands in Activity Log)'
+						: `Live output (polling every ${Math.round(LIVE_OUTPUT_POLL_MS / 1000)}s)`}
+				</span>
+				<button
+					onClick={() => setShowRaw((v) => !v)}
+					className="px-1.5 py-0.5 rounded hover:bg-white/10 transition-colors"
+					style={{ color: theme.colors.textDim, fontSize: 10 }}
+					title={showRaw ? 'Show formatted view' : 'Show raw JSONL'}
+				>
+					{showRaw ? 'Formatted' : 'Raw'}
+				</button>
+			</div>
 			{error && (
-				<div className="mt-2 mb-1" style={{ color: theme.colors.error }}>
+				<div className="mb-1" style={{ color: theme.colors.error }}>
 					Failed to fetch live output: {error}
-				</div>
-			)}
-			{stale && !error && (
-				<div className="mt-2 mb-1" style={{ color: theme.colors.textDim }}>
-					Run finished — showing last buffered output. Full result available in Activity Log once it
-					lands.
 				</div>
 			)}
 			<pre
 				ref={preRef}
 				onScroll={handleScroll}
-				className="font-mono whitespace-pre-wrap break-words rounded px-2 py-1.5 mt-2"
+				className="font-mono whitespace-pre-wrap break-words rounded px-2 py-1.5"
 				style={{
 					maxHeight: 280,
 					overflowY: 'auto',
@@ -234,18 +250,66 @@ function LiveOutputPanel({ runId, theme }: LiveOutputPanelProps) {
 				}}
 			>
 				{!hasAny && !error && (
-					<span style={{ color: theme.colors.textDim }}>
-						Waiting for output… (polling every {Math.round(LIVE_OUTPUT_POLL_MS / 1000)}s)
-					</span>
+					<span style={{ color: theme.colors.textDim }}>Waiting for output…</span>
 				)}
-				{tailStdout}
-				{tailStderr && (
+				{showRaw ? (
 					<>
-						{tailStdout && '\n'}
-						<span style={{ color: theme.colors.error }}>{tailStderr}</span>
+						{tailStdout}
+						{tailStderr && (
+							<>
+								{tailStdout && '\n'}
+								<span style={{ color: theme.colors.error }}>{tailStderr}</span>
+							</>
+						)}
+					</>
+				) : (
+					<>
+						{parsedLines.map((line, idx) => (
+							<FormattedLine key={idx} line={line} theme={theme} />
+						))}
+						{tailStderr && (
+							<>
+								{parsedLines.length > 0 && '\n'}
+								<span style={{ color: theme.colors.error }}>{tailStderr}</span>
+							</>
+						)}
 					</>
 				)}
 			</pre>
+		</div>
+	);
+}
+
+interface FormattedLineProps {
+	line: PeekLine;
+	theme: Theme;
+}
+
+/**
+ * Render a single parsed peek line with type-specific styling. Each line is a
+ * complete logical event from the agent's stream (one assistant turn, one tool
+ * call, one tool result, etc.) rendered with a readable label and the right
+ * color so the user can scan a long-running Cue's progress at a glance.
+ */
+function FormattedLine({ line, theme }: FormattedLineProps) {
+	const styles: Record<PeekLine['type'], { color: string; prefix: string; italic?: boolean }> = {
+		system: { color: theme.colors.textDim, prefix: '⚙ ' },
+		thinking: { color: theme.colors.textDim, prefix: '💭 ', italic: true },
+		tool: { color: theme.colors.accent, prefix: '🔧 ' },
+		text: { color: theme.colors.textMain, prefix: '' },
+		result: { color: theme.colors.success, prefix: '✓ ' },
+	};
+	const style = styles[line.type];
+	return (
+		<div
+			style={{
+				color: style.color,
+				fontStyle: style.italic ? 'italic' : undefined,
+				marginBottom: 2,
+			}}
+		>
+			{style.prefix}
+			{line.content}
 		</div>
 	);
 }

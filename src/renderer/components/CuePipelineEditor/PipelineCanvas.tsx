@@ -411,19 +411,22 @@ export const PipelineCanvas = React.memo(function PipelineCanvas({
 				theme={theme}
 			/>
 
-			{/* Canvas interaction-mode toggle (hand pans, pointer box-selects). */}
+			{/* Canvas interaction-mode toggle (hand pans, pointer box-selects).
+			    Shifts right when the trigger drawer is open so it stays visible
+			    next to the drawer's edge. */}
 			<div
 				style={{
 					position: 'absolute',
 					top: 8,
-					left: 8,
-					zIndex: 10,
+					left: triggerDrawerOpen ? 228 : 8,
+					zIndex: 21,
 					display: 'flex',
 					gap: 2,
 					padding: 2,
 					backgroundColor: `${theme.colors.bgActivity}f5`,
 					border: `1px solid ${theme.colors.border}`,
 					borderRadius: 6,
+					transition: 'left 200ms ease',
 				}}
 			>
 				{(

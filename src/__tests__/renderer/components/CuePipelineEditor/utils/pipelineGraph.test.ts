@@ -11,6 +11,7 @@ import {
 	convertToReactFlowNodes,
 	convertToReactFlowEdges,
 	computePipelineYOffsets,
+	resolveNonOverlappingPipelineOffset,
 } from '../../../../../renderer/components/CuePipelineEditor/utils/pipelineGraph';
 import type {
 	CuePipeline,
@@ -1540,5 +1541,85 @@ describe('convertToReactFlowNodes fanInCount', () => {
 		const nodes = convertToReactFlowNodes([pipeline], 'p1');
 		const nodeD = nodes.find((n) => n.id === 'p1:d')!;
 		expect((nodeD.data as any).fanInCount).toBeUndefined();
+	});
+});
+
+// ─── resolveNonOverlappingPipelineOffset ─────────────────────────────────────
+
+describe('resolveNonOverlappingPipelineOffset', () => {
+	it('returns desired offset when there are no other pipelines', () => {
+		const moved = makePipeline('p1', { nodes: [makeTrigger('t1', 'time.heartbeat')] });
+		const result = resolveNonOverlappingPipelineOffset(moved, { x: 100, y: 50 }, []);
+		expect(result).toEqual({ x: 100, y: 50 });
+	});
+
+	it('returns desired offset when no overlap occurs', () => {
+		const moved = makePipeline('p1', {
+			nodes: [makeTrigger('t1', 'time.heartbeat', {}, { x: 0, y: 0 })],
+		});
+		const other = makePipeline('p2', {
+			nodes: [makeTrigger('t2', 'file.changed', {}, { x: 0, y: 0 })],
+		});
+		// Place "other" 2000px below — well clear of moved at desired (0, 0).
+		const result = resolveNonOverlappingPipelineOffset(moved, { x: 0, y: 0 }, [
+			{ pipeline: other, offset: { x: 0, y: 2000 } },
+		]);
+		expect(result).toEqual({ x: 0, y: 0 });
+	});
+
+	it('shifts the moved pipeline when its desired position overlaps another', () => {
+		const moved = makePipeline('p1', {
+			nodes: [makeTrigger('t1', 'time.heartbeat', {}, { x: 0, y: 0 })],
+		});
+		const other = makePipeline('p2', {
+			nodes: [makeTrigger('t2', 'file.changed', {}, { x: 0, y: 0 })],
+		});
+		// Both occupy (0..NODE_BG_WIDTH, 0..NODE_BG_HEIGHT) at offset (0,0) ⇒ full overlap.
+		const result = resolveNonOverlappingPipelineOffset(moved, { x: 0, y: 0 }, [
+			{ pipeline: other, offset: { x: 0, y: 0 } },
+		]);
+		// Some non-zero displacement must have been applied.
+		expect(Math.abs(result.x) + Math.abs(result.y)).toBeGreaterThan(0);
+
+		// Verify the resolved position has no overlap by re-running with the
+		// resolved offset as the desired one — should be a fixed point.
+		const fixedPoint = resolveNonOverlappingPipelineOffset(moved, result, [
+			{ pipeline: other, offset: { x: 0, y: 0 } },
+		]);
+		expect(fixedPoint).toEqual(result);
+	});
+
+	it('skips empty pipelines (no nodes ⇒ no bounding box)', () => {
+		const empty = makePipeline('p1', { nodes: [] });
+		const other = makePipeline('p2', {
+			nodes: [makeTrigger('t2', 'file.changed', {}, { x: 0, y: 0 })],
+		});
+		// An empty moved pipeline returns the desired offset unchanged.
+		const result = resolveNonOverlappingPipelineOffset(empty, { x: 50, y: 50 }, [
+			{ pipeline: other, offset: { x: 0, y: 0 } },
+		]);
+		expect(result).toEqual({ x: 50, y: 50 });
+	});
+
+	it('clears overlaps from multiple neighbors', () => {
+		const moved = makePipeline('p1', {
+			nodes: [makeTrigger('t1', 'time.heartbeat', {}, { x: 0, y: 0 })],
+		});
+		const a = makePipeline('p2', {
+			nodes: [makeTrigger('t2', 'file.changed', {}, { x: 0, y: 0 })],
+		});
+		const b = makePipeline('p3', {
+			nodes: [makeTrigger('t3', 'github.issue', {}, { x: 0, y: 0 })],
+		});
+		const result = resolveNonOverlappingPipelineOffset(moved, { x: 0, y: 0 }, [
+			{ pipeline: a, offset: { x: 0, y: 0 } },
+			{ pipeline: b, offset: { x: 500, y: 0 } },
+		]);
+		// After resolution, calling again with the resolved offset should be a fixed point.
+		const fixedPoint = resolveNonOverlappingPipelineOffset(moved, result, [
+			{ pipeline: a, offset: { x: 0, y: 0 } },
+			{ pipeline: b, offset: { x: 500, y: 0 } },
+		]);
+		expect(fixedPoint).toEqual(result);
 	});
 });
