@@ -127,10 +127,14 @@ describe('GitDiffViewer', () => {
 		vi.clearAllMocks();
 		// Default: return empty array (no files)
 		mockParseGitDiff.mockReturnValue([]);
+		// View-type preference is persisted to localStorage; reset between tests
+		// so cases don't bleed state into each other.
+		window.localStorage.removeItem('maestro.gitDiffViewer.viewType');
 	});
 
 	afterEach(() => {
 		vi.clearAllMocks();
+		window.localStorage.removeItem('maestro.gitDiffViewer.viewType');
 	});
 
 	describe('Initial render', () => {
@@ -1394,6 +1398,194 @@ describe('GitDiffViewer', () => {
 			);
 
 			expect(mockGetFileName).toHaveBeenCalledWith('src/deep/nested/file.ts');
+		});
+	});
+
+	describe('View type persistence', () => {
+		const STORAGE_KEY = 'maestro.gitDiffViewer.viewType';
+
+		it('uses initialViewType when nothing is persisted', () => {
+			mockParseGitDiff.mockReturnValue([createMockParsedFile()]);
+
+			render(
+				<GitDiffViewer
+					diffText="mock diff"
+					cwd="/test/project"
+					theme={mockTheme}
+					onClose={vi.fn()}
+					initialViewType="split"
+				/>
+			);
+
+			expect(screen.getByTestId('diff-component')).toHaveAttribute('data-view-type', 'split');
+		});
+
+		it('reads the stored view type from localStorage and overrides initialViewType', () => {
+			window.localStorage.setItem(STORAGE_KEY, 'split');
+			mockParseGitDiff.mockReturnValue([createMockParsedFile()]);
+
+			render(
+				<GitDiffViewer
+					diffText="mock diff"
+					cwd="/test/project"
+					theme={mockTheme}
+					onClose={vi.fn()}
+					initialViewType="unified"
+				/>
+			);
+
+			expect(screen.getByTestId('diff-component')).toHaveAttribute('data-view-type', 'split');
+		});
+
+		it('persists the chosen view type when the toggle is clicked', () => {
+			mockParseGitDiff.mockReturnValue([createMockParsedFile()]);
+
+			render(
+				<GitDiffViewer
+					diffText="mock diff"
+					cwd="/test/project"
+					theme={mockTheme}
+					onClose={vi.fn()}
+				/>
+			);
+
+			expect(window.localStorage.getItem(STORAGE_KEY)).toBe('unified');
+
+			const toggle = screen.getByRole('button', { name: /switch to side-by-side/i });
+			act(() => {
+				fireEvent.click(toggle);
+			});
+
+			expect(window.localStorage.getItem(STORAGE_KEY)).toBe('split');
+			expect(screen.getByTestId('diff-component')).toHaveAttribute('data-view-type', 'split');
+		});
+
+		it('ignores invalid values stored in localStorage and falls back to initialViewType', () => {
+			window.localStorage.setItem(STORAGE_KEY, 'garbage');
+			mockParseGitDiff.mockReturnValue([createMockParsedFile()]);
+
+			render(
+				<GitDiffViewer
+					diffText="mock diff"
+					cwd="/test/project"
+					theme={mockTheme}
+					onClose={vi.fn()}
+					initialViewType="split"
+				/>
+			);
+
+			expect(screen.getByTestId('diff-component')).toHaveAttribute('data-view-type', 'split');
+		});
+	});
+
+	describe('Enter key toggle', () => {
+		const STORAGE_KEY = 'maestro.gitDiffViewer.viewType';
+
+		it('toggles view type when Enter is pressed and focus is not on a form control', () => {
+			mockParseGitDiff.mockReturnValue([createMockParsedFile()]);
+
+			render(
+				<GitDiffViewer
+					diffText="mock diff"
+					cwd="/test/project"
+					theme={mockTheme}
+					onClose={vi.fn()}
+				/>
+			);
+
+			expect(screen.getByTestId('diff-component')).toHaveAttribute('data-view-type', 'unified');
+
+			act(() => {
+				// Move focus off the auto-focused dialog button (if any) onto the body
+				// so the Enter handler doesn't get short-circuited by isFormControl().
+				(document.activeElement as HTMLElement | null)?.blur();
+				fireEvent.keyDown(window, { key: 'Enter' });
+			});
+
+			expect(screen.getByTestId('diff-component')).toHaveAttribute('data-view-type', 'split');
+			expect(window.localStorage.getItem(STORAGE_KEY)).toBe('split');
+
+			act(() => {
+				fireEvent.keyDown(window, { key: 'Enter' });
+			});
+
+			expect(screen.getByTestId('diff-component')).toHaveAttribute('data-view-type', 'unified');
+			expect(window.localStorage.getItem(STORAGE_KEY)).toBe('unified');
+		});
+
+		it('ignores Enter with modifier keys', () => {
+			mockParseGitDiff.mockReturnValue([createMockParsedFile()]);
+
+			render(
+				<GitDiffViewer
+					diffText="mock diff"
+					cwd="/test/project"
+					theme={mockTheme}
+					onClose={vi.fn()}
+				/>
+			);
+
+			act(() => {
+				(document.activeElement as HTMLElement | null)?.blur();
+				fireEvent.keyDown(window, { key: 'Enter', metaKey: true });
+				fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true });
+				fireEvent.keyDown(window, { key: 'Enter', shiftKey: true });
+				fireEvent.keyDown(window, { key: 'Enter', altKey: true });
+			});
+
+			expect(screen.getByTestId('diff-component')).toHaveAttribute('data-view-type', 'unified');
+		});
+
+		it('does not toggle when a button is focused (so the button activates instead)', () => {
+			mockParseGitDiff.mockReturnValue([createMockParsedFile()]);
+
+			render(
+				<GitDiffViewer
+					diffText="mock diff"
+					cwd="/test/project"
+					theme={mockTheme}
+					onClose={vi.fn()}
+				/>
+			);
+
+			const closeButton = screen.getByRole('button', { name: 'Close (Esc)' });
+
+			act(() => {
+				closeButton.focus();
+				fireEvent.keyDown(closeButton, { key: 'Enter' });
+			});
+
+			// View type stays unified because the keydown originated from a button
+			// and was skipped by isFormControl().
+			expect(screen.getByTestId('diff-component')).toHaveAttribute('data-view-type', 'unified');
+		});
+
+		it('documents the Enter shortcut in the footer with the opposite view label', () => {
+			mockParseGitDiff.mockReturnValue([createMockParsedFile()]);
+
+			const { rerender } = render(
+				<GitDiffViewer
+					diffText="mock diff"
+					cwd="/test/project"
+					theme={mockTheme}
+					onClose={vi.fn()}
+					initialViewType="unified"
+				/>
+			);
+
+			expect(screen.getByText(/to toggle side-by-side view/i)).toBeInTheDocument();
+
+			window.localStorage.setItem(STORAGE_KEY, 'split');
+			rerender(
+				<GitDiffViewer
+					diffText="mock diff (alt)"
+					cwd="/test/project"
+					theme={mockTheme}
+					onClose={vi.fn()}
+				/>
+			);
+
+			expect(screen.getByText(/to toggle unified view/i)).toBeInTheDocument();
 		});
 	});
 });

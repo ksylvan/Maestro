@@ -11,14 +11,51 @@ import 'react-diff-view/style/index.css';
 
 export type GitDiffViewType = 'unified' | 'split';
 
+const VIEW_TYPE_STORAGE_KEY = 'maestro.gitDiffViewer.viewType';
+
+function readStoredViewType(): GitDiffViewType | null {
+	if (typeof window === 'undefined') return null;
+	try {
+		const raw = window.localStorage.getItem(VIEW_TYPE_STORAGE_KEY);
+		return raw === 'unified' || raw === 'split' ? raw : null;
+	} catch {
+		return null;
+	}
+}
+
+function writeStoredViewType(value: GitDiffViewType): void {
+	if (typeof window === 'undefined') return;
+	try {
+		window.localStorage.setItem(VIEW_TYPE_STORAGE_KEY, value);
+	} catch {
+		// Ignore quota / privacy-mode errors — preference just won't persist.
+	}
+}
+
+function isFormControl(target: EventTarget | null): boolean {
+	if (!(target instanceof HTMLElement)) return false;
+	const tag = target.tagName;
+	if (
+		tag === 'BUTTON' ||
+		tag === 'INPUT' ||
+		tag === 'TEXTAREA' ||
+		tag === 'SELECT' ||
+		tag === 'A'
+	) {
+		return true;
+	}
+	return target.isContentEditable;
+}
+
 interface GitDiffViewerProps {
 	diffText: string;
 	cwd: string;
 	theme: Theme;
 	onClose: () => void;
 	/**
-	 * Initial view type for hunks. The user can toggle between unified and
-	 * side-by-side via the header button regardless of the initial value.
+	 * Default view type when the user has no persisted preference yet. Once the
+	 * user toggles the header button, the chosen value is saved to localStorage
+	 * and applied to all future GitDiffViewer instances regardless of this prop.
 	 */
 	initialViewType?: GitDiffViewType;
 	/** Optional title shown in the header instead of the default "Git Diff". */
@@ -41,8 +78,15 @@ export const GitDiffViewer = memo(function GitDiffViewer({
 	priority,
 }: GitDiffViewerProps) {
 	const [activeTab, setActiveTab] = useState(0);
-	const [viewType, setViewType] = useState<GitDiffViewType>(initialViewType);
+	const [viewType, setViewType] = useState<GitDiffViewType>(
+		() => readStoredViewType() ?? initialViewType
+	);
 	const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+	// Persist the user's chosen view type so it sticks across all diff views and app restarts.
+	useEffect(() => {
+		writeStoredViewType(viewType);
+	}, [viewType]);
 
 	// Store onClose in ref to avoid re-registering layer on every parent re-render
 	const onCloseRef = useRef(onClose);
@@ -75,7 +119,7 @@ export const GitDiffViewer = memo(function GitDiffViewer({
 		}
 	}, [activeTab]);
 
-	// Handle keyboard shortcuts (tab navigation only)
+	// Handle keyboard shortcuts (tab navigation + view toggle)
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
 			// Cmd+[ or Cmd+Shift+[ - Previous tab
@@ -87,6 +131,20 @@ export const GitDiffViewer = memo(function GitDiffViewer({
 			else if ((e.metaKey || e.ctrlKey) && e.key === ']') {
 				e.preventDefault();
 				setActiveTab((prev) => (prev + 1) % parsedFiles.length);
+			}
+			// Enter - Toggle unified / side-by-side. Skip when a focused control
+			// (button, link, input, etc.) would otherwise consume Enter, so the
+			// toggle button and tab buttons keep their native activation behavior.
+			else if (
+				e.key === 'Enter' &&
+				!e.metaKey &&
+				!e.ctrlKey &&
+				!e.altKey &&
+				!e.shiftKey &&
+				!isFormControl(e.target)
+			) {
+				e.preventDefault();
+				setViewType((v) => (v === 'unified' ? 'split' : 'unified'));
 			}
 		};
 
@@ -347,9 +405,25 @@ export const GitDiffViewer = memo(function GitDiffViewer({
 							</div>
 						)}
 					</div>
-					<span style={{ color: theme.colors.textDim }}>
-						File {activeTab + 1} of {parsedFiles.length}
-					</span>
+					<div className="flex items-center gap-4">
+						<span style={{ color: theme.colors.textDim }}>
+							Press{' '}
+							<kbd
+								className="px-1.5 py-0.5 rounded font-mono text-[10px] mx-0.5"
+								style={{
+									backgroundColor: theme.colors.bgActivity,
+									color: theme.colors.textMain,
+									border: `1px solid ${theme.colors.border}`,
+								}}
+							>
+								Enter
+							</kbd>{' '}
+							to toggle {viewType === 'unified' ? 'side-by-side' : 'unified'} view
+						</span>
+						<span style={{ color: theme.colors.textDim }}>
+							File {activeTab + 1} of {parsedFiles.length}
+						</span>
+					</div>
 				</div>
 			</div>
 		</div>

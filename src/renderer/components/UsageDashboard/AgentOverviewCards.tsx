@@ -13,6 +13,7 @@
 import { memo, useMemo, useState } from 'react';
 import type { Session, SessionState, Theme } from '../../types';
 import type { StatsAggregation } from '../../hooks/stats/useStats';
+import { compareNamesIgnoringEmojis } from '../../../shared/emojiUtils';
 import { Sparkline } from './Sparkline';
 
 const SPARKLINE_DAYS = 7;
@@ -318,12 +319,12 @@ export const AgentOverviewCards = memo(function AgentOverviewCards({
 
 	// Terminal sessions aren't "agents" — exclude them so the card row
 	// matches the agent count shown elsewhere in the dashboard. Default sort
-	// is alphabetical (ascending); the user can switch to query or tab count
-	// (descending) via the sort control above the grid.
+	// is alphabetical (ascending), ignoring any leading emoji prefix to match
+	// how the Left Bar's session list orders names; the user can switch to
+	// query or tab count (descending) via the sort control above the grid.
 	const activeSessions = useMemo(() => {
 		const filtered = sessions.filter((s) => s.toolType !== 'terminal');
-		const byName = (a: Session, b: Session) =>
-			a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+		const byName = (a: Session, b: Session) => compareNamesIgnoringEmojis(a.name, b.name);
 
 		if (sortMode === 'name') {
 			return filtered.slice().sort(byName);
