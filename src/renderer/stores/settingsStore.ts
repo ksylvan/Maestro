@@ -352,6 +352,9 @@ export interface SettingsStoreState {
 	useSystemBrowser: boolean;
 	browserHomeUrl: string;
 	automaticTabNamingEnabled: boolean;
+	newTabPlacement: 'end' | 'after-current';
+	newTerminalPlacement: 'end' | 'after-current';
+	openedFilePlacement: 'end' | 'after-current';
 	fileTabAutoRefreshEnabled: boolean;
 	suppressWindowsWarning: boolean;
 	userMessageAlignment: 'left' | 'right';
@@ -459,6 +462,9 @@ export interface SettingsStoreActions {
 	setUseSystemBrowser: (value: boolean) => void;
 	setBrowserHomeUrl: (value: string) => void;
 	setAutomaticTabNamingEnabled: (value: boolean) => void;
+	setNewTabPlacement: (value: 'end' | 'after-current') => void;
+	setNewTerminalPlacement: (value: 'end' | 'after-current') => void;
+	setOpenedFilePlacement: (value: 'end' | 'after-current') => void;
 	setFileTabAutoRefreshEnabled: (value: boolean) => void;
 	setSuppressWindowsWarning: (value: boolean) => void;
 	setUserMessageAlignment: (value: 'left' | 'right') => void;
@@ -646,6 +652,9 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		useSystemBrowser: false,
 		browserHomeUrl: 'https://runmaestro.ai/#leaderboard',
 		automaticTabNamingEnabled: true,
+		newTabPlacement: 'end',
+		newTerminalPlacement: 'after-current',
+		openedFilePlacement: 'after-current',
 		fileTabAutoRefreshEnabled: false,
 		suppressWindowsWarning: false,
 		userMessageAlignment: 'right',
@@ -1144,6 +1153,21 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		setAutomaticTabNamingEnabled: (value) => {
 			set({ automaticTabNamingEnabled: value });
 			window.maestro.settings.set('automaticTabNamingEnabled', value);
+		},
+
+		setNewTabPlacement: (value) => {
+			set({ newTabPlacement: value });
+			window.maestro.settings.set('newTabPlacement', value);
+		},
+
+		setNewTerminalPlacement: (value) => {
+			set({ newTerminalPlacement: value });
+			window.maestro.settings.set('newTerminalPlacement', value);
+		},
+
+		setOpenedFilePlacement: (value) => {
+			set({ openedFilePlacement: value });
+			window.maestro.settings.set('openedFilePlacement', value);
 		},
 
 		setFileTabAutoRefreshEnabled: (value) => {
@@ -2279,6 +2303,27 @@ export async function loadAllSettings(): Promise<void> {
 		if (allSettings['automaticTabNamingEnabled'] !== undefined)
 			patch.automaticTabNamingEnabled = allSettings['automaticTabNamingEnabled'] as boolean;
 
+		if (allSettings['newTabPlacement'] !== undefined) {
+			const placement = allSettings['newTabPlacement'];
+			if (placement === 'end' || placement === 'after-current') {
+				patch.newTabPlacement = placement;
+			}
+		}
+
+		if (allSettings['newTerminalPlacement'] !== undefined) {
+			const placement = allSettings['newTerminalPlacement'];
+			if (placement === 'end' || placement === 'after-current') {
+				patch.newTerminalPlacement = placement;
+			}
+		}
+
+		if (allSettings['openedFilePlacement'] !== undefined) {
+			const placement = allSettings['openedFilePlacement'];
+			if (placement === 'end' || placement === 'after-current') {
+				patch.openedFilePlacement = placement;
+			}
+		}
+
 		if (allSettings['fileTabAutoRefreshEnabled'] !== undefined)
 			patch.fileTabAutoRefreshEnabled = allSettings['fileTabAutoRefreshEnabled'] as boolean;
 
@@ -2489,6 +2534,9 @@ export function getSettingsActions() {
 		setSshRemoteIgnorePatterns: state.setSshRemoteIgnorePatterns,
 		setSshRemoteHonorGitignore: state.setSshRemoteHonorGitignore,
 		setAutomaticTabNamingEnabled: state.setAutomaticTabNamingEnabled,
+		setNewTabPlacement: state.setNewTabPlacement,
+		setNewTerminalPlacement: state.setNewTerminalPlacement,
+		setOpenedFilePlacement: state.setOpenedFilePlacement,
 		setFileTabAutoRefreshEnabled: state.setFileTabAutoRefreshEnabled,
 		setSuppressWindowsWarning: state.setSuppressWindowsWarning,
 		setEncoreFeatures: state.setEncoreFeatures,

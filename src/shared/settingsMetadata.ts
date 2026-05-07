@@ -324,6 +324,27 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		default: true,
 		category: 'editor',
 	},
+	newTabPlacement: {
+		description:
+			'Where new AI and browser tabs are inserted in the tab bar. "end" appends to the rightmost spot; "after-current" inserts directly to the right of the active tab.',
+		type: 'string',
+		default: 'end',
+		category: 'editor',
+	},
+	newTerminalPlacement: {
+		description:
+			'Where new terminal tabs are inserted in the tab bar. "end" appends to the rightmost spot; "after-current" inserts directly to the right of the active tab.',
+		type: 'string',
+		default: 'after-current',
+		category: 'editor',
+	},
+	openedFilePlacement: {
+		description:
+			'Where opened file preview tabs are inserted in the tab bar. "end" appends to the rightmost spot; "after-current" inserts directly to the right of the active tab.',
+		type: 'string',
+		default: 'after-current',
+		category: 'editor',
+	},
 	shortcuts: {
 		description: 'Custom keyboard shortcut bindings. Object mapping shortcut IDs to key combos.',
 		type: 'object',

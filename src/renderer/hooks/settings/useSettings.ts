@@ -305,6 +305,14 @@ export interface UseSettingsReturn {
 	automaticTabNamingEnabled: boolean;
 	setAutomaticTabNamingEnabled: (value: boolean) => void;
 
+	// Where new tabs are inserted in the tab bar (per content type)
+	newTabPlacement: 'end' | 'after-current';
+	setNewTabPlacement: (value: 'end' | 'after-current') => void;
+	newTerminalPlacement: 'end' | 'after-current';
+	setNewTerminalPlacement: (value: 'end' | 'after-current') => void;
+	openedFilePlacement: 'end' | 'after-current';
+	setOpenedFilePlacement: (value: 'end' | 'after-current') => void;
+
 	// File tab auto-refresh settings
 	fileTabAutoRefreshEnabled: boolean;
 	setFileTabAutoRefreshEnabled: (value: boolean) => void;

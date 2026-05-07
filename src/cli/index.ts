@@ -22,6 +22,14 @@ import { status } from './commands/status';
 import { autoRun } from './commands/auto-run';
 import { cueTrigger } from './commands/cue-trigger';
 import { cueList } from './commands/cue-list';
+import {
+	cuePipelineAdd,
+	cuePipelineExport,
+	cuePipelineGet,
+	cuePipelineList,
+	cuePipelineRemove,
+	cuePipelineReplace,
+} from './commands/cue-pipeline';
 import { createAgent } from './commands/create-agent';
 import { removeAgent } from './commands/remove-agent';
 import { listSshRemotes } from './commands/list-ssh-remotes';
@@ -270,6 +278,54 @@ cue
 	.description('List all Cue subscriptions across agents')
 	.option('--json', 'Output as JSON (for scripting)')
 	.action(cueList);
+
+// Cue pipeline subcommands — manage entries in cue-pipeline-layout.json.
+// Designed for batch scaffolding (e.g. PowerShell scripts that bootstrap
+// a fleet of project agents with a templated pipeline). All mutations go
+// through the daemon so they don't race with the desktop app's own writes.
+const cuePipeline = cue
+	.command('pipeline')
+	.description('Manage Cue pipeline layout entries (cue-pipeline-layout.json)');
+
+cuePipeline
+	.command('list')
+	.description('List all pipelines in the layout file')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(cuePipelineList);
+
+cuePipeline
+	.command('get <name>')
+	.description('Print one pipeline entry as JSON to stdout')
+	.option('--json', 'Output as JSON (default; flag kept for parity)')
+	.action(cuePipelineGet);
+
+cuePipeline
+	.command('export <name>')
+	.description('Alias for `get`: print one pipeline entry as JSON to stdout')
+	.option('--json', 'Output as JSON (default; flag kept for parity)')
+	.action(cuePipelineExport);
+
+cuePipeline
+	.command('add <name>')
+	.description('Add a new pipeline entry from a JSON file')
+	.requiredOption('--from <file>', 'JSON file with one pipeline entry (matches `get` output)')
+	.option('--force', 'Replace any existing pipeline with the same name/id')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(cuePipelineAdd);
+
+cuePipeline
+	.command('replace <name>')
+	.description('Replace an existing pipeline entry from a JSON file')
+	.requiredOption('--from <file>', 'JSON file with one pipeline entry (matches `get` output)')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(cuePipelineReplace);
+
+cuePipeline
+	.command('remove <name>')
+	.description('Remove a pipeline entry by name or id')
+	.option('--force', 'Suppress the no-op error when the pipeline is already absent')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action(cuePipelineRemove);
 
 // Director's Notes commands
 const directorNotes = program
