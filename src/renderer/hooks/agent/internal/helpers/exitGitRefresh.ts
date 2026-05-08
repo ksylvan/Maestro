@@ -48,8 +48,7 @@ export async function refreshGitRefsAfterTerminalExit(
 
 	if (!isGitRefMutatingCommand(lastCommand)) return null;
 
-	const sshRemoteId =
-		session.sshRemoteId || session.sessionSshRemoteConfig?.remoteId || undefined;
+	const sshRemoteId = session.sshRemoteId || session.sessionSshRemoteConfig?.remoteId || undefined;
 
 	const [gitBranches, gitTags] = await Promise.all([
 		gitService.getBranches(session.cwd, sshRemoteId),

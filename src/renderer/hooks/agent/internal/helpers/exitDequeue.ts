@@ -39,8 +39,7 @@ export function chooseNextQueuedItem(
 		(tab) => tab.id !== exitingTabId && tab.state === 'busy'
 	);
 
-	const isNextItemSafeToRun =
-		nextItem.forceParallel || nextItem.readOnlyMode || !otherTabsBusy;
+	const isNextItemSafeToRun = nextItem.forceParallel || nextItem.readOnlyMode || !otherTabsBusy;
 
 	if (!isNextItemSafeToRun) {
 		return { action: 'wait', item: nextItem };

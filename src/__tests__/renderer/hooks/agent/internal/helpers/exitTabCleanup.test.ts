@@ -76,10 +76,7 @@ describe('exitTabCleanup helpers', () => {
 
 		it("'sticky' keeps thinking/tool logs but still strips hidden-progress placeholder", () => {
 			const hiddenId = buildHiddenProgressLogId('tab-1');
-			const logs = [
-				log({ id: hiddenId, source: 'system' }),
-				log({ id: 'a', source: 'thinking' }),
-			];
+			const logs = [log({ id: hiddenId, source: 'system' }), log({ id: 'a', source: 'thinking' })];
 			const out = cleanupExitedTabLogs(logs, 'tab-1', { showThinking: 'sticky' });
 			expect(out.map((l) => l.id)).toEqual(['a']);
 		});

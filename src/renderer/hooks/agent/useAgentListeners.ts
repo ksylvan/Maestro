@@ -100,5 +100,4 @@ export function useAgentListeners(deps: UseAgentListenersDeps): void {
 			activeHiddenTools.clear();
 		};
 	}, []);
-
 }

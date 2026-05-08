@@ -42,7 +42,11 @@ describe('removeMatchingAgentErrorLog', () => {
 	it('removes the most recent matching entry', () => {
 		const olderMatch = errorLog(baseError);
 		const newerMatch = { ...errorLog(baseError), id: 'err-2' };
-		const logs: LogEntry[] = [olderMatch, { id: 'a', timestamp: 0, source: 'ai', text: '' }, newerMatch];
+		const logs: LogEntry[] = [
+			olderMatch,
+			{ id: 'a', timestamp: 0, source: 'ai', text: '' },
+			newerMatch,
+		];
 		const out = removeMatchingAgentErrorLog(logs, baseError);
 		expect(out.find((l) => l.id === 'err-2')).toBeUndefined();
 		expect(out.find((l) => l.id === 'err-1')).toBeDefined();

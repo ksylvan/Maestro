@@ -113,9 +113,7 @@ describe('useAgentDataListener', () => {
 		ref.current.set('sess-1:tab-1', { toolName: 'Read' });
 		const batched = makeBatched();
 
-		renderHook(() =>
-			useAgentDataListener({ batchedUpdater: batched, activeHiddenToolRef: ref })
-		);
+		renderHook(() => useAgentDataListener({ batchedUpdater: batched, activeHiddenToolRef: ref }));
 
 		handler!('sess-1-ai-tab-1', 'data');
 		expect(ref.current.has('sess-1:tab-1')).toBe(false);

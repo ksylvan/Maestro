@@ -57,9 +57,7 @@ describe('refreshGitRefsAfterTerminalExit', () => {
 	});
 
 	it('returns null when last command is not a ref-mutating git command', async () => {
-		const result = await refreshGitRefsAfterTerminalExit(
-			session({ shellLogs: [userLog('ls')] })
-		);
+		const result = await refreshGitRefsAfterTerminalExit(session({ shellLogs: [userLog('ls')] }));
 		expect(result).toBeNull();
 	});
 
@@ -94,7 +92,10 @@ describe('refreshGitRefsAfterTerminalExit', () => {
 			session({
 				shellLogs: [userLog('git fetch')],
 				sshRemoteId: undefined,
-				sessionSshRemoteConfig: { enabled: true, remoteId: 'remote-2' } as Session['sessionSshRemoteConfig'],
+				sessionSshRemoteConfig: {
+					enabled: true,
+					remoteId: 'remote-2',
+				} as Session['sessionSshRemoteConfig'],
 			})
 		);
 		expect(gitService.getBranches).toHaveBeenCalledWith('/repo', 'remote-2');

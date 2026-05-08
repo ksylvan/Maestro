@@ -48,9 +48,8 @@ export function useAgentUsageListener(deps: UseAgentUsageListenerDeps): void {
 						usageStats.contextWindow > 0
 							? usageStats.contextWindow
 							: agentToolType
-								? (DEFAULT_CONTEXT_WINDOWS[
-										agentToolType as keyof typeof DEFAULT_CONTEXT_WINDOWS
-									] ?? 0)
+								? (DEFAULT_CONTEXT_WINDOWS[agentToolType as keyof typeof DEFAULT_CONTEXT_WINDOWS] ??
+									0)
 								: 0;
 					const estimated = estimateAccumulatedGrowth(
 						currentUsage,
@@ -60,10 +59,7 @@ export function useAgentUsageListener(deps: UseAgentUsageListenerDeps): void {
 					);
 					const yellowThreshold = deps.contextWarningYellowThreshold;
 					const maxEstimate = yellowThreshold - 5;
-					deps.batchedUpdater.updateContextUsage(
-						actualSessionId,
-						Math.min(estimated, maxEstimate)
-					);
+					deps.batchedUpdater.updateContextUsage(actualSessionId, Math.min(estimated, maxEstimate));
 				}
 			}
 			deps.batchedUpdater.updateCycleTokens(actualSessionId, usageStats.outputTokens);

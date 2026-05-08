@@ -33,9 +33,7 @@ beforeEach(() => {
 
 describe('useAgentStderrListener', () => {
 	it('subscribes once and unsubscribes on unmount', () => {
-		const { unmount } = renderHook(() =>
-			useAgentStderrListener({ batchedUpdater: makeBatched() })
-		);
+		const { unmount } = renderHook(() => useAgentStderrListener({ batchedUpdater: makeBatched() }));
 		expect(mockProcess.onStderr).toHaveBeenCalledTimes(1);
 		unmount();
 		expect(mockUnsubscribe).toHaveBeenCalledTimes(1);

@@ -45,7 +45,12 @@ describe('chooseNextQueuedItem', () => {
 		const session: MinSession = {
 			executionQueue: [item()],
 			state: 'error',
-			agentError: { type: 'auth_expired', timestamp: 0, message: 'x', agentId: 'claude-code' } as any,
+			agentError: {
+				type: 'auth_expired',
+				timestamp: 0,
+				message: 'x',
+				agentId: 'claude-code',
+			} as any,
 			aiTabs: [tab()],
 		};
 		expect(chooseNextQueuedItem(session, 'tab-1').action).toBe('none');
