@@ -63,7 +63,7 @@ export function useBatchBroadcast({ dispatch }: UseBatchBroadcastDeps): UseBatch
 		}
 	}, []);
 
-	const { scheduleUpdate: _scheduleDebouncedUpdate, flushUpdate: flushDebouncedUpdate } =
+	const { scheduleUpdate: scheduleDebouncedUpdate, flushUpdate: flushDebouncedUpdate } =
 		useSessionDebounce<Record<string, BatchRunState>>({
 			delayMs: BATCH_STATE_DEBOUNCE_MS,
 			onUpdate: useCallback(
@@ -158,9 +158,9 @@ export function useBatchBroadcast({ dispatch }: UseBatchBroadcastDeps): UseBatch
 			updater: (prev: Record<string, BatchRunState>) => Record<string, BatchRunState>,
 			immediate: boolean = false
 		) => {
-			_scheduleDebouncedUpdate(sessionId, updater, immediate);
+			scheduleDebouncedUpdate(sessionId, updater, immediate);
 		},
-		[_scheduleDebouncedUpdate]
+		[scheduleDebouncedUpdate]
 	);
 
 	return {

@@ -63,10 +63,16 @@ export function useBatchKillAction({
 }: UseBatchKillActionDeps): UseBatchKillActionReturn {
 	const killBatchRun = useCallback(
 		async (sessionId: string) => {
-			console.assert(
-				!sessionId.includes('-batch-'),
-				'[BatchProcessor:killBatchRun] sessionId must not contain "-batch-"'
-			);
+			// console.assert is a no-op in production builds and silently continues
+			// on failure — use logger.warn so the precondition violation reaches
+			// the same telemetry pipeline as the rest of this file.
+			if (sessionId.includes('-batch-')) {
+				logger.warn(
+					'[BatchProcessor:killBatchRun] sessionId must not contain "-batch-"',
+					undefined,
+					{ sessionId }
+				);
+			}
 
 			// Set the stop flag synchronously, before any await. The processing loop
 			// checks this flag at iteration boundaries; setting it early gives the loop

@@ -12,6 +12,11 @@ export interface LoopSummaryParams {
 	sessionId: string;
 	isFinal: boolean;
 	exitReason?: string;
+	/**
+	 * Inter-loop entries (isFinal=false) include the recount of remaining work
+	 * picked up for the next iteration. Final entries omit it (no "next loop").
+	 */
+	tasksDiscoveredForNextLoop?: number;
 }
 
 export function createLoopSummaryEntry(params: LoopSummaryParams): Omit<HistoryEntry, 'id'> {
@@ -26,6 +31,7 @@ export function createLoopSummaryEntry(params: LoopSummaryParams): Omit<HistoryE
 		sessionId,
 		isFinal,
 		exitReason,
+		tasksDiscoveredForNextLoop,
 	} = params;
 
 	const loopElapsedMs = Date.now() - loopStartTime;
@@ -43,6 +49,9 @@ export function createLoopSummaryEntry(params: LoopSummaryParams): Omit<HistoryE
 			: '',
 		loopTotalCost > 0 ? `- **Cost:** $${loopTotalCost.toFixed(4)}` : '',
 		exitReason ? `- **Exit Reason:** ${exitReason}` : '',
+		tasksDiscoveredForNextLoop !== undefined
+			? `- **Tasks Discovered for Next Loop:** ${tasksDiscoveredForNextLoop}`
+			: '',
 	]
 		.filter((line) => line !== '')
 		.join('\n');

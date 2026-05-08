@@ -10,7 +10,6 @@ import type {
 	AutoRunStats,
 } from '../../../types';
 import type { AgentSpawnErrorKind } from '../../agent/useAgentExecution';
-import { formatElapsedTime } from '../../../../shared/formatters';
 import { gitService } from '../../../services/git';
 import { logger } from '../../../utils/logger';
 import { notifyToast } from '../../../stores/notificationStore';
@@ -1136,46 +1135,23 @@ export function useBatchRunner({
 				const completedLoopNumber = loopIteration + 1;
 				const completedLoopTasks = loopTasksCompleted;
 
-				// Calculate loop elapsed time
-				const loopElapsedMs = Date.now() - loopStartTime;
-
-				// Add loop summary history entry
-				const loopSummary = `Loop ${completedLoopNumber} completed: ${completedLoopTasks} task${completedLoopTasks !== 1 ? 's' : ''} accomplished`;
-				const loopDetails = [
-					`**Loop ${completedLoopNumber} Summary**`,
-					'',
-					`- **Tasks Accomplished:** ${completedLoopTasks}`,
-					`- **Duration:** ${formatElapsedTime(loopElapsedMs)}`,
-					loopTotalInputTokens > 0 || loopTotalOutputTokens > 0
-						? `- **Tokens:** ${(loopTotalInputTokens + loopTotalOutputTokens).toLocaleString()} (${loopTotalInputTokens.toLocaleString()} in / ${loopTotalOutputTokens.toLocaleString()} out)`
-						: '',
-					loopTotalCost > 0 ? `- **Cost:** $${loopTotalCost.toFixed(4)}` : '',
-					`- **Tasks Discovered for Next Loop:** ${newTotalTasks}`,
-				]
-					.filter((line) => line !== '')
-					.join('\n');
-
-				onAddHistoryEntry({
-					type: 'AUTO',
-					timestamp: Date.now(),
-					summary: loopSummary,
-					fullResponse: loopDetails,
-					projectPath: session.cwd,
-					sessionId: sessionId,
-					success: true,
-					elapsedTimeMs: loopElapsedMs,
-					usageStats:
-						loopTotalInputTokens > 0 || loopTotalOutputTokens > 0
-							? {
-									inputTokens: loopTotalInputTokens,
-									outputTokens: loopTotalOutputTokens,
-									cacheReadInputTokens: 0,
-									cacheCreationInputTokens: 0,
-									totalCostUsd: loopTotalCost,
-									contextWindow: 0,
-								}
-							: undefined,
-				});
+				// Add loop summary history entry via the shared helper, augmented
+				// with the next-loop recount so the format stays in sync with the
+				// final-loop entry produced by addFinalLoopSummary above.
+				onAddHistoryEntry(
+					createLoopSummaryEntry({
+						loopIteration,
+						loopTasksCompleted: completedLoopTasks,
+						loopStartTime,
+						loopTotalInputTokens,
+						loopTotalOutputTokens,
+						loopTotalCost,
+						sessionCwd: session.cwd,
+						sessionId,
+						isFinal: false,
+						tasksDiscoveredForNextLoop: newTotalTasks,
+					})
+				);
 
 				// Reset per-loop tracking for next iteration
 				loopStartTime = Date.now();

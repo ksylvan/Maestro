@@ -159,6 +159,39 @@ describe('createLoopSummaryEntry', () => {
 		expect(entry.fullResponse).toContain('Exit Reason:** Stopped by user');
 	});
 
+	it('appends a Tasks Discovered for Next Loop line when tasksDiscoveredForNextLoop is set', () => {
+		const entry = createLoopSummaryEntry({
+			loopIteration: 0,
+			loopTasksCompleted: 2,
+			loopStartTime: FIXED_NOW,
+			loopTotalInputTokens: 0,
+			loopTotalOutputTokens: 0,
+			loopTotalCost: 0,
+			sessionCwd: '/r',
+			sessionId: 's',
+			isFinal: false,
+			tasksDiscoveredForNextLoop: 7,
+		});
+
+		expect(entry.fullResponse).toContain('Tasks Discovered for Next Loop:** 7');
+	});
+
+	it('omits the Tasks Discovered line when tasksDiscoveredForNextLoop is undefined', () => {
+		const entry = createLoopSummaryEntry({
+			loopIteration: 0,
+			loopTasksCompleted: 2,
+			loopStartTime: FIXED_NOW,
+			loopTotalInputTokens: 0,
+			loopTotalOutputTokens: 0,
+			loopTotalCost: 0,
+			sessionCwd: '/r',
+			sessionId: 's',
+			isFinal: false,
+		});
+
+		expect(entry.fullResponse).not.toContain('Tasks Discovered');
+	});
+
 	it('returns an AUTO entry preserving sessionCwd and sessionId on the projectPath/sessionId fields', () => {
 		const entry = createLoopSummaryEntry({
 			loopIteration: 0,
