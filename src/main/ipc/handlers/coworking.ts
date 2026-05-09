@@ -9,6 +9,7 @@ import { BrowserWindow, ipcMain } from 'electron';
 import { withIpcErrorLogging, CreateHandlerOptions } from '../../utils/ipcHandler';
 import { coworkingRegistry } from '../../coworking/coworking-registry';
 import { setTerminalBufferResolver } from '../../coworking/coworking-tools';
+import { logger } from '../../utils/logger';
 import {
 	getInstallStatus,
 	installFor,
@@ -72,6 +73,13 @@ export function registerCoworkingHandlers(deps: CoworkingHandlerDependencies): v
 		withIpcErrorLogging(
 			handlerOpts('syncSessionTerminals'),
 			async (sessionId: string, records: CoworkingTerminalRecord[]): Promise<void> => {
+				// Diagnostic: print which sessionId the renderer is pushing under so we can
+				// compare against the bridge-bound sessionId when a tool call comes in.
+				// Remove once the PR #948 self-session lookup is verified end-to-end.
+				logger.info(
+					`${LOG_CTX} syncSessionTerminals sessionId=${sessionId} count=${records.length}`,
+					'Coworking'
+				);
 				coworkingRegistry.syncSessionTerminals(sessionId, records);
 			}
 		)

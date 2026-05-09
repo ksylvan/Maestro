@@ -29,6 +29,7 @@ import type {
 	CoworkingBridgeMethod,
 } from './coworking-types';
 import { listTerminals, readTerminal } from './coworking-tools';
+import { coworkingRegistry } from './coworking-registry';
 
 const LOG_CTX = '[Coworking][Bridge]';
 
@@ -157,6 +158,7 @@ async function dispatch(
 				};
 			}
 			if (state) state.sessionId = params.sessionId;
+			logger.info(`${LOG_CTX} hello sessionId=${params.sessionId}`, 'Coworking');
 			return { id: req.id, result: { ok: true } };
 		}
 
@@ -173,7 +175,15 @@ async function dispatch(
 		}
 
 		if (method === 'listTerminals') {
-			return { id: req.id, result: listTerminals(sessionId) };
+			const result = listTerminals(sessionId);
+			// Diagnostic: print what the registry currently has so we can compare the
+			// caller's bound sessionId against the keys the renderer has pushed under.
+			// Remove once the PR #948 self-session lookup is verified end-to-end.
+			logger.info(
+				`${LOG_CTX} listTerminals callerSessionId=${sessionId} registryKnownSessionIds=${JSON.stringify(coworkingRegistry.knownSessionIds())} returnedCount=${result.terminals.length}`,
+				'Coworking'
+			);
+			return { id: req.id, result };
 		}
 		if (method === 'readTerminal') {
 			const params = (req.params ?? {}) as { id?: string; lines?: number };

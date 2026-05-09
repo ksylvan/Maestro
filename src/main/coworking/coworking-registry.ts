@@ -75,6 +75,13 @@ class CoworkingRegistry {
 		return out;
 	}
 
+	/** Diagnostic: list every sessionId currently known to the registry. */
+	knownSessionIds(): string[] {
+		const seen = new Set<string>();
+		for (const rec of this.records.values()) seen.add(rec.sessionId);
+		return Array.from(seen);
+	}
+
 	/** Resolve a public id (e.g. "term:3") to the renderer-side UUID, scoped to one session. */
 	resolveTabUuidForSession(sessionId: string, publicId: string): string | null {
 		for (const rec of this.records.values()) {
