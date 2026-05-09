@@ -50,10 +50,6 @@ if (!SESSION_ID) {
   );
   process.exit(1);
 }
-// Diagnostic: confirm what env value reached us. Visible in the agent CLI's
-// MCP-stderr stream (e.g. claude-code's debug log). Remove once PR #948 is
-// verified end-to-end.
-process.stderr.write('[maestro-coworking] startup SESSION_ID=' + SESSION_ID + ' SOCKET=' + SOCKET_PATH + '\n');
 
 const SERVER_INFO = { name: 'maestro-coworking', version: '1.0.0' };
 // Listed newest-first. The MCP spec says: if the client requests a version we
