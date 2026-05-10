@@ -9,9 +9,10 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useThemeColors } from '../components/ThemeProvider';
 import { triggerHaptic, HAPTIC_PATTERNS } from './constants';
 import { useAutoRun } from '../hooks/useAutoRun';
-import type { AutoRunDocument, LaunchConfig, Playbook } from '../hooks/useAutoRun';
+import type { AutoRunDocument, LaunchConfig, Playbook, WorktreeSummary } from '../hooks/useAutoRun';
 import type { UseWebSocketReturn } from '../hooks/useWebSocket';
 import { TEMPLATE_VARIABLES } from '../../shared/templateVariables';
+import { AutoRunWorktreeSection, type AutoRunWorktreeState } from './AutoRunWorktreeSection';
 
 /**
  * Props for AutoRunSetupSheet component
@@ -21,6 +22,14 @@ export interface AutoRunSetupSheetProps {
 	documents: AutoRunDocument[];
 	onLaunch: (config: LaunchConfig) => void;
 	onClose: () => void;
+	/** Whether the session's cwd is a git repo (gates Run-in-Worktree section). */
+	isGitRepo?: boolean;
+	/** Base path where worktrees are stored, configured on desktop. */
+	worktreeBasePath?: string | null;
+	/** Lazy loader for the base-branch picker (omit to hide the section). */
+	loadGitBranches?: () => Promise<{ branches: string[]; currentBranch?: string }>;
+	/** Lazy loader for existing worktrees list (informational). */
+	loadWorktrees?: () => Promise<WorktreeSummary[]>;
 	/** WebSocket sendRequest — required so the sheet can list/save/delete playbooks. */
 	sendRequest: UseWebSocketReturn['sendRequest'];
 	/** WebSocket send — passed through to useAutoRun (unused inside the sheet directly). */
@@ -46,6 +55,10 @@ export function AutoRunSetupSheet({
 	documents,
 	onLaunch,
 	onClose,
+	isGitRepo = false,
+	worktreeBasePath = null,
+	loadGitBranches,
+	loadWorktrees,
 	sendRequest,
 	send,
 	currentDocument,
@@ -68,6 +81,9 @@ export function AutoRunSetupSheet({
 	const [prompt, setPrompt] = useState('');
 	const [loopEnabled, setLoopEnabled] = useState(false);
 	const [maxLoops, setMaxLoops] = useState(3);
+	const [worktreeState, setWorktreeState] = useState<AutoRunWorktreeState>({
+		status: 'disabled',
+	});
 	const [isVisible, setIsVisible] = useState(false);
 	// Mirrors desktop's `DocumentSelectorModal`: unselected docs are tucked
 	// behind an "Add documents" expander so the sheet doesn't open with the
@@ -178,6 +194,7 @@ export function AutoRunSetupSheet({
 		setPrompt('');
 		setLoopEnabled(false);
 		setMaxLoops(3);
+		setWorktreeState({ status: 'disabled' });
 		setActivePlaybookId(null);
 		// Clear selections and the init flag so the next documents effect re-seeds
 		// selectedFiles from whatever the *new* session has (matching pre-fix
@@ -312,15 +329,21 @@ export function AutoRunSetupSheet({
 
 	const handleLaunch = useCallback(() => {
 		if (selectedFiles.size === 0) return;
+		// Block launch when the worktree section is enabled but invalid (e.g.
+		// branch name cleared, branch fetch failed). Without this guard the
+		// run would silently fall through to a regular Auto Run on the main
+		// checkout, which is not what the user asked for.
+		if (worktreeState.status === 'enabled-invalid') return;
 		triggerHaptic(HAPTIC_PATTERNS.success);
 		const config: LaunchConfig = {
 			documents: Array.from(selectedFiles).map((filename) => ({ filename })),
 			prompt: prompt.trim() || undefined,
 			loopEnabled: loopEnabled || undefined,
 			maxLoops: loopEnabled ? maxLoops : undefined,
+			...(worktreeState.status === 'enabled-valid' ? { worktree: worktreeState.config } : {}),
 		};
 		onLaunch(config);
-	}, [selectedFiles, prompt, loopEnabled, maxLoops, onLaunch]);
+	}, [selectedFiles, prompt, loopEnabled, maxLoops, worktreeState, onLaunch]);
 
 	const handleSelectPlaybook = useCallback(
 		(playbook: Playbook) => {
@@ -1065,6 +1088,17 @@ export function AutoRunSetupSheet({
 						)}
 					</div>
 
+					{/* Run-in-Worktree section — hidden for non-git repos. */}
+					{loadGitBranches && loadWorktrees && (
+						<AutoRunWorktreeSection
+							isGitRepo={isGitRepo}
+							worktreeBasePath={worktreeBasePath}
+							loadBranches={loadGitBranches}
+							loadWorktrees={loadWorktrees}
+							onChange={setWorktreeState}
+						/>
+					)}
+
 					{/* Prompt input section — desktop BatchRunnerModal exposes a
 						"Template Variables" collapsible reference here that lets the
 						user click to insert. Mirror that on web so the user doesn't
@@ -1345,6 +1379,18 @@ export function AutoRunSetupSheet({
 						flexShrink: 0,
 					}}
 				>
+					{worktreeState.status === 'enabled-invalid' && (
+						<div
+							style={{
+								fontSize: '12px',
+								color: colors.warning,
+								marginBottom: '8px',
+								textAlign: 'center',
+							}}
+						>
+							Run-in-Worktree: {worktreeState.reason}
+						</div>
+					)}
 					<button
 						type="button"
 						onClick={handleClose}
@@ -1368,18 +1414,25 @@ export function AutoRunSetupSheet({
 					</button>
 					<button
 						onClick={handleLaunch}
-						disabled={selectedFiles.size === 0}
+						disabled={selectedFiles.size === 0 || worktreeState.status === 'enabled-invalid'}
 						style={{
 							flex: 2,
 							padding: '14px 20px',
 							borderRadius: '12px',
-							backgroundColor: selectedFiles.size === 0 ? `${colors.accent}40` : colors.accent,
+							backgroundColor:
+								selectedFiles.size === 0 || worktreeState.status === 'enabled-invalid'
+									? `${colors.accent}40`
+									: colors.accent,
 							border: 'none',
 							color: 'white',
 							fontSize: '16px',
 							fontWeight: 600,
-							cursor: selectedFiles.size === 0 ? 'not-allowed' : 'pointer',
-							opacity: selectedFiles.size === 0 ? 0.5 : 1,
+							cursor:
+								selectedFiles.size === 0 || worktreeState.status === 'enabled-invalid'
+									? 'not-allowed'
+									: 'pointer',
+							opacity:
+								selectedFiles.size === 0 || worktreeState.status === 'enabled-invalid' ? 0.5 : 1,
 							touchAction: 'manipulation',
 							WebkitTapHighlightColor: 'transparent',
 							minHeight: '50px',

@@ -1478,10 +1478,24 @@ export default function MobileApp() {
 		documents: autoRunDocuments,
 		loadDocuments: loadAutoRunDocuments,
 		launchAutoRun,
+		loadGitBranches: loadAutoRunGitBranches,
+		listWorktrees: listAutoRunWorktrees,
 		resumeAutoRunError,
 		skipAutoRunDocument,
 		abortAutoRunError,
 	} = useAutoRun(sendRequest, send, currentAutoRunState);
+
+	// Loaders bound to the active session so the worktree section can lazily
+	// fetch branches / worktrees without prop drilling sessionId.
+	const handleLoadAutoRunBranches = useCallback(async () => {
+		if (!activeSessionId) return { branches: [] };
+		return loadAutoRunGitBranches(activeSessionId);
+	}, [activeSessionId, loadAutoRunGitBranches]);
+
+	const handleListAutoRunWorktrees = useCallback(async () => {
+		if (!activeSessionId) return [];
+		return listAutoRunWorktrees(activeSessionId);
+	}, [activeSessionId, listAutoRunWorktrees]);
 
 	// Bind error-recovery handlers to the active session so the AutoRunIndicator
 	// can call them with no arguments. Memoized so the indicator doesn't see a
@@ -3260,6 +3274,10 @@ export default function MobileApp() {
 					documents={autoRunDocuments}
 					onLaunch={handleAutoRunLaunch}
 					onClose={handleAutoRunCloseSetup}
+					isGitRepo={activeSession?.isGitRepo ?? false}
+					worktreeBasePath={activeSession?.worktreeBasePath ?? null}
+					loadGitBranches={handleLoadAutoRunBranches}
+					loadWorktrees={handleListAutoRunWorktrees}
 					sendRequest={sendRequest}
 					send={send}
 					currentDocument={autoRunSelectedDoc}
