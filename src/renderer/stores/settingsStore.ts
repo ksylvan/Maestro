@@ -2203,8 +2203,19 @@ export async function loadAllSettings(): Promise<void> {
 		if (allSettings['webInterfaceCustomPort'] !== undefined)
 			patch.webInterfaceCustomPort = allSettings['webInterfaceCustomPort'] as number;
 
-		if (allSettings['colorBlindMode'] !== undefined)
-			patch.colorBlindMode = allSettings['colorBlindMode'] as boolean;
+		if (allSettings['colorBlindMode'] !== undefined) {
+			// Legacy installs and the mobile/web client persist this as a
+			// string ('none', 'enabled', 'deuteranopia', 'protanopia',
+			// 'tritanopia', or the literal 'false'). A bare `as boolean` cast
+			// leaves any non-empty string truthy, so 'none' silently forced
+			// every Usage Dashboard chart onto the colorblind palette and
+			// hid the active theme's accent. Coerce explicitly: any string
+			// other than 'none'/'false'/'' is treated as "on".
+			const raw = allSettings['colorBlindMode'];
+			patch.colorBlindMode =
+				raw === true ||
+				(typeof raw === 'string' && raw !== 'none' && raw !== 'false' && raw !== '');
+		}
 
 		if (allSettings['showStarredInUnreadFilter'] !== undefined)
 			patch.showStarredInUnreadFilter = allSettings['showStarredInUnreadFilter'] as boolean;
