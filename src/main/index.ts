@@ -82,6 +82,7 @@ import {
 } from './ipc/handlers';
 import { startCoworkingBridge, stopCoworkingBridge } from './coworking/coworking-bridge';
 import { ensureCoworkingServerScript } from './coworking/coworking-server-paths';
+import { resolveSessionFromPidWalk } from './coworking/pid-resolution';
 import { initializeStatsDB, closeStatsDB, getStatsDB } from './stats';
 import { groupChatEmitters } from './ipc/handlers/groupChat';
 import {
@@ -1107,7 +1108,13 @@ function setupIpcHandlers() {
 	void (async () => {
 		try {
 			await ensureCoworkingServerScript();
-			await startCoworkingBridge();
+			await startCoworkingBridge({
+				resolveSessionFromPid: (pid) =>
+					resolveSessionFromPidWalk(
+						pid,
+						(candidate) => processManager?.getSessionIdByPid(candidate) ?? null
+					),
+			});
 		} catch (err) {
 			void captureException(err instanceof Error ? err : new Error(String(err)), {
 				operation: 'startup:coworkingBridge',

@@ -45,6 +45,7 @@ function newConn(): Socket {
 describe('coworking-bridge dispatch (handshake + session binding)', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		__testing.setResolveSessionFromPid(null);
 	});
 
 	it('rejects listTerminals before hello', async () => {
@@ -86,7 +87,7 @@ describe('coworking-bridge dispatch (handshake + session binding)', () => {
 		expect(state.sessionId).toBe('sess-A');
 	});
 
-	it('hello rejects empty / missing sessionId', async () => {
+	it('hello rejects when neither sessionId nor ppid is provided', async () => {
 		const conn = newConn();
 		__testing.connections.set(conn, { sessionId: null });
 
@@ -99,6 +100,75 @@ describe('coworking-bridge dispatch (handshake + session binding)', () => {
 			params: { sessionId: '' },
 		});
 		expect(r2.error?.code).toBe(-32602);
+
+		const r3 = await __testing.dispatch(conn, {
+			id: 3,
+			method: 'hello',
+			params: { ppid: 0 },
+		});
+		expect(r3.error?.code).toBe(-32602);
+	});
+
+	it('hello with ppid resolves session via the registered resolver', async () => {
+		const conn = newConn();
+		__testing.connections.set(conn, { sessionId: null });
+		const resolver = vi.fn((pid: number) => (pid === 4242 ? 'sess-via-pid' : null));
+		__testing.setResolveSessionFromPid(resolver);
+
+		const resp = await __testing.dispatch(conn, {
+			id: 1,
+			method: 'hello',
+			params: { ppid: 4242 },
+		});
+		expect(resp.error).toBeUndefined();
+		expect(resp.result).toEqual({ ok: true });
+		expect(resolver).toHaveBeenCalledWith(4242);
+		expect(__testing.connections.get(conn)?.sessionId).toBe('sess-via-pid');
+	});
+
+	it('hello with ppid rejects when resolver returns null', async () => {
+		const conn = newConn();
+		__testing.connections.set(conn, { sessionId: null });
+		__testing.setResolveSessionFromPid(() => null);
+
+		const resp = await __testing.dispatch(conn, {
+			id: 1,
+			method: 'hello',
+			params: { ppid: 99999 },
+		});
+		expect(resp.error?.code).toBe(-32602);
+		expect(resp.error?.message).toMatch(/peer PID/i);
+		expect(__testing.connections.get(conn)?.sessionId).toBeNull();
+	});
+
+	it('hello with ppid but no resolver wired rejects', async () => {
+		const conn = newConn();
+		__testing.connections.set(conn, { sessionId: null });
+		__testing.setResolveSessionFromPid(null);
+
+		const resp = await __testing.dispatch(conn, {
+			id: 1,
+			method: 'hello',
+			params: { ppid: 100 },
+		});
+		expect(resp.error?.code).toBe(-32602);
+		expect(resp.error?.message).toMatch(/resolver not configured/i);
+	});
+
+	it('hello prefers sessionId over ppid when both are present', async () => {
+		const conn = newConn();
+		__testing.connections.set(conn, { sessionId: null });
+		const resolver = vi.fn(() => 'sess-from-pid');
+		__testing.setResolveSessionFromPid(resolver);
+
+		const resp = await __testing.dispatch(conn, {
+			id: 1,
+			method: 'hello',
+			params: { sessionId: 'sess-explicit', ppid: 4242 },
+		});
+		expect(resp.error).toBeUndefined();
+		expect(__testing.connections.get(conn)?.sessionId).toBe('sess-explicit');
+		expect(resolver).not.toHaveBeenCalled();
 	});
 
 	it('after hello, listTerminals is dispatched with the bound sessionId', async () => {

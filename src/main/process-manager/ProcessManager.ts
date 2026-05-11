@@ -406,6 +406,28 @@ export class ProcessManager extends EventEmitter {
 	}
 
 	/**
+	 * Look up the *owning Maestro session id* for a given OS PID, or null if
+	 * the PID does not match any tracked agent-CLI process. Used by the
+	 * coworking bridge to bind a connection when an agent CLI (e.g. Codex)
+	 * does not propagate `MAESTRO_COWORKING_SESSION_ID` into the MCP
+	 * subprocess it spawned — the subprocess instead sends `process.ppid`
+	 * during handshake and we walk the parent chain to find the owning agent.
+	 *
+	 * Terminals are excluded: they don't spawn MCP clients, and skipping them
+	 * preserves the property that only AI-tab processes can ever satisfy a
+	 * coworking handshake.
+	 */
+	getSessionIdByPid(pid: number): string | null {
+		if (!Number.isInteger(pid) || pid <= 0) return null;
+		for (const proc of this.processes.values()) {
+			if (proc.pid === pid && proc.toolType !== 'terminal') {
+				return resolveOwningMaestroSessionId(proc.sessionId);
+			}
+		}
+		return null;
+	}
+
+	/**
 	 * Get the output parser for a session's agent type
 	 */
 	getParser(sessionId: string): AgentOutputParser | null {

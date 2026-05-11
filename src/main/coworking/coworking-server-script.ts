@@ -37,19 +37,15 @@ if (!SOCKET_PATH) {
 }
 
 // SESSION_ID identifies which Maestro session (left-bar agent) owns this MCP
-// subprocess. Set by the main process at agent-CLI spawn time and inherited
-// down through the agent CLI when it spawns its MCP subprocesses. Without it
-// we cannot prove which session is calling, and would risk leaking another
-// session's terminals — fail closed.
-const SESSION_ID = process.env.MAESTRO_COWORKING_SESSION_ID;
-if (!SESSION_ID) {
-  process.stderr.write(
-    '[maestro-coworking] MAESTRO_COWORKING_SESSION_ID env var is required. ' +
-    'If you are running this MCP server outside Maestro, this is expected. ' +
-    'Inside Maestro, restart the agent so the new env reaches the MCP subprocess.\n'
-  );
-  process.exit(1);
-}
+// subprocess. The fast path is env injection at agent-CLI spawn time, which
+// works for any agent CLI that propagates parent env to its MCP subprocesses
+// (Claude Code, OpenCode). For agent CLIs that do NOT propagate parent env
+// (notably Codex), SESSION_ID will be absent and the bridge falls back to
+// PID-based resolution: we always include process.ppid in the hello payload
+// and the bridge walks the process tree to find the owning agent. Failing
+// here would make coworking unusable in Codex; failing closed for unknown
+// callers happens in the bridge instead.
+const SESSION_ID = process.env.MAESTRO_COWORKING_SESSION_ID || null;
 
 const SERVER_INFO = { name: 'maestro-coworking', version: '1.0.0' };
 // Listed newest-first. The MCP spec says: if the client requests a version we
@@ -195,9 +191,16 @@ function rpc(conn, method, params) {
 // Perform the session-binding handshake exactly once per connection. Cached on
 // helloPromise so concurrent first callers share one in-flight handshake; the
 // connect-close handlers reset it so a reconnect re-handshakes.
+//
+// We send sessionId when env propagation worked, and *always* send ppid so the
+// bridge can fall back to walking the process tree when env propagation didn't.
+// The bridge prefers sessionId if both are present.
 function bridgeHello(conn) {
   if (helloPromise) return helloPromise;
-  helloPromise = rpc(conn, 'hello', { sessionId: SESSION_ID }).catch((err) => {
+  const params = {};
+  if (SESSION_ID) params.sessionId = SESSION_ID;
+  if (typeof process.ppid === 'number' && process.ppid > 0) params.ppid = process.ppid;
+  helloPromise = rpc(conn, 'hello', params).catch((err) => {
     helloPromise = null;
     throw err;
   });

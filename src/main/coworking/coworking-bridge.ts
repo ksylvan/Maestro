@@ -10,11 +10,23 @@
  * Wire format: newline-delimited JSON-RPC-shaped requests / responses
  * (`{id, method, params}` / `{id, result}` or `{id, error}`).
  *
- * Session binding: every connection MUST send `{method: "hello", params:{sessionId}}`
- * as its first message. The bridge stores that sessionId per-connection and uses it
- * to scope tool calls. Pre-handshake `listTerminals`/`readTerminal` calls are rejected.
- * This is what stops Agent A from reading Agent B's terminals when the user switches
- * focus mid-call (the privacy bug fixed in PR #948).
+ * Session binding: every connection MUST send `{method: "hello", params: {...}}`
+ * as its first message. The bridge stores the resolved sessionId per-connection
+ * and uses it to scope tool calls. Pre-handshake `listTerminals`/`readTerminal`
+ * calls are rejected. This is what stops Agent A from reading Agent B's terminals
+ * when the user switches focus mid-call (the privacy bug fixed in PR #948).
+ *
+ * The hello payload supports two resolution sources, in priority order:
+ *   1. `sessionId`: injected via `MAESTRO_COWORKING_SESSION_ID` env at agent-CLI
+ *      spawn time and propagated by the agent CLI to its MCP subprocess. Works
+ *      for Claude Code and OpenCode.
+ *   2. `ppid`: the MCP subprocess's parent PID. Used when the agent CLI does NOT
+ *      propagate parent env (e.g. Codex, which only passes the env declared in
+ *      its config TOML). The bridge walks the process tree up from `ppid` until
+ *      it finds a known agent-CLI PID, then binds to that agent's session.
+ *
+ * Either source is sufficient. If both are absent, or `ppid` is sent but resolves
+ * to no known agent, the bridge rejects the connection — fail closed.
  */
 
 import { app } from 'electron';
@@ -33,6 +45,17 @@ import { listTerminals, readTerminal } from './coworking-tools';
 const LOG_CTX = '[Coworking][Bridge]';
 
 let server: net.Server | null = null;
+
+/**
+ * Optional fallback resolver: maps a peer-process PID (sent by the MCP
+ * subprocess in its handshake as `ppid`) to the owning Maestro session id by
+ * walking the process tree until a known agent-CLI PID is found. Wired by the
+ * main-process startup so the bridge can support agent CLIs (notably Codex)
+ * that do not propagate `MAESTRO_COWORKING_SESSION_ID` env into MCP subprocesses.
+ */
+export type CoworkingSessionFromPidResolver = (pid: number) => string | null;
+
+let resolveSessionFromPid: CoworkingSessionFromPidResolver | null = null;
 
 /** Per-connection state keyed by socket. The sessionId is set on `hello` and
  *  stays put for the lifetime of the connection. */
@@ -54,7 +77,12 @@ export function getBridgeEnvVar(): { name: string; value: string } {
 }
 
 /** Start the bridge. Idempotent. Must be called inside `app.whenReady`. */
-export async function startCoworkingBridge(): Promise<void> {
+export async function startCoworkingBridge(options?: {
+	resolveSessionFromPid?: CoworkingSessionFromPidResolver;
+}): Promise<void> {
+	if (options?.resolveSessionFromPid !== undefined) {
+		resolveSessionFromPid = options.resolveSessionFromPid;
+	}
 	if (server) return;
 
 	const socketPath = getBridgeSocketPath();
@@ -149,14 +177,53 @@ async function dispatch(
 	const state = connections.get(conn);
 	try {
 		if (method === 'hello') {
-			const params = (req.params ?? {}) as { sessionId?: string };
-			if (typeof params.sessionId !== 'string' || params.sessionId.length === 0) {
+			const params = (req.params ?? {}) as { sessionId?: string | null; ppid?: number };
+			let bound: string | null = null;
+
+			// Explicit sessionId wins. Agents that propagate env (Claude Code,
+			// OpenCode) take this path; the env is the strongest binding signal
+			// because the main process injected it at agent-CLI spawn time.
+			if (typeof params.sessionId === 'string' && params.sessionId.length > 0) {
+				bound = params.sessionId;
+			} else if (
+				typeof params.ppid === 'number' &&
+				Number.isInteger(params.ppid) &&
+				params.ppid > 0
+			) {
+				// Fallback for agents that don't propagate env (e.g. Codex CLI):
+				// walk the process tree from the MCP subprocess up to a tracked
+				// agent-CLI PID. If nothing matches, fail closed — silent default
+				// would reintroduce the privacy hole PR #948 closed.
+				if (!resolveSessionFromPid) {
+					return {
+						id: req.id,
+						error: {
+							code: -32602,
+							message: 'coworking bridge: ppid resolver not configured',
+						},
+					};
+				}
+				bound = resolveSessionFromPid(params.ppid);
+				if (!bound) {
+					return {
+						id: req.id,
+						error: {
+							code: -32602,
+							message: 'coworking bridge: could not resolve session from peer PID',
+						},
+					};
+				}
+			} else {
 				return {
 					id: req.id,
-					error: { code: -32602, message: '`sessionId` is required for hello' },
+					error: {
+						code: -32602,
+						message: '`sessionId` or `ppid` is required for hello',
+					},
 				};
 			}
-			if (state) state.sessionId = params.sessionId;
+
+			if (state) state.sessionId = bound;
 			return { id: req.id, result: { ok: true } };
 		}
 
@@ -167,7 +234,8 @@ async function dispatch(
 				id: req.id,
 				error: {
 					code: -32002,
-					message: 'coworking bridge: handshake required (send `hello` with sessionId first)',
+					message:
+						'coworking bridge: handshake required (send `hello` with sessionId or ppid first)',
 				},
 			};
 		}
@@ -196,4 +264,7 @@ async function dispatch(
 export const __testing = {
 	dispatch,
 	connections,
+	setResolveSessionFromPid(fn: CoworkingSessionFromPidResolver | null) {
+		resolveSessionFromPid = fn;
+	},
 };
