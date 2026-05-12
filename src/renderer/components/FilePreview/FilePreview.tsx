@@ -304,6 +304,16 @@ export const FilePreview = React.memo(
 			displayedContentLength: displayContent.length,
 			initialSearchQuery,
 			onSearchQueryChange,
+			// Fast tier: route search through the markdown-fast handle so the
+			// match count covers virtualized blocks (not just the ~30 mounted)
+			// and navigation scrolls Virtuoso to the right block.
+			searchAdapter:
+				previewTier === 'fast'
+					? {
+							findHits: (q) => markdownFastRef.current?.findInContent(q) ?? [],
+							scrollToMatch: (m) => markdownFastRef.current?.scrollToMatch(m),
+						}
+					: undefined,
 		});
 
 		// Bionify reading mode follows the global setting; disabled while search highlights are active.

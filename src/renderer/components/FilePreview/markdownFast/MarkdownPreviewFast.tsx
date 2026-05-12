@@ -11,6 +11,9 @@ import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { buildBlocks } from './pipeline';
 import { sanitizeBlock } from './sanitize';
 import { resolveLinkAction } from './linkRouter';
+import { createCodeHighlighter } from './codeHighlighter';
+import { createMermaidRenderer } from './mermaidRenderer';
+import { findHits } from './searchHits';
 import { FAST_BLOCK_CLASS, generateProseCss } from './proseStyles';
 import type { MarkdownBlock, MarkdownPreviewFastHandle, MarkdownPreviewFastProps } from './types';
 
@@ -34,7 +37,17 @@ const VIRTUOSO_OVERSCAN_PX = 600;
  */
 export const MarkdownPreviewFast = forwardRef<MarkdownPreviewFastHandle, MarkdownPreviewFastProps>(
 	function MarkdownPreviewFast(
-		{ content, theme, markdownContainerRef, onFileClick, onExternalLinkClick },
+		{
+			content,
+			theme,
+			markdownContainerRef,
+			fileTreeIndices,
+			cwd,
+			homeDir,
+			projectRoot,
+			onFileClick,
+			onExternalLinkClick,
+		},
 		ref
 	) {
 		const virtuosoRef = useRef<VirtuosoHandle>(null);
@@ -43,9 +56,11 @@ export const MarkdownPreviewFast = forwardRef<MarkdownPreviewFastHandle, Markdow
 		const blocksRef = useRef<MarkdownBlock[]>([]);
 		blocksRef.current = blocks;
 
-		// Imperative handle: scroll the virtualizer to the block whose heading slug
-		// matches. Returns true when a match was found so the caller (FilePreviewToc)
-		// can fall back to the Rich-path DOM scroll behavior if needed.
+		// Imperative handle exposed to the parent FilePreview. Drives TOC scroll
+		// and Cmd+F search navigation in the Fast tier. Stable across renders
+		// thanks to the refs (blocksRef, contentRef) it closes over.
+		const contentRef = useRef(content);
+		contentRef.current = content;
 		useImperativeHandle(
 			ref,
 			() => ({
@@ -55,8 +70,37 @@ export const MarkdownPreviewFast = forwardRef<MarkdownPreviewFastHandle, Markdow
 					virtuosoRef.current?.scrollToIndex({ index: idx, align: 'start', behavior: 'auto' });
 					return true;
 				},
+				findInContent: (query: string) => {
+					const blockRanges = blocksRef.current
+						.filter(
+							(b): b is typeof b & { sourceStart: number; sourceEnd: number } =>
+								b.sourceStart !== undefined && b.sourceEnd !== undefined
+						)
+						.map((b) => ({ start: b.sourceStart, end: b.sourceEnd }));
+					return findHits(contentRef.current, query, blockRanges);
+				},
+				scrollToMatch: (match) => {
+					if (match.blockIndex < 0 || match.blockIndex >= blocksRef.current.length) return;
+					virtuosoRef.current?.scrollToIndex({
+						index: match.blockIndex,
+						align: 'center',
+						behavior: 'auto',
+					});
+				},
 			}),
 			[]
+		);
+
+		// File-link config bundled once so the parse effect's dependency list
+		// stays stable across renders (caller already memoizes fileTreeIndices).
+		const fileLinksOptions = useMemo(
+			() => ({
+				indices: fileTreeIndices ?? undefined,
+				cwd,
+				homeDir,
+				projectRoot,
+			}),
+			[fileTreeIndices, cwd, homeDir, projectRoot]
 		);
 
 		// Parse pipeline. Defers large parses so the first frame paints a skeleton
@@ -65,7 +109,7 @@ export const MarkdownPreviewFast = forwardRef<MarkdownPreviewFastHandle, Markdow
 			let cancelled = false;
 
 			if (content.length < SYNC_PARSE_BYTES) {
-				const parsed = buildBlocks(content);
+				const parsed = buildBlocks(content, { fileLinks: fileLinksOptions });
 				if (!cancelled) setBlocks(parsed);
 				return () => {
 					cancelled = true;
@@ -75,7 +119,7 @@ export const MarkdownPreviewFast = forwardRef<MarkdownPreviewFastHandle, Markdow
 			setBlocks([]);
 			const handle = setTimeout(() => {
 				if (cancelled) return;
-				const parsed = buildBlocks(content);
+				const parsed = buildBlocks(content, { fileLinks: fileLinksOptions });
 				if (!cancelled) setBlocks(parsed);
 			}, 0);
 
@@ -83,7 +127,7 @@ export const MarkdownPreviewFast = forwardRef<MarkdownPreviewFastHandle, Markdow
 				cancelled = true;
 				clearTimeout(handle);
 			};
-		}, [content]);
+		}, [content, fileLinksOptions]);
 
 		// Sanitize lazily per-block so blocks the user never scrolls to don't pay
 		// the cost.
@@ -150,6 +194,29 @@ export const MarkdownPreviewFast = forwardRef<MarkdownPreviewFastHandle, Markdow
 		);
 
 		const proseCss = useMemo(() => generateProseCss(theme), [theme]);
+
+		// Lazy code-block syntax highlighter: observes the scroll container and
+		// fires Shiki on each code block as it scrolls into view. Disconnects on
+		// unmount so we don't leak the IntersectionObserver or the Shiki bundle.
+		useEffect(() => {
+			const root = containerRef.current;
+			if (!root) return;
+			const highlighter = createCodeHighlighter({ theme });
+			const mermaid = createMermaidRenderer({ theme });
+			highlighter.observe(root);
+			mermaid.observe(root);
+			// Re-observe after the next paint — new Virtuoso items may have
+			// mounted in the layout pass that just finished.
+			const rafId = requestAnimationFrame(() => {
+				highlighter.observe(root);
+				mermaid.observe(root);
+			});
+			return () => {
+				cancelAnimationFrame(rafId);
+				highlighter.disconnect();
+				mermaid.disconnect();
+			};
+		}, [theme, blocks]);
 
 		return (
 			<div

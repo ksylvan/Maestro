@@ -1,0 +1,65 @@
+/**
+ * Shared regex patterns for detecting file references in markdown text.
+ *
+ * Lives in its own module so both the Rich-path remark plugin and the
+ * Fast-tier markdown-it adapter use IDENTICAL regexes. Drift here would
+ * cause subtle parity bugs ("works in small files, broken in big ones").
+ */
+
+/**
+ * File extensions we recognize as link targets. Includes code, configs,
+ * docs, media, data, and archive formats. Lowercase only — callers must
+ * use case-insensitive matching.
+ */
+export const LINKABLE_EXTENSIONS =
+	'md|txt|json|yaml|yml|toml|ts|tsx|js|jsx|py|rb|go|rs|java|c|cpp|h|hpp|css|scss|html|xml|sh|bash|zsh' +
+	'|pdf|csv|tsv|sql|log|diff|patch|env|ini|cfg|conf|lock|makefile' +
+	'|wav|mp3|flac|aac|ogg|m4a|mp4|mkv|avi|mov|webm' +
+	'|zip|tar|gz|rar|7z' +
+	'|doc|docx|xls|xlsx|ppt|pptx|rtf';
+
+/**
+ * Obsidian-style image embed: `![[image.png]]` or `![[folder/image.png]]`
+ * optionally suffixed with `|width` for sizing (e.g. `|300` = 300px).
+ * Only matches paths ending with a recognized image extension.
+ */
+export const IMAGE_EMBED_PATTERN =
+	/!\[\[([^\]|]+\.(?:png|jpg|jpeg|gif|webp|svg|bmp|ico))(?:\|(\d+))?\]\]/gi;
+
+/**
+ * Obsidian-style wiki link: `[[Note]]` or `[[Folder/Note]]` or
+ * `[[Folder/Note|Display Text]]` (pipe = optional display alias).
+ */
+export const WIKI_LINK_PATTERN = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+
+/**
+ * Relative path reference: `Folder/Subfolder/file.md` or `file.md`. Must
+ * contain a slash OR end with a recognized extension. Negative lookbehind
+ * `(?<![:\w])` and lookahead avoid matching URLs or words.
+ */
+export const PATH_PATTERN = new RegExp(
+	`(?<![:\\w])(?:(?:[A-Za-z0-9_-]+\\/)+[A-Za-z0-9_.-]+|[A-Za-z0-9_-]+\\.(?:${LINKABLE_EXTENSIONS}))(?![:\\w/])`,
+	'g'
+);
+
+/**
+ * Absolute filesystem path: `/Users/name/Project/file.md`. Must end with
+ * a recognized file extension. Lookahead allows whitespace, end-of-string,
+ * or common punctuation as terminator.
+ */
+export const ABSOLUTE_PATH_PATTERN = new RegExp(
+	`\\/(?:[^/\\n]+\\/)+[^/\\n]+\\.(?:${LINKABLE_EXTENSIONS})(?=\\s|$|[.,;:!?\`'"\\)\\]}>])`,
+	'g'
+);
+
+/**
+ * Tilde-expanded path: `~/Documents/note.md`. Same shape as absolute path
+ * but rooted at the user's home directory; resolution requires homeDir.
+ */
+export const TILDE_PATH_PATTERN = new RegExp(
+	`~\\/(?:[^\\s/]+\\/)*[^\\s/]+\\.(?:${LINKABLE_EXTENSIONS})(?=\\s|$|[.,;:!?\`'"\\)\\]}>])`,
+	'g'
+);
+
+/** Anchored extension check for inline-code path validation. */
+export const INLINE_CODE_EXT_PATTERN = new RegExp(`\\.(?:${LINKABLE_EXTENSIONS})$`, 'i');

@@ -18,6 +18,15 @@ export interface MarkdownBlock {
 	 * blocks (paragraphs, lists, code, etc.).
 	 */
 	headingSlug?: string;
+	/**
+	 * Character offset in the original source where this block begins.
+	 * Used by Fast tier search to map a source-string match offset back to
+	 * the index of the block it lives in. Undefined for synthesized blocks
+	 * (e.g. the frontmatter HTML prepended by the pipeline).
+	 */
+	sourceStart?: number;
+	/** Exclusive end offset in the source string. */
+	sourceEnd?: number;
 }
 
 /**
@@ -26,8 +35,32 @@ export interface MarkdownBlock {
  * by the preview because it has the parsed block array; callers only need
  * to know the slug.
  */
+/**
+ * One match returned by `findInContent`. Block-relative info lets the caller
+ * scroll the virtualizer to the right block; source offset lets the caller
+ * apply highlights inside the source view if it has one.
+ */
+export interface MarkdownPreviewSearchMatch {
+	sourceOffset: number;
+	length: number;
+	blockIndex: number;
+}
+
 export interface MarkdownPreviewFastHandle {
 	scrollToHeading: (slug: string) => boolean;
+	/**
+	 * Search the source string for `query` and return all matches with their
+	 * block indices. The Cmd+F UI calls this to drive match counts. Empty
+	 * query returns []. Result is ordered by source offset ascending.
+	 */
+	findInContent: (query: string) => MarkdownPreviewSearchMatch[];
+	/**
+	 * Scroll the virtualizer to the block containing the given match. Accepts
+	 * any object carrying `blockIndex` so adapters that only know the block
+	 * index (e.g. the search hook) can call it without manufacturing the
+	 * other fields. No-op when the index is out of range.
+	 */
+	scrollToMatch: (match: { blockIndex: number }) => void;
 }
 
 /**
