@@ -75,7 +75,14 @@ class BridgeClient {
 			let msg: { type?: string; [k: string]: unknown };
 			try {
 				msg = JSON.parse(typeof ev.data === 'string' ? ev.data : String(ev.data));
-			} catch {
+			} catch (err) {
+				// One malformed frame shouldn't tear down the whole connection
+				// (that would reject every in-flight invoke for one bad payload).
+				// Log it so the failure is visible during debugging and drop the
+				// frame.
+				const raw = typeof ev.data === 'string' ? ev.data : String(ev.data);
+				const preview = raw.length > 200 ? `${raw.slice(0, 200)}…` : raw;
+				console.warn('[bridge] dropping unparseable frame', { error: err, preview });
 				return;
 			}
 			if (msg.type === 'bridge.response') {
@@ -149,6 +156,11 @@ class BridgeClient {
 		this.listeners.get(channel)?.delete(listener);
 	}
 
+	removeAllListeners(channel?: string): void {
+		if (typeof channel === 'string') this.listeners.delete(channel);
+		else this.listeners.clear();
+	}
+
 	once(channel: string, listener: Listener): void {
 		const wrapped: Listener = (event, ...args) => {
 			this.off(channel, wrapped);
@@ -181,9 +193,23 @@ export const ipcRenderer = {
 		bridge.off(channel, listener);
 		return ipcRenderer;
 	},
-	removeAllListeners: (_channel?: string) => ipcRenderer,
+	removeAllListeners: (channel?: string) => {
+		bridge.removeAllListeners(channel);
+		return ipcRenderer;
+	},
+	// Synchronous IPC can't be tunneled over a WebSocket; failing loudly here
+	// is safer than returning undefined and letting callers miscompute on a
+	// silent null. Real desktop code paths only use invoke/send/on.
+	sendSync: () => {
+		throw new Error(
+			'ipcRenderer.sendSync is not supported in the web-desktop bridge — use invoke() instead'
+		);
+	},
+	// Intentional no-ops: postMessage (MessagePort transfer), sendTo and
+	// sendToHost (cross-window/host IPC) have no callers in this codebase and
+	// no meaningful translation to the WS bridge. Kept for API parity so
+	// duck-typed renderer code that probes for these methods doesn't crash.
 	postMessage: () => {},
-	sendSync: () => undefined,
 	sendTo: () => {},
 	sendToHost: () => {},
 };
