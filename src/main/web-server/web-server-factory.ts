@@ -111,8 +111,12 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 		const server = new WebServer(port, securityToken, () => {
 			// Opt-in Encore Feature gate for the Web-Desktop Bundle. Read every
 			// time the WebServer asks so toggling the flag in Settings takes
-			// effect on the next server start without redeploying.
-			const ef = settingsStore.get('encoreFeatures', {}) as Record<string, unknown>;
+			// effect on the next server start without redeploying. Guard against
+			// the stored value being null or a non-object (corrupted settings,
+			// hand-edited file, partial migration).
+			const efRaw = settingsStore.get('encoreFeatures', {});
+			if (typeof efRaw !== 'object' || efRaw === null) return false;
+			const ef = efRaw as Record<string, unknown>;
 			return ef.webDesktopBundle === true;
 		});
 

@@ -4,6 +4,11 @@ import { FilePlus, Globe, Plus, Terminal } from 'lucide-react';
 import type { Theme } from '../../types';
 import { formatShortcutKeys } from '../../utils/shortcutFormatter';
 
+// Single source of truth for the popover width. Used both for the overflow
+// math in handleClick (to decide whether to right-align near the viewport
+// edge) and as the rendered minWidth, so the two never drift apart.
+const POPOVER_MIN_WIDTH = 200;
+
 interface NewTabPopoverProps {
 	theme: Theme;
 	onNewTab: () => void;
@@ -76,11 +81,12 @@ export const NewTabPopover = memo(function NewTabPopover({
 		const rect = btn.getBoundingClientRect();
 		// Right-align the popover when the button is too close to the right edge
 		// so the labels don't get clipped on narrow viewports (iOS Safari).
-		const POPOVER_WIDTH = 200;
 		const VIEWPORT_MARGIN = 8;
 		const viewportW = window.innerWidth || document.documentElement.clientWidth;
-		const wouldOverflow = rect.left + POPOVER_WIDTH > viewportW - VIEWPORT_MARGIN;
-		const left = wouldOverflow ? Math.max(VIEWPORT_MARGIN, rect.right - POPOVER_WIDTH) : rect.left;
+		const wouldOverflow = rect.left + POPOVER_MIN_WIDTH > viewportW - VIEWPORT_MARGIN;
+		const left = wouldOverflow
+			? Math.max(VIEWPORT_MARGIN, rect.right - POPOVER_MIN_WIDTH)
+			: rect.left;
 		setPopoverPos({ top: rect.bottom + 4, left });
 		setPopoverOpen((open) => !open);
 	}, [onNewFileTab, onNewBrowserTab, onNewTerminalTab, onNewTab]);
@@ -119,7 +125,7 @@ export const NewTabPopover = memo(function NewTabPopover({
 							left: popoverPos.left,
 							backgroundColor: theme.colors.bgSidebar,
 							border: `1px solid ${theme.colors.border}`,
-							minWidth: 180,
+							minWidth: POPOVER_MIN_WIDTH,
 						}}
 						onKeyDown={(e) => {
 							if (e.key === 'Escape') {

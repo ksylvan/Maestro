@@ -154,6 +154,10 @@ export class WebServer {
 	private webClients: Map<string, WebClient> = new Map();
 	private rateLimitConfig: RateLimitConfig = { ...DEFAULT_RATE_LIMIT_CONFIG };
 	private webAssetsPath: string | null = null;
+	// Cached on first hit so we don't existsSync()+readFileSync()+regex-replace
+	// the HTML on every desktop page load. Both are static after build.
+	private webDesktopPathCache: string | null = null;
+	private webDesktopHtmlCache: string | null = null;
 
 	// Security token - persistent or regenerated per startup
 	private securityToken: string;
@@ -786,6 +790,7 @@ export class WebServer {
 	}
 
 	private resolveWebDesktopAssetsPath(): string | null {
+		if (this.webDesktopPathCache) return this.webDesktopPathCache;
 		const candidates = [
 			path.join(process.cwd(), 'dist', 'web-desktop'),
 			path.join(__dirname, '..', '..', 'web-desktop'),
@@ -793,6 +798,7 @@ export class WebServer {
 		];
 		for (const p of candidates) {
 			if (existsSync(path.join(p, 'index.html'))) {
+				this.webDesktopPathCache = p;
 				return p;
 			}
 		}
@@ -800,6 +806,10 @@ export class WebServer {
 	}
 
 	private serveWebDesktopIndex(reply: import('fastify').FastifyReply): void {
+		if (this.webDesktopHtmlCache) {
+			reply.type('text/html').send(this.webDesktopHtmlCache);
+			return;
+		}
 		const wdPath = this.resolveWebDesktopAssetsPath();
 		if (!wdPath) {
 			reply.code(503).send({
@@ -823,6 +833,7 @@ export class WebServer {
 		};
 	</script>`;
 			html = html.replace('</head>', `${configScript}</head>`);
+			this.webDesktopHtmlCache = html;
 			reply.type('text/html').send(html);
 		} catch (err) {
 			logger.error('Failed to serve web-desktop index.html', LOG_CONTEXT, err);
@@ -1286,6 +1297,15 @@ export class WebServer {
 
 		// Clear all session state (handles live sessions and autorun states)
 		this.liveSessionManager.clearAll();
+
+		// Restore WebContents.prototype.send so the now-defunct BroadcastService
+		// isn't called the next time main pushes a renderer event.
+		try {
+			const { uninstallWebContentsBridgeHook } = await import('./handlers/bridgeHandlers');
+			uninstallWebContentsBridgeHook();
+		} catch (err) {
+			logger.warn(`Failed to uninstall bridge hook: ${(err as Error).message}`, LOG_CONTEXT);
+		}
 
 		try {
 			await this.server.close();

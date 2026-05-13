@@ -22,6 +22,13 @@ function classify(width: number): Breakpoint {
  */
 export function useViewportBreakpoint() {
 	const initial = typeof window === 'undefined' ? 'lg' : classify(window.innerWidth);
+	// Publish the breakpoint synchronously during render so CSS rules that
+	// branch on `:root[data-bp='xs']` apply before the first paint. Without
+	// this, narrow viewports flash the desktop layout for one frame before
+	// the useEffect below runs.
+	if (typeof document !== 'undefined') {
+		document.documentElement.setAttribute('data-bp', initial);
+	}
 	const [bp, setBp] = useState<Breakpoint>(initial);
 
 	useEffect(() => {

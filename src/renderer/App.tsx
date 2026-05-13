@@ -574,11 +574,23 @@ function MaestroConsoleInner() {
 		}
 	}, [isNarrowViewport]);
 
-	// Mutual exclusion on narrow: opening one drawer closes the other.
+	// Mutual exclusion on narrow: opening one drawer closes the OTHER one.
+	// Track previous values so we react to the transition that just opened a
+	// drawer, not the steady state. The old "if both open, close right" version
+	// was biased: opening the right while the left was already open would
+	// immediately re-close the right.
+	const prevLeftSidebarOpenRef = useRef(leftSidebarOpen);
+	const prevRightPanelOpenRef = useRef(rightPanelOpen);
 	useEffect(() => {
-		if (isNarrowViewport && leftSidebarOpen && rightPanelOpen) {
+		const leftJustOpened = !prevLeftSidebarOpenRef.current && leftSidebarOpen;
+		const rightJustOpened = !prevRightPanelOpenRef.current && rightPanelOpen;
+		if (isNarrowViewport && leftJustOpened && rightPanelOpen) {
 			useUIStore.getState().setRightPanelOpen(false);
+		} else if (isNarrowViewport && rightJustOpened && leftSidebarOpen) {
+			useUIStore.getState().setLeftSidebarOpen(false);
 		}
+		prevLeftSidebarOpenRef.current = leftSidebarOpen;
+		prevRightPanelOpenRef.current = rightPanelOpen;
 	}, [isNarrowViewport, leftSidebarOpen, rightPanelOpen]);
 	const activeRightTab = useUIStore((s) => s.activeRightTab);
 	const activeFocus = useUIStore((s) => s.activeFocus);

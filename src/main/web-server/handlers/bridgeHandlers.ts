@@ -48,6 +48,13 @@ const FAKE_EVENT: BridgeFakeEvent = {
 
 let webContentsHookInstalled = false;
 let broadcastSink: ((channel: string, args: unknown[]) => void) | null = null;
+// Saved so we can restore the original prototype.send when the bridge is
+// torn down (Encore Feature toggled off, server stopping, tests). Without
+// this, a stale broadcastSink would point at a dead BroadcastService.
+let originalWebContentsSend:
+	| ((this: unknown, channel: string, ...args: unknown[]) => unknown)
+	| null = null;
+let patchedSendTarget: { send: unknown } | null = null;
 
 /**
  * Install (once) a monkey-patch on WebContents.prototype.send so every
@@ -78,6 +85,8 @@ export function installWebContentsBridgeHook(broadcastService: BroadcastService)
 	}
 
 	const originalSend = target.send;
+	originalWebContentsSend = originalSend;
+	patchedSendTarget = target;
 	target.send = function patchedSend(channel: string, ...args: unknown[]) {
 		try {
 			broadcastSink?.(channel, args);
@@ -88,6 +97,22 @@ export function installWebContentsBridgeHook(broadcastService: BroadcastService)
 	};
 	webContentsHookInstalled = true;
 	logger.info('WebContents.send bridge hook installed', LOG_CONTEXT);
+}
+
+/**
+ * Tear down the bridge hook. Restores the original WebContents.prototype.send
+ * and clears broadcastSink so a defunct BroadcastService isn't called after
+ * the Encore Feature is toggled off or the server is stopped.
+ */
+export function uninstallWebContentsBridgeHook(): void {
+	broadcastSink = null;
+	if (webContentsHookInstalled && patchedSendTarget && originalWebContentsSend) {
+		(patchedSendTarget as { send: unknown }).send = originalWebContentsSend;
+		logger.info('WebContents.send bridge hook removed', LOG_CONTEXT);
+	}
+	originalWebContentsSend = null;
+	patchedSendTarget = null;
+	webContentsHookInstalled = false;
 }
 
 /**

@@ -104,8 +104,17 @@ class BridgeClient {
 		});
 		this.ws.addEventListener('close', () => {
 			console.warn('[bridge] WebSocket closed — reconnecting in 1s');
-			setTimeout(() => this.connect(url), 1000);
+			// Reject every in-flight invoke. After reconnect the new server has
+			// no memory of these request IDs, so the promises would otherwise
+			// hang forever and freeze any React component awaiting them.
+			const disconnected = new Error('bridge disconnected');
+			for (const pending of this.pending.values()) pending.reject(disconnected);
+			this.pending.clear();
+			// Queued frames belong to a dead session — drop them so we don't
+			// replay invokes the caller has already given up on.
+			this.queue.length = 0;
 			this.ready = new Promise((r) => (this.resolveReady = r));
+			setTimeout(() => this.connect(url), 1000);
 		});
 		this.ws.addEventListener('error', (err: Event) => {
 			console.error('[bridge] WebSocket error', err);
