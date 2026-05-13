@@ -154,10 +154,12 @@ export class WebServer {
 	private webClients: Map<string, WebClient> = new Map();
 	private rateLimitConfig: RateLimitConfig = { ...DEFAULT_RATE_LIMIT_CONFIG };
 	private webAssetsPath: string | null = null;
-	// Cached on first hit so we don't existsSync()+readFileSync()+regex-replace
-	// the HTML on every desktop page load. Both are static after build.
+	// Cached on first hit so we don't existsSync 3 candidate paths on every
+	// desktop page load. The HTML itself is intentionally NOT cached: Vite
+	// changes the asset hash on every rebuild, so a long-lived cache would
+	// keep serving stale `<script src="assets/main-OLD.js">` references that
+	// 404 against the new bundle.
 	private webDesktopPathCache: string | null = null;
-	private webDesktopHtmlCache: string | null = null;
 
 	// Security token - persistent or regenerated per startup
 	private securityToken: string;
@@ -806,10 +808,6 @@ export class WebServer {
 	}
 
 	private serveWebDesktopIndex(reply: import('fastify').FastifyReply): void {
-		if (this.webDesktopHtmlCache) {
-			reply.type('text/html').send(this.webDesktopHtmlCache);
-			return;
-		}
 		const wdPath = this.resolveWebDesktopAssetsPath();
 		if (!wdPath) {
 			reply.code(503).send({
@@ -833,7 +831,6 @@ export class WebServer {
 		};
 	</script>`;
 			html = html.replace('</head>', `${configScript}</head>`);
-			this.webDesktopHtmlCache = html;
 			reply.type('text/html').send(html);
 		} catch (err) {
 			logger.error('Failed to serve web-desktop index.html', LOG_CONTEXT, err);

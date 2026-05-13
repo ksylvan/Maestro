@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import { useFocusAfterRender } from './hooks/utils/useFocusAfterRender';
+import { isWebDesktop } from './utils/runtimeContext';
 // SettingsModal is now lazy-loaded inside AppStandaloneModals
 import { SessionList } from './components/SessionList';
 import { RightPanel, RightPanelHandle } from './components/RightPanel';
@@ -2651,7 +2652,9 @@ function MaestroConsoleInner() {
 		<GitStatusProvider sessions={sessions} activeSessionId={activeSessionId}>
 			<div
 				className={`flex maestro-app-shell w-full font-mono overflow-hidden transition-colors duration-300 ${
-					isMobileLandscape || useNativeTitleBar || isMdDownViewport ? 'pt-0' : 'pt-10'
+					isMobileLandscape || useNativeTitleBar || isMdDownViewport || isWebDesktop()
+						? 'pt-0'
+						: 'pt-10'
 				}`}
 				style={{
 					backgroundColor: theme.colors.bgMain,
@@ -2698,8 +2701,10 @@ function MaestroConsoleInner() {
 					</div>
 				)}
 
-				{/* --- DRAGGABLE TITLE BAR (hidden in mobile landscape, native title bar, narrow viewport, or web build) --- */}
-				{!isMobileLandscape && !useNativeTitleBar && !isMdDownViewport && (
+				{/* --- DRAGGABLE TITLE BAR --- hidden in mobile landscape, native title bar,
+				    narrow viewport, the legacy web build, OR the web-desktop bundle
+				    (no Electron host = nothing to drag, just visual clutter). */}
+				{!isMobileLandscape && !useNativeTitleBar && !isMdDownViewport && !isWebDesktop() && (
 					<div
 						className="fixed top-0 left-0 right-0 h-10 flex items-center justify-center"
 						style={

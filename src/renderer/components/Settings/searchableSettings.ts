@@ -922,6 +922,27 @@ export const ENCORE_SETTINGS: SearchableSetting[] = [
 			'unified',
 		],
 	},
+	{
+		id: 'encore-web-desktop-bundle',
+		tab: 'encore',
+		tabLabel: 'Encore Features',
+		label: 'Web-Desktop Bundle',
+		description:
+			'Expose the full Maestro desktop UI through the browser at /<token>/desktop/ — opt-in IPC bridge',
+		keywords: [
+			'web',
+			'desktop',
+			'bundle',
+			'browser',
+			'bridge',
+			'ipc',
+			'remote',
+			'mobile',
+			'tailscale',
+			'webserver',
+			'beta',
+		],
+	},
 ];
 
 // ---------------------------------------------------------------------------
