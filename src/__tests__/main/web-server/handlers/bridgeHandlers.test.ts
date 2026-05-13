@@ -29,12 +29,14 @@ vi.mock('electron', () => ({
 	ipcMain: {
 		_invokeHandlers: invokeHandlers,
 	},
-	webContents: {
-		getAllWebContents: () => [],
-	},
 }));
 
-import { handleBridgeInvoke } from '../../../../main/web-server/handlers/bridgeHandlers';
+import {
+	broadcastBridgeEvent,
+	handleBridgeInvoke,
+	installWebContentsBridgeHook,
+	uninstallWebContentsBridgeHook,
+} from '../../../../main/web-server/handlers/bridgeHandlers';
 
 function makeClient() {
 	return {
@@ -160,4 +162,42 @@ describe('handleBridgeInvoke', () => {
 	});
 
 	void lastSend; // helper kept available for future tests; tsc would warn if unused.
+});
+
+describe('broadcastBridgeEvent', () => {
+	it('is a no-op when the hook is not installed', () => {
+		uninstallWebContentsBridgeHook();
+		expect(() => broadcastBridgeEvent('any-channel', [1, 2, 3])).not.toThrow();
+	});
+
+	it('fans out installed broadcastService calls to all clients', () => {
+		const broadcastToAll = vi.fn();
+		installWebContentsBridgeHook({
+			broadcastToAll,
+		} as unknown as Parameters<typeof installWebContentsBridgeHook>[0]);
+
+		broadcastBridgeEvent('process:data', ['session-1', 'hello']);
+
+		expect(broadcastToAll).toHaveBeenCalledTimes(1);
+		const payload = broadcastToAll.mock.calls[0][0] as Record<string, unknown>;
+		expect(payload).toMatchObject({
+			type: 'bridge.event',
+			channel: 'process:data',
+			args: ['session-1', 'hello'],
+		});
+		expect(typeof payload.timestamp).toBe('number');
+
+		uninstallWebContentsBridgeHook();
+	});
+
+	it('stops broadcasting after uninstall', () => {
+		const broadcastToAll = vi.fn();
+		installWebContentsBridgeHook({
+			broadcastToAll,
+		} as unknown as Parameters<typeof installWebContentsBridgeHook>[0]);
+		uninstallWebContentsBridgeHook();
+
+		broadcastBridgeEvent('process:data', ['session-1', 'hello']);
+		expect(broadcastToAll).not.toHaveBeenCalled();
+	});
 });

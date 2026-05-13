@@ -14,7 +14,7 @@
  * out to all WS clients as bridge.event. Clients filter via their own ipcRenderer.on.
  */
 
-import { ipcMain, webContents as webContentsModule } from 'electron';
+import { ipcMain } from 'electron';
 import { logger } from '../../utils/logger';
 import type { WebClient } from '../types';
 import type { BroadcastService } from '../services';
@@ -46,20 +46,20 @@ const FAKE_EVENT: BridgeFakeEvent = {
 	type: 'bridge',
 };
 
-let webContentsHookInstalled = false;
 let broadcastSink: ((channel: string, args: unknown[]) => void) | null = null;
-// Saved so we can restore the original prototype.send when the bridge is
-// torn down (Encore Feature toggled off, server stopping, tests). Without
-// this, a stale broadcastSink would point at a dead BroadcastService.
-let originalWebContentsSend:
-	| ((this: unknown, channel: string, ...args: unknown[]) => unknown)
-	| null = null;
-let patchedSendTarget: { send: unknown } | null = null;
 
 /**
- * Install (once) a monkey-patch on WebContents.prototype.send so every
- * main→renderer push event also gets broadcast over the WS bridge.
- * The original send still runs so the desktop renderer is unaffected.
+ * Wire the bridge's main→renderer fanout to the live BroadcastService.
+ * Once installed, `broadcastBridgeEvent(channel, args)` (called from
+ * `safeSend` in `utils/safe-send.ts`) will reach every connected web-desktop
+ * client as a `bridge.event` frame.
+ *
+ * The earlier implementation monkey-patched `WebContents.prototype.send` to
+ * intercept main→renderer pushes implicitly. That broke when the Electron
+ * `mainWindow` wasn't yet attached (or was destroyed) — `safeSend` gates
+ * every call on the window's existence, so the patched prototype never
+ * fired and web-desktop clients silently missed every push. Routing the
+ * fanout explicitly from `safeSend` removes that race.
  */
 export function installWebContentsBridgeHook(broadcastService: BroadcastService): void {
 	broadcastSink = (channel, args) => {
@@ -70,49 +70,36 @@ export function installWebContentsBridgeHook(broadcastService: BroadcastService)
 			timestamp: Date.now(),
 		});
 	};
-
-	if (webContentsHookInstalled) return;
-
-	const all = webContentsModule.getAllWebContents();
-	const proto = all[0] ? Object.getPrototypeOf(all[0]) : (webContentsModule.prototype ?? null);
-	const target = proto ?? webContentsModule.prototype;
-	if (!target || typeof target.send !== 'function') {
-		logger.warn(
-			'Unable to locate WebContents.prototype.send — bridge.event fanout disabled',
-			LOG_CONTEXT
-		);
-		return;
-	}
-
-	const originalSend = target.send;
-	originalWebContentsSend = originalSend;
-	patchedSendTarget = target;
-	target.send = function patchedSend(channel: string, ...args: unknown[]) {
-		try {
-			broadcastSink?.(channel, args);
-		} catch (err) {
-			logger.warn(`bridge fanout failed: ${(err as Error).message}`, LOG_CONTEXT);
-		}
-		return originalSend.call(this, channel, ...args);
-	};
-	webContentsHookInstalled = true;
-	logger.info('WebContents.send bridge hook installed', LOG_CONTEXT);
+	logger.info('Bridge event fanout installed', LOG_CONTEXT);
 }
 
 /**
- * Tear down the bridge hook. Restores the original WebContents.prototype.send
- * and clears broadcastSink so a defunct BroadcastService isn't called after
- * the Encore Feature is toggled off or the server is stopped.
+ * Tear down the bridge fanout. Clears `broadcastSink` so a defunct
+ * `BroadcastService` isn't called after the Encore Feature is toggled off
+ * or the server is stopped.
  */
 export function uninstallWebContentsBridgeHook(): void {
-	broadcastSink = null;
-	if (webContentsHookInstalled && patchedSendTarget && originalWebContentsSend) {
-		(patchedSendTarget as { send: unknown }).send = originalWebContentsSend;
-		logger.info('WebContents.send bridge hook removed', LOG_CONTEXT);
+	if (broadcastSink) {
+		broadcastSink = null;
+		logger.info('Bridge event fanout removed', LOG_CONTEXT);
 	}
-	originalWebContentsSend = null;
-	patchedSendTarget = null;
-	webContentsHookInstalled = false;
+}
+
+/**
+ * Fan out a main→renderer event to every connected web-desktop client.
+ * Called from `safeSend` so every IPC push goes through the bridge,
+ * regardless of whether the Electron renderer is currently alive.
+ *
+ * No-op when the Encore Feature is off (`broadcastSink === null`) or when
+ * no web-desktop clients are connected (handled inside the sink itself).
+ */
+export function broadcastBridgeEvent(channel: string, args: unknown[]): void {
+	if (!broadcastSink) return;
+	try {
+		broadcastSink(channel, args);
+	} catch (err) {
+		logger.warn(`bridge fanout failed: ${(err as Error).message}`, LOG_CONTEXT);
+	}
 }
 
 /**
