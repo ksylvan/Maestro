@@ -68,7 +68,6 @@ import { FilePreviewHeader } from './FilePreviewHeader';
 import { ImageViewer } from './ImageViewer';
 import { FilePreviewToc } from './FilePreviewToc';
 import { HighlightedCodeEditor } from './HighlightedCodeEditor';
-import { PreviewTierChip } from './PreviewTierChip';
 import { logger } from '../../utils/logger';
 
 // Lazy-loaded large-file markdown renderer. Keeping it out of the main bundle
@@ -125,6 +124,8 @@ export const FilePreview = React.memo(
 			onReloadFile,
 			previewTierOverride,
 			onPreviewTierChange,
+			htmlRenderMode = false,
+			onHtmlRenderModeChange,
 		},
 		ref
 	) {
@@ -233,6 +234,7 @@ export const FilePreview = React.memo(
 		// Compute derived values - must be before any early returns but after hooks
 		const language = file ? getLanguageFromFilename(file.name) : '';
 		const isMarkdown = language === 'markdown';
+		const isHtml = file ? /\.html?$/i.test(file.name) : false;
 		const isReadableText = file ? !isMarkdown && isReadableTextPreview(file.name) : false;
 		const isCsv = language === 'csv';
 		const isJsonl = language === 'jsonl';
@@ -1106,31 +1108,21 @@ export const FilePreview = React.memo(
 					copyPathToClipboard={copyPathToClipboard}
 					headerBtnClass={headerBtnClass}
 					headerIconClass={headerIconClass}
+					isHtml={isHtml}
+					htmlRenderMode={htmlRenderMode}
+					setHtmlRenderMode={(v) => onHtmlRenderModeChange?.(v)}
+					showTierChip={
+						!markdownEditMode &&
+						!isImage &&
+						!isBinary &&
+						!(isHtml && htmlRenderMode) &&
+						(isMarkdown || isReadableText || isCodeFile(language)) &&
+						!!file
+					}
+					autoTier={autoTier}
+					previewTierOverride={previewTierOverride}
+					onPreviewTierChange={onPreviewTierChange}
 				/>
-
-				{/* Tier override chip — visible for any text-like preview (markdown,
-				    readable text, or code). Hidden during edit, on images, and
-				    on binary files. */}
-				{!markdownEditMode &&
-					!isImage &&
-					!isBinary &&
-					(isMarkdown || isReadableText || isCodeFile(language)) &&
-					file && (
-						<div
-							className="flex items-center justify-end gap-2 px-6 py-1.5 border-b shrink-0"
-							style={{
-								backgroundColor: theme.colors.bgSidebar,
-								borderColor: theme.colors.border,
-							}}
-						>
-							<PreviewTierChip
-								theme={theme}
-								autoTier={autoTier}
-								override={previewTierOverride}
-								onSelect={(tier) => onPreviewTierChange?.(tier)}
-							/>
-						</div>
-					)}
 
 				{/* File changed on disk banner */}
 				{fileChangedOnDisk && (
@@ -1511,6 +1503,26 @@ export const FilePreview = React.memo(
 									// Scroll to show the cursor
 									textarea.scrollTop += textarea.clientHeight;
 								}
+							}}
+						/>
+					) : isHtml && htmlRenderMode && !markdownEditMode ? (
+						// Rendered HTML preview. Feeds file.content into an iframe via
+						// srcDoc so local and SSH-remote files work the same way — the
+						// bytes are already in memory. Sandbox lets scripts/popups/forms
+						// run but withholds same-origin so the page cannot reach the host
+						// renderer.
+						<iframe
+							title={file.name}
+							srcDoc={file.content}
+							sandbox="allow-scripts allow-popups allow-forms"
+							referrerPolicy="no-referrer"
+							data-testid="html-render-iframe"
+							style={{
+								width: '100%',
+								height: '100%',
+								minHeight: '60vh',
+								border: 'none',
+								backgroundColor: '#fff',
 							}}
 						/>
 					) : isCsv && !markdownEditMode ? (
