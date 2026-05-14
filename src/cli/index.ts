@@ -116,7 +116,7 @@ show
 	.option('--json', 'Output as JSON (for scripting)')
 	.action(showPlaybook);
 
-// Playbook command (lazy-loaded to avoid eager resolution of generated/prompts)
+// Playbook command (lazy-loaded to keep CLI startup lean)
 program
 	.command('playbook <playbook-id>')
 	.description('Run a playbook')
