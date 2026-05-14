@@ -60,5 +60,17 @@ export function buildBaseExtensions(): Extension {
 		// thread. Wrapping costs readability on structured logs but avoids
 		// the freeze on the input shapes we explicitly route here.
 		EditorView.lineWrapping,
+		// `lineWrapping` alone uses `white-space: pre-wrap`, which only breaks
+		// at whitespace. A 500k-character line with no whitespace (e.g.
+		// minified JSON, an `AAAA…AAAA` log line) therefore still renders as
+		// one giant flat element and hits the same wide-layer freeze. Pair
+		// `overflow-wrap: anywhere` so the browser can break at any character
+		// boundary when no whitespace is available.
+		EditorView.theme({
+			'.cm-content, .cm-line': {
+				overflowWrap: 'anywhere',
+				wordBreak: 'break-word',
+			},
+		}),
 	];
 }
