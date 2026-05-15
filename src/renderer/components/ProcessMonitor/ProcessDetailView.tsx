@@ -1,7 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
 	Activity,
+	ChevronDown,
 	ChevronLeft,
+	ChevronRight,
 	Clock,
 	Cpu,
 	FolderOpen,
@@ -9,6 +11,7 @@ import {
 	Play,
 	Tag,
 	Terminal,
+	Variable,
 	X,
 } from 'lucide-react';
 import type { Theme } from '../../types';
@@ -24,12 +27,26 @@ export interface ProcessDetailViewProps {
 
 // Detail panel for a single process. Renders a metadata grid; receives focus on mount
 // so Escape (handled by useModalLayer in the shell) routes back to the list view.
+const ENV_VAR_COLLAPSED_LIMIT = 5;
+
 export function ProcessDetailView({ theme, detail, onBack, onClose }: ProcessDetailViewProps) {
 	const containerRef = useRef<HTMLDivElement>(null);
+	const [envExpanded, setEnvExpanded] = useState(false);
 
 	useEffect(() => {
 		containerRef.current?.focus();
 	}, []);
+
+	const envEntries = useMemo(
+		() =>
+			detail.maestroEnvVars
+				? Object.entries(detail.maestroEnvVars).sort(([a], [b]) => a.localeCompare(b))
+				: [],
+		[detail.maestroEnvVars]
+	);
+	const envOverflow = Math.max(0, envEntries.length - ENV_VAR_COLLAPSED_LIMIT);
+	const visibleEnvEntries =
+		envExpanded || envOverflow === 0 ? envEntries : envEntries.slice(0, ENV_VAR_COLLAPSED_LIMIT);
 
 	const commandLine =
 		detail.command && detail.args && detail.args.length > 0
@@ -332,6 +349,71 @@ export function ProcessDetailView({ theme, detail, onBack, onClose }: ProcessDet
 							{commandLine}
 						</code>
 					</div>
+
+					{/* Maestro Environment Variables */}
+					{envEntries.length > 0 && (
+						<div className="p-4 rounded-lg" style={{ backgroundColor: theme.colors.bgMain }}>
+							<div className="flex items-center justify-between mb-2">
+								<div className="flex items-center gap-2">
+									<Variable className="w-4 h-4" style={{ color: theme.colors.accent }} />
+									<span
+										className="text-xs font-medium uppercase tracking-wide"
+										style={{ color: theme.colors.textDim }}
+									>
+										Maestro Environment Variables
+									</span>
+									<span className="text-xs" style={{ color: theme.colors.textDim, opacity: 0.7 }}>
+										({envEntries.length})
+									</span>
+								</div>
+								{envOverflow > 0 && (
+									<button
+										onClick={() => setEnvExpanded((v) => !v)}
+										className="flex items-center gap-1 text-xs px-2 py-1 rounded hover:bg-opacity-10"
+										style={{ color: theme.colors.accent }}
+										onMouseEnter={(e) =>
+											(e.currentTarget.style.backgroundColor = `${theme.colors.accent}20`)
+										}
+										onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+										aria-expanded={envExpanded}
+										title={envExpanded ? 'Show fewer' : `Show all ${envEntries.length}`}
+									>
+										{envExpanded ? (
+											<>
+												<ChevronDown className="w-3 h-3" />
+												<span>Show less</span>
+											</>
+										) : (
+											<>
+												<ChevronRight className="w-3 h-3" />
+												<span>Show {envOverflow} more</span>
+											</>
+										)}
+									</button>
+								)}
+							</div>
+							<div className="flex flex-col gap-1.5">
+								{visibleEnvEntries.map(([key, value]) => (
+									<div
+										key={key}
+										className="flex items-baseline gap-2 text-sm font-mono"
+										style={{ userSelect: 'text', cursor: 'text' }}
+									>
+										<code
+											className="shrink-0 font-semibold break-all"
+											style={{ color: theme.colors.textMain }}
+										>
+											{key}
+										</code>
+										<span style={{ color: theme.colors.textDim }}>=</span>
+										<code className="break-all" style={{ color: theme.colors.textDim }}>
+											{value}
+										</code>
+									</div>
+								))}
+							</div>
+						</div>
+					)}
 
 					{/* Child Processes (terminal only) */}
 					{detail.childProcesses && detail.childProcesses.length > 0 && (

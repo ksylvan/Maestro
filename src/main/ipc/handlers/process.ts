@@ -795,6 +795,7 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 						startTime: p.startTime,
 						command: p.command,
 						args: p.args,
+						maestroEnvVars: p.maestroEnvVars,
 					};
 					if (p.isTerminal && p.pid) {
 						const children = await getChildProcesses(p.pid);
