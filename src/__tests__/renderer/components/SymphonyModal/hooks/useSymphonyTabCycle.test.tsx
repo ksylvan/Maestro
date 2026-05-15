@@ -69,8 +69,17 @@ describe('useSymphonyTabCycle', () => {
 		renderHook(() =>
 			useSymphonyTabCycle({ isOpen: true, activeTab: 'projects', onTabChange: vi.fn() })
 		);
-		const event = fire(']');
+		const event = new KeyboardEvent('keydown', {
+			key: ']',
+			metaKey: true,
+			shiftKey: true,
+			cancelable: true,
+			bubbles: true,
+		});
+		const stopPropagationSpy = vi.spyOn(event, 'stopPropagation');
+		window.dispatchEvent(event);
 		expect(event.defaultPrevented).toBe(true);
+		expect(stopPropagationSpy).toHaveBeenCalledTimes(1);
 	});
 
 	it('removes the listener on unmount', () => {

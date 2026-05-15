@@ -39,6 +39,7 @@ export const BuildToolsWarningDialog = memo(function BuildToolsWarningDialog({
 }: BuildToolsWarningDialogProps) {
 	if (!isOpen) return null;
 	const isGhCliReady = Boolean(ghCliStatus?.installed && ghCliStatus.authenticated);
+	const dialogTitleId = 'symphony-build-tools-dialog-title';
 
 	const dialog = (
 		<div className="fixed inset-0 flex items-center justify-center" style={{ zIndex: 10001 }}>
@@ -51,6 +52,9 @@ export const BuildToolsWarningDialog = memo(function BuildToolsWarningDialog({
 				aria-label="Close pre-flight check dialog"
 			/>
 			<div
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby={dialogTitleId}
 				className="relative rounded-lg border shadow-2xl p-6 max-w-md mx-4"
 				style={{
 					backgroundColor: theme.colors.bgMain,
@@ -60,7 +64,7 @@ export const BuildToolsWarningDialog = memo(function BuildToolsWarningDialog({
 				{isChecking ? (
 					<div className="flex items-center gap-3 py-4">
 						<Spinner size={20} color={theme.colors.textDim} />
-						<span className="text-sm" style={{ color: theme.colors.textDim }}>
+						<span id={dialogTitleId} className="text-sm" style={{ color: theme.colors.textDim }}>
 							Checking prerequisites…
 						</span>
 					</div>
@@ -73,6 +77,7 @@ export const BuildToolsWarningDialog = memo(function BuildToolsWarningDialog({
 							/>
 							<div>
 								<h3
+									id={dialogTitleId}
 									className="font-semibold text-base mb-2"
 									style={{ color: theme.colors.textMain }}
 								>
@@ -139,6 +144,7 @@ export const BuildToolsWarningDialog = memo(function BuildToolsWarningDialog({
 							/>
 							<div>
 								<h3
+									id={dialogTitleId}
 									className="font-semibold text-base mb-2"
 									style={{ color: theme.colors.textMain }}
 								>
@@ -204,6 +210,7 @@ export const BuildToolsWarningDialog = memo(function BuildToolsWarningDialog({
 							/>
 							<div>
 								<h3
+									id={dialogTitleId}
 									className="font-semibold text-base mb-2"
 									style={{ color: theme.colors.textMain }}
 								>
@@ -253,6 +260,7 @@ export const BuildToolsWarningDialog = memo(function BuildToolsWarningDialog({
 							/>
 							<div>
 								<h3
+									id={dialogTitleId}
 									className="font-semibold text-base mb-2"
 									style={{ color: theme.colors.textMain }}
 								>
