@@ -70,6 +70,8 @@ export interface UseQuickActionsHandlersReturn {
 	handleQuickActionsSummarizeAndContinue: () => void;
 	/** Open Auto Run reset tasks modal */
 	handleQuickActionsAutoRunResetTasks: () => void;
+	/** Toggle the Auto Run Expanded Preview modal */
+	handleQuickActionsToggleAutoRunExpanded: () => void;
 	/** Clear the active terminal xterm buffer */
 	handleQuickActionsClearActiveTerminal: () => void;
 	/** Scroll the active tab header into view and focus it */
@@ -253,6 +255,10 @@ export function useQuickActionsHandlers(
 		rightPanelRef.current?.openAutoRunResetTasksModal();
 	}, []);
 
+	const handleQuickActionsToggleAutoRunExpanded = useCallback(() => {
+		rightPanelRef.current?.toggleAutoRunExpanded();
+	}, []);
+
 	const handleQuickActionsClearActiveTerminal = useCallback(() => {
 		mainPanelRef.current?.clearActiveTerminal();
 	}, []);
@@ -313,6 +319,7 @@ export function useQuickActionsHandlers(
 		handleQuickActionsToggleMarkdownEditMode,
 		handleQuickActionsSummarizeAndContinue,
 		handleQuickActionsAutoRunResetTasks,
+		handleQuickActionsToggleAutoRunExpanded,
 		handleQuickActionsClearActiveTerminal,
 		handleQuickActionsFocusActiveTab,
 		handleQuickActionsCloseCurrentTab,

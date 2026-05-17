@@ -218,6 +218,7 @@ interface QuickActionsModalProps {
 	autoRunSelectedDocument?: string | null;
 	autoRunCompletedTaskCount?: number;
 	onAutoRunResetTasks?: () => void;
+	onToggleAutoRunExpanded?: () => void;
 	onClearActiveTerminal?: () => void;
 	// Tab close operations
 	onCloseAllTabs?: () => void;
@@ -324,6 +325,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 		autoRunSelectedDocument,
 		autoRunCompletedTaskCount,
 		onAutoRunResetTasks,
+		onToggleAutoRunExpanded,
 		onClearActiveTerminal,
 		onCloseAllTabs,
 		onCloseOtherTabs,
@@ -1625,6 +1627,20 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 							setQuickActionOpen(false);
 						},
 					},
+					...(onToggleAutoRunExpanded
+						? [
+								{
+									id: 'autoRunExpandedPreview',
+									label: 'Auto Run Expanded Preview',
+									subtext: 'Open the Auto Run document in a centered modal',
+									shortcut: shortcuts.toggleAutoRunExpanded,
+									action: () => {
+										onToggleAutoRunExpanded();
+										setQuickActionOpen(false);
+									},
+								},
+							]
+						: []),
 				]),
 		// Playbook Exchange - browse and import community playbooks
 		...(onOpenPlaybookExchange

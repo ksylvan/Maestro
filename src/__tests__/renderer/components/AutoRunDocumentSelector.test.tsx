@@ -1,13 +1,19 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render as rtlRender, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
 	AutoRunDocumentSelector,
 	DocTreeNode,
 } from '../../../renderer/components/AutoRun/AutoRunDocumentSelector';
+import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 
 import { mockTheme } from '../../helpers/mockTheme';
+
+// Wrap render with LayerStackProvider so useModalLayer (used by the doc
+// selector dropdown to own Escape) has the context it expects.
+const render = (ui: React.ReactElement, options?: Parameters<typeof rtlRender>[1]) =>
+	rtlRender(<LayerStackProvider>{ui}</LayerStackProvider>, options);
 // Mock lucide-react icons
 vi.mock('lucide-react', () => ({
 	ChevronDown: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
@@ -38,6 +44,11 @@ vi.mock('lucide-react', () => ({
 	Folder: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
 		<span data-testid="folder-icon" className={className} style={style}>
 			📁
+		</span>
+	),
+	Search: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<span data-testid="search-icon" className={className} style={style}>
+			🔍
 		</span>
 	),
 }));
@@ -84,7 +95,8 @@ describe('AutoRunDocumentSelector', () => {
 
 		it('exports AutoRunDocumentSelector component', () => {
 			expect(AutoRunDocumentSelector).toBeDefined();
-			expect(typeof AutoRunDocumentSelector).toBe('function');
+			// forwardRef components are objects with a $$typeof tag, not plain functions
+			expect(AutoRunDocumentSelector).not.toBeNull();
 		});
 	});
 
@@ -1109,10 +1121,13 @@ describe('AutoRunDocumentSelector', () => {
 			const button = screen.getByRole('button', { name: /select a document/i });
 			fireEvent.click(button);
 
-			// Find the dropdown menu - the doc text is in a span, inside a button, inside the menu container
+			// Find the dropdown menu - the doc text is in a span, inside a button,
+			// inside the scrollable list, inside the menu container (added when
+			// the filter input was introduced).
 			const docText = screen.getByText('doc1.md');
 			const docButton = docText.closest('button');
-			const menu = docButton?.parentElement;
+			const scrollList = docButton?.parentElement;
+			const menu = scrollList?.parentElement;
 			expect(menu).toHaveStyle({ backgroundColor: mockTheme.colors.bgSidebar });
 		});
 

@@ -188,6 +188,31 @@ export function AutoRunExpandedModal({
 		return () => clearTimeout(timer);
 	}, []);
 
+	// Modal-scoped shortcuts: cmd+s saves (when dirty); cmd+o opens the
+	// document selector dropdown. Registered in the capture phase so we run
+	// before the global keyboard handler in useMainKeyboardHandler (which
+	// would otherwise treat cmd+o as `agentSwitcher`).
+	useEffect(() => {
+		const handleKeyDown = (e: KeyboardEvent) => {
+			const metaPressed = e.metaKey || e.ctrlKey;
+			if (!metaPressed || e.altKey) return;
+			const key = e.key.toLowerCase();
+			if (key === 's' && !e.shiftKey) {
+				if (!isLocked && autoRunRef.current?.isDirty()) {
+					e.preventDefault();
+					e.stopPropagation();
+					void handleSave();
+				}
+			} else if (key === 'o' && !e.shiftKey) {
+				e.preventDefault();
+				e.stopPropagation();
+				autoRunRef.current?.openDocumentSelector();
+			}
+		};
+		window.addEventListener('keydown', handleKeyDown, { capture: true });
+		return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
+	}, [handleSave, isLocked]);
+
 	// Use the AutoRun's switchMode for scroll sync, falling back to local mode change
 	const setMode = useCallback(
 		(newMode: 'edit' | 'preview') => {
@@ -276,8 +301,8 @@ export function AutoRunExpandedModal({
             </button>
             */}
 						<input ref={fileInputRef} type="file" accept="image/*" className="hidden" />
-						{/* Save/Revert buttons - shown when dirty */}
-						{isDirty && localMode === 'edit' && !isLocked && (
+						{/* Save/Revert buttons - shown whenever the doc is dirty, in either mode */}
+						{isDirty && !isLocked && (
 							<>
 								<div className="w-px h-4 mx-1" style={{ backgroundColor: theme.colors.border }} />
 								<button

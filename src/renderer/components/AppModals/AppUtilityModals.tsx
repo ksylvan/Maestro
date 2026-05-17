@@ -132,6 +132,7 @@ export interface AppUtilityModalsProps {
 	autoRunSelectedDocument: string | null;
 	autoRunCompletedTaskCount: number;
 	onAutoRunResetTasks: () => void;
+	onToggleAutoRunExpanded?: () => void;
 	onClearActiveTerminal?: () => void;
 
 	// Tab-level actions (for QuickActionsModal)
@@ -356,6 +357,7 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 	autoRunSelectedDocument,
 	autoRunCompletedTaskCount,
 	onAutoRunResetTasks,
+	onToggleAutoRunExpanded,
 	onClearActiveTerminal,
 	// Tab-level actions
 	onCloseCurrentTab,
@@ -540,6 +542,7 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 					autoRunSelectedDocument={autoRunSelectedDocument}
 					autoRunCompletedTaskCount={autoRunCompletedTaskCount}
 					onAutoRunResetTasks={onAutoRunResetTasks}
+					onToggleAutoRunExpanded={onToggleAutoRunExpanded}
 					onClearActiveTerminal={onClearActiveTerminal}
 					onCloseCurrentTab={onCloseCurrentTab}
 					onMoveTabToFirst={onMoveTabToFirst}
