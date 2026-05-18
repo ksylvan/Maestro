@@ -2568,6 +2568,32 @@ describe('tabHelpers', () => {
 			expect(result!.id).toBe('unread-tab');
 		});
 
+		it('keeps the active file tab visible in showUnreadOnly mode even when file-preview setting is off', () => {
+			useSettingsStore.setState({ showFilePreviewsInUnreadFilter: false });
+			const readTab = createMockTab({ id: 'read-tab', hasUnread: false, inputValue: '' });
+			const activeFile = createMockFileTab({ id: 'file-active' });
+			const otherFile = createMockFileTab({ id: 'file-other' });
+			const session = createMockSession({
+				aiTabs: [readTab],
+				filePreviewTabs: [activeFile, otherFile],
+				activeTabId: 'read-tab',
+				activeFileTabId: 'file-active',
+				unifiedTabOrder: [
+					{ type: 'file', id: 'file-active' },
+					{ type: 'file', id: 'file-other' },
+					{ type: 'ai', id: 'read-tab' },
+				],
+			});
+
+			// From the active file tab, Next should wrap past the hidden non-active file tab
+			// and land back on the AI tab, then on the active file tab again — confirming the
+			// active file is the only file ref in the filtered list.
+			const result = navigateToNextUnifiedTab(session, true);
+
+			expect(result!.type).toBe('ai');
+			expect(result!.id).toBe('read-tab');
+		});
+
 		it('includes browser tabs in showUnreadOnly mode', () => {
 			const readTab = createMockTab({ id: 'read-tab', hasUnread: false, inputValue: '' });
 			const browserTab = createMockBrowserTab({ id: 'browser-1' });

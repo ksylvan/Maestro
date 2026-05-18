@@ -182,9 +182,11 @@ function TabBarInner({
 					(showStarredInUnreadFilter && ut.data.starred)
 				);
 			}
-			// File preview tabs: hidden by default in unread filter, shown if setting enabled
+			// File preview tabs: hidden by default in unread filter, shown if setting
+			// enabled — but the currently active file tab is always visible so the user
+			// never loses sight of what they're looking at.
 			if (ut.type === 'file') {
-				return showFilePreviewsInUnreadFilter;
+				return showFilePreviewsInUnreadFilter || ut.id === activeFileTabId;
 			}
 			// Terminal tabs are always visible
 			return true;
