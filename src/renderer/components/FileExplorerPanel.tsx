@@ -406,6 +406,97 @@ function DeleteFileModal({
 	);
 }
 
+/**
+ * MoveConflictModal — shown when a drag-to-move would clobber an existing file
+ * or folder at the destination. Lets the user overwrite, rename with a
+ * pre-computed non-conflicting name, or cancel.
+ */
+interface MoveConflictModalProps {
+	theme: Theme;
+	sourceName: string;
+	destFolderLabel: string;
+	autoRenameTo: string;
+	isMoving: boolean;
+	onCancel: () => void;
+	onOverwrite: () => void;
+	onAutoRename: () => void;
+}
+
+function MoveConflictModal({
+	theme,
+	sourceName,
+	destFolderLabel,
+	autoRenameTo,
+	isMoving,
+	onCancel,
+	onOverwrite,
+	onAutoRename,
+}: MoveConflictModalProps) {
+	const cancelButtonRef = useRef<HTMLButtonElement>(null);
+
+	return (
+		<Modal
+			theme={theme}
+			title="Name conflict"
+			priority={MODAL_PRIORITIES.CONFIRM}
+			onClose={isMoving ? () => {} : onCancel}
+			headerIcon={<AlertTriangle className="w-4 h-4" style={{ color: theme.colors.warning }} />}
+			initialFocusRef={cancelButtonRef}
+		>
+			<div className="flex flex-col gap-4">
+				<p style={{ color: theme.colors.textMain }}>
+					"{sourceName}" already exists in {destFolderLabel}. How do you want to proceed?
+				</p>
+				<div className="flex flex-col gap-2">
+					<button
+						type="button"
+						disabled={isMoving}
+						onClick={onAutoRename}
+						className="px-3 py-2 rounded text-sm text-left disabled:opacity-50 hover:bg-white/5 transition-colors"
+						style={{
+							border: `1px solid ${theme.colors.border}`,
+							color: theme.colors.textMain,
+						}}
+					>
+						<div className="font-medium">Rename to "{autoRenameTo}"</div>
+						<div className="text-xs mt-0.5" style={{ color: theme.colors.textDim }}>
+							Move the file with an auto-suffixed name so nothing is overwritten.
+						</div>
+					</button>
+					<button
+						type="button"
+						disabled={isMoving}
+						onClick={onOverwrite}
+						className="px-3 py-2 rounded text-sm text-left disabled:opacity-50 hover:bg-white/5 transition-colors"
+						style={{
+							border: `1px solid ${theme.colors.border}`,
+							color: theme.colors.error,
+						}}
+					>
+						<div className="font-medium">Overwrite existing</div>
+						<div className="text-xs mt-0.5" style={{ color: theme.colors.textDim }}>
+							Replace the file already at the destination. Cannot be undone.
+						</div>
+					</button>
+					<button
+						ref={cancelButtonRef}
+						type="button"
+						disabled={isMoving}
+						onClick={onCancel}
+						className="px-3 py-2 rounded text-sm text-left disabled:opacity-50 hover:bg-white/5 transition-colors"
+						style={{
+							border: `1px solid ${theme.colors.border}`,
+							color: theme.colors.textDim,
+						}}
+					>
+						<div className="font-medium">Cancel</div>
+					</button>
+				</div>
+			</div>
+		</Modal>
+	);
+}
+
 // Helper to format bytes into human-readable format
 function formatBytes(bytes: number): string {
 	if (bytes === 0) return '0 B';
@@ -586,6 +677,23 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 		itemCount?: { fileCount: number; folderCount: number };
 	} | null>(null);
 	const [isDeleting, setIsDeleting] = useState(false);
+
+	// Drag-to-move state. `dragOverFolder` is the relative path of the folder row
+	// currently being hovered (used for highlighting). `moveConflict` is set when
+	// the destination already has a file/folder with the same name and we need
+	// the user to pick overwrite / auto-rename / cancel.
+	const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
+	const [moveConflict, setMoveConflict] = useState<{
+		sourceName: string;
+		sourceRelativePath: string;
+		sourceAbsolutePath: string;
+		destFolderRelativePath: string;
+		destFolderAbsolutePath: string;
+		destAbsolutePath: string;
+		autoRenameName: string;
+		autoRenameAbsolutePath: string;
+	} | null>(null);
+	const [isMoving, setIsMoving] = useState(false);
 
 	// Close context menu when clicking outside
 	useClickOutside(
@@ -967,6 +1075,211 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 		}
 	}, [deleteModal, session.id, session.fileTree, onShowFlash, sshRemoteId, setSessions]);
 
+	// ====================================================================
+	// Drag-to-move within the file tree
+	// ====================================================================
+
+	// True when `destFolderRelative` is the same as, or a descendant of,
+	// `sourceRelative` — moving a folder into itself would orphan its subtree.
+	const isSelfOrDescendant = useCallback((sourceRelative: string, destFolderRelative: string) => {
+		return (
+			destFolderRelative === sourceRelative || destFolderRelative.startsWith(sourceRelative + '/')
+		);
+	}, []);
+
+	const parentDirOf = useCallback((relativePath: string): string => {
+		const idx = relativePath.lastIndexOf('/');
+		return idx < 0 ? '' : relativePath.slice(0, idx);
+	}, []);
+
+	const basenameOf = useCallback((relativePath: string): string => {
+		const idx = relativePath.lastIndexOf('/');
+		return idx < 0 ? relativePath : relativePath.slice(idx + 1);
+	}, []);
+
+	// Find a node at `relativePath` within the current file tree. Returns null
+	// when the path doesn't resolve — we treat that as "no conflict" and let
+	// fs:rename surface any race between this lookup and the move.
+	const findNodeAtPath = useCallback(
+		(relativePath: string): FileNode | null => {
+			if (!relativePath) return null;
+			const parts = relativePath.split('/').filter(Boolean);
+			let children: FileNode[] | undefined = session.fileTree;
+			let node: FileNode | null = null;
+			for (const part of parts) {
+				if (!children) return null;
+				const match: FileNode | undefined = children.find((c) => c.name === part);
+				if (!match) return null;
+				node = match;
+				children = match.children;
+			}
+			return node;
+		},
+		[session.fileTree]
+	);
+
+	// Compute "name (2).ext", "name (3).ext", etc. against existing names. Hidden
+	// files (".env") keep their leading dot as part of the stem so we don't end
+	// up with "(2).env".
+	const computeAutoRenameName = useCallback((existingNames: Set<string>, baseName: string) => {
+		if (!existingNames.has(baseName)) return baseName;
+		const dotIdx = baseName.lastIndexOf('.');
+		const hasExt = dotIdx > 0;
+		const stem = hasExt ? baseName.slice(0, dotIdx) : baseName;
+		const ext = hasExt ? baseName.slice(dotIdx) : '';
+		for (let i = 2; i < 1000; i++) {
+			const candidate = `${stem} (${i})${ext}`;
+			if (!existingNames.has(candidate)) return candidate;
+		}
+		return baseName;
+	}, []);
+
+	const performMove = useCallback(
+		async (sourceAbsolute: string, destAbsolute: string, sourceName: string) => {
+			setIsMoving(true);
+			try {
+				await window.maestro.fs.rename(sourceAbsolute, destAbsolute, sshRemoteId);
+				// fs:rename mutates the tree's shape (parent dirs change, expansions
+				// may go stale), so do a full refresh instead of an in-place patch.
+				await refreshFileTree(session.id);
+				onShowFlash?.(`Moved "${sourceName}"`);
+			} catch (error) {
+				onShowFlash?.(`Move failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+			} finally {
+				setIsMoving(false);
+				setMoveConflict(null);
+			}
+		},
+		[sshRemoteId, refreshFileTree, session.id, onShowFlash]
+	);
+
+	const handleFolderDrop = useCallback(
+		(e: React.DragEvent, destFolderRelative: string) => {
+			const sourceRelative = e.dataTransfer.getData('application/x-maestro-file-path');
+			if (!sourceRelative) return;
+
+			e.preventDefault();
+			e.stopPropagation();
+			setDragOverFolder(null);
+
+			// Self / descendant / same-parent drops are no-ops. Validation also
+			// happens in handleFolderDragOver, but guard here in case dragOver was
+			// bypassed by a same-element drop.
+			if (isSelfOrDescendant(sourceRelative, destFolderRelative)) return;
+			if (parentDirOf(sourceRelative) === destFolderRelative) return;
+
+			const sourceName = basenameOf(sourceRelative);
+			const sourceAbsolute = `${session.fullPath}/${sourceRelative}`;
+			const destFolderAbsolute = `${session.fullPath}/${destFolderRelative}`;
+			const destRelative = `${destFolderRelative}/${sourceName}`;
+			const destAbsolute = `${destFolderAbsolute}/${sourceName}`;
+
+			const conflictNode = findNodeAtPath(destRelative);
+			if (!conflictNode) {
+				void performMove(sourceAbsolute, destAbsolute, sourceName);
+				return;
+			}
+
+			const destFolderNode = findNodeAtPath(destFolderRelative);
+			const existingNames = new Set(destFolderNode?.children?.map((c) => c.name) ?? []);
+			const autoRenameName = computeAutoRenameName(existingNames, sourceName);
+			setMoveConflict({
+				sourceName,
+				sourceRelativePath: sourceRelative,
+				sourceAbsolutePath: sourceAbsolute,
+				destFolderRelativePath: destFolderRelative,
+				destFolderAbsolutePath: destFolderAbsolute,
+				destAbsolutePath: destAbsolute,
+				autoRenameName,
+				autoRenameAbsolutePath: `${destFolderAbsolute}/${autoRenameName}`,
+			});
+		},
+		[
+			session.fullPath,
+			isSelfOrDescendant,
+			parentDirOf,
+			basenameOf,
+			findNodeAtPath,
+			computeAutoRenameName,
+			performMove,
+		]
+	);
+
+	const handleFolderDragOver = useCallback(
+		(e: React.DragEvent, destFolderRelative: string) => {
+			if (!e.dataTransfer.types.includes('application/x-maestro-file-path')) return;
+			// During dragOver, getData() returns '' in some browsers as a security
+			// measure — we can still consult the type list to know it's our drag.
+			// If we can read the path, validate it; otherwise optimistically accept
+			// and re-validate on drop.
+			const sourceRelative = e.dataTransfer.getData('application/x-maestro-file-path');
+			if (sourceRelative && isSelfOrDescendant(sourceRelative, destFolderRelative)) {
+				e.dataTransfer.dropEffect = 'none';
+				return;
+			}
+			if (sourceRelative && parentDirOf(sourceRelative) === destFolderRelative) {
+				e.dataTransfer.dropEffect = 'none';
+				return;
+			}
+			e.preventDefault();
+			e.stopPropagation();
+			e.dataTransfer.dropEffect = 'move';
+		},
+		[isSelfOrDescendant, parentDirOf]
+	);
+
+	const handleFolderDragEnter = useCallback((e: React.DragEvent, destFolderRelative: string) => {
+		if (!e.dataTransfer.types.includes('application/x-maestro-file-path')) return;
+		e.stopPropagation();
+		setDragOverFolder(destFolderRelative);
+	}, []);
+
+	const handleFolderDragLeave = useCallback((e: React.DragEvent) => {
+		if (!e.dataTransfer.types.includes('application/x-maestro-file-path')) return;
+		e.stopPropagation();
+		// Keep the highlight when moving into a descendant of the row (label,
+		// icon, indent guides). Clear when leaving the row outline entirely.
+		const next = e.relatedTarget as Node | null;
+		const row = e.currentTarget as Node | null;
+		if (row && next && row.contains(next)) return;
+		setDragOverFolder(null);
+	}, []);
+
+	// Confirm-overwrite handler for the conflict modal: deletes the existing
+	// target first (works for both files and dirs, where a plain rename onto a
+	// non-empty dir would fail with ENOTEMPTY), then performs the move.
+	const handleMoveOverwrite = useCallback(async () => {
+		if (!moveConflict) return;
+		setIsMoving(true);
+		try {
+			await window.maestro.fs.delete(moveConflict.destAbsolutePath, {
+				recursive: true,
+				sshRemoteId,
+			});
+			await window.maestro.fs.rename(
+				moveConflict.sourceAbsolutePath,
+				moveConflict.destAbsolutePath,
+				sshRemoteId
+			);
+			await refreshFileTree(session.id);
+			onShowFlash?.(`Moved "${moveConflict.sourceName}" (overwrote existing)`);
+		} catch (error) {
+			onShowFlash?.(`Move failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+		} finally {
+			setIsMoving(false);
+			setMoveConflict(null);
+		}
+	}, [moveConflict, sshRemoteId, refreshFileTree, session.id, onShowFlash]);
+
+	const handleMoveAutoRename = useCallback(() => {
+		if (!moveConflict) return;
+		void performMove(
+			moveConflict.sourceAbsolutePath,
+			moveConflict.autoRenameAbsolutePath,
+			moveConflict.autoRenameName
+		);
+	}, [moveConflict, performMove]);
+
 	// Close context menu on Escape key (only attached while the menu is open).
 	useEventListener(
 		'keydown',
@@ -1202,6 +1515,8 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 				);
 			}
 
+			const isDropTarget = isFolder && dragOverFolder === fullPath;
+
 			return (
 				<div
 					key={fullPath}
@@ -1213,12 +1528,20 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 						transform: `translateY(${virtualRow.start}px)`,
 						paddingLeft: `${8 + depth * 20}px`,
 						color: hasChange ? theme.colors.textMain : theme.colors.textDim,
-						borderLeftColor: isKeyboardSelected ? theme.colors.accent : 'transparent',
-						backgroundColor: isKeyboardSelected
-							? theme.colors.bgActivity
-							: isSelected
-								? 'rgba(255,255,255,0.1)'
-								: undefined,
+						borderLeftColor: isDropTarget
+							? theme.colors.accent
+							: isKeyboardSelected
+								? theme.colors.accent
+								: 'transparent',
+						backgroundColor: isDropTarget
+							? `${theme.colors.accent}33`
+							: isKeyboardSelected
+								? theme.colors.bgActivity
+								: isSelected
+									? 'rgba(255,255,255,0.1)'
+									: undefined,
+						outline: isDropTarget ? `1px dashed ${theme.colors.accent}` : undefined,
+						outlineOffset: isDropTarget ? '-2px' : undefined,
 					}}
 					draggable
 					onDragStart={(e) => {
@@ -1228,6 +1551,10 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 						// (insert @mention without moving the source file).
 						e.dataTransfer.effectAllowed = 'copyMove';
 					}}
+					onDragEnter={isFolder ? (e) => handleFolderDragEnter(e, fullPath) : undefined}
+					onDragOver={isFolder ? (e) => handleFolderDragOver(e, fullPath) : undefined}
+					onDragLeave={isFolder ? handleFolderDragLeave : undefined}
+					onDrop={isFolder ? (e) => handleFolderDrop(e, fullPath) : undefined}
 					onMouseDown={(e) => {
 						// Prevent focus from leaving the filter input when filtering
 						if (fileTreeFilter.length > 0) {
@@ -1339,6 +1666,11 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 			htmlDoubleClickOpensInBrowser,
 			onOpenBrowserTabAt,
 			sshRemoteId,
+			dragOverFolder,
+			handleFolderDragEnter,
+			handleFolderDragOver,
+			handleFolderDragLeave,
+			handleFolderDrop,
 		]
 	);
 
@@ -1952,6 +2284,24 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 					isDeleting={isDeleting}
 					onClose={() => setDeleteModal(null)}
 					onDelete={handleDelete}
+				/>
+			)}
+
+			{/* Move Name-Conflict Modal */}
+			{moveConflict && (
+				<MoveConflictModal
+					theme={theme}
+					sourceName={moveConflict.sourceName}
+					destFolderLabel={
+						moveConflict.destFolderRelativePath
+							? `"${moveConflict.destFolderRelativePath}"`
+							: 'the project root'
+					}
+					autoRenameTo={moveConflict.autoRenameName}
+					isMoving={isMoving}
+					onCancel={() => setMoveConflict(null)}
+					onOverwrite={handleMoveOverwrite}
+					onAutoRename={handleMoveAutoRename}
 				/>
 			)}
 		</div>
