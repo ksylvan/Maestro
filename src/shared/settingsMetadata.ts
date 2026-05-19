@@ -289,6 +289,24 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		default: 0,
 		category: 'appearance',
 	},
+	annotatorTextColor: {
+		description: 'Default text color (hex string) for image annotator text labels.',
+		type: 'string',
+		default: '#9146FF',
+		category: 'appearance',
+	},
+	annotatorTextSize: {
+		description: 'Default text size (in pixels) for image annotator text labels.',
+		type: 'number',
+		default: 24,
+		category: 'appearance',
+	},
+	annotatorTextFont: {
+		description: 'Default font family for image annotator text labels (CSS font-family string).',
+		type: 'string',
+		default: 'sans-serif',
+		category: 'appearance',
+	},
 
 	// --- Editor / UI Behavior ---
 	spellCheck: {

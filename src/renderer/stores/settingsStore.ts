@@ -428,6 +428,9 @@ export interface SettingsStoreState {
 	annotatorStreamline: number;
 	annotatorTaperStart: number;
 	annotatorTaperEnd: number;
+	annotatorTextColor: string;
+	annotatorTextSize: number;
+	annotatorTextFont: string;
 }
 
 export interface SettingsStoreActions {
@@ -553,6 +556,9 @@ export interface SettingsStoreActions {
 	setAnnotatorStreamline: (value: number) => void;
 	setAnnotatorTaperStart: (value: number) => void;
 	setAnnotatorTaperEnd: (value: number) => void;
+	setAnnotatorTextColor: (value: string) => void;
+	setAnnotatorTextSize: (value: number) => void;
+	setAnnotatorTextFont: (value: string) => void;
 
 	// Async setters
 	setLogLevel: (value: string) => Promise<void>;
@@ -758,6 +764,9 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		annotatorStreamline: 0.5,
 		annotatorTaperStart: 0,
 		annotatorTaperEnd: 0,
+		annotatorTextColor: '#9146FF',
+		annotatorTextSize: 24,
+		annotatorTextFont: 'sans-serif',
 
 		// ============================================================================
 		// Simple Setters
@@ -1470,6 +1479,21 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		setAnnotatorTaperEnd: (value) => {
 			set({ annotatorTaperEnd: value });
 			window.maestro.settings.set('annotatorTaperEnd', value);
+		},
+
+		setAnnotatorTextColor: (value) => {
+			set({ annotatorTextColor: value });
+			window.maestro.settings.set('annotatorTextColor', value);
+		},
+
+		setAnnotatorTextSize: (value) => {
+			set({ annotatorTextSize: value });
+			window.maestro.settings.set('annotatorTextSize', value);
+		},
+
+		setAnnotatorTextFont: (value) => {
+			set({ annotatorTextFont: value });
+			window.maestro.settings.set('annotatorTextFont', value);
 		},
 
 		// ============================================================================
@@ -2650,6 +2674,15 @@ export async function loadAllSettings(): Promise<void> {
 
 		if (allSettings['annotatorTaperEnd'] !== undefined)
 			patch.annotatorTaperEnd = allSettings['annotatorTaperEnd'] as number;
+
+		if (allSettings['annotatorTextColor'] !== undefined)
+			patch.annotatorTextColor = allSettings['annotatorTextColor'] as string;
+
+		if (allSettings['annotatorTextSize'] !== undefined)
+			patch.annotatorTextSize = allSettings['annotatorTextSize'] as number;
+
+		if (allSettings['annotatorTextFont'] !== undefined)
+			patch.annotatorTextFont = allSettings['annotatorTextFont'] as string;
 
 		// Apply the entire patch in one setState call
 		patch.settingsLoaded = true;

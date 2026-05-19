@@ -126,8 +126,12 @@ function ImageAnnotatorContent({
 	const composite = useCallback(async (): Promise<string | null> => {
 		const svg = svgRef.current;
 		if (!svg) return null;
+		// If a text label is mid-edit, commit it first so the value lands in the
+		// SVG `<text>` element before we serialize. Belt-and-suspenders against
+		// the textarea's own onBlur (which races with the save click target).
+		state.commitTextEditing();
 		return compositeAnnotatedImage(imageDataUrl, svg);
-	}, [imageDataUrl]);
+	}, [imageDataUrl, state]);
 
 	const handleSave = useCallback(async () => {
 		try {

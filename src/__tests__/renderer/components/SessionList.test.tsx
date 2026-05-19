@@ -871,7 +871,7 @@ describe('SessionList', () => {
 			expect(headerRow?.contains(newGroupButton)).toBe(true);
 		});
 
-		it('shows standalone New Group button when groups exist with no ungrouped sessions', () => {
+		it('keeps Ungrouped Agents folder visible (with inline New Group) even when no ungrouped sessions exist', () => {
 			const createNewGroup = vi.fn();
 			const group = createMockGroup({ id: 'g1', name: 'My Group', sessionIds: ['s1'] });
 			const sessions = [createMockSession({ id: 's1', name: 'Grouped Session', groupId: 'g1' })];
@@ -886,14 +886,11 @@ describe('SessionList', () => {
 			});
 			render(<SessionList {...props} />);
 
-			// New Group button should be visible
+			// Ungrouped Agents header is always shown when groups exist — it doubles
+			// as the drop zone for un-grouping a session.
+			expect(screen.getByText('Ungrouped Agents')).toBeInTheDocument();
+			// The inline New Group button still renders alongside the header.
 			expect(screen.getByText('New Group')).toBeInTheDocument();
-			// Ungrouped Agents header should NOT be visible (no ungrouped sessions)
-			expect(screen.queryByText('Ungrouped Agents')).not.toBeInTheDocument();
-
-			// Button should be standalone (full-width style)
-			const newGroupButton = screen.getByText('New Group').closest('button');
-			expect(newGroupButton).toHaveClass('w-full');
 		});
 	});
 
@@ -1046,7 +1043,7 @@ describe('SessionList', () => {
 			expect(screen.getByText('Ungrouped Session')).toBeInTheDocument();
 		});
 
-		it('hides Ungrouped Agents folder when all sessions are in groups', () => {
+		it('keeps Ungrouped Agents folder visible even when all sessions are in groups', () => {
 			const group = createMockGroup({ id: 'g1', name: 'My Group', sessionIds: ['s1'] });
 			const sessions = [createMockSession({ id: 's1', name: 'Grouped Session', groupId: 'g1' })];
 			useSessionStore.setState({
@@ -1061,8 +1058,8 @@ describe('SessionList', () => {
 
 			// The session should be visible in the group
 			expect(screen.getByText('Grouped Session')).toBeInTheDocument();
-			// But the Ungrouped Agents folder should NOT be visible
-			expect(screen.queryByText('Ungrouped Agents')).not.toBeInTheDocument();
+			// The Ungrouped Agents folder stays visible as a permanent drop target.
+			expect(screen.getByText('Ungrouped Agents')).toBeInTheDocument();
 		});
 
 		it('selects session when clicked', () => {
@@ -1518,7 +1515,7 @@ describe('SessionList', () => {
 			expect(handleDropOnGroup).toHaveBeenCalledWith('g1');
 		});
 
-		it('shows drop zone for ungrouping when dragging and all sessions are grouped', () => {
+		it('keeps Ungrouped Agents header as the drop target when dragging and all sessions are grouped', () => {
 			const handleDropOnUngrouped = vi.fn();
 			const group = createMockGroup({ id: 'g1', name: 'My Group', sessionIds: ['s1'] });
 			const sessions = [createMockSession({ id: 's1', name: 'Grouped Session', groupId: 'g1' })];
@@ -1536,11 +1533,12 @@ describe('SessionList', () => {
 			});
 			render(<SessionList {...props} />);
 
-			// Drop zone should be visible when dragging
-			expect(screen.getByText('Drop here to ungroup')).toBeInTheDocument();
+			// The Ungrouped Agents folder itself acts as the drop target now —
+			// there's no separate "Drop here to ungroup" placeholder.
+			expect(screen.getByText('Ungrouped Agents')).toBeInTheDocument();
 		});
 
-		it('calls handleDropOnUngrouped when dropping on ungroup zone', () => {
+		it('calls handleDropOnUngrouped when dropping on the Ungrouped Agents header', () => {
 			const handleDropOnUngrouped = vi.fn();
 			const group = createMockGroup({ id: 'g1', name: 'My Group', sessionIds: ['s1'] });
 			const sessions = [createMockSession({ id: 's1', name: 'Grouped Session', groupId: 'g1' })];
@@ -1558,9 +1556,12 @@ describe('SessionList', () => {
 			});
 			render(<SessionList {...props} />);
 
-			// Find the drop zone and drop on it
-			const dropZone = screen.getByText('Drop here to ungroup');
-			fireEvent.drop(dropZone);
+			// The header row itself owns the drop handler. Walk up to the row
+			// wrapper (closest div with the cursor-pointer class) and fire drop there.
+			const header = screen.getByText('Ungrouped Agents');
+			const dropRow = header.closest('div.cursor-pointer') as HTMLElement | null;
+			expect(dropRow).not.toBeNull();
+			fireEvent.drop(dropRow!);
 
 			expect(handleDropOnUngrouped).toHaveBeenCalled();
 		});

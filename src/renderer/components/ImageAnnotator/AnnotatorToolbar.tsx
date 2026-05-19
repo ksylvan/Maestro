@@ -25,6 +25,7 @@ import {
 	Square,
 	SlidersHorizontal,
 	Trash2,
+	Type,
 	Undo2,
 	X,
 	type LucideIcon,
@@ -55,10 +56,10 @@ export const AnnotatorToolbar = memo(function AnnotatorToolbar({
 	onCopy,
 	onCancel,
 }: AnnotatorToolbarProps) {
-	const { tool, setTool, strokes, shapes, undo, clear } = state;
+	const { tool, setTool, strokes, shapes, texts, undo, clear } = state;
 	const [confirmingClear, setConfirmingClear] = useState(false);
 	const confirmWrapRef = useRef<HTMLDivElement>(null);
-	const hasContent = strokes.length > 0 || shapes.length > 0;
+	const hasContent = strokes.length > 0 || shapes.length > 0 || texts.length > 0;
 
 	// Cmd/Ctrl+Z (undo) and Cmd/Ctrl+S (save+exit) for the annotator.
 	//
@@ -220,6 +221,7 @@ export const AnnotatorToolbar = memo(function AnnotatorToolbar({
 			{renderToolButton('rect', Square, 'Rectangle')}
 			{renderToolButton('ellipse', Circle, 'Ellipse')}
 			{renderToolButton('arrow', ArrowUpRight, 'Arrow')}
+			{renderToolButton('text', Type, 'Text (Aa)')}
 
 			{divider}
 

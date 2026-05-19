@@ -7,7 +7,7 @@
  * keep ANNOTATOR_DEFAULTS in sync there.
  */
 
-import { Brush, Palette, RotateCcw, SlidersHorizontal } from 'lucide-react';
+import { Brush, Palette, RotateCcw, SlidersHorizontal, Type } from 'lucide-react';
 import type { Theme } from '../../../shared/theme-types';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { SettingsSectionHeading } from '../Settings/SettingsSectionHeading';
@@ -38,7 +38,23 @@ const ANNOTATOR_DEFAULTS = {
 	annotatorStreamline: 0.5,
 	annotatorTaperStart: 0,
 	annotatorTaperEnd: 0,
+	annotatorTextColor: '#9146FF',
+	annotatorTextSize: 24,
+	annotatorTextFont: 'sans-serif',
 } as const;
+
+// Cross-platform default stack: each option is a CSS font-family string. The
+// first family in each stack is the friendly label; subsequent entries give
+// the renderer fallback choices when the named face isn't installed.
+const TEXT_FONT_OPTIONS: ReadonlyArray<{ label: string; value: string }> = [
+	{ label: 'Sans-serif', value: 'sans-serif' },
+	{ label: 'Serif', value: 'serif' },
+	{ label: 'Monospace', value: 'monospace' },
+	{ label: 'Helvetica', value: 'Helvetica, Arial, sans-serif' },
+	{ label: 'Georgia', value: 'Georgia, "Times New Roman", serif' },
+	{ label: 'Courier', value: '"Courier New", Courier, monospace' },
+	{ label: 'Comic Sans', value: '"Comic Sans MS", "Comic Sans", cursive' },
+];
 
 export function AnnotatorSettingsDrawer({ open, onClose, theme }: AnnotatorSettingsDrawerProps) {
 	const penColor = useSettingsStore((s) => s.annotatorPenColor);
@@ -48,6 +64,9 @@ export function AnnotatorSettingsDrawer({ open, onClose, theme }: AnnotatorSetti
 	const streamline = useSettingsStore((s) => s.annotatorStreamline);
 	const taperStart = useSettingsStore((s) => s.annotatorTaperStart);
 	const taperEnd = useSettingsStore((s) => s.annotatorTaperEnd);
+	const textColor = useSettingsStore((s) => s.annotatorTextColor);
+	const textSize = useSettingsStore((s) => s.annotatorTextSize);
+	const textFont = useSettingsStore((s) => s.annotatorTextFont);
 
 	const setPenColor = useSettingsStore((s) => s.setAnnotatorPenColor);
 	const setPenSize = useSettingsStore((s) => s.setAnnotatorPenSize);
@@ -56,6 +75,9 @@ export function AnnotatorSettingsDrawer({ open, onClose, theme }: AnnotatorSetti
 	const setStreamline = useSettingsStore((s) => s.setAnnotatorStreamline);
 	const setTaperStart = useSettingsStore((s) => s.setAnnotatorTaperStart);
 	const setTaperEnd = useSettingsStore((s) => s.setAnnotatorTaperEnd);
+	const setTextColor = useSettingsStore((s) => s.setAnnotatorTextColor);
+	const setTextSize = useSettingsStore((s) => s.setAnnotatorTextSize);
+	const setTextFont = useSettingsStore((s) => s.setAnnotatorTextFont);
 
 	const handleResetDefaults = () => {
 		setPenColor(ANNOTATOR_DEFAULTS.annotatorPenColor);
@@ -65,6 +87,9 @@ export function AnnotatorSettingsDrawer({ open, onClose, theme }: AnnotatorSetti
 		setStreamline(ANNOTATOR_DEFAULTS.annotatorStreamline);
 		setTaperStart(ANNOTATOR_DEFAULTS.annotatorTaperStart);
 		setTaperEnd(ANNOTATOR_DEFAULTS.annotatorTaperEnd);
+		setTextColor(ANNOTATOR_DEFAULTS.annotatorTextColor);
+		setTextSize(ANNOTATOR_DEFAULTS.annotatorTextSize);
+		setTextFont(ANNOTATOR_DEFAULTS.annotatorTextFont);
 	};
 
 	const sliderBackground = (value: number, min: number, max: number) => {
@@ -213,6 +238,94 @@ export function AnnotatorSettingsDrawer({ open, onClose, theme }: AnnotatorSetti
 						theme={theme}
 						sliderBackground={sliderBackground}
 					/>
+				</section>
+
+				<section className="space-y-4">
+					<SettingsSectionHeading icon={Type}>Text</SettingsSectionHeading>
+					<div>
+						<div className="grid grid-cols-8 gap-2 mb-3">
+							{SWATCHES.map((color) => {
+								const active = color.toLowerCase() === textColor.toLowerCase();
+								return (
+									<button
+										key={color}
+										type="button"
+										onClick={() => setTextColor(color)}
+										aria-label={`Use text color ${color}`}
+										aria-pressed={active}
+										className="w-7 h-7 rounded-full transition-transform hover:scale-110"
+										style={{
+											backgroundColor: color,
+											boxShadow: active
+												? `0 0 0 2px ${theme.colors.bgSidebar}, 0 0 0 4px ${theme.colors.accent}`
+												: `0 0 0 1px ${theme.colors.border}`,
+										}}
+									/>
+								);
+							})}
+						</div>
+						<label className="flex items-center gap-2 text-xs">
+							<span style={{ color: theme.colors.textDim }}>Custom</span>
+							<input
+								type="color"
+								value={textColor}
+								onChange={(e) => setTextColor(e.target.value)}
+								className="w-8 h-8 rounded cursor-pointer bg-transparent border-0 p-0"
+								aria-label="Custom text color"
+							/>
+							<span className="font-mono" style={{ color: theme.colors.textMain }}>
+								{textColor}
+							</span>
+						</label>
+					</div>
+
+					<div>
+						<div className="flex items-center justify-between mb-1.5">
+							<span className="text-xs" style={{ color: theme.colors.textDim }}>
+								Size
+							</span>
+							<span className="text-xs font-mono" style={{ color: theme.colors.textMain }}>
+								{textSize}
+							</span>
+						</div>
+						<input
+							type="range"
+							min={10}
+							max={120}
+							step={1}
+							value={textSize}
+							onChange={(e) => setTextSize(Number(e.target.value))}
+							className="w-full h-2 rounded-lg appearance-none cursor-pointer"
+							style={{ background: sliderBackground(textSize, 10, 120) }}
+							aria-label="Text size"
+						/>
+					</div>
+
+					<div>
+						<div className="flex items-center justify-between mb-1.5">
+							<span className="text-xs" style={{ color: theme.colors.textDim }}>
+								Font
+							</span>
+						</div>
+						<select
+							value={textFont}
+							onChange={(e) => setTextFont(e.target.value)}
+							aria-label="Text font"
+							className="w-full text-sm rounded px-2 py-1.5"
+							style={{
+								backgroundColor: theme.colors.bgMain,
+								color: theme.colors.textMain,
+								border: `1px solid ${theme.colors.border}`,
+								fontFamily: textFont,
+							}}
+						>
+							{TEXT_FONT_OPTIONS.map((opt) => (
+								<option key={opt.value} value={opt.value} style={{ fontFamily: opt.value }}>
+									{opt.label}
+								</option>
+							))}
+						</select>
+					</div>
 				</section>
 			</div>
 

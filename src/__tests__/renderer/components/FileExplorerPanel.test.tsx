@@ -294,6 +294,10 @@ const mockFileTree = [
 		name: 'README.md',
 		type: 'file' as const,
 	},
+	{
+		name: 'index.html',
+		type: 'file' as const,
+	},
 ];
 
 describe('FileExplorerPanel', () => {
@@ -2713,7 +2717,20 @@ describe('FileExplorerPanel', () => {
 			expect(mockShell.openPath).toHaveBeenCalledWith('/Users/test/project/package.json');
 		});
 
-		it('shows Open in Maestro Browser option when onOpenBrowserTabAt is provided', () => {
+		it('shows Open in Maestro Browser option for HTML files when onOpenBrowserTabAt is provided', () => {
+			const onOpenBrowserTabAt = vi.fn();
+			const { container } = render(
+				<FileExplorerPanel {...defaultProps} onOpenBrowserTabAt={onOpenBrowserTabAt} />
+			);
+			const fileItem = Array.from(container.querySelectorAll('[data-file-index]')).find((el) =>
+				el.textContent?.includes('index.html')
+			);
+			fireEvent.contextMenu(fileItem!, { clientX: 100, clientY: 200 });
+
+			expect(screen.getByText('Open in Maestro Browser')).toBeInTheDocument();
+		});
+
+		it('does not show Open in Maestro Browser option for non-HTML files', () => {
 			const onOpenBrowserTabAt = vi.fn();
 			const { container } = render(
 				<FileExplorerPanel {...defaultProps} onOpenBrowserTabAt={onOpenBrowserTabAt} />
@@ -2723,13 +2740,13 @@ describe('FileExplorerPanel', () => {
 			);
 			fireEvent.contextMenu(fileItem!, { clientX: 100, clientY: 200 });
 
-			expect(screen.getByText('Open in Maestro Browser')).toBeInTheDocument();
+			expect(screen.queryByText('Open in Maestro Browser')).not.toBeInTheDocument();
 		});
 
 		it('does not show Open in Maestro Browser option when handler is missing', () => {
 			const { container } = render(<FileExplorerPanel {...defaultProps} />);
 			const fileItem = Array.from(container.querySelectorAll('[data-file-index]')).find((el) =>
-				el.textContent?.includes('package.json')
+				el.textContent?.includes('index.html')
 			);
 			fireEvent.contextMenu(fileItem!, { clientX: 100, clientY: 200 });
 
@@ -2742,14 +2759,14 @@ describe('FileExplorerPanel', () => {
 				<FileExplorerPanel {...defaultProps} onOpenBrowserTabAt={onOpenBrowserTabAt} />
 			);
 			const fileItem = Array.from(container.querySelectorAll('[data-file-index]')).find((el) =>
-				el.textContent?.includes('package.json')
+				el.textContent?.includes('index.html')
 			);
 			fireEvent.contextMenu(fileItem!, { clientX: 100, clientY: 200 });
 
 			fireEvent.click(screen.getByText('Open in Maestro Browser'));
 
-			expect(onOpenBrowserTabAt).toHaveBeenCalledWith('file:///Users/test/project/package.json', {
-				title: 'package.json',
+			expect(onOpenBrowserTabAt).toHaveBeenCalledWith('file:///Users/test/project/index.html', {
+				title: 'index.html',
 			});
 		});
 
@@ -2766,7 +2783,7 @@ describe('FileExplorerPanel', () => {
 				/>
 			);
 			const fileItem = Array.from(container.querySelectorAll('[data-file-index]')).find((el) =>
-				el.textContent?.includes('package.json')
+				el.textContent?.includes('index.html')
 			);
 			fireEvent.contextMenu(fileItem!, { clientX: 100, clientY: 200 });
 
