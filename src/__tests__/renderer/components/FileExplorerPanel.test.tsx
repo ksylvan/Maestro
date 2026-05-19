@@ -135,6 +135,11 @@ vi.mock('lucide-react', () => ({
 			🔍
 		</span>
 	),
+	FilePlus: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<span data-testid="file-plus-icon" className={className} style={style}>
+			➕
+		</span>
+	),
 }));
 
 // Mock @tanstack/react-virtual for virtualization
@@ -2506,6 +2511,138 @@ describe('FileExplorerPanel', () => {
 			fireEvent.click(cancelButton);
 
 			expect(screen.queryByText('Rename File')).not.toBeInTheDocument();
+		});
+
+		it('shows "New File" option on folder context menu', () => {
+			const { container } = render(<FileExplorerPanel {...defaultProps} />);
+			const folderItem = Array.from(container.querySelectorAll('[data-file-index]')).find((el) =>
+				el.textContent?.includes('src')
+			);
+			fireEvent.contextMenu(folderItem!, { clientX: 100, clientY: 200 });
+			expect(screen.getByText('New File')).toBeInTheDocument();
+		});
+
+		it('does not show "New File" option on file context menu', () => {
+			const { container } = render(<FileExplorerPanel {...defaultProps} />);
+			const fileItem = Array.from(container.querySelectorAll('[data-file-index]')).find((el) =>
+				el.textContent?.includes('package.json')
+			);
+			fireEvent.contextMenu(fileItem!, { clientX: 100, clientY: 200 });
+			expect(screen.queryByText('New File')).not.toBeInTheDocument();
+		});
+
+		it('creates a new file inside the right-clicked folder', async () => {
+			const writeFile = vi.fn().mockResolvedValue({ success: true });
+			(window as any).maestro = { fs: { writeFile } };
+			const refreshFileTree = vi.fn().mockResolvedValue({ totalChanges: 1 });
+			const onShowFlash = vi.fn();
+
+			const { container } = render(
+				<FileExplorerPanel
+					{...defaultProps}
+					refreshFileTree={refreshFileTree}
+					onShowFlash={onShowFlash}
+				/>
+			);
+			const folderItem = Array.from(container.querySelectorAll('[data-file-index]')).find((el) =>
+				el.textContent?.includes('src')
+			);
+			fireEvent.contextMenu(folderItem!, { clientX: 100, clientY: 200 });
+			fireEvent.click(screen.getByText('New File'));
+
+			const input = screen.getByPlaceholderText('Enter file name...') as HTMLInputElement;
+			fireEvent.change(input, { target: { value: 'newthing.ts' } });
+
+			await act(async () => {
+				fireEvent.click(screen.getByText('Create'));
+				await Promise.resolve();
+				await Promise.resolve();
+			});
+
+			expect(writeFile).toHaveBeenCalledWith('/Users/test/project/src/newthing.ts', '', undefined);
+			expect(refreshFileTree).toHaveBeenCalled();
+			expect(onShowFlash).toHaveBeenCalledWith('Created "newthing.ts"');
+		});
+
+		it('rejects new file name with slashes', async () => {
+			const writeFile = vi.fn().mockResolvedValue({ success: true });
+			(window as any).maestro = { fs: { writeFile } };
+
+			const { container } = render(<FileExplorerPanel {...defaultProps} />);
+			const folderItem = Array.from(container.querySelectorAll('[data-file-index]')).find((el) =>
+				el.textContent?.includes('src')
+			);
+			fireEvent.contextMenu(folderItem!, { clientX: 100, clientY: 200 });
+			fireEvent.click(screen.getByText('New File'));
+
+			const input = screen.getByPlaceholderText('Enter file name...') as HTMLInputElement;
+			fireEvent.change(input, { target: { value: 'nested/foo.ts' } });
+
+			await act(async () => {
+				fireEvent.click(screen.getByText('Create'));
+				await Promise.resolve();
+			});
+
+			expect(writeFile).not.toHaveBeenCalled();
+			expect(screen.getByText('Name cannot contain slashes')).toBeInTheDocument();
+		});
+
+		it('rejects new file name that already exists in the folder', async () => {
+			const writeFile = vi.fn().mockResolvedValue({ success: true });
+			(window as any).maestro = { fs: { writeFile } };
+
+			// session.fileTree is the source of truth for the duplicate check, not
+			// filteredFileTree — pass it in explicitly so src/index.ts is known.
+			const { container } = render(
+				<FileExplorerPanel
+					{...defaultProps}
+					session={createMockSession({ fileTree: mockFileTree })}
+				/>
+			);
+			const folderItem = Array.from(container.querySelectorAll('[data-file-index]')).find((el) =>
+				el.textContent?.includes('src')
+			);
+			fireEvent.contextMenu(folderItem!, { clientX: 100, clientY: 200 });
+			fireEvent.click(screen.getByText('New File'));
+
+			const input = screen.getByPlaceholderText('Enter file name...') as HTMLInputElement;
+			fireEvent.change(input, { target: { value: 'index.ts' } });
+
+			await act(async () => {
+				fireEvent.click(screen.getByText('Create'));
+				await Promise.resolve();
+			});
+
+			expect(writeFile).not.toHaveBeenCalled();
+			expect(screen.getByText('"index.ts" already exists in this folder')).toBeInTheDocument();
+		});
+
+		it('passes sshRemoteId to writeFile for remote sessions', async () => {
+			const writeFile = vi.fn().mockResolvedValue({ success: true });
+			(window as any).maestro = { fs: { writeFile } };
+
+			const { container } = render(
+				<FileExplorerPanel
+					{...defaultProps}
+					session={createMockSession({ sshRemoteId: 'remote-42' })}
+				/>
+			);
+			const folderItem = Array.from(container.querySelectorAll('[data-file-index]')).find((el) =>
+				el.textContent?.includes('src')
+			);
+			fireEvent.contextMenu(folderItem!, { clientX: 100, clientY: 200 });
+			fireEvent.click(screen.getByText('New File'));
+
+			const input = screen.getByPlaceholderText('Enter file name...') as HTMLInputElement;
+			fireEvent.change(input, { target: { value: 'foo.ts' } });
+
+			await act(async () => {
+				fireEvent.click(screen.getByText('Create'));
+				await Promise.resolve();
+				await Promise.resolve();
+			});
+
+			expect(writeFile).toHaveBeenCalledWith('/Users/test/project/src/foo.ts', '', 'remote-42');
 		});
 
 		it('shows Open in Default App option for files', () => {

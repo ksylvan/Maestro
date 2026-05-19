@@ -23,6 +23,7 @@ import {
 	Trash2,
 	AlertTriangle,
 	Search,
+	FilePlus,
 } from 'lucide-react';
 import { Spinner } from './ui/Spinner';
 import type { Session, Theme, FocusArea, FileChangeType } from '../types';
@@ -260,6 +261,63 @@ const AUTO_REFRESH_OPTIONS = [
 	{ label: 'Every 60 seconds', value: 60 },
 	{ label: 'Every 3 minutes', value: 180 },
 ];
+
+/**
+ * NewFileModal - Modal for creating a new (empty) file inside a folder.
+ */
+interface NewFileModalProps {
+	theme: Theme;
+	parentFolderLabel: string;
+	value: string;
+	setValue: (value: string) => void;
+	error: string | null;
+	isCreating: boolean;
+	onClose: () => void;
+	onCreate: () => void;
+}
+
+function NewFileModal({
+	theme,
+	parentFolderLabel,
+	value,
+	setValue,
+	error,
+	isCreating,
+	onClose,
+	onCreate,
+}: NewFileModalProps) {
+	const inputRef = useRef<HTMLInputElement>(null);
+
+	return (
+		<Modal
+			theme={theme}
+			title={`New file in ${parentFolderLabel}`}
+			priority={MODAL_PRIORITIES.RENAME_INSTANCE}
+			onClose={isCreating ? () => {} : onClose}
+			initialFocusRef={inputRef}
+			footer={
+				<ModalFooter
+					theme={theme}
+					onCancel={onClose}
+					onConfirm={onCreate}
+					confirmLabel={isCreating ? 'Creating...' : 'Create'}
+					confirmDisabled={isCreating || !value.trim()}
+				/>
+			}
+		>
+			<FormInput
+				ref={inputRef}
+				theme={theme}
+				value={value}
+				onChange={setValue}
+				onSubmit={onCreate}
+				placeholder="Enter file name..."
+				error={error || undefined}
+				submitEnabled={Boolean(value.trim()) && !isCreating}
+			/>
+		</Modal>
+	);
+}
 
 /**
  * RenameFileModal - Modal for renaming files/folders in the file explorer
@@ -678,6 +736,16 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 	} | null>(null);
 	const [isDeleting, setIsDeleting] = useState(false);
 
+	// New-file modal state. `parentFolderPath` is the relative path of the
+	// destination folder (empty string = project root).
+	const [newFileModal, setNewFileModal] = useState<{
+		parentFolderPath: string;
+		parentFolderAbsolutePath: string;
+	} | null>(null);
+	const [newFileValue, setNewFileValue] = useState('');
+	const [newFileError, setNewFileError] = useState<string | null>(null);
+	const [isCreatingFile, setIsCreatingFile] = useState(false);
+
 	// Drag-to-move state. `dragOverFolder` is the relative path of the folder row
 	// currently being hovered (used for highlighting). `moveConflict` is set when
 	// the destination already has a file/folder with the same name and we need
@@ -904,6 +972,19 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 		setContextMenu(null);
 	}, [contextMenu, session.fullPath]);
 
+	// Open new-file modal seeded with the right-clicked folder as the parent.
+	const handleOpenNewFile = useCallback(() => {
+		if (contextMenu && contextMenu.node.type === 'folder') {
+			setNewFileModal({
+				parentFolderPath: contextMenu.path,
+				parentFolderAbsolutePath: `${session.fullPath}/${contextMenu.path}`,
+			});
+			setNewFileValue('');
+			setNewFileError(null);
+		}
+		setContextMenu(null);
+	}, [contextMenu, session.fullPath]);
+
 	// Open rename modal
 	const handleOpenRename = useCallback(() => {
 		if (contextMenu) {
@@ -989,6 +1070,54 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 		onShowFlash,
 		sshRemoteId,
 		setSessions,
+	]);
+
+	// Create an empty file inside the new-file modal's parent folder. Validates
+	// name (no slashes, not a duplicate inside the parent), writes via fs, and
+	// refreshes the tree so the new row appears.
+	const handleCreateNewFile = useCallback(async () => {
+		if (!newFileModal || !newFileValue.trim()) return;
+
+		const name = newFileValue.trim();
+		if (name.includes('/') || name.includes('\\')) {
+			setNewFileError('Name cannot contain slashes');
+			return;
+		}
+
+		// Check duplicate against the parent folder's children in the in-memory
+		// tree. Cheap enough and avoids a round trip; fs.writeFile would otherwise
+		// silently overwrite.
+		const parts = newFileModal.parentFolderPath.split('/').filter(Boolean);
+		let children: FileNode[] | undefined = session.fileTree;
+		for (const part of parts) {
+			if (!children) break;
+			children = children.find((c) => c.name === part)?.children;
+		}
+		if (children?.some((c) => c.name === name)) {
+			setNewFileError(`"${name}" already exists in this folder`);
+			return;
+		}
+
+		const absolutePath = `${newFileModal.parentFolderAbsolutePath}/${name}`;
+		setIsCreatingFile(true);
+		try {
+			await window.maestro.fs.writeFile(absolutePath, '', sshRemoteId);
+			await refreshFileTree(session.id);
+			setNewFileModal(null);
+			onShowFlash?.(`Created "${name}"`);
+		} catch (error) {
+			setNewFileError(error instanceof Error ? error.message : 'Create failed');
+		} finally {
+			setIsCreatingFile(false);
+		}
+	}, [
+		newFileModal,
+		newFileValue,
+		session.fileTree,
+		session.id,
+		sshRemoteId,
+		refreshFileTree,
+		onShowFlash,
 	]);
 
 	// Open delete confirmation modal
@@ -2154,6 +2283,21 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 						}}
 					>
 						<div className="p-1">
+							{/* New File option - for folders only, top of the menu */}
+							{contextMenu.node.type === 'folder' && (
+								<>
+									<button
+										onClick={handleOpenNewFile}
+										className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
+										style={{ color: theme.colors.textMain }}
+									>
+										<FilePlus className="w-3.5 h-3.5" style={{ color: theme.colors.accent }} />
+										<span>New File</span>
+									</button>
+									<div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
+								</>
+							)}
+
 							{/* Preview option - for files only */}
 							{contextMenu.node.type === 'file' && (
 								<button
@@ -2284,6 +2428,27 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 					isDeleting={isDeleting}
 					onClose={() => setDeleteModal(null)}
 					onDelete={handleDelete}
+				/>
+			)}
+
+			{/* New File Modal */}
+			{newFileModal && (
+				<NewFileModal
+					theme={theme}
+					parentFolderLabel={
+						newFileModal.parentFolderPath
+							? `"${newFileModal.parentFolderPath}"`
+							: 'the project root'
+					}
+					value={newFileValue}
+					setValue={(v) => {
+						setNewFileValue(v);
+						setNewFileError(null);
+					}}
+					error={newFileError}
+					isCreating={isCreatingFile}
+					onClose={() => setNewFileModal(null)}
+					onCreate={handleCreateNewFile}
 				/>
 			)}
 
