@@ -2039,6 +2039,40 @@ describe('FileExplorerPanel', () => {
 			expect(onShowFlash).toHaveBeenCalledWith('Moved "package.json"');
 		});
 
+		it('expands the destination folder after a successful move', async () => {
+			const rename = vi.fn().mockResolvedValue({ success: true });
+			(window as any).maestro = { fs: { rename } };
+			const setSessions = vi.fn();
+
+			const { container } = render(
+				<FileExplorerPanel
+					{...defaultProps}
+					setSessions={setSessions}
+					session={createMockSession({ fileExplorerExpanded: ['src'], fileTree: mockFileTree })}
+					filteredFileTree={mockFileTree}
+				/>
+			);
+
+			const srcRow = getRow(container, 'src');
+			const dt = makeDataTransfer({ 'application/x-maestro-file-path': 'package.json' });
+
+			await act(async () => {
+				fireEvent.drop(srcRow, { dataTransfer: dt });
+				await Promise.resolve();
+				await Promise.resolve();
+			});
+
+			// One of the setSessions calls should be the expander adding 'src'.
+			const updaters = setSessions.mock.calls
+				.map((c) => c[0])
+				.filter((fn) => typeof fn === 'function');
+			const expanded = updaters.some((fn) => {
+				const result = fn([{ id: defaultProps.session.id, fileExplorerExpanded: [] } as Session]);
+				return (result[0].fileExplorerExpanded ?? []).includes('src');
+			});
+			expect(expanded).toBe(true);
+		});
+
 		it('passes sshRemoteId through to fs.rename for remote sessions', async () => {
 			const rename = vi.fn().mockResolvedValue({ success: true });
 			(window as any).maestro = { fs: { rename } };
@@ -2566,6 +2600,44 @@ describe('FileExplorerPanel', () => {
 			expect(writeFile).toHaveBeenCalledWith('/Users/test/project/src/newthing.ts', '', undefined);
 			expect(refreshFileTree).toHaveBeenCalled();
 			expect(onShowFlash).toHaveBeenCalledWith('Created "newthing.ts"');
+		});
+
+		it('expands the parent folder after creating a new file in it', async () => {
+			const writeFile = vi.fn().mockResolvedValue({ success: true });
+			(window as any).maestro = { fs: { writeFile } };
+			const setSessions = vi.fn();
+
+			const { container } = render(
+				<FileExplorerPanel
+					{...defaultProps}
+					setSessions={setSessions}
+					session={createMockSession({ fileExplorerExpanded: [] })}
+				/>
+			);
+			const folderItem = Array.from(container.querySelectorAll('[data-file-index]')).find((el) =>
+				el.textContent?.includes('src')
+			);
+			fireEvent.contextMenu(folderItem!, { clientX: 100, clientY: 200 });
+			fireEvent.click(screen.getByText('New File'));
+
+			const input = screen.getByPlaceholderText('Enter file name...') as HTMLInputElement;
+			fireEvent.change(input, { target: { value: 'newthing.ts' } });
+
+			await act(async () => {
+				fireEvent.click(screen.getByText('Create'));
+				await Promise.resolve();
+				await Promise.resolve();
+			});
+
+			// setSessions is called with an updater that adds 'src' to expanded list.
+			const updater = setSessions.mock.calls
+				.map((c) => c[0])
+				.find((fn) => typeof fn === 'function');
+			expect(updater).toBeDefined();
+			const result = updater([
+				{ id: defaultProps.session.id, fileExplorerExpanded: [] } as Session,
+			]);
+			expect(result[0].fileExplorerExpanded).toContain('src');
 		});
 
 		it('rejects new file name with slashes', async () => {

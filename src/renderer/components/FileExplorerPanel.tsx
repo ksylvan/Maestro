@@ -929,6 +929,25 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 		setContextMenu(null);
 	}, [contextMenu, handleFileClick, session]);
 
+	// Ensure a folder is expanded in the tree. Idempotent — no-op if already
+	// expanded or if the path is empty (project root is always visible). Used
+	// after creating a file in a folder or moving a file into one, so the
+	// resulting row is visible without an extra click.
+	const expandFolder = useCallback(
+		(relativePath: string) => {
+			if (!relativePath) return;
+			setSessions((prev) =>
+				prev.map((s) => {
+					if (s.id !== session.id) return s;
+					const expanded = s.fileExplorerExpanded || [];
+					if (expanded.includes(relativePath)) return s;
+					return { ...s, fileExplorerExpanded: [...expanded, relativePath] };
+				})
+			);
+		},
+		[session.id, setSessions]
+	);
+
 	const handleCopyPath = useCallback(() => {
 		if (contextMenu) {
 			const absolutePath = `${session.fullPath}/${contextMenu.path}`;
@@ -1103,6 +1122,8 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 		try {
 			await window.maestro.fs.writeFile(absolutePath, '', sshRemoteId);
 			await refreshFileTree(session.id);
+			// Expand the target folder so the new file is visible immediately.
+			expandFolder(newFileModal.parentFolderPath);
 			setNewFileModal(null);
 			onShowFlash?.(`Created "${name}"`);
 		} catch (error) {
@@ -1118,6 +1139,7 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 		sshRemoteId,
 		refreshFileTree,
 		onShowFlash,
+		expandFolder,
 	]);
 
 	// Open delete confirmation modal
@@ -1264,13 +1286,21 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 	}, []);
 
 	const performMove = useCallback(
-		async (sourceAbsolute: string, destAbsolute: string, sourceName: string) => {
+		async (
+			sourceAbsolute: string,
+			destAbsolute: string,
+			sourceName: string,
+			destFolderRelative: string
+		) => {
 			setIsMoving(true);
 			try {
 				await window.maestro.fs.rename(sourceAbsolute, destAbsolute, sshRemoteId);
 				// fs:rename mutates the tree's shape (parent dirs change, expansions
 				// may go stale), so do a full refresh instead of an in-place patch.
 				await refreshFileTree(session.id);
+				// Expand the destination folder so the moved row is visible without
+				// an extra click.
+				expandFolder(destFolderRelative);
 				onShowFlash?.(`Moved "${sourceName}"`);
 			} catch (error) {
 				onShowFlash?.(`Move failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -1279,7 +1309,7 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 				setMoveConflict(null);
 			}
 		},
-		[sshRemoteId, refreshFileTree, session.id, onShowFlash]
+		[sshRemoteId, refreshFileTree, session.id, onShowFlash, expandFolder]
 	);
 
 	const handleFolderDrop = useCallback(
@@ -1305,7 +1335,7 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 
 			const conflictNode = findNodeAtPath(destRelative);
 			if (!conflictNode) {
-				void performMove(sourceAbsolute, destAbsolute, sourceName);
+				void performMove(sourceAbsolute, destAbsolute, sourceName, destFolderRelative);
 				return;
 			}
 
@@ -1391,6 +1421,7 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 				sshRemoteId
 			);
 			await refreshFileTree(session.id);
+			expandFolder(moveConflict.destFolderRelativePath);
 			onShowFlash?.(`Moved "${moveConflict.sourceName}" (overwrote existing)`);
 		} catch (error) {
 			onShowFlash?.(`Move failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -1398,14 +1429,15 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 			setIsMoving(false);
 			setMoveConflict(null);
 		}
-	}, [moveConflict, sshRemoteId, refreshFileTree, session.id, onShowFlash]);
+	}, [moveConflict, sshRemoteId, refreshFileTree, session.id, onShowFlash, expandFolder]);
 
 	const handleMoveAutoRename = useCallback(() => {
 		if (!moveConflict) return;
 		void performMove(
 			moveConflict.sourceAbsolutePath,
 			moveConflict.autoRenameAbsolutePath,
-			moveConflict.autoRenameName
+			moveConflict.autoRenameName,
+			moveConflict.destFolderRelativePath
 		);
 	}, [moveConflict, performMove]);
 
