@@ -45,25 +45,11 @@ export function ImageAnnotator({ theme }: ImageAnnotatorProps) {
 	// Remount canvas + state on each open so a fresh session starts clean.
 	const sessionKey = useMemo(() => (isOpen ? imageDataUrl : null), [isOpen, imageDataUrl]);
 
-	// Escape closes the settings drawer first if it's open, then the modal.
-	const drawerOpenRef = useRef(drawerOpen);
-	drawerOpenRef.current = drawerOpen;
-	const handleEscape = useCallback(() => {
-		if (drawerOpenRef.current) {
-			setDrawerOpen(false);
-			return;
-		}
-		closeAnnotator();
-	}, [closeAnnotator, setDrawerOpen]);
-
-	useModalLayer(MODAL_PRIORITIES.IMAGE_ANNOTATOR, 'Image Annotator', handleEscape, {
-		focusTrap: 'lenient',
-		enabled: isOpen,
-	});
-
 	// Left arrow opens the settings drawer, Right arrow closes it — but only
 	// when focus isn't on a form control (range sliders inside the drawer use
 	// Left/Right natively to adjust their value).
+	const drawerOpenRef = useRef(drawerOpen);
+	drawerOpenRef.current = drawerOpen;
 	useEventListener(
 		'keydown',
 		(event) => {
@@ -122,6 +108,65 @@ function ImageAnnotatorContent({
 }: ImageAnnotatorContentProps) {
 	const state = useAnnotatorState();
 	const svgRef = useRef<SVGSVGElement>(null);
+
+	// Any committed annotation counts as unsaved work — strokes, geometric
+	// shapes, and text labels. An in-progress (uncommitted) freehand stroke
+	// or shape doesn't, because it hasn't survived a pointerup yet.
+	const hasUnsavedChanges =
+		state.strokes.length > 0 || state.shapes.length > 0 || state.texts.length > 0;
+
+	const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+
+	// Escape precedence inside the annotator:
+	//   1. If the discard-confirm dialog is up, Escape dismisses it (keep editing).
+	//   2. Else if the settings drawer is open, Escape closes the drawer.
+	//   3. Else if there are unsaved changes, Escape raises the confirm dialog.
+	//   4. Otherwise Escape closes the modal immediately (nothing to lose).
+	// Refs let the modal-layer-registered handler read the latest values without
+	// re-registering on every render.
+	const drawerOpenRef = useRef(drawerOpen);
+	drawerOpenRef.current = drawerOpen;
+	const hasChangesRef = useRef(hasUnsavedChanges);
+	hasChangesRef.current = hasUnsavedChanges;
+	const confirmingRef = useRef(confirmingDiscard);
+	confirmingRef.current = confirmingDiscard;
+
+	const handleEscape = useCallback(() => {
+		if (confirmingRef.current) {
+			setConfirmingDiscard(false);
+			return;
+		}
+		if (drawerOpenRef.current) {
+			setDrawerOpen(false);
+			return;
+		}
+		if (hasChangesRef.current) {
+			setConfirmingDiscard(true);
+			return;
+		}
+		closeAnnotator();
+	}, [closeAnnotator, setDrawerOpen]);
+
+	useModalLayer(MODAL_PRIORITIES.IMAGE_ANNOTATOR, 'Image Annotator', handleEscape, {
+		focusTrap: 'lenient',
+	});
+
+	// X / Cancel button: same guard as Escape — never close out from under the
+	// user when there's committed work that hasn't been saved.
+	const handleCancel = useCallback(() => {
+		if (hasChangesRef.current) {
+			setConfirmingDiscard(true);
+			return;
+		}
+		closeAnnotator();
+	}, [closeAnnotator]);
+
+	const handleConfirmDiscard = useCallback(() => {
+		setConfirmingDiscard(false);
+		closeAnnotator();
+	}, [closeAnnotator]);
+
+	const handleKeepEditing = useCallback(() => setConfirmingDiscard(false), []);
 
 	const composite = useCallback(async (): Promise<string | null> => {
 		const svg = svgRef.current;
@@ -185,7 +230,7 @@ function ImageAnnotatorContent({
 				onToggleDrawer={toggleDrawer}
 				onSave={handleSave}
 				onCopy={handleCopy}
-				onCancel={closeAnnotator}
+				onCancel={handleCancel}
 			/>
 			<AnnotatorSettingsDrawer
 				open={drawerOpen}
@@ -193,6 +238,82 @@ function ImageAnnotatorContent({
 				theme={theme}
 				state={state}
 			/>
+			{confirmingDiscard && (
+				<DiscardConfirmDialog
+					theme={theme}
+					onKeepEditing={handleKeepEditing}
+					onDiscard={handleConfirmDiscard}
+				/>
+			)}
+		</div>
+	);
+}
+
+interface DiscardConfirmDialogProps {
+	theme: Theme;
+	onKeepEditing: () => void;
+	onDiscard: () => void;
+}
+
+/**
+ * Confirms "discard your annotations" before closing the annotator. Default
+ * focus lands on `Keep editing` so an accidental space/enter does the safe
+ * thing — discarding requires an explicit click on the destructive button.
+ */
+function DiscardConfirmDialog({ theme, onKeepEditing, onDiscard }: DiscardConfirmDialogProps) {
+	return (
+		<div
+			role="dialog"
+			aria-modal="true"
+			aria-label="Discard annotations?"
+			className="fixed inset-0 flex items-center justify-center select-none"
+			style={{ zIndex: 180, backgroundColor: 'rgba(0,0,0,0.55)' }}
+			// Backdrop click = keep editing (same as Esc) — never silently discard.
+			onMouseDown={onKeepEditing}
+		>
+			<div
+				className="rounded-xl p-5 max-w-sm w-full mx-4"
+				style={{
+					backgroundColor: theme.colors.bgSidebar,
+					border: `1px solid ${theme.colors.border}`,
+					boxShadow: '0 24px 48px -16px rgba(0,0,0,0.6)',
+				}}
+				// Stop the backdrop's mousedown from firing when clicking inside.
+				onMouseDown={(e) => e.stopPropagation()}
+			>
+				<div className="text-base font-semibold mb-2" style={{ color: theme.colors.textMain }}>
+					Discard your annotations?
+				</div>
+				<div className="text-sm mb-5" style={{ color: theme.colors.textDim }}>
+					You have unsaved drawing, shapes, or text on this image. Closing now will permanently lose
+					them.
+				</div>
+				<div className="flex justify-end gap-2">
+					<button
+						type="button"
+						autoFocus
+						onClick={onKeepEditing}
+						className="px-3 py-1.5 rounded text-sm transition-colors hover:bg-white/10"
+						style={{
+							color: theme.colors.textMain,
+							border: `1px solid ${theme.colors.border}`,
+						}}
+					>
+						Keep editing
+					</button>
+					<button
+						type="button"
+						onClick={onDiscard}
+						className="px-3 py-1.5 rounded text-sm transition-opacity hover:opacity-90"
+						style={{
+							backgroundColor: theme.colors.error,
+							color: theme.colors.accentForeground,
+						}}
+					>
+						Discard
+					</button>
+				</div>
+			</div>
 		</div>
 	);
 }

@@ -157,8 +157,21 @@ export function AnnotatorSettingsDrawer({
 		// to white as a sane default when the user "swaps in" a missing bg.
 		const nextFg = bg === '' ? '#ffffff' : bg;
 		const nextBg = fg;
-		setTextColor(nextFg);
-		setTextBgColor(nextBg);
+		// Apply both changes in a single mutation. Two sequential setters would
+		// each spread from `selectedText.style` (the closure-captured value at
+		// render time), so the second call would clobber the first's update.
+		if (selectedText) {
+			state.updateText(selectedText.id, {
+				style: {
+					...selectedText.style,
+					color: nextFg,
+					bgColor: nextBg === '' ? null : nextBg,
+				},
+			});
+		} else {
+			setDefTextColor(nextFg);
+			setDefTextBgColor(nextBg);
+		}
 	};
 
 	const penEditingSelection = !!selectedShape;
@@ -194,7 +207,12 @@ export function AnnotatorSettingsDrawer({
 			className="absolute top-0 right-0 bottom-0 z-20 flex flex-col overflow-y-auto border-l"
 			style={
 				{
-					width: 320,
+					// 360px fits a 9-column swatch grid (8 colors + the "None"
+					// tile in the background palette) without wrap. Bumping this
+					// width also requires the matching `DRAWER_WIDTH` in
+					// `AnnotatorToolbar.tsx` so the toolbar slides clear of the
+					// drawer's new edge.
+					width: 360,
 					backgroundColor: theme.colors.bgSidebar,
 					borderColor: theme.colors.border,
 					color: theme.colors.textMain,
@@ -480,7 +498,7 @@ function ColorPalette({
 	const isNone = value === '';
 	return (
 		<>
-			<div className="grid grid-cols-8 gap-2 mb-3">
+			<div className="grid grid-cols-9 gap-2 mb-3">
 				{includeNone && (
 					<button
 						type="button"

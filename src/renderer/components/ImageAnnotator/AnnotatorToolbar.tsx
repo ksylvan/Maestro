@@ -179,7 +179,8 @@ export const AnnotatorToolbar = memo(function AnnotatorToolbar({
 	// Slide the toolbar left when the settings drawer opens, so the drawer
 	// can take the right edge without occluding the buttons. The drawer
 	// itself is 320px wide; we leave a 24px gap on either side.
-	const DRAWER_WIDTH = 320;
+	// Keep in sync with `AnnotatorSettingsDrawer`'s aside width.
+	const DRAWER_WIDTH = 360;
 	const EDGE_GAP = 24;
 	const rightOffset = drawerOpen ? DRAWER_WIDTH + EDGE_GAP : EDGE_GAP;
 
