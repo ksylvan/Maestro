@@ -1,6 +1,7 @@
 import type React from 'react';
 import type { Session } from '../../../types';
 import type { NotifyToastInput } from '../../../stores/notificationStore';
+import { captureException } from '../../../utils/sentry';
 import type { QuickAction } from '../types';
 
 interface BuildDebugCommandsArgs {
@@ -99,13 +100,22 @@ export function buildDebugCommands({
 				try {
 					const installationId = await getInstallationId();
 					if (installationId) {
-						await safeClipboardWrite(installationId);
-						flashCopiedToClipboard(installationId, 'Install GUID Copied');
-						logger.info(
-							'[Debug] Installation GUID copied to clipboard:',
-							undefined,
-							installationId
-						);
+						const ok = await safeClipboardWrite(installationId);
+						if (ok) {
+							flashCopiedToClipboard(installationId, 'Install GUID Copied');
+							logger.info(
+								'[Debug] Installation GUID copied to clipboard:',
+								undefined,
+								installationId
+							);
+						} else {
+							notifyToast({
+								type: 'error',
+								title: 'Error',
+								message: 'Failed to copy installation GUID',
+							});
+							logger.error('[Debug] Failed to copy Installation GUID', undefined, installationId);
+						}
 					} else {
 						notifyToast({ type: 'error', title: 'Error', message: 'No installation GUID found' });
 						logger.warn('[Debug] No installation GUID found');
@@ -117,6 +127,7 @@ export function buildDebugCommands({
 						message: 'Failed to copy installation GUID',
 					});
 					logger.error('[Debug] Failed to copy installation GUID:', undefined, err);
+					captureException(err);
 				}
 				setQuickActionOpen(false);
 			},

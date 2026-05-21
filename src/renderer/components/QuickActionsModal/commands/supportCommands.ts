@@ -1,5 +1,6 @@
 import { buildMaestroUrl } from '../../../utils/buildMaestroUrl';
 import type { NotifyToastInput } from '../../../stores/notificationStore';
+import { captureException } from '../../../utils/sentry';
 import type { SettingsTab } from '../../../types';
 import type { QuickAction } from '../types';
 
@@ -201,6 +202,8 @@ export function buildSupportCommands({
 							title: 'Debug Package Failed',
 							message: error instanceof Error ? error.message : 'Unknown error',
 						});
+						captureException(error);
+						throw error;
 					});
 			},
 		},

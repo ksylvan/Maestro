@@ -19,6 +19,7 @@ describe('RunningAgentSubtext', () => {
 			/>
 		);
 
+		expect(screen.getByText(/3s/)).toBeInTheDocument();
 		expect(screen.getByText(/Planner/)).toBeInTheDocument();
 		expect(screen.getByText(/3 queued/)).toBeInTheDocument();
 	});

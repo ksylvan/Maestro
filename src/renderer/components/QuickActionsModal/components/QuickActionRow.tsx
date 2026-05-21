@@ -1,4 +1,5 @@
 import type React from 'react';
+import { useState } from 'react';
 import { Bot } from 'lucide-react';
 import type { Theme } from '../../../types';
 import { formatShortcutKeys } from '../../../utils/shortcutFormatter';
@@ -27,13 +28,20 @@ export function QuickActionRow({
 	selectedItemRef,
 	onClick,
 }: QuickActionRowProps) {
+	const [isHovered, setIsHovered] = useState(false);
 	return (
 		<button
 			ref={isSelected ? selectedItemRef : null}
 			onClick={() => onClick(action)}
-			className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-opacity-10 ${isSelected ? 'bg-opacity-10' : ''}`}
+			onMouseEnter={() => setIsHovered(true)}
+			onMouseLeave={() => setIsHovered(false)}
+			className="w-full text-left px-4 py-3 flex items-center gap-3"
 			style={{
-				backgroundColor: isSelected ? theme.colors.accent : 'transparent',
+				backgroundColor: isSelected
+					? theme.colors.accent
+					: isHovered
+						? `${theme.colors.accent}1a`
+						: 'transparent',
 				color: isSelected ? theme.colors.accentForeground : theme.colors.textMain,
 			}}
 		>
