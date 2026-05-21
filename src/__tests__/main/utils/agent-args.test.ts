@@ -10,6 +10,7 @@ import {
 	applyAgentConfigOverrides,
 	getContextWindowValue,
 } from '../../../main/utils/agent-args';
+import { AGENT_DEFINITIONS } from '../../../main/agents/definitions';
 import type { AgentConfig } from '../../../main/agents';
 
 vi.mock('../../../main/utils/logger', () => ({
@@ -323,6 +324,46 @@ describe('buildAgentArgs', () => {
 			'--yolo',
 			'--resume',
 			'abc',
+		]);
+	});
+
+	it('builds Hermes batch args for the documented Maestro launch path', () => {
+		const hermes = AGENT_DEFINITIONS.find((agent) => agent.id === 'hermes');
+		expect(hermes).toBeDefined();
+
+		const result = buildAgentArgs(hermes!, {
+			baseArgs: [],
+			prompt: 'Summarize the current branch status',
+			modelId: 'anthropic/claude-sonnet-4-20250514',
+		});
+
+		expect(result).toEqual([
+			'chat',
+			'-Q',
+			'-m',
+			'anthropic/claude-sonnet-4-20250514',
+			'-q',
+			'Summarize the current branch status',
+		]);
+	});
+
+	it('builds Pi batch args for the documented Maestro launch path', () => {
+		const pi = AGENT_DEFINITIONS.find((agent) => agent.id === 'pi');
+		expect(pi).toBeDefined();
+
+		const result = buildAgentArgs(pi!, {
+			baseArgs: [],
+			prompt: 'Plan the next implementation step',
+			modelId: 'claude-sonnet-4.5',
+		});
+
+		expect(result).toEqual([
+			'--mode',
+			'json',
+			'-m',
+			'claude-sonnet-4.5',
+			'-p',
+			'Plan the next implementation step',
 		]);
 	});
 

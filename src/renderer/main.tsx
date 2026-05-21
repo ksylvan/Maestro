@@ -1,16 +1,25 @@
 // IMPORTANT: wdyr must be imported BEFORE React
 import './wdyr';
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import ReactDOM from 'react-dom/client';
 import * as Sentry from '@sentry/electron/renderer';
-import MaestroConsole from './App';
+import { Phase01AgentParityHarness } from './Phase01AgentParityHarness';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LayerStackProvider } from './contexts/LayerStackContext';
 // ToastProvider removed - notification state now managed by notificationStore (Zustand)
 // ModalProvider removed - modal state now managed by modalStore (Zustand)
 import { WizardProvider } from './components/Wizard';
+import { installBrowserMaestroStub } from './installBrowserMaestroStub';
 import { logger } from './utils/logger';
 import './index.css';
+
+installBrowserMaestroStub();
+
+const MaestroConsole = lazy(() => import('./App'));
+
+const isPhase01AgentParityHarness =
+	typeof window !== 'undefined' &&
+	new URLSearchParams(window.location.search).get('phase01') === 'agent-parity';
 
 // Initialize Sentry for renderer process
 // Uses IPCMode.Classic in main process to avoid "sentry-ipc://" protocol conflicts
@@ -93,7 +102,13 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 		<ErrorBoundary>
 			<LayerStackProvider>
 				<WizardProvider>
-					<MaestroConsole />
+					{isPhase01AgentParityHarness ? (
+						<Phase01AgentParityHarness />
+					) : (
+						<Suspense fallback={null}>
+							<MaestroConsole />
+						</Suspense>
+					)}
 				</WizardProvider>
 			</LayerStackProvider>
 		</ErrorBoundary>
