@@ -357,6 +357,40 @@ function validateEventSpecificFields(
 				errors.push(`${prefix}: "source_sub" must be a string or array of strings when provided`);
 			}
 		}
+		// Command-chain links must carry explicit upstream subscription identity.
+		// Without source_sub, YAML->graph reconstruction has to guess by session
+		// name and can collapse Command->Agent into Agent->Agent when both share
+		// an owning session.
+		if (sub.action === 'command' && sub.source_sub === undefined) {
+			errors.push(
+				`${prefix}: "source_sub" is required for agent.completed subscriptions when action is "command"`
+			);
+		}
+		// For fan-in chains, source_sub should align positionally with
+		// source_session so each upstream source maps to its exact upstream sub.
+		// Skip when either side is null/undefined — the required-field check
+		// above already errored on absent source_session, and re-emitting a
+		// misleading "must be a string when source_session is a string" here
+		// just adds noise. `!= null` intentionally treats `null` and `undefined`
+		// the same: a YAML `source_session: ~` or `source_session: null` parses
+		// to null but is semantically the same "absent" case.
+		const sourceSession = sub.source_session;
+		const sourceSub = sub.source_sub;
+		if (sourceSession != null && sourceSub != null) {
+			const sourceSessionIsArray = Array.isArray(sourceSession);
+			const sourceSubIsArray = Array.isArray(sourceSub);
+			if (sourceSessionIsArray && sourceSubIsArray) {
+				if (sourceSession.length !== sourceSub.length) {
+					errors.push(
+						`${prefix}: "source_sub" length (${sourceSub.length}) must match "source_session" length (${sourceSession.length})`
+					);
+				}
+			} else if (sourceSessionIsArray && typeof sourceSub === 'string') {
+				errors.push(`${prefix}: "source_sub" must be an array when "source_session" is an array`);
+			} else if (!sourceSessionIsArray && sourceSubIsArray) {
+				errors.push(`${prefix}: "source_sub" must be a string when "source_session" is a string`);
+			}
+		}
 	} else if (event === 'task.pending') {
 		if (!sub.watch || typeof sub.watch !== 'string') {
 			errors.push(
@@ -397,6 +431,23 @@ function validateEventSpecificFields(
 			if (sub.gh_state === 'merged' && event === 'github.issue') {
 				errors.push(
 					`${prefix}: "gh_state" value "merged" is only valid for github.pull_request events`
+				);
+			}
+		}
+		if (sub.retrigger_on_comments !== undefined && typeof sub.retrigger_on_comments !== 'boolean') {
+			errors.push(
+				`${prefix}: "retrigger_on_comments" must be a boolean (true to re-fire on new activity, false or omitted to fire once per item)`
+			);
+		}
+		if (sub.max_notifications !== undefined) {
+			if (
+				typeof sub.max_notifications !== 'number' ||
+				!Number.isFinite(sub.max_notifications) ||
+				!Number.isInteger(sub.max_notifications) ||
+				sub.max_notifications < 0
+			) {
+				errors.push(
+					`${prefix}: "max_notifications" must be a non-negative integer (0 = unlimited, omitted = default 10)`
 				);
 			}
 		}

@@ -50,6 +50,9 @@ export const MODAL_PRIORITIES = {
 	/** Rename tab modal */
 	RENAME_TAB: 875,
 
+	/** Terminal tab startup command configuration modal */
+	TERMINAL_STARTUP_COMMAND: 873,
+
 	/** Director's Notes modal - unified history and AI overview */
 	DIRECTOR_NOTES: 848,
 
@@ -133,6 +136,10 @@ export const MODAL_PRIORITIES = {
 
 	/** Auto Run search bar (within expanded modal) */
 	AUTORUN_SEARCH: 706,
+
+	/** Auto Run document selector dropdown (above expanded modal so Esc closes
+	 * the dropdown first, leaving the modal open for a second Esc). */
+	AUTORUN_DOC_SELECTOR: 707,
 
 	/** Playbook Exchange modal - browse and import community playbooks (opens from BatchRunner or AutoRunExpanded, so needs higher priority than both) */
 	MARKETPLACE: 735,
@@ -220,6 +227,9 @@ export const MODAL_PRIORITIES = {
 
 	/** System log viewer overlay */
 	LOG_VIEWER: 500,
+
+	/** Maestro Cue backup diff viewer (above Cue modal + help) */
+	CUE_BACKUP_DIFF: 470,
 
 	/** Maestro Cue help modal (above Cue modal) */
 	CUE_HELP: 465,

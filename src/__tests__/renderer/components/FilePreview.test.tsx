@@ -32,6 +32,12 @@ vi.mock('lucide-react', () => ({
 	ZoomIn: () => <span data-testid="zoom-in-icon">ZoomIn</span>,
 	ZoomOut: () => <span data-testid="zoom-out-icon">ZoomOut</span>,
 	Maximize2: () => <span data-testid="maximize-icon">Maximize2</span>,
+	// Icons added by PreviewTierChip in Phase 2.
+	Sparkles: () => <span data-testid="sparkles-icon">Sparkles</span>,
+	Zap: () => <span data-testid="zap-icon">Zap</span>,
+	Database: () => <span data-testid="database-icon">Database</span>,
+	WrapText: () => <span data-testid="wraptext-icon">WrapText</span>,
+	AppWindow: () => <span data-testid="appwindow-icon">AppWindow</span>,
 }));
 
 // Mock react-markdown
@@ -208,11 +214,9 @@ describe('FilePreview', () => {
 				/>
 			);
 
-			const graphButton = screen.getByTitle(
-				`View in Document Graph (${formatShortcutKeys(['Meta', 'Shift', 'g'])})`
-			);
-			expect(graphButton).toBeInTheDocument();
-			expect(screen.getByTestId('gitgraph-icon')).toBeInTheDocument();
+			const graphIcon = screen.getByTestId('gitgraph-icon');
+			expect(graphIcon).toBeInTheDocument();
+			expect(graphIcon.closest('button')).toBeInTheDocument();
 		});
 
 		it('calls onOpenInGraph when Document Graph button is clicked', () => {
@@ -225,9 +229,7 @@ describe('FilePreview', () => {
 				/>
 			);
 
-			const graphButton = screen.getByTitle(
-				`View in Document Graph (${formatShortcutKeys(['Meta', 'Shift', 'g'])})`
-			);
+			const graphButton = screen.getByTestId('gitgraph-icon').closest('button')!;
 			fireEvent.click(graphButton);
 
 			expect(onOpenInGraph).toHaveBeenCalledOnce();
@@ -241,11 +243,7 @@ describe('FilePreview', () => {
 				/>
 			);
 
-			expect(
-				screen.queryByTitle(
-					`View in Document Graph (${formatShortcutKeys(['Meta', 'Shift', 'g'])})`
-				)
-			).not.toBeInTheDocument();
+			expect(screen.queryByTestId('gitgraph-icon')).not.toBeInTheDocument();
 		});
 
 		it('does not show Document Graph button for non-markdown files', () => {
@@ -258,11 +256,7 @@ describe('FilePreview', () => {
 				/>
 			);
 
-			expect(
-				screen.queryByTitle(
-					`View in Document Graph (${formatShortcutKeys(['Meta', 'Shift', 'g'])})`
-				)
-			).not.toBeInTheDocument();
+			expect(screen.queryByTestId('gitgraph-icon')).not.toBeInTheDocument();
 		});
 
 		it('shows Document Graph button for uppercase .MD extension', () => {
@@ -275,9 +269,7 @@ describe('FilePreview', () => {
 				/>
 			);
 
-			expect(
-				screen.getByTitle(`View in Document Graph (${formatShortcutKeys(['Meta', 'Shift', 'g'])})`)
-			).toBeInTheDocument();
+			expect(screen.getByTestId('gitgraph-icon')).toBeInTheDocument();
 		});
 	});
 
@@ -285,9 +277,9 @@ describe('FilePreview', () => {
 		it('shows Open in Default App button with ExternalLink icon', () => {
 			render(<FilePreview {...defaultProps} />);
 
-			const button = screen.getByTitle('Open in Default App');
-			expect(button).toBeInTheDocument();
-			expect(screen.getByTestId('external-link-icon')).toBeInTheDocument();
+			const icon = screen.getByTestId('external-link-icon');
+			expect(icon).toBeInTheDocument();
+			expect(icon.closest('button')).toBeInTheDocument();
 		});
 
 		it('calls shell.openPath with file path when clicked', () => {
@@ -298,7 +290,7 @@ describe('FilePreview', () => {
 				/>
 			);
 
-			const button = screen.getByTitle('Open in Default App');
+			const button = screen.getByTestId('external-link-icon').closest('button')!;
 			fireEvent.click(button);
 
 			expect(window.maestro?.shell?.openPath).toHaveBeenCalledWith('/test/readme.md');
@@ -307,7 +299,7 @@ describe('FilePreview', () => {
 		it('hides Open in Default App button for SSH remote sessions', () => {
 			render(<FilePreview {...defaultProps} sshRemoteId="remote-host-1" />);
 
-			expect(screen.queryByTitle('Open in Default App')).not.toBeInTheDocument();
+			expect(screen.queryByTestId('external-link-icon')).not.toBeInTheDocument();
 		});
 	});
 
@@ -367,7 +359,10 @@ describe('FilePreview', () => {
 		});
 
 		it('shows the truncation banner for large readable text previews and can load the full file', () => {
-			const largeContent = 'Readable paragraph with plenty of words for truncation. '.repeat(4000);
+			// Multi-line content sized to trigger the legacy 100KB truncation banner
+			// (Rich tier) without crossing the long-line threshold that would
+			// escalate to Giant tier.
+			const largeContent = 'Readable paragraph with plenty of words for truncation.\n'.repeat(4000);
 
 			render(
 				<FilePreview
@@ -772,7 +767,9 @@ describe('FilePreview', () => {
 	describe('large file handling', () => {
 		it('shows truncation banner for files larger than 100KB', () => {
 			// Create content larger than LARGE_FILE_PREVIEW_LIMIT (100KB)
-			const largeContent = 'x'.repeat(150 * 1024); // 150KB
+			// Multi-line content to trigger the legacy Rich-tier truncation
+			// banner without escalating to Giant via the long-line signal.
+			const largeContent = ('x'.repeat(99) + '\n').repeat(1536); // ~150KB / ~1.5k lines
 			render(
 				<FilePreview
 					{...defaultProps}
@@ -811,7 +808,8 @@ describe('FilePreview', () => {
 		});
 
 		it('truncates displayed content to 100KB for syntax highlighting', () => {
-			const largeContent = 'y'.repeat(200 * 1024); // 200KB
+			// Multi-line, no single line above the 10k long-line threshold.
+			const largeContent = ('y'.repeat(99) + '\n').repeat(2048); // ~200KB / ~2k lines
 			render(
 				<FilePreview
 					{...defaultProps}
@@ -826,7 +824,8 @@ describe('FilePreview', () => {
 		});
 
 		it('loads full file content when "Load full file" button is clicked', () => {
-			const largeContent = 'y'.repeat(200 * 1024); // 200KB
+			// Multi-line, no single line above the 10k long-line threshold.
+			const largeContent = ('y'.repeat(99) + '\n').repeat(2048); // ~200KB / ~2k lines
 			render(
 				<FilePreview
 					{...defaultProps}
@@ -1130,6 +1129,67 @@ print("world")
 			expect(screen.getByText('Heading 1')).toBeInTheDocument();
 			expect(screen.getByText('Heading 2')).toBeInTheDocument();
 			expect(screen.getByText('Heading 3')).toBeInTheDocument();
+		});
+
+		it('toggles TOC overlay with the toggleFilePreviewToc shortcut and reports usage', () => {
+			const onShortcutUsed = vi.fn();
+			const markdownWithHeadings = '# Heading 1\n## Heading 2\n### Heading 3';
+			const { container } = render(
+				<FilePreview
+					{...defaultProps}
+					file={{ name: 'doc.md', content: markdownWithHeadings, path: '/test/doc.md' }}
+					markdownEditMode={false}
+					isTabMode={true}
+					shortcuts={{
+						toggleFilePreviewToc: {
+							id: 'toggleFilePreviewToc',
+							label: 'Toggle Table of Contents (Markdown Preview)',
+							keys: ['Meta', '\\'],
+						},
+					}}
+					onShortcutUsed={onShortcutUsed}
+				/>
+			);
+
+			const previewContainer = container.querySelector('[tabindex="0"]');
+			expect(previewContainer).not.toBeNull();
+
+			// First firing opens the overlay and reports usage
+			fireEvent.keyDown(previewContainer!, { key: '\\', metaKey: true });
+			expect(screen.getByText('Contents')).toBeInTheDocument();
+			expect(onShortcutUsed).toHaveBeenCalledWith('toggleFilePreviewToc');
+
+			// Second firing closes it
+			fireEvent.keyDown(previewContainer!, { key: '\\', metaKey: true });
+			expect(screen.queryByText('Contents')).not.toBeInTheDocument();
+			expect(onShortcutUsed).toHaveBeenCalledTimes(2);
+		});
+
+		it('ignores toggleFilePreviewToc shortcut in edit mode (no TOC available)', () => {
+			const onShortcutUsed = vi.fn();
+			const { container } = render(
+				<FilePreview
+					{...defaultProps}
+					file={{ name: 'doc.md', content: '# Heading 1', path: '/test/doc.md' }}
+					markdownEditMode={true}
+					isTabMode={true}
+					shortcuts={{
+						toggleFilePreviewToc: {
+							id: 'toggleFilePreviewToc',
+							label: 'Toggle Table of Contents (Markdown Preview)',
+							keys: ['Meta', '\\'],
+						},
+					}}
+					onShortcutUsed={onShortcutUsed}
+				/>
+			);
+
+			const previewContainer = container.querySelector('[tabindex="0"]');
+			expect(previewContainer).not.toBeNull();
+
+			fireEvent.keyDown(previewContainer!, { key: '\\', metaKey: true });
+			expect(screen.queryByText('Contents')).not.toBeInTheDocument();
+			expect(onShortcutUsed).not.toHaveBeenCalled();
 		});
 
 		it('keeps TOC overlay open when clicking a heading entry', () => {
@@ -1546,6 +1606,84 @@ print("world")
 			);
 
 			expect(screen.queryByTestId('csv-table-renderer')).not.toBeInTheDocument();
+		});
+	});
+
+	describe('HTML render mode', () => {
+		const htmlFile = {
+			name: 'page.html',
+			content: '<!doctype html><body><h1>hello</h1></body>',
+			path: '/test/page.html',
+		};
+
+		it('shows the HTML render toggle for .html files', () => {
+			render(<FilePreview {...defaultProps} file={htmlFile} />);
+			expect(screen.getByTestId('html-render-toggle')).toBeInTheDocument();
+		});
+
+		it('shows the HTML render toggle for .htm files', () => {
+			render(
+				<FilePreview
+					{...defaultProps}
+					file={{ ...htmlFile, name: 'legacy.htm', path: '/test/legacy.htm' }}
+				/>
+			);
+			expect(screen.getByTestId('html-render-toggle')).toBeInTheDocument();
+		});
+
+		it('does not show the HTML render toggle for non-HTML files', () => {
+			render(<FilePreview {...defaultProps} />);
+			expect(screen.queryByTestId('html-render-toggle')).not.toBeInTheDocument();
+		});
+
+		it('does not show the HTML render toggle while in edit mode', () => {
+			render(<FilePreview {...defaultProps} file={htmlFile} markdownEditMode={true} />);
+			expect(screen.queryByTestId('html-render-toggle')).not.toBeInTheDocument();
+		});
+
+		it('does not render the iframe when htmlRenderMode is false', () => {
+			render(<FilePreview {...defaultProps} file={htmlFile} htmlRenderMode={false} />);
+			expect(screen.queryByTestId('html-render-iframe')).not.toBeInTheDocument();
+		});
+
+		it('renders a sandboxed iframe when htmlRenderMode is true', () => {
+			render(<FilePreview {...defaultProps} file={htmlFile} htmlRenderMode={true} />);
+			const iframe = screen.getByTestId('html-render-iframe') as HTMLIFrameElement;
+			expect(iframe).toBeInTheDocument();
+			// Security-critical: scripts may run but the iframe must not be
+			// same-origin (no `allow-same-origin`), so the rendered page can't
+			// reach the host renderer.
+			const sandbox = iframe.getAttribute('sandbox') ?? '';
+			expect(sandbox).toContain('allow-scripts');
+			expect(sandbox).not.toContain('allow-same-origin');
+			expect(iframe.getAttribute('referrerpolicy')).toBe('no-referrer');
+			expect(iframe.getAttribute('srcdoc')).toBe(htmlFile.content);
+		});
+
+		it('does not render the iframe while in edit mode even if htmlRenderMode is true', () => {
+			render(
+				<FilePreview
+					{...defaultProps}
+					file={htmlFile}
+					htmlRenderMode={true}
+					markdownEditMode={true}
+				/>
+			);
+			expect(screen.queryByTestId('html-render-iframe')).not.toBeInTheDocument();
+		});
+
+		it('calls onHtmlRenderModeChange when the toggle is clicked', () => {
+			const onHtmlRenderModeChange = vi.fn();
+			render(
+				<FilePreview
+					{...defaultProps}
+					file={htmlFile}
+					htmlRenderMode={false}
+					onHtmlRenderModeChange={onHtmlRenderModeChange}
+				/>
+			);
+			fireEvent.click(screen.getByTestId('html-render-toggle'));
+			expect(onHtmlRenderModeChange).toHaveBeenCalledWith(true);
 		});
 	});
 });

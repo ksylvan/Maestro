@@ -33,7 +33,6 @@ import type {
 	IncomingAgentEdgeInfo,
 } from '../../../shared/cue-pipeline-types';
 import { CUE_COLOR } from '../../../shared/cue-pipeline-types';
-import type { CueSettings } from '../../../shared/cue';
 import { Hand, MousePointer2 } from 'lucide-react';
 import { TriggerNode, type TriggerNodeDataProps } from './nodes/TriggerNode';
 import { AgentNode, type AgentNodeDataProps } from './nodes/AgentNode';
@@ -45,7 +44,6 @@ import { TriggerDrawer } from './drawers/TriggerDrawer';
 import { AgentDrawer } from './drawers/AgentDrawer';
 import { NodeConfigPanel, type IncomingTriggerEdgeInfo } from './panels/NodeConfigPanel';
 import { EdgeConfigPanel } from './panels/EdgeConfigPanel';
-import { CueSettingsPanel } from './panels/CueSettingsPanel';
 import { PipelineLegend } from './panels/PipelineLegend';
 import { PipelineEmptyState } from './panels/PipelineEmptyState';
 import { EVENT_COLORS } from './cueEventConstants';
@@ -57,6 +55,10 @@ const nodeTypes = {
 	error: ErrorNode,
 	'pipeline-group': PipelineGroupNode,
 };
+
+// Stable module-scope reference so passing it to ReactFlow doesn't break
+// memoization on every PipelineCanvas re-render.
+const REACT_FLOW_PRO_OPTIONS = { hideAttribution: true } as const;
 
 /**
  * Custom drag-preview component for the connection line.
@@ -141,12 +143,6 @@ export interface PipelineCanvasProps {
 	selectedPipelineId: string | null;
 	pipelines: CuePipeline[];
 	selectPipeline: (id: string | null) => void;
-	// Settings panel
-	showSettings: boolean;
-	cueSettings: CueSettings;
-	setCueSettings: React.Dispatch<React.SetStateAction<CueSettings>>;
-	setShowSettings: React.Dispatch<React.SetStateAction<boolean>>;
-	setIsDirty: React.Dispatch<React.SetStateAction<boolean>>;
 	// Config panels
 	selectedNode: PipelineNode | null;
 	selectedEdge: PipelineEdgeType | null;
@@ -186,6 +182,9 @@ export interface PipelineCanvasProps {
 	/** Canvas interaction mode: hand pans on left-drag, pointer box-selects. */
 	interactionMode: CanvasInteractionMode;
 	setInteractionMode: React.Dispatch<React.SetStateAction<CanvasInteractionMode>>;
+	/** True when the canvas is locked for editing (drag/select/connect disabled). */
+	isLocked: boolean;
+	setIsLocked: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 export const PipelineCanvas = React.memo(function PipelineCanvas({
@@ -218,11 +217,6 @@ export const PipelineCanvas = React.memo(function PipelineCanvas({
 	selectedPipelineId,
 	pipelines,
 	selectPipeline,
-	showSettings,
-	cueSettings,
-	setCueSettings,
-	setShowSettings,
-	setIsDirty,
 	selectedNode,
 	selectedEdge,
 	selectedNodeHasOutgoingEdge,
@@ -248,17 +242,14 @@ export const PipelineCanvas = React.memo(function PipelineCanvas({
 	isLoading = false,
 	interactionMode,
 	setInteractionMode,
+	isLocked,
+	setIsLocked,
 }: PipelineCanvasProps) {
-	const handleCueSettingsChange = React.useCallback(
-		(s: CueSettings) => {
-			setCueSettings(s);
-			setIsDirty(true);
-		},
-		[setCueSettings, setIsDirty]
-	);
-
-	const handleCloseCueSettings = React.useCallback(() => setShowSettings(false), [setShowSettings]);
-
+	// `isLocked` is lifted to the parent (CuePipelineEditor) so the L keyboard
+	// shortcut can toggle it. We still need to own the bridge to ReactFlow's
+	// internal lock toggle: we pass interactivity as controlled props, which
+	// would otherwise override the store toggle that `<Controls />` flips.
+	// `onInteractiveChange` keeps our state in sync with the button click.
 	// Stabilize ReactFlow child props on `theme`. PipelineCanvas re-renders on
 	// every node drag / pan / zoom (it owns `nodes` and `edges`), so inline
 	// objects/functions here would bust the memoization on MiniMap, Controls,
@@ -267,16 +258,29 @@ export const PipelineCanvas = React.memo(function PipelineCanvas({
 		() => ({ backgroundColor: theme.colors.bgMain }),
 		[theme.colors.bgMain]
 	);
+	// Bottom-left zoom/lock controls: shift right past the trigger drawer
+	// (220px wide) so they stay visible when the drawer is open. ReactFlow's
+	// default `left: 15px` is overridden via the `style` prop.
 	const controlsStyle = React.useMemo(
-		() => ({ backgroundColor: theme.colors.bgActivity, borderColor: theme.colors.border }),
-		[theme.colors.bgActivity, theme.colors.border]
+		() => ({
+			backgroundColor: theme.colors.bgActivity,
+			borderColor: theme.colors.border,
+			left: triggerDrawerOpen ? 235 : 15,
+			transition: 'left 200ms ease',
+		}),
+		[theme.colors.bgActivity, theme.colors.border, triggerDrawerOpen]
 	);
+	// Bottom-right minimap: shift left past the agent drawer (240px wide)
+	// so the minimap stays visible when the drawer is open. Overrides
+	// ReactFlow's default `right: 10px`.
 	const miniMapStyle = React.useMemo(
 		() => ({
 			backgroundColor: theme.colors.bgActivity,
 			border: `1px solid ${theme.colors.border}`,
+			right: agentDrawerOpen ? 250 : 10,
+			transition: 'right 200ms ease',
 		}),
-		[theme.colors.bgActivity, theme.colors.border]
+		[theme.colors.bgActivity, theme.colors.border, agentDrawerOpen]
 	);
 	const miniMapMaskColor = React.useMemo(() => `${theme.colors.bgMain}cc`, [theme.colors.bgMain]);
 	// Drag-preview line shown while connecting one handle to another. Without
@@ -372,18 +376,24 @@ export const PipelineCanvas = React.memo(function PipelineCanvas({
 				// drag-preview line also requires nodesConnectable=true to
 				// render, so gating this on mode broke the preview in hand
 				// mode.
-				nodesDraggable={!isReadOnly && interactionMode === 'pointer'}
-				nodesConnectable={!isReadOnly}
-				elementsSelectable={!isReadOnly}
+				nodesDraggable={!isReadOnly && !isLocked && interactionMode === 'pointer'}
+				nodesConnectable={!isReadOnly && !isLocked}
+				elementsSelectable={!isReadOnly && !isLocked}
 				// Hand mode: left-drag pans (ReactFlow default). Pointer mode:
 				// left-drag box-selects, middle/right-drag still pans as an
-				// escape hatch.
-				panOnDrag={interactionMode === 'hand' ? true : [1, 2]}
-				selectionOnDrag={interactionMode === 'pointer' && !isReadOnly}
+				// escape hatch. When locked, force pan-only regardless of the
+				// H/P toggle so box-select can't sneak through.
+				panOnDrag={isLocked || interactionMode === 'hand' ? true : [1, 2]}
+				selectionOnDrag={interactionMode === 'pointer' && !isReadOnly && !isLocked}
+				// Hide the "React Flow" attribution badge in the bottom-right.
+				proOptions={REACT_FLOW_PRO_OPTIONS}
 				style={reactFlowStyle}
 			>
 				<Background color={theme.colors.border} gap={20} />
-				<Controls style={controlsStyle} />
+				<Controls
+					style={controlsStyle}
+					onInteractiveChange={(interactive) => setIsLocked(!interactive)}
+				/>
 				<MiniMap
 					pannable
 					zoomable
@@ -411,19 +421,22 @@ export const PipelineCanvas = React.memo(function PipelineCanvas({
 				theme={theme}
 			/>
 
-			{/* Canvas interaction-mode toggle (hand pans, pointer box-selects). */}
+			{/* Canvas interaction-mode toggle (hand pans, pointer box-selects).
+			    Shifts right when the trigger drawer is open so it stays visible
+			    next to the drawer's edge. */}
 			<div
 				style={{
 					position: 'absolute',
 					top: 8,
-					left: 8,
-					zIndex: 10,
+					left: triggerDrawerOpen ? 228 : 8,
+					zIndex: 21,
 					display: 'flex',
 					gap: 2,
 					padding: 2,
 					backgroundColor: `${theme.colors.bgActivity}f5`,
 					border: `1px solid ${theme.colors.border}`,
 					borderRadius: 6,
+					transition: 'left 200ms ease',
 				}}
 			>
 				{(
@@ -469,16 +482,6 @@ export const PipelineCanvas = React.memo(function PipelineCanvas({
 					);
 				})}
 			</div>
-
-			{/* Cue settings panel */}
-			{showSettings && (
-				<CueSettingsPanel
-					settings={cueSettings}
-					onChange={handleCueSettingsChange}
-					onClose={handleCloseCueSettings}
-					theme={theme}
-				/>
-			)}
 
 			{/* Config panels — suppressed in read-only (All Pipelines) view so
 			    any selection carried over from a previous single-pipeline view

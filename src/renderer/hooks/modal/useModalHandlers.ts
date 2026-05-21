@@ -33,6 +33,7 @@ import { getInitialRenameValue } from '../../utils/tabHelpers';
 import { CONDUCTOR_BADGES } from '../../constants/conductorBadges';
 import { gitService } from '../../services/git';
 import { cueService } from '../../services/cue';
+import { notifyCenterFlash } from '../../stores/centerFlashStore';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -324,6 +325,9 @@ export function useModalHandlers(
 			if (result.newLevel !== null) {
 				onKeyboardMasteryLevelUp(result.newLevel);
 			}
+			// Also bump the daily-firings counter so the Usage Dashboard bar
+			// chart includes shortcuts handled inside the System Log Viewer.
+			void window.maestro?.stats?.recordShortcutUsage?.(Date.now());
 		},
 		[onKeyboardMasteryLevelUp]
 	);
@@ -719,7 +723,7 @@ export function useModalHandlers(
 	const handleQuickActionsOpenTabSwitcher = useCallback(() => {
 		const { sessions: currentSessions, activeSessionId } = useSessionStore.getState();
 		const currentSession = currentSessions.find((s) => s.id === activeSessionId);
-		if (currentSession?.inputMode === 'ai' && currentSession.aiTabs) {
+		if (currentSession?.aiTabs) {
 			getModalActions().setTabSwitcherOpen(true);
 		}
 	}, []);
@@ -945,6 +949,8 @@ export function useModalHandlers(
 
 		if (diff.diff) {
 			getModalActions().setGitDiffPreview(diff.diff);
+		} else {
+			notifyCenterFlash({ message: 'No diff to examine', color: 'theme' });
 		}
 	}, [activeSession]);
 

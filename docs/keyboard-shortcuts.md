@@ -10,6 +10,24 @@ The command palette is your gateway to nearly every action in Maestro. Press `Cm
 
 ![Command palette](./screenshots/cmd-k-1.png)
 
+## System-Wide Hotkey (Summon Maestro)
+
+Configure a single OS-level hotkey that summons Maestro — bringing the window to the foreground and focusing it — from any application on macOS, Windows, or Linux. This is the only shortcut in Maestro that fires while the app is in the background; every other shortcut on this page is in-app.
+
+**To configure:**
+
+1. Open **Settings** (`Cmd+,` / `Ctrl+,`) → **General** tab
+2. Find **Global Hotkey to Show Maestro**
+3. Click the key capture button and press your desired combo
+4. Leave it blank to disable the binding
+
+Tips and gotchas:
+
+- Pick a combo with two modifiers (e.g. `Cmd+Shift+M` / `Win+Shift+M`) to avoid clashing with app shortcuts.
+- If the OS or another app already owns the combo, Maestro will surface a registration failure — pick a different binding.
+- `Meta` maps to **Cmd** on macOS and **Win** (Super) on Windows/Linux automatically.
+- The hotkey works even when Maestro is hidden, minimized, or behind other windows.
+
 ## Global Shortcuts
 
 | Action                      | macOS                 | Windows/Linux          |
@@ -56,7 +74,7 @@ The command palette is your gateway to nearly every action in Maestro. Press `Cm
 | Go to History Tab              | `Cmd+Shift+H` | `Ctrl+Shift+H` |
 | Go to Auto Run Tab             | `Cmd+Shift+1` | `Ctrl+Shift+1` |
 | Toggle Edit/Preview (Markdown) | `Cmd+E`       | `Ctrl+E`       |
-| Toggle Auto Run Expanded       | `Cmd+Shift+E` | `Ctrl+Shift+E` |
+| Auto Run Expanded Preview      | `Cmd+Shift+2` | `Ctrl+Shift+2` |
 | Insert Checkbox (Auto Run)     | `Cmd+L`       | `Ctrl+L`       |
 | View Git Diff                  | `Cmd+Shift+D` | `Ctrl+Shift+D` |
 | View Git Log                   | `Cmd+Shift+G` | `Ctrl+Shift+G` |
@@ -72,8 +90,8 @@ These shortcuts work in AI Terminal mode and affect the current tab:
 | Toggle Read-Only Mode  | `Cmd+R`        | `Ctrl+R`        |
 | Toggle Show Thinking   | `Cmd+Shift+K`  | `Ctrl+Shift+K`  |
 | Toggle Tab Star        | `Cmd+Shift+S`  | `Ctrl+Shift+S`  |
-| Toggle Tab Unread      | `Opt+Shift+U`  | `Alt+Shift+U`   |
-| Filter Unread Agents   | `Cmd+Shift+U`  | `Ctrl+Shift+U`  |
+| Toggle Tab Unread      | `Cmd+Shift+U`  | `Ctrl+Shift+U`  |
+| Filter Unread Agents   | `Opt+U`        | `Alt+U`         |
 | Filter Unread Tabs     | `Cmd+U`        | `Ctrl+U`        |
 | Next Unread/Draft Tab  | `Opt+Cmd+Down` | `Alt+Ctrl+Down` |
 | Open Image Carousel    | `Cmd+Y`        | `Ctrl+Y`        |
@@ -90,6 +108,7 @@ Toggle states are saved per-tab. See [Input Toggles](./general-usage#input-toggl
 | New File Tab              | `Opt+N`                 | `Alt+N`                   |
 | New Terminal Tab          | `Ctrl+Shift+` + `` ` `` | `Ctrl+Shift+` + `` ` ``   |
 | Focus Browser Address Bar | `Cmd+L`                 | `Ctrl+L`                  |
+| Focus Active Tab          | `Opt+Cmd+F`             | `Alt+Ctrl+F`              |
 | Close Tab                 | `Cmd+W`                 | `Ctrl+W`                  |
 | Close All Tabs            | `Cmd+Shift+W`           | `Ctrl+Shift+W`            |
 | Close Other Tabs          | `Opt+Cmd+W`             | `Alt+Ctrl+W`              |
@@ -129,6 +148,7 @@ The bulk close operations (Close All, Close Others, Close Left, Close Right) are
 | Focus Input              | `Esc` while in output                             |
 | Open Output Search       | `Cmd+F` while in output                           |
 | Scroll Output            | `Up/Down Arrow` while in output                   |
+| Prev/Next Message        | `Shift+Up/Down Arrow` while in output             |
 | Page Up/Down             | `Alt+Up/Down Arrow` while in output               |
 | Jump to Top/Bottom       | `Cmd+Up/Down Arrow` while in output               |
 
@@ -199,14 +219,15 @@ In AI mode, use `@` to reference files in your prompts:
 
 ## File Preview
 
-| Action         | macOS           | Windows/Linux   |
-| -------------- | --------------- | --------------- |
-| Copy File Path | `Cmd+P`         | `Ctrl+P`        |
-| Open Search    | `Cmd+F`         | `Ctrl+F`        |
-| Go Back        | `Cmd+Left`      | `Ctrl+Left`     |
-| Go Forward     | `Cmd+Right`     | `Ctrl+Right`    |
-| Scroll         | `Up/Down Arrow` | `Up/Down Arrow` |
-| Close          | `Esc`           | `Esc`           |
+| Action                              | macOS           | Windows/Linux   |
+| ----------------------------------- | --------------- | --------------- |
+| Copy File Path                      | `Cmd+P`         | `Ctrl+P`        |
+| Open Search                         | `Cmd+F`         | `Ctrl+F`        |
+| Toggle Table of Contents (Markdown) | `Cmd+\`         | `Ctrl+\`        |
+| Go Back                             | `Cmd+Left`      | `Ctrl+Left`     |
+| Go Forward                          | `Cmd+Right`     | `Ctrl+Right`    |
+| Scroll                              | `Up/Down Arrow` | `Up/Down Arrow` |
+| Close                               | `Esc`           | `Esc`           |
 
 ## Document Graph
 

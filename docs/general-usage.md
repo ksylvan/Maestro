@@ -41,6 +41,21 @@ The **File Explorer** (Right Panel → Files tab) lets you browse project files.
 - **Line numbers** for easy reference
 - **Search within file** (`Cmd+F` / `Ctrl+F`)
 
+### File Explorer Keyboard Shortcuts
+
+With the Files tab focused, navigate the file list without touching the mouse:
+
+| Shortcut                    | Action                                                                             |
+| --------------------------- | ---------------------------------------------------------------------------------- |
+| `Up` / `Down`               | Move the focused file up or down by one                                            |
+| `Option+Up` / `Option+Down` | Jump ten files at a time (page up / page down)                                     |
+| `Shift+Up` / `Shift+Down`   | **Peek scroll** — slide the file list up or down without changing the focused file |
+| `Cmd+Up` / `Cmd+Down`       | Jump to the top or bottom of the list (`Ctrl+Up` / `Ctrl+Down` on Windows/Linux)   |
+| `Left` / `Right`            | Collapse / expand the focused folder (`Left` on a file jumps to its parent folder) |
+| `Enter`                     | Open the focused file (or toggle the folder if a folder is focused)                |
+
+Use `Shift+Up` / `Shift+Down` when you want to glance further down the tree without losing your place — the focused file stays put while the viewport slides.
+
 ### Breadcrumb Navigation
 
 When you open a file, a **breadcrumb trail** appears showing your navigation history. Click any breadcrumb to jump back to a previously viewed file. This makes it easy to compare files or return to where you were.
@@ -241,6 +256,31 @@ The placeholder text updates to reflect the current mode:
 The command interpreter can be focused for a clean, terminal-only experience when you collapse the left panel.
 
 ![Command interpreter](./screenshots/command-interpreter.png)
+
+## Command Terminal
+
+Each agent has a Command Terminal alongside its AI Terminal — a real PTY shell scoped to the agent's working directory. Switch between them with `Cmd+J` / `Ctrl+J`. Open a new terminal tab with `Ctrl+Shift+` + `` ` ``; close, rename, and reorder it just like an AI tab. Right-click (or hover) a terminal tab to open its action menu.
+
+### Startup Command
+
+Configure a command to run automatically every time a terminal tab's shell is started — including after you quit and reopen Maestro. This is the simplest way to keep something like `npm run dev`, a watcher, or a long-running log tail attached to a specific tab.
+
+**To configure:**
+
+1. Hover the terminal tab and open its action menu.
+2. Click **Startup Command…** (right under **Rename**).
+3. Enter the command and, optionally, a working directory. The working directory defaults to the agent's working directory if left blank.
+4. Click **Save**.
+
+**Behavior:**
+
+- The command runs each time the PTY for that tab is spawned. The most common trigger is launching Maestro after a quit — any open terminal tab is restored, its shell respawned, and the configured command executes.
+- Configuring a command on an already-running shell does **not** retroactively run it. The next spawn (app restart, or close-and-reopen the tab) picks it up.
+- The configured working directory becomes the shell's spawn directory, so the command starts in the right place even if the tab's last `cd` was somewhere else.
+- Leave the command field empty and save to disable the feature for that tab.
+- Each terminal tab has its own startup command — one tab can run a dev server while another runs a log tail.
+
+> **SSH agents**: when the agent is configured to run on a remote host, the terminal tab also runs on that host, and the startup command executes remotely (the working directory must be a path on the remote machine).
 
 ## Agent Management
 

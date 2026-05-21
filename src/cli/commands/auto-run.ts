@@ -2,12 +2,10 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { withMaestroClient, resolveSessionId } from '../services/maestro-client';
-import { resolveAgentId } from '../services/storage';
+import { withMaestroClient, resolveTargetSessionId } from '../services/maestro-client';
 
 interface AutoRunOptions {
 	agent?: string;
-	session?: string;
 	prompt?: string;
 	loop?: boolean;
 	maxLoops?: string;
@@ -16,6 +14,7 @@ interface AutoRunOptions {
 	resetOnCompletion?: boolean;
 	worktree?: boolean;
 	branch?: string;
+	baseBranch?: string;
 	worktreePath?: string;
 	createPr?: boolean;
 	prTargetBranch?: string;
@@ -45,22 +44,7 @@ export async function autoRun(docs: string[], options: AutoRunOptions): Promise<
 		resolvedPaths.push(absolutePath);
 	}
 
-	if (options.session) {
-		console.warn('Warning: --session is deprecated for auto-run, use --agent instead');
-	}
-
-	let sessionId: string;
-	const agentId = options.agent || options.session;
-	if (agentId) {
-		try {
-			sessionId = resolveAgentId(agentId);
-		} catch (error) {
-			console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
-			return process.exit(1);
-		}
-	} else {
-		sessionId = resolveSessionId({});
-	}
+	const sessionId = resolveTargetSessionId(options.agent);
 
 	const documents = resolvedPaths.map((d) => ({
 		filename: d,
@@ -88,6 +72,7 @@ export async function autoRun(docs: string[], options: AutoRunOptions): Promise<
 				enabled: boolean;
 				path: string;
 				branchName: string;
+				baseBranch: string;
 				createPROnCompletion: boolean;
 				prTargetBranch: string;
 		  }
@@ -107,13 +92,20 @@ export async function autoRun(docs: string[], options: AutoRunOptions): Promise<
 				enabled: true,
 				path: path.resolve(options.worktreePath),
 				branchName: options.branch.trim(),
+				baseBranch: options.baseBranch?.trim() || '',
 				createPROnCompletion: options.createPr || false,
 				prTargetBranch: options.prTargetBranch?.trim() || '',
 			};
 		}
-	} else if (options.branch || options.worktreePath || options.createPr || options.prTargetBranch) {
+	} else if (
+		options.branch ||
+		options.baseBranch ||
+		options.worktreePath ||
+		options.createPr ||
+		options.prTargetBranch
+	) {
 		console.error(
-			'Error: --branch, --worktree-path, --create-pr, and --pr-target-branch require --worktree'
+			'Error: --branch, --base-branch, --worktree-path, --create-pr, and --pr-target-branch require --worktree'
 		);
 		process.exit(1);
 	}

@@ -133,6 +133,12 @@ describe('tabHelpers', () => {
 	});
 
 	describe('createTab', () => {
+		// These tests assert insert-after-active placement; the setting defaults
+		// to 'end', so opt into 'after-current' for the duration of this block.
+		beforeEach(() => {
+			useSettingsStore.setState({ newTabPlacement: 'after-current' });
+		});
+
 		it('creates a new tab with default options', () => {
 			const session = createMockSession({ aiTabs: [] });
 
@@ -559,23 +565,29 @@ describe('tabHelpers', () => {
 			expect(result!.session.activeTabId).toBe('tab-1');
 		});
 
-		it('sets session to idle when closing the last busy tab', () => {
+		it('keeps session busy and tracks the closed tab in orphanedThinkingTabs when its agent is still running', () => {
 			const busyTab = createMockTab({ id: 'tab-busy', state: 'busy' });
 			const idleTab = createMockTab({ id: 'tab-idle', state: 'idle' });
+			const thinkingStartTime = Date.now();
 			const session = createMockSession({
 				aiTabs: [busyTab, idleTab],
 				activeTabId: 'tab-busy',
 				state: 'busy',
 				busySource: 'ai',
-				thinkingStartTime: Date.now(),
+				thinkingStartTime,
 			});
 
 			const result = closeTab(session, 'tab-busy');
 
 			expect(result).not.toBeNull();
-			expect(result!.session.state).toBe('idle');
-			expect(result!.session.busySource).toBeUndefined();
-			expect(result!.session.thinkingStartTime).toBeUndefined();
+			// Session stays busy — the underlying agent process is still running
+			// even though the tab is no longer visible.
+			expect(result!.session.state).toBe('busy');
+			expect(result!.session.busySource).toBe('ai');
+			expect(result!.session.thinkingStartTime).toBe(thinkingStartTime);
+			// The closed busy tab is tracked for the thinking pill.
+			expect(result!.session.orphanedThinkingTabs).toHaveLength(1);
+			expect(result!.session.orphanedThinkingTabs![0].id).toBe('tab-busy');
 		});
 
 		it('keeps session busy when another tab is still busy', () => {
@@ -630,14 +642,15 @@ describe('tabHelpers', () => {
 			expect(result!.session.busySource).toBe('terminal');
 		});
 
-		it('clears session busy state when closing busy tab that was the only tab (fresh tab created)', () => {
+		it('keeps session busy via orphanedThinkingTabs when closing the only (busy) tab and replacing it with a fresh idle tab', () => {
 			const busyTab = createMockTab({ id: 'tab-only', state: 'busy' });
+			const thinkingStartTime = Date.now();
 			const session = createMockSession({
 				aiTabs: [busyTab],
 				activeTabId: 'tab-only',
 				state: 'busy',
 				busySource: 'ai',
-				thinkingStartTime: Date.now(),
+				thinkingStartTime,
 			});
 
 			const result = closeTab(session, 'tab-only');
@@ -646,10 +659,12 @@ describe('tabHelpers', () => {
 			// A fresh idle tab was created to replace the closed one
 			expect(result!.session.aiTabs).toHaveLength(1);
 			expect(result!.session.aiTabs[0].state).toBe('idle');
-			// Session should be idle since the new tab is idle
-			expect(result!.session.state).toBe('idle');
-			expect(result!.session.busySource).toBeUndefined();
-			expect(result!.session.thinkingStartTime).toBeUndefined();
+			// Session stays busy — the orphaned tab is still thinking in the background.
+			expect(result!.session.state).toBe('busy');
+			expect(result!.session.busySource).toBe('ai');
+			expect(result!.session.thinkingStartTime).toBe(thinkingStartTime);
+			expect(result!.session.orphanedThinkingTabs).toHaveLength(1);
+			expect(result!.session.orphanedThinkingTabs![0].id).toBe('tab-only');
 		});
 	});
 
@@ -2553,6 +2568,32 @@ describe('tabHelpers', () => {
 			expect(result!.id).toBe('unread-tab');
 		});
 
+		it('keeps the active file tab visible in showUnreadOnly mode even when file-preview setting is off', () => {
+			useSettingsStore.setState({ showFilePreviewsInUnreadFilter: false });
+			const readTab = createMockTab({ id: 'read-tab', hasUnread: false, inputValue: '' });
+			const activeFile = createMockFileTab({ id: 'file-active' });
+			const otherFile = createMockFileTab({ id: 'file-other' });
+			const session = createMockSession({
+				aiTabs: [readTab],
+				filePreviewTabs: [activeFile, otherFile],
+				activeTabId: 'read-tab',
+				activeFileTabId: 'file-active',
+				unifiedTabOrder: [
+					{ type: 'file', id: 'file-active' },
+					{ type: 'file', id: 'file-other' },
+					{ type: 'ai', id: 'read-tab' },
+				],
+			});
+
+			// From the active file tab, Next should wrap past the hidden non-active file tab
+			// and land back on the AI tab, then on the active file tab again — confirming the
+			// active file is the only file ref in the filtered list.
+			const result = navigateToNextUnifiedTab(session, true);
+
+			expect(result!.type).toBe('ai');
+			expect(result!.id).toBe('read-tab');
+		});
+
 		it('includes browser tabs in showUnreadOnly mode', () => {
 			const readTab = createMockTab({ id: 'read-tab', hasUnread: false, inputValue: '' });
 			const browserTab = createMockBrowserTab({ id: 'browser-1' });
@@ -2979,6 +3020,40 @@ describe('tabHelpers', () => {
 			const result3 = navigateToPrevUnifiedTab(result2!.session);
 			expect(result3!.type).toBe('ai');
 			expect(result3!.id).toBe('ai-2');
+		});
+
+		// Regression: when the user is on a browser tab whose adjacent AI tab is
+		// also referenced by session.activeTabId (a stale leftover from before
+		// the browser tab was opened), navigating prev to the AI tab used to no-op
+		// because the AI branch's "already active" early-return ignored
+		// activeBrowserTabId and returned without clearing it. The browser tab
+		// outranks the AI tab in findActiveUnifiedTabIndex, so the user-visible
+		// active tab never changed.
+		it('navigates from active browser tab to AI tab even when activeTabId still points at that AI tab', () => {
+			const aiTab = createMockTab({ id: 'ai-1' });
+			const browserTab = createMockBrowserTab({ id: 'browser-1' });
+			const session = createMockSession({
+				aiTabs: [aiTab],
+				browserTabs: [browserTab],
+				activeTabId: 'ai-1', // Stale — points at the AI tab we're about to navigate to
+				activeBrowserTabId: 'browser-1', // What the user is actually on
+				activeFileTabId: null,
+				activeTerminalTabId: null,
+				inputMode: 'ai',
+				unifiedTabOrder: [
+					{ type: 'ai', id: 'ai-1' },
+					{ type: 'browser', id: 'browser-1' },
+				],
+			});
+
+			const result = navigateToPrevUnifiedTab(session);
+
+			expect(result!.type).toBe('ai');
+			expect(result!.id).toBe('ai-1');
+			expect(result!.session.activeTabId).toBe('ai-1');
+			expect(result!.session.activeBrowserTabId).toBeNull();
+			expect(result!.session.activeFileTabId).toBeNull();
+			expect(result!.session.activeTerminalTabId).toBeNull();
 		});
 	});
 

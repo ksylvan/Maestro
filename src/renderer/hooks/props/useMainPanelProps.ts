@@ -184,6 +184,7 @@ export interface UseMainPanelPropsDeps {
 	handleToggleTabReadOnlyMode: () => void;
 	handleToggleTabSaveToHistory: () => void;
 	handleToggleTabShowThinking: () => void;
+	handleToggleTabEnterToSend: () => void;
 	toggleUnreadFilter: () => void;
 	handleOpenTabSearch: () => void;
 	handleOpenOutputSearch: () => void;
@@ -215,6 +216,7 @@ export interface UseMainPanelPropsDeps {
 	handleTerminalTabSelect: (tabId: string) => void;
 	handleTerminalTabClose: (tabId: string) => void;
 	handleTerminalTabRename: (tabId: string) => void;
+	handleTerminalTabConfigureStartupCommand: (tabId: string) => void;
 	handleFileTabEditModeChange: (tabId: string, editMode: boolean) => void;
 	handleFileTabEditContentChange: (
 		tabId: string,
@@ -272,6 +274,9 @@ export interface UseMainPanelPropsDeps {
 	setLastGraphFocusFilePath: (path: string) => void;
 	setIsGraphViewOpen: (open: boolean) => void;
 
+	// Open the active file preview in a new Maestro browser tab
+	handleOpenBrowserTabAt: (url: string, options?: { title?: string }) => void;
+
 	// Wizard callbacks
 	generateInlineWizardDocuments: (
 		callbacks?: DocumentGenerationCallbacks,
@@ -295,6 +300,7 @@ export interface UseMainPanelPropsDeps {
 
 	// Complex wizard handlers (passed through from App.tsx)
 	onWizardComplete?: () => void;
+	onWizardCompleteAndStartAutoRun?: () => void;
 	onWizardLetsGo?: () => void;
 	onWizardRetry?: () => void;
 	onWizardClearError?: () => void;
@@ -417,6 +423,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			onTerminalTabSelect: deps.handleTerminalTabSelect,
 			onTerminalTabClose: deps.handleTerminalTabClose,
 			onTerminalTabRename: deps.handleTerminalTabRename,
+			onTerminalTabConfigureStartupCommand: deps.handleTerminalTabConfigureStartupCommand,
 			onFileTabEditModeChange: deps.handleFileTabEditModeChange,
 			onFileTabEditContentChange: deps.handleFileTabEditContentChange,
 			onFileTabScrollPositionChange: deps.handleFileTabScrollPositionChange,
@@ -424,6 +431,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			onReloadFileTab: deps.handleReloadFileTab,
 			onToggleTabSaveToHistory: deps.handleToggleTabSaveToHistory,
 			onToggleTabShowThinking: deps.handleToggleTabShowThinking,
+			onToggleTabEnterToSend: deps.handleToggleTabEnterToSend,
 			onScrollPositionChange: deps.handleScrollPositionChange,
 			onAtBottomChange: deps.handleAtBottomChange,
 			onInputBlur: deps.handleMainPanelInputBlur,
@@ -482,6 +490,10 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 				if (result.newLevel !== null) {
 					deps.onKeyboardMasteryLevelUp(result.newLevel);
 				}
+				// Also bump the daily-firings counter so the Usage Dashboard bar
+				// chart reflects shortcuts handled inside subcomponents (not just
+				// the ones routed through useMainKeyboardHandler).
+				void window.maestro?.stats?.recordShortcutUsage?.(Date.now());
 			},
 			ghCliAvailable: deps.ghCliAvailable,
 			onPublishGist: () => deps.setGistPublishModalOpen(true),
@@ -505,11 +517,23 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 					deps.setIsGraphViewOpen(true);
 				}
 			},
+			// Open the active file preview in a new Maestro browser tab. Encodes
+			// each path segment so spaces and reserved chars survive the file:// URL.
+			onOpenInBrowser: () => {
+				if (!deps.activeFileTab) return;
+				const encodedPath = deps.activeFileTab.path
+					.split('/')
+					.map((seg) => encodeURIComponent(seg))
+					.join('/');
+				const url = `file://${encodedPath}`;
+				deps.handleOpenBrowserTabAt(url, { title: deps.activeFileTab.name });
+			},
 			// Inline wizard callbacks handled inline to maintain closure access
 			onExitWizard: deps.endInlineWizard,
 			onWizardCancelGeneration: deps.endInlineWizard,
 			// Complex wizard handlers (passed through from App.tsx)
 			onWizardComplete: deps.onWizardComplete,
+			onWizardCompleteAndStartAutoRun: deps.onWizardCompleteAndStartAutoRun,
 			onWizardLetsGo: deps.onWizardLetsGo,
 			onWizardRetry: deps.onWizardRetry,
 			onWizardClearError: deps.onWizardClearError,
@@ -621,6 +645,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.handleToggleTabReadOnlyMode,
 			deps.handleToggleTabSaveToHistory,
 			deps.handleToggleTabShowThinking,
+			deps.handleToggleTabEnterToSend,
 			deps.toggleUnreadFilter,
 			deps.handleOpenTabSearch,
 			deps.handleOpenOutputSearch,
@@ -646,6 +671,7 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.handleTerminalTabSelect,
 			deps.handleTerminalTabClose,
 			deps.handleTerminalTabRename,
+			deps.handleTerminalTabConfigureStartupCommand,
 			deps.handleFileTabEditModeChange,
 			deps.handleFileTabEditContentChange,
 			deps.handleFileTabScrollPositionChange,
@@ -682,9 +708,11 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.setGraphFocusFilePath,
 			deps.setLastGraphFocusFilePath,
 			deps.setIsGraphViewOpen,
+			deps.handleOpenBrowserTabAt,
 			deps.endInlineWizard,
 			// Complex wizard handlers
 			deps.onWizardComplete,
+			deps.onWizardCompleteAndStartAutoRun,
 			deps.onWizardLetsGo,
 			deps.onWizardRetry,
 			deps.onWizardClearError,

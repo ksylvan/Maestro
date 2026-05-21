@@ -161,6 +161,18 @@ function applyTriggerEventConfig(sub: CueSubscription, triggerData: TriggerNodeD
 		case 'github.issue':
 			if (triggerData.config.repo) sub.repo = triggerData.config.repo;
 			if (triggerData.config.poll_minutes) sub.poll_minutes = triggerData.config.poll_minutes;
+			if (triggerData.config.retrigger_on_comments === true) {
+				sub.retrigger_on_comments = true;
+				// Only emit the cap when it differs from the default (10) so YAML
+				// stays minimal. `0` (unlimited) is a valid explicit value and
+				// must round-trip — the !== 10 check covers both cases.
+				if (
+					triggerData.config.max_notifications !== undefined &&
+					triggerData.config.max_notifications !== 10
+				) {
+					sub.max_notifications = triggerData.config.max_notifications;
+				}
+			}
 			break;
 		case 'task.pending':
 			sub.watch = triggerData.config.watch ?? '**/*.md';
@@ -670,13 +682,27 @@ function buildChain(
 }
 
 /**
- * Converts pipeline graph state to YAML string with external prompt files.
- * Prompts are saved as external .md files referenced by prompt_file in the YAML.
+ * Intermediate representation of `pipelinesToYaml`: the raw subscription
+ * records (pre-yaml.dump) plus the prompt files they reference and any
+ * edge-mode comments. Used as the join point for both whole-yaml emit and
+ * per-owner-cwd emit (see {@link pipelinesToYamlByOwnerCwd}). Each record
+ * carries an `agent_id` field that uniquely identifies the owning agent —
+ * grouping by `agent_id`'s cwd is what enables per-agent-yaml splitting.
  */
-export function pipelinesToYaml(
-	pipelines: CuePipeline[],
-	settings?: Partial<CueSettings>
-): PipelineYamlResult {
+export interface PipelineSubscriptionRecords {
+	records: Array<Record<string, unknown>>;
+	promptFiles: Map<string, string>;
+	comments: string[];
+}
+
+/**
+ * Build the intermediate subscription records for a list of pipelines without
+ * serializing to YAML. Exposed so the per-owner-cwd emitter can split records
+ * by `record.agent_id` → cwd before calling the YAML serializer.
+ */
+export function pipelinesToSubscriptionRecords(
+	pipelines: CuePipeline[]
+): PipelineSubscriptionRecords {
 	const allSubscriptions: Array<Record<string, unknown>> = [];
 	const comments: string[] = [];
 	const promptFiles = new Map<string, string>();
@@ -712,6 +738,8 @@ export function pipelinesToYaml(
 			if (sub.watch != null) record.watch = sub.watch;
 			if (sub.repo != null) record.repo = sub.repo;
 			if (sub.poll_minutes != null) record.poll_minutes = sub.poll_minutes;
+			if (sub.retrigger_on_comments === true) record.retrigger_on_comments = true;
+			if (sub.max_notifications != null) record.max_notifications = sub.max_notifications;
 			if (sub.source_session != null) record.source_session = sub.source_session;
 			if (sub.source_session_ids != null) record.source_session_ids = sub.source_session_ids;
 			if (sub.source_sub != null) record.source_sub = sub.source_sub;
@@ -816,8 +844,22 @@ export function pipelinesToYaml(
 		}
 	}
 
+	return { records: allSubscriptions, promptFiles, comments };
+}
+
+/**
+ * Serialize a subscription record list (with optional settings + comments) to
+ * a YAML string. Pure formatting — no graph traversal — so callers that have
+ * already split records (e.g. {@link pipelinesToYamlByOwnerCwd}) can re-emit
+ * per-cwd YAMLs without re-running the pipeline-to-records conversion.
+ */
+export function recordsToYaml(
+	records: Array<Record<string, unknown>>,
+	settings?: Partial<CueSettings>,
+	comments: string[] = []
+): string {
 	const config: Record<string, unknown> = {
-		subscriptions: allSubscriptions,
+		subscriptions: records,
 	};
 
 	if (settings) {
@@ -832,9 +874,128 @@ export function pipelinesToYaml(
 		forceQuotes: false,
 	});
 
-	// Prepend pipeline metadata comments
 	const header = comments.length > 0 ? comments.join('\n') + '\n\n' : '';
-	return { yaml: header + yamlStr, promptFiles };
+	return header + yamlStr;
+}
+
+/**
+ * Converts pipeline graph state to YAML string with external prompt files.
+ * Prompts are saved as external .md files referenced by prompt_file in the YAML.
+ *
+ * For the per-agent-cwd save path (current architecture), prefer
+ * {@link pipelinesToYamlByOwnerCwd} which splits records by their owning
+ * agent's project root. This whole-yaml emitter is retained for tests and
+ * for callers that need a single round-trippable yaml string.
+ */
+export function pipelinesToYaml(
+	pipelines: CuePipeline[],
+	settings?: Partial<CueSettings>
+): PipelineYamlResult {
+	const { records, promptFiles, comments } = pipelinesToSubscriptionRecords(pipelines);
+	return { yaml: recordsToYaml(records, settings, comments), promptFiles };
+}
+
+/**
+ * Subset of session info this module needs to map agent_id → project root
+ * for per-agent-cwd YAML emission.
+ */
+interface SessionRootRef {
+	projectRoot?: string;
+}
+
+/**
+ * Result entry for {@link pipelinesToYamlByOwnerCwd}: the YAML string and
+ * the prompt files that should be written under that cwd's `.maestro/`.
+ */
+export interface CwdYamlEntry extends PipelineYamlResult {
+	/**
+	 * Subscriptions whose `agent_id` did not resolve to a known session.
+	 * Caller (handleSave) should treat these as validation errors —
+	 * unresolvable refs cannot be safely written anywhere.
+	 */
+}
+
+/**
+ * Per-agent-cwd YAML emit. For each subscription record, look up the owner
+ * via `agent_id` → session → projectRoot, group records by cwd, and emit one
+ * YAML per cwd containing only that cwd's subs.
+ *
+ * This is the writer counterpart to the loader's per-cwd read model: each
+ * agent's `.maestro/cue.yaml` is the sole source of truth for that agent's
+ * subscriptions. A pipeline that spans N agents writes to N yaml files;
+ * cross-agent chains are stitched at runtime via `agent_id` references in
+ * `source_session_ids` / `fan_out_ids`.
+ *
+ * Returns a `Map<cwd, { yaml, promptFiles }>`. Records with an `agent_id`
+ * that cannot be resolved are surfaced via `unresolved` so the caller can
+ * abort the save with a precise error rather than silently dropping subs.
+ */
+export function pipelinesToYamlByOwnerCwd(
+	pipelines: CuePipeline[],
+	settings: Partial<CueSettings> | undefined,
+	sessionsById: ReadonlyMap<string, SessionRootRef>
+): { byCwd: Map<string, CwdYamlEntry>; unresolved: Array<{ subName: string; agentId: string }> } {
+	const { records, promptFiles } = pipelinesToSubscriptionRecords(pipelines);
+
+	const recordsByCwd = new Map<string, Array<Record<string, unknown>>>();
+	const unresolved: Array<{ subName: string; agentId: string }> = [];
+
+	for (const record of records) {
+		const agentId = typeof record.agent_id === 'string' ? record.agent_id : undefined;
+		if (!agentId) {
+			// Unowned subs (no agent_id) cannot be placed under a per-agent
+			// cwd. The current emitter always sets agent_id, so reaching this
+			// branch means a hand-edited yaml or a future bug — surface it as
+			// unresolved so the save fails loudly rather than dropping the sub.
+			unresolved.push({ subName: String(record.name ?? '<unnamed>'), agentId: '' });
+			continue;
+		}
+		const cwd = sessionsById.get(agentId)?.projectRoot;
+		if (!cwd) {
+			unresolved.push({ subName: String(record.name ?? '<unnamed>'), agentId });
+			continue;
+		}
+		const list = recordsByCwd.get(cwd) ?? [];
+		list.push(record);
+		recordsByCwd.set(cwd, list);
+	}
+
+	const byCwd = new Map<string, CwdYamlEntry>();
+	for (const [cwd, cwdRecords] of recordsByCwd) {
+		// Collect prompt files referenced by THIS cwd's records only. The
+		// global promptFiles map carries every file across every pipeline;
+		// each cwd should only receive the files its own subs point at,
+		// otherwise unrelated prompts would leak into every workspace and
+		// the IPC handler's keep-set pruning would mis-classify them as
+		// orphaned on the next save.
+		const cwdPromptPaths = new Set<string>();
+		for (const r of cwdRecords) {
+			if (typeof r.prompt_file === 'string') cwdPromptPaths.add(r.prompt_file);
+			if (typeof r.output_prompt_file === 'string') cwdPromptPaths.add(r.output_prompt_file);
+			if (Array.isArray(r.fan_out_prompt_files)) {
+				for (const p of r.fan_out_prompt_files) {
+					if (typeof p === 'string') cwdPromptPaths.add(p);
+				}
+			}
+		}
+		const cwdPromptFiles = new Map<string, string>();
+		for (const p of cwdPromptPaths) {
+			const content = promptFiles.get(p);
+			if (content !== undefined) cwdPromptFiles.set(p, content);
+		}
+
+		// Edge-mode comments describe inter-node relationships and may
+		// reference nodes that live in other cwds. They're cosmetic (the
+		// engine ignores them) and including the full set in every cwd's
+		// yaml would be misleading. Drop them in per-cwd output; the editor
+		// is the canonical view for cross-agent topology.
+		byCwd.set(cwd, {
+			yaml: recordsToYaml(cwdRecords, settings, []),
+			promptFiles: cwdPromptFiles,
+		});
+	}
+
+	return { byCwd, unresolved };
 }
 
 /**

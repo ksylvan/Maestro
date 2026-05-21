@@ -19,7 +19,6 @@ import { useCue } from '../../hooks/useCue';
 import type { CueSessionStatus } from '../../hooks/useCue';
 import { CueHelpContent } from '../CueHelpModal';
 import { CuePipelineEditor } from '../CuePipelineEditor';
-import { getPipelineColorForAgent } from '../CuePipelineEditor/pipelineColors';
 import { generateId } from '../../utils/ids';
 import { useSessionStore } from '../../stores/sessionStore';
 import { getModalActions, useModalStore, selectModalData } from '../../stores/modalStore';
@@ -32,6 +31,7 @@ import { useCueToggle } from '../../hooks/cue/useCueToggle';
 import { CueModalHeader, type CueModalTab } from './CueModalHeader';
 import { CueDashboard } from './CueDashboard';
 import { ActivityLog } from './ActivityLog';
+import { BackupTab } from './BackupTab';
 
 export interface CueModalProps {
 	theme: Theme;
@@ -154,9 +154,18 @@ export function CueModal({ theme, onClose, cueShortcutKeys }: CueModalProps) {
 
 	const handleViewInPipeline = useCallback(
 		(session: CueSessionStatus) => {
-			const colors = getPipelineColorForAgent(session.sessionId, dashboardPipelines);
-			const pipeline =
-				colors.length > 0 ? dashboardPipelines.find((p) => p.color === colors[0]) : undefined;
+			// Find the pipeline by session-membership, not by color. Multiple
+			// pipelines can share a color (e.g. two orange pipelines), so the
+			// older color-based lookup would jump to whichever orange pipeline
+			// appeared first in the array regardless of which agent was clicked.
+			const pipeline = dashboardPipelines.find((p) =>
+				p.nodes.some(
+					(node) =>
+						node.type === 'agent' &&
+						'sessionId' in node.data &&
+						node.data.sessionId === session.sessionId
+				)
+			);
 			setPendingPipelineId({ id: pipeline?.id ?? null, nonce: generateId() });
 			setActiveTab('pipeline');
 		},
@@ -224,7 +233,7 @@ export function CueModal({ theme, onClose, cueShortcutKeys }: CueModalProps) {
 
 	// Cmd/Ctrl+Shift+[/] cycles between tabs. Disabled while help is open
 	// so the help view's keyboard handlers stay in charge.
-	const tabsRef = useRef<readonly CueModalTab[]>(['dashboard', 'pipeline', 'activity']);
+	const tabsRef = useRef<readonly CueModalTab[]>(['dashboard', 'pipeline', 'activity', 'backup']);
 	useEffect(() => {
 		const handleTabCycle = (e: KeyboardEvent) => {
 			if (showHelpRef.current) return;
@@ -266,7 +275,7 @@ export function CueModal({ theme, onClose, cueShortcutKeys }: CueModalProps) {
 
 					{/* Modal */}
 					<div
-						className="relative rounded-xl shadow-2xl flex flex-col"
+						className="relative rounded-xl shadow-2xl flex flex-col select-none"
 						style={{
 							width: '80vw',
 							maxWidth: 1400,
@@ -291,11 +300,10 @@ export function CueModal({ theme, onClose, cueShortcutKeys }: CueModalProps) {
 
 						{/* Body */}
 						{showHelp ? (
-							<div
-								className="flex-1 overflow-y-auto py-4"
-								style={{ paddingLeft: 100, paddingRight: 100 }}
-							>
-								<CueHelpContent theme={theme} cueShortcutKeys={cueShortcutKeys} />
+							<div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
+								<div className="max-w-3xl mx-auto">
+									<CueHelpContent theme={theme} cueShortcutKeys={cueShortcutKeys} />
+								</div>
 							</div>
 						) : activeTab === 'dashboard' ? (
 							<div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
@@ -333,6 +341,10 @@ export function CueModal({ theme, onClose, cueShortcutKeys }: CueModalProps) {
 									setSearchQuery={setActivitySearchQuery}
 									searchInputRef={activitySearchInputRef}
 								/>
+							</div>
+						) : activeTab === 'backup' ? (
+							<div className="flex-1 min-h-0 flex flex-col">
+								<BackupTab theme={theme} />
 							</div>
 						) : (
 							<CuePipelineEditor

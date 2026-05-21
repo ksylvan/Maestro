@@ -27,6 +27,8 @@ import {
 	filterTextByLinesHelper,
 	getCachedAnsiHtml,
 } from '../utils/textProcessing';
+import { jumpToMessageEdge, isTextInputTarget } from '../utils/messageScrollNavigation';
+import { JumpToMessageTopButton } from './JumpToMessageTopButton';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { QueuedItemsList } from './QueuedItemsList';
@@ -204,6 +206,9 @@ interface LogItemProps {
 	bionifyAlgorithm: string;
 	// Message alignment
 	userMessageAlignment: 'left' | 'right';
+	// Claude mode pill — both passed as primitives so LogItem memo equality stays cheap.
+	isClaudeCode: boolean;
+	isAdaptiveMode: boolean;
 }
 
 const LogItemComponent = memo(
@@ -249,6 +254,8 @@ const LogItemComponent = memo(
 		bionifyIntensity,
 		bionifyAlgorithm,
 		userMessageAlignment,
+		isClaudeCode,
+		isAdaptiveMode,
 	}: LogItemProps) => {
 		// Ref for the log item container - used for scroll-into-view on expand
 		const logItemRef = useRef<HTMLDivElement>(null);
@@ -480,9 +487,18 @@ const LogItemComponent = memo(
 									Error
 								</span>
 							</div>
-							<p className="text-sm" style={{ color: theme.colors.textMain }}>
-								{log.text}
-							</p>
+							<div className="text-sm" style={{ color: theme.colors.textMain }}>
+								<MarkdownRenderer
+									content={log.text}
+									theme={theme}
+									onCopy={copyToClipboard}
+									fileTree={fileTree}
+									cwd={cwd}
+									projectRoot={projectRoot}
+									onFileClick={onFileClick}
+									chatLineBreaks
+								/>
+							</div>
 							{!!log.agentError?.parsedJson && onShowErrorDetails && (
 								<button
 									onClick={() => onShowErrorDetails(log.agentError!)}
@@ -532,6 +548,7 @@ const LogItemComponent = memo(
 										cwd={cwd}
 										projectRoot={projectRoot}
 										onFileClick={onFileClick}
+										chatLineBreaks
 									/>
 								) : (
 									log.text
@@ -697,6 +714,7 @@ const LogItemComponent = memo(
 											cwd={cwd}
 											projectRoot={projectRoot}
 											onFileClick={onFileClick}
+											chatLineBreaks
 										/>
 									) : (
 										displayText
@@ -783,6 +801,7 @@ const LogItemComponent = memo(
 											cwd={cwd}
 											projectRoot={projectRoot}
 											onFileClick={onFileClick}
+											chatLineBreaks
 										/>
 									) : (
 										<div>{filteredText}</div>
@@ -861,6 +880,7 @@ const LogItemComponent = memo(
 										cwd={cwd}
 										projectRoot={projectRoot}
 										onFileClick={onFileClick}
+										chatLineBreaks
 									/>
 								) : (
 									// Raw markdown source mode (show original text with markdown syntax visible)
@@ -873,6 +893,37 @@ const LogItemComponent = memo(
 								)}
 							</>
 						))}
+					{/* Mode pill — shows which CLI captured this Claude turn (TUI = maestro-p,
+					    API = claude --print). "Adaptive " prefix indicates the session has
+					    Adaptive Mode enabled (auto-switching between the two). */}
+					{isClaudeCode &&
+						log.source !== 'user' &&
+						(() => {
+							const isTui = log.renderStyle === 'text-stream';
+							const label = `${isAdaptiveMode ? 'Adaptive ' : ''}${isTui ? 'TUI' : 'API'}`;
+							const title = isTui
+								? `Captured via maestro-p driving the Claude TUI${isAdaptiveMode ? ' (Adaptive Mode enabled)' : ''}`
+								: `Captured via claude --print${isAdaptiveMode ? ' (Adaptive Mode enabled — fell back to API)' : ''}`;
+							return (
+								<span
+									className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[10px] px-1.5 py-0.5 rounded pointer-events-none select-none"
+									style={{
+										backgroundColor: `${theme.colors.accent}20`,
+										color: theme.colors.accent,
+										opacity: 0.7,
+									}}
+									title={title}
+								>
+									{label}
+								</span>
+							);
+						})()}
+					{/* Jump to top of this message - bottom left corner */}
+					<JumpToMessageTopButton
+						scrollContainerRef={scrollContainerRef}
+						messageRef={logItemRef}
+						theme={theme}
+					/>
 					{/* Action buttons - bottom right corner */}
 					<div
 						className="absolute bottom-2 right-2 flex items-center gap-1"
@@ -1052,6 +1103,7 @@ const LogItemComponent = memo(
 			prevProps.log.delivered === nextProps.log.delivered &&
 			prevProps.log.readOnly === nextProps.log.readOnly &&
 			prevProps.log.forceParallel === nextProps.log.forceParallel &&
+			prevProps.log.renderStyle === nextProps.log.renderStyle &&
 			prevProps.log.metadata?.hiddenProgress === nextProps.log.metadata?.hiddenProgress &&
 			prevProps.log.metadata?.toolState?.status === nextProps.log.metadata?.toolState?.status &&
 			prevProps.isExpanded === nextProps.isExpanded &&
@@ -1864,14 +1916,45 @@ export const TerminalOutput = memo(
 						setActiveFocus('main');
 						return;
 					}
-					// Arrow key scrolling (instant, no smooth behavior)
-					// Plain arrow keys: scroll by ~100px
-					if (e.key === 'ArrowUp' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+					// Shift+Arrow: jump message-by-message. Skip when the user is typing in
+					// an input/textarea inside the region — those handle their own
+					// arrow-key cursor movement.
+					if (
+						(e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
+						e.shiftKey &&
+						!e.metaKey &&
+						!e.ctrlKey &&
+						!e.altKey &&
+						!isTextInputTarget(e.target)
+					) {
+						const container = scrollContainerRef.current;
+						if (container) {
+							e.preventDefault();
+							jumpToMessageEdge(container, '[data-log-index]', e.key === 'ArrowUp' ? 'up' : 'down');
+						}
+						return;
+					}
+					// Plain Arrow keys: nudge scroll by ~100px (instant, no smooth behavior).
+					if (
+						e.key === 'ArrowUp' &&
+						!e.shiftKey &&
+						!e.metaKey &&
+						!e.ctrlKey &&
+						!e.altKey &&
+						!isTextInputTarget(e.target)
+					) {
 						e.preventDefault();
 						scrollContainerRef.current?.scrollBy({ top: -100 });
 						return;
 					}
-					if (e.key === 'ArrowDown' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+					if (
+						e.key === 'ArrowDown' &&
+						!e.shiftKey &&
+						!e.metaKey &&
+						!e.ctrlKey &&
+						!e.altKey &&
+						!isTextInputTarget(e.target)
+					) {
 						e.preventDefault();
 						scrollContainerRef.current?.scrollBy({ top: 100 });
 						return;
@@ -1925,19 +2008,54 @@ export const TerminalOutput = memo(
 						style={{ backgroundColor: theme.colors.bgMain }}
 					>
 						<div className="flex items-center gap-2">
+							<div className="relative flex-1">
+								<input
+									type="text"
+									value={outputSearchQuery}
+									onChange={(e) => setOutputSearchQuery(e.target.value)}
+									onKeyDown={(e) => {
+										if (e.key === 'Enter' && !e.shiftKey) {
+											e.preventDefault();
+											goToNextMatch();
+										} else if (e.key === 'Enter' && e.shiftKey) {
+											e.preventDefault();
+											goToPrevMatch();
+										}
+									}}
+									placeholder={
+										outputSearchRegex
+											? 'Regex search... (Enter: next, Shift+Enter: prev)'
+											: 'Search output... (Enter: next, Shift+Enter: prev)'
+									}
+									className="w-full pl-3 pr-14 py-2 rounded border bg-transparent outline-none text-sm"
+									style={{
+										borderColor: regexError ? theme.colors.error : theme.colors.accent,
+										color: theme.colors.textMain,
+										backgroundColor: theme.colors.bgSidebar,
+										fontFamily: outputSearchRegex
+											? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
+											: undefined,
+									}}
+									spellCheck={outputSearchRegex ? false : undefined}
+									autoFocus
+								/>
+								<div
+									className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-0.5 rounded text-xs font-bold pointer-events-none"
+									style={{
+										backgroundColor: theme.colors.bgMain,
+										color: theme.colors.textDim,
+									}}
+								>
+									ESC
+								</div>
+							</div>
 							<button
 								onClick={() => setOutputSearchRegex(!outputSearchRegex)}
-								className="flex items-center gap-1.5 pl-1 pr-2 rounded border text-xs font-medium whitespace-nowrap transition-colors self-stretch"
+								className="flex items-center justify-center gap-1.5 pl-1 pr-2 rounded border text-xs font-medium whitespace-nowrap transition-colors self-stretch min-w-[7rem]"
 								style={{
-									borderColor: outputSearchRegex
-										? theme.colors.accent
-										: regexError
-											? theme.colors.error
-											: theme.colors.border,
-									backgroundColor: outputSearchRegex
-										? theme.colors.accent + '20'
-										: theme.colors.bgSidebar,
-									color: outputSearchRegex ? theme.colors.accent : theme.colors.textDim,
+									borderColor: regexError ? theme.colors.error : theme.colors.accent,
+									backgroundColor: theme.colors.accent + '20',
+									color: theme.colors.accent,
 								}}
 								title={outputSearchRegex ? 'Switch to plain-text search' : 'Switch to regex search'}
 							>
@@ -1945,46 +2063,14 @@ export const TerminalOutput = memo(
 								<span
 									className="px-1.5 py-0.5 rounded font-mono leading-none"
 									style={{
-										backgroundColor: outputSearchRegex ? theme.colors.accent : theme.colors.textDim,
-										color: outputSearchRegex
-											? theme.colors.accentForeground
-											: theme.colors.bgSidebar,
+										backgroundColor: theme.colors.accent,
+										color: theme.colors.accentForeground,
 									}}
 								>
 									{outputSearchRegex ? '.*' : 'Aa'}
 								</span>
 								<span>{outputSearchRegex ? 'Regex' : 'Plain Text'}</span>
 							</button>
-							<input
-								type="text"
-								value={outputSearchQuery}
-								onChange={(e) => setOutputSearchQuery(e.target.value)}
-								onKeyDown={(e) => {
-									if (e.key === 'Enter' && !e.shiftKey) {
-										e.preventDefault();
-										goToNextMatch();
-									} else if (e.key === 'Enter' && e.shiftKey) {
-										e.preventDefault();
-										goToPrevMatch();
-									}
-								}}
-								placeholder={
-									outputSearchRegex
-										? 'Regex search... (Enter: next, Shift+Enter: prev)'
-										: 'Search output... (Enter: next, Shift+Enter: prev)'
-								}
-								className="flex-1 px-3 py-2 rounded border bg-transparent outline-none text-sm"
-								style={{
-									borderColor: regexError ? theme.colors.error : theme.colors.accent,
-									color: theme.colors.textMain,
-									backgroundColor: theme.colors.bgSidebar,
-									fontFamily: outputSearchRegex
-										? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
-										: undefined,
-								}}
-								spellCheck={outputSearchRegex ? false : undefined}
-								autoFocus
-							/>
 							{outputSearchQuery.trim() && (
 								<>
 									<span
@@ -2083,6 +2169,8 @@ export const TerminalOutput = memo(
 							bionifyIntensity={globalBionifyIntensity}
 							bionifyAlgorithm={globalBionifyAlgorithm}
 							userMessageAlignment={userMessageAlignment}
+							isClaudeCode={session.toolType === 'claude-code'}
+							isAdaptiveMode={session.enableMaestroP === true}
 						/>
 					))}
 

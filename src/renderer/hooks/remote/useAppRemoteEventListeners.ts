@@ -10,7 +10,7 @@
 import React from 'react';
 import { useEventListener } from '../utils/useEventListener';
 import { generateId } from '../../utils/ids';
-import { useSessionStore } from '../../stores/sessionStore';
+import { useSessionStore, selectSessionById } from '../../stores/sessionStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { PLAYBOOKS_DIR } from '../../../shared/maestro-paths';
 import { getBrowserTabPartition } from '../../utils/browserTabPersistence';
@@ -24,6 +24,8 @@ import { logger } from '../../utils/logger';
 import { captureException, captureMessage } from '../../utils/sentry';
 import { DEFAULT_BATCH_PROMPT } from '../batch/batchUtils';
 import { gitService } from '../../services/git';
+import { spawnWorktreeAgentAndDispatch } from '../../utils/worktreeSpawn';
+import { notifyToast } from '../../stores/notificationStore';
 
 // ============================================================================
 // Dependencies interface
@@ -46,6 +48,8 @@ export interface UseAppRemoteEventListenersDeps {
 			content: string;
 			sshRemoteId?: string;
 			lastModified?: number;
+			/** Optional 1-based line to jump to once the editor mounts (deep links). */
+			pendingScrollToLine?: number;
 		},
 		options?: { targetSessionId?: string }
 	) => void;
@@ -89,7 +93,14 @@ export function useAppRemoteEventListeners(deps: UseAppRemoteEventListenersDeps)
 
 	// Handle remote open file tab events from CLI/web interface
 	useEventListener('maestro:openFileTab', async (e: Event) => {
-		const { sessionId, filePath } = (e as CustomEvent).detail;
+		const { sessionId, filePath, switchToAgent, line } = (e as CustomEvent).detail as {
+			sessionId: string;
+			filePath: string;
+			switchToAgent?: boolean;
+			/** Optional 1-based line to jump to once the file is open. Set by
+			 *  maestro://file/...#L<n> deep links. */
+			line?: number;
+		};
 		const session = sessionsRef.current.find((s) => s.id === sessionId);
 		if (!session) {
 			logger.error('[Remote] Session not found for openFileTab:', undefined, sessionId);
@@ -97,8 +108,11 @@ export function useAppRemoteEventListeners(deps: UseAppRemoteEventListenersDeps)
 		}
 		const sshRemoteId =
 			session.sshRemoteId || session.sessionSshRemoteConfig?.remoteId || undefined;
-		// Switch to the target session
-		setActiveSessionId(sessionId);
+		// Honor `--no-switch`: register the tab on the target agent but leave the
+		// active agent untouched so the CLI invocation doesn't hijack focus.
+		if (switchToAgent !== false) {
+			setActiveSessionId(sessionId);
+		}
 		try {
 			const [content, stat] = await Promise.all([
 				window.maestro.fs.readFile(filePath, sshRemoteId),
@@ -114,6 +128,7 @@ export function useAppRemoteEventListeners(deps: UseAppRemoteEventListenersDeps)
 						content,
 						lastModified,
 						sshRemoteId,
+						pendingScrollToLine: line,
 					},
 					{ targetSessionId: sessionId }
 				);
@@ -415,19 +430,9 @@ export function useAppRemoteEventListeners(deps: UseAppRemoteEventListenersDeps)
 					return;
 				}
 
-				// Forward worktree configuration when the CLI requests it.
-				// startBatchRun handles worktree setup, branch checkout, and (optionally)
-				// PR creation on completion via the existing git IPC handlers.
-				const worktree: BatchRunConfig['worktree'] | undefined =
-					config.worktree && config.worktree.enabled
-						? {
-								enabled: true,
-								path: config.worktree.path,
-								branchName: config.worktree.branchName,
-								createPROnCompletion: Boolean(config.worktree.createPROnCompletion),
-								prTargetBranch: config.worktree.prTargetBranch || '',
-							}
-						: undefined;
+				// Capture whether the launch enables worktree dispatch — used below to
+				// decide whether to spawn a child session via the desktop helper.
+				const worktreeEnabled = Boolean(config.worktree?.enabled);
 
 				// CLI/web callers omit prompt → fall back to the default Auto Run prompt
 				// template (autorun-default.md), matching what BatchRunnerModal does for
@@ -435,20 +440,117 @@ export function useAppRemoteEventListeners(deps: UseAppRemoteEventListenersDeps)
 				// useBatchProcessor → useDocumentProcessor → spawn, causing claude
 				// `--print` to exit 1 with "Input must be provided either through stdin
 				// or as a prompt argument".
+				//
+				// Note: batchConfig.worktree is intentionally NOT pre-populated from the
+				// raw config payload. The mobile client sends the user-typed branch
+				// (e.g. "Cue Dashboard") and a path computed before sanitization, both
+				// of which can drift from what spawnWorktreeAgentAndDispatch actually
+				// resolves on disk (sanitized branch, or an existingPath returned by
+				// `git worktree add` when the branch already had a worktree). The spawn
+				// helper writes the resolved values back into config.worktree when
+				// createPROnCompletion is true; we mirror that result onto batchConfig
+				// below so PR creation downstream sees the correct path/branch.
 				const batchConfig: BatchRunConfig = {
 					documents,
 					prompt: config.prompt || DEFAULT_BATCH_PROMPT,
 					loopEnabled: config.loopEnabled || false,
 					maxLoops: config.maxLoops,
-					...(worktree ? { worktree } : {}),
 				};
+
+				// Mirror desktop's useAutoRunHandlers: when worktree dispatch is enabled,
+				// spawn a child session linked to the launching parent BEFORE calling
+				// startBatchRun. Without this, startBatchRun creates the worktree on
+				// disk but no session is bound to the launching agent — chokidar in
+				// useWorktreeHandlers eventually attaches the new directory to whichever
+				// sibling's worktreeConfig.basePath matches first, producing the wrong-
+				// parent attachment reported in PR #946.
+				let targetSessionId = sessionId;
+				if (worktreeEnabled && config.worktree) {
+					// If the launching session is itself a worktree child, resolve to
+					// its parent so basePath/cwd used for worktree creation come from
+					// the main repo. Falls back to the launching session if the parent
+					// can't be loaded (mirrors desktop behavior).
+					let parentForSpawn = session;
+					if (session.parentSessionId) {
+						const parent = selectSessionById(session.parentSessionId)(useSessionStore.getState());
+						if (parent) parentForSpawn = parent;
+					}
+
+					// Build a WorktreeRunTarget from the mobile/web LaunchWorktreeConfig.
+					// Mobile currently only supports create-new; existing-open/closed are
+					// desktop-only flows.
+					//
+					// baseBranch resolution order: explicit `worktree.baseBranch` from the
+					// caller (CLI `--base-branch`, mobile picker) wins. Fall back to
+					// `prTargetBranch` only for older clients that conflated the two, then
+					// to "main" as a final default. This keeps payloads from pre-baseBranch
+					// CLIs working while letting newer callers pick a base independent of
+					// the PR target.
+					const spawnConfig: BatchRunConfig = {
+						...batchConfig,
+						worktreeTarget: {
+							mode: 'create-new',
+							newBranchName: config.worktree.branchName,
+							baseBranch: config.worktree.baseBranch || config.worktree.prTargetBranch || 'main',
+							createPROnCompletion: Boolean(config.worktree.createPROnCompletion),
+						},
+					};
+
+					try {
+						const newSessionId = await spawnWorktreeAgentAndDispatch(parentForSpawn, spawnConfig);
+						if (!newSessionId) {
+							window.maestro.process.sendRemoteConfigureAutoRunResponse(responseChannel, {
+								success: false,
+								error: 'Failed to spawn worktree agent',
+							});
+							return;
+						}
+						targetSessionId = newSessionId;
+						// spawnWorktreeAgentAndDispatch writes the resolved worktree
+						// path/branch back into spawnConfig.worktree when PR creation is
+						// requested (sanitized branch name, or the existingPath that
+						// `git worktree add` returned for an already-attached branch).
+						// Forward that authoritative value to startBatchRun; when PR
+						// creation is off, leave batchConfig.worktree undefined and rely
+						// on worktreeTarget + the spawned session's cwd — the same shape
+						// the desktop launch path produces.
+						if (spawnConfig.worktree) {
+							batchConfig.worktree = spawnConfig.worktree;
+						}
+						// Setting worktreeTarget tells startBatchRun to skip its own
+						// setupWorktree call — the spawn helper already created the
+						// directory and built the session.
+						batchConfig.worktreeTarget = spawnConfig.worktreeTarget;
+					} catch (err) {
+						captureException(err, {
+							extra: {
+								event: 'maestro:configureAutoRun',
+								sessionId,
+								parentSessionId: parentForSpawn.id,
+								worktree: config.worktree,
+								responseChannel,
+							},
+						});
+						logger.error('[Remote] Failed to spawn worktree agent:', undefined, err);
+						notifyToast({
+							type: 'error',
+							title: 'Worktree Error',
+							message: err instanceof Error ? err.message : String(err),
+						});
+						window.maestro.process.sendRemoteConfigureAutoRunResponse(responseChannel, {
+							success: false,
+							error: err instanceof Error ? err.message : String(err),
+						});
+						return;
+					}
+				}
 
 				// Send success response immediately - startBatchRun is long-running
 				// and would exceed the IPC/CLI timeout if awaited.
 				window.maestro.process.sendRemoteConfigureAutoRunResponse(responseChannel, {
 					success: true,
 				});
-				startBatchRun(sessionId, batchConfig, folderPath).catch((err) => {
+				startBatchRun(targetSessionId, batchConfig, folderPath).catch((err) => {
 					logger.error('[Remote] Failed to start auto-run:', undefined, err);
 				});
 				return;

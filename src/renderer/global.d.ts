@@ -265,6 +265,7 @@ interface MaestroAPI {
 				childProcesses?: Array<{ pid: number; command: string }>;
 			}>
 		>;
+		isTerminalBusy: (sessionId: string) => Promise<boolean>;
 		onData: (callback: (sessionId: string, data: string) => void) => () => void;
 		onExit: (callback: (sessionId: string, code: number) => void) => () => void;
 		onSessionId: (callback: (sessionId: string, agentSessionId: string) => void) => () => void;
@@ -280,6 +281,16 @@ interface MaestroAPI {
 			callback: (
 				sessionId: string,
 				sshRemote: { id: string; name: string; host: string } | null
+			) => void
+		) => () => void;
+		onClaudeModeResolved: (
+			callback: (
+				sessionId: string,
+				resolution: {
+					mode: 'interactive' | 'api';
+					reason: 'auto' | 'limit';
+					configDirKey: string;
+				}
 			) => void
 		) => () => void;
 		onRemoteCommand: (
@@ -311,7 +322,9 @@ interface MaestroAPI {
 			callback: (sessionId: string, fromIndex: number, toIndex: number) => void
 		) => () => void;
 		onRemoteToggleBookmark: (callback: (sessionId: string) => void) => () => void;
-		onRemoteOpenFileTab: (callback: (sessionId: string, filePath: string) => void) => () => void;
+		onRemoteOpenFileTab: (
+			callback: (sessionId: string, filePath: string, switchToAgent: boolean) => void
+		) => () => void;
 		onRemoteRefreshFileTree: (callback: (sessionId: string) => void) => () => void;
 		onRemoteNotifyToast: (
 			callback: (params: {
@@ -767,7 +780,8 @@ interface MaestroAPI {
 			mainRepoCwd: string,
 			worktreePath: string,
 			branchName: string,
-			sshRemoteId?: string
+			sshRemoteId?: string,
+			baseBranch?: string
 		) => Promise<GitWorktreeSetupResult>;
 		worktreeCheckout: (
 			worktreePath: string,
@@ -982,6 +996,20 @@ interface MaestroAPI {
 			customPath?: string,
 			sshRemoteId?: string
 		) => Promise<{ name: string; prompt?: string; description?: string }[] | null>;
+		getMaestroPDetectedPath: () => Promise<string | null>;
+		getClaudeUsageSnapshots: () => Promise<
+			Record<
+				string,
+				{
+					sampledAt: string;
+					configDirKey: string;
+					session: { percent: number; resetsAt: string };
+					weekAllModels: { percent: number; resetsAt: string };
+					weekSonnetOnly: { percent: number; resetsAt: string };
+				}
+			>
+		>;
+		refreshClaudeUsageSnapshots: () => Promise<{ refreshed: number }>;
 	};
 	// Agent Sessions API - all methods accept optional sshRemoteId for SSH remote session storage access
 	agentSessions: {
@@ -1324,6 +1352,7 @@ interface MaestroAPI {
 				groupId?: string;
 			}) => void
 		) => () => void;
+		onGlobalHotkeyRegistrationFailed: (callback: (keys: string[]) => void) => () => void;
 	};
 	platform: string;
 	logger: {
@@ -2641,12 +2670,14 @@ interface MaestroAPI {
 			avgSessionDuration: number;
 			byAgentByDay: Record<string, Array<{ date: string; count: number; duration: number }>>;
 			bySessionByDay: Record<string, Array<{ date: string; count: number; duration: number }>>;
+			bySessionSource: Record<string, { user: number; auto: number }>;
 			worktreeQueries: number;
 			parentQueries: number;
 			byWorktreeStatus: {
 				worktree: { count: number; duration: number };
 				parent: { count: number; duration: number };
 			};
+			imageAnnotations: number;
 		}>;
 		// Export query events to CSV
 		exportCsv: (range: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all') => Promise<string>;
@@ -2665,6 +2696,18 @@ interface MaestroAPI {
 		getDatabaseSize: () => Promise<number>;
 		// Get earliest stat timestamp (null if no entries exist)
 		getEarliestTimestamp: () => Promise<number | null>;
+		// Record an image annotation save event
+		recordImageAnnotation: (createdAt: number) => Promise<string | null>;
+		// Record a keyboard shortcut firing (buckets into local-time day)
+		recordShortcutUsage: (firedAt: number) => Promise<string | null>;
+		// Get per-day shortcut usage counts within a time range
+		getShortcutUsageByDay: (
+			range: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all'
+		) => Promise<Array<{ date: string; count: number }>>;
+		// Get total shortcut firings within a time range
+		getShortcutUsageTotal: (
+			range: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all'
+		) => Promise<number>;
 		// Record session creation (launched)
 		recordSessionCreated: (event: {
 			sessionId: string;
@@ -3197,9 +3240,11 @@ interface MaestroAPI {
 	// Cue API (event-driven automation)
 	cue: {
 		getSettings: () => Promise<CueSettings>;
+		saveSettings: (settings: CueSettings) => Promise<{ writtenRoots: string[] }>;
 		getStatus: () => Promise<CueSessionStatus[]>;
 		getGraphData: () => Promise<CueGraphSession[]>;
 		getActiveRuns: () => Promise<CueRunResult[]>;
+		getRunLiveOutput: (runId: string) => Promise<{ stdout: string; stderr: string } | null>;
 		getActivityLog: (limit?: number) => Promise<CueRunResult[]>;
 		getEventCount: () => Promise<number>;
 		enable: () => Promise<void>;
@@ -3234,6 +3279,27 @@ interface MaestroAPI {
 		savePipelineLayout: (layout: Record<string, unknown>) => Promise<void>;
 		loadPipelineLayout: () => Promise<Record<string, unknown> | null>;
 		onActivityUpdate: (callback: (data: CueLogPayload) => void) => () => void;
+	};
+
+	// Cue Backup API (snapshot + restore for cue.yaml + Cue prompts)
+	cueBackup: {
+		create: () => Promise<import('../shared/cue-backup-types').CueBackupSummary>;
+		list: () => Promise<import('../shared/cue-backup-types').CueBackupSummary[]>;
+		inspect: (filePath: string) => Promise<import('../shared/cue-backup-types').CueBackupManifest>;
+		readFile: (
+			filePath: string,
+			workspaceId: string,
+			relativePath: string
+		) => Promise<string | null>;
+		readLive: (cwd: string, relativePath: string) => Promise<string | null>;
+		restoreFile: (filePath: string, workspaceId: string, relativePath: string) => Promise<void>;
+		restoreAll: (
+			filePath: string
+		) => Promise<import('../shared/cue-backup-types').CueBackupRestoreResult>;
+		getDiffStatus: (
+			filePath: string
+		) => Promise<import('../shared/cue-backup-types').CueBackupDiffStatusMap>;
+		delete: (filePath: string) => Promise<void>;
 	};
 
 	// WakaTime API (CLI check, API key validation)

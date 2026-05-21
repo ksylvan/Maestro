@@ -42,7 +42,6 @@ vi.mock('fs', () => {
 
 // Must import after mocks
 import {
-	findAncestorCueConfigRoot,
 	loadCueConfig,
 	loadCueConfigDetailed,
 	watchCueYaml,
@@ -113,6 +112,7 @@ subscriptions:
   - name: relay
     event: agent.completed
     source_session: researcher
+    source_sub: researcher-step
     action: command
     command:
       mode: cli
@@ -126,6 +126,7 @@ subscriptions:
 			expect(result).not.toBeNull();
 			const sub = result!.subscriptions[0];
 			expect(sub.action).toBe('command');
+			expect(sub.source_sub).toBe('researcher-step');
 			expect(sub.command).toEqual({
 				mode: 'cli',
 				cli: {
@@ -758,6 +759,148 @@ subscriptions:
 			);
 		});
 
+		it('requires source_sub for agent.completed command subscriptions', () => {
+			const result = validateCueConfig({
+				subscriptions: [
+					{
+						name: 'cmd-chain',
+						event: 'agent.completed',
+						source_session: 'Builder',
+						action: 'command',
+						command: { mode: 'shell', shell: 'echo ok' },
+					},
+				],
+			});
+			expect(result.valid).toBe(false);
+			expect(result.errors).toEqual(
+				expect.arrayContaining([expect.stringContaining('source_sub')])
+			);
+		});
+
+		it('rejects source_sub/source_session array length mismatch', () => {
+			const result = validateCueConfig({
+				subscriptions: [
+					{
+						name: 'fan-in',
+						event: 'agent.completed',
+						source_session: ['A', 'B'],
+						source_sub: ['fan-in-chain-a'],
+						prompt: '{{CUE_SOURCE_OUTPUT}}',
+					},
+				],
+			});
+			expect(result.valid).toBe(false);
+			expect(result.errors).toEqual(
+				expect.arrayContaining([
+					expect.stringContaining('source_sub" length (1) must match "source_session" length (2)'),
+				])
+			);
+		});
+
+		it('rejects source_sub array when source_session is a string', () => {
+			const result = validateCueConfig({
+				subscriptions: [
+					{
+						name: 'fan-in-invalid-shape',
+						event: 'agent.completed',
+						source_session: 'A',
+						source_sub: ['chain-a', 'chain-b'],
+						prompt: '{{CUE_SOURCE_OUTPUT}}',
+					},
+				],
+			});
+			expect(result.valid).toBe(false);
+			expect(result.errors).toEqual(
+				expect.arrayContaining([
+					expect.stringContaining(
+						'"source_sub" must be a string when "source_session" is a string'
+					),
+				])
+			);
+		});
+
+		it('rejects source_sub string when source_session is an array', () => {
+			// Symmetric to the previous test — guards the opposite shape-mismatch
+			// branch (`source_session` is an array but `source_sub` is a plain
+			// string) so the error message stays specific.
+			const result = validateCueConfig({
+				subscriptions: [
+					{
+						name: 'fan-in-invalid-shape-2',
+						event: 'agent.completed',
+						source_session: ['A', 'B'],
+						source_sub: 'chain-a',
+						prompt: '{{CUE_SOURCE_OUTPUT}}',
+					},
+				],
+			});
+			expect(result.valid).toBe(false);
+			expect(result.errors).toEqual(
+				expect.arrayContaining([
+					expect.stringContaining(
+						'"source_sub" must be an array when "source_session" is an array'
+					),
+				])
+			);
+		});
+
+		it('does not emit a misleading source_sub/source_session shape error when source_session is missing', () => {
+			// Regression: the type-shape consistency check used to fire
+			// "source_sub must be a string when source_session is a string" even
+			// though source_session was undefined (the required-field check above
+			// already errored). Verify that only the required-field error is
+			// surfaced for the missing source_session, not the shape error.
+			const result = validateCueConfig({
+				subscriptions: [
+					{
+						name: 'missing-source-session',
+						event: 'agent.completed',
+						source_sub: ['chain-a'],
+						prompt: '{{CUE_SOURCE_OUTPUT}}',
+					},
+				],
+			});
+			expect(result.valid).toBe(false);
+			expect(result.errors).toEqual(
+				expect.arrayContaining([expect.stringContaining('"source_session" is required')])
+			);
+			expect(result.errors).not.toEqual(
+				expect.arrayContaining([
+					expect.stringContaining(
+						'"source_sub" must be a string when "source_session" is a string'
+					),
+				])
+			);
+		});
+
+		it('does not emit a misleading source_sub/source_session shape error when source_session is explicitly null', () => {
+			// YAML `source_session: ~` parses to null. The shape-check guard
+			// must treat null the same as undefined so a `~` value doesn't
+			// produce both a required-field error AND a misleading shape error.
+			const result = validateCueConfig({
+				subscriptions: [
+					{
+						name: 'null-source-session',
+						event: 'agent.completed',
+						source_session: null,
+						source_sub: ['chain-a'],
+						prompt: '{{CUE_SOURCE_OUTPUT}}',
+					},
+				],
+			});
+			expect(result.valid).toBe(false);
+			expect(result.errors).toEqual(
+				expect.arrayContaining([expect.stringContaining('"source_session" is required')])
+			);
+			expect(result.errors).not.toEqual(
+				expect.arrayContaining([
+					expect.stringContaining(
+						'"source_sub" must be a string when "source_session" is a string'
+					),
+				])
+			);
+		});
+
 		it('accepts prompt_file as alternative to prompt', () => {
 			const result = validateCueConfig({
 				subscriptions: [
@@ -1245,6 +1388,7 @@ subscriptions:
 							name: 'forward',
 							event: 'agent.completed',
 							source_session: 'researcher',
+							source_sub: 'researcher-step',
 							action: 'command',
 							command: {
 								mode: 'cli',
@@ -2253,85 +2397,8 @@ subscriptions:
 		});
 	});
 
-	describe('findAncestorCueConfigRoot', () => {
-		it('returns null when no ancestor has a cue config', () => {
-			mockExistsSync.mockReturnValue(false);
-			const result = findAncestorCueConfigRoot('/projects/parent/child');
-			expect(result).toBeNull();
-		});
-
-		it('finds a parent directory with .maestro/cue.yaml', () => {
-			mockExistsSync.mockImplementation((p: string) => {
-				const s = String(p);
-				// Parent has .maestro/cue.yaml, child does not
-				return s === '/projects/parent/.maestro/cue.yaml';
-			});
-			const result = findAncestorCueConfigRoot('/projects/parent/child');
-			expect(result).toBe('/projects/parent');
-		});
-
-		it('does not return the input directory itself', () => {
-			// Even if the input dir has a cue.yaml, it should only look at ancestors
-			mockExistsSync.mockImplementation((p: string) => {
-				return String(p) === '/projects/parent/child/.maestro/cue.yaml';
-			});
-			const result = findAncestorCueConfigRoot('/projects/parent/child');
-			expect(result).toBeNull();
-		});
-
-		it('finds grandparent config when parent has none', () => {
-			mockExistsSync.mockImplementation((p: string) => {
-				return String(p) === '/projects/.maestro/cue.yaml';
-			});
-			const result = findAncestorCueConfigRoot('/projects/parent/child');
-			expect(result).toBe('/projects');
-		});
-
-		it('stops after depth limit even if ancestor exists further up', () => {
-			// Place cue.yaml 6 levels up — beyond the 5-level search depth
-			mockExistsSync.mockImplementation((p: string) => {
-				return String(p) === '/a/.maestro/cue.yaml';
-			});
-			const result = findAncestorCueConfigRoot('/a/b/c/d/e/f/g');
-			// /a is 6 levels up from /a/b/c/d/e/f/g — should not be found
-			expect(result).toBeNull();
-		});
-
-		it('finds ancestor with legacy maestro-cue.yaml', () => {
-			mockExistsSync.mockImplementation((p: string) => {
-				const s = String(p);
-				// No canonical, but legacy exists at parent
-				return s === '/projects/parent/maestro-cue.yaml';
-			});
-			const result = findAncestorCueConfigRoot('/projects/parent/child');
-			expect(result).toBe('/projects/parent');
-		});
-	});
-
-	describe('findAncestorCueConfigRoots', () => {
-		it('returns every ancestor with a cue.yaml in closest-first order', async () => {
-			mockExistsSync.mockImplementation((p: string) => {
-				const s = String(p);
-				return (
-					s === '/users/alice/projects/.maestro/cue.yaml' || s === '/users/alice/.maestro/cue.yaml'
-				);
-			});
-			const { findAncestorCueConfigRoots } = await import('../../../main/cue/cue-yaml-loader');
-			const result = findAncestorCueConfigRoots('/users/alice/projects/sub-agent');
-			expect(result).toEqual(['/users/alice/projects', '/users/alice']);
-		});
-
-		it('returns empty array when no ancestor has a cue config', async () => {
-			mockExistsSync.mockReturnValue(false);
-			const { findAncestorCueConfigRoots } = await import('../../../main/cue/cue-yaml-loader');
-			expect(findAncestorCueConfigRoots('/users/alice/projects/sub')).toEqual([]);
-		});
-
-		it('respects the depth limit', async () => {
-			mockExistsSync.mockImplementation((p: string) => String(p) === '/a/.maestro/cue.yaml');
-			const { findAncestorCueConfigRoots } = await import('../../../main/cue/cue-yaml-loader');
-			// /a is 6 levels up — outside the 5-level search depth
-			expect(findAncestorCueConfigRoots('/a/b/c/d/e/f/g')).toEqual([]);
-		});
-	});
+	// findAncestorCueConfigRoot{,s} were removed when Cue moved to the
+	// per-agent-cwd model. Each session reads only its own cue.yaml; there
+	// is no parent-directory walk anymore. The tests for the removed
+	// functions were deleted with them — see git log for the prior cases.
 });

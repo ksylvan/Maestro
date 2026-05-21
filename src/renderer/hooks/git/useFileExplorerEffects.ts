@@ -72,6 +72,34 @@ export interface UseFileExplorerEffectsReturn {
 	) => Promise<void>;
 }
 
+function stripLineColumnSuffix(filePath: string): string {
+	return filePath.replace(/:(\d+)(?::\d+)?$/, '');
+}
+
+function isAbsoluteFilePath(filePath: string): boolean {
+	return (
+		filePath.startsWith('/') || /^[A-Za-z]:[\\/]/.test(filePath) || filePath.startsWith('\\\\')
+	);
+}
+
+function joinFilePath(rootPath: string, relativePath: string): string {
+	const root = rootPath.replace(/[\\/]+$/, '');
+	const child = relativePath.replace(/^[\\/]+/, '');
+	return `${root}/${child}`;
+}
+
+function resolveClickedFilePath(projectRoot: string, fileReference: string): string {
+	const normalizedReference = stripLineColumnSuffix(fileReference.trim());
+	if (isAbsoluteFilePath(normalizedReference)) {
+		return normalizedReference;
+	}
+	return joinFilePath(projectRoot, normalizedReference);
+}
+
+function getFilename(filePath: string): string {
+	return filePath.split(/[\\/]/).pop() || filePath;
+}
+
 // ============================================================================
 // Hook
 // ============================================================================
@@ -129,7 +157,8 @@ export function useFileExplorerEffects(
 		async (relativePath: string, options?: { openInNewTab?: boolean }) => {
 			const currentSession = sessionsRef.current.find((s) => s.id === activeSessionIdRef.current);
 			if (!currentSession) return;
-			const filename = relativePath.split('/').pop() || relativePath;
+			const fullPath = resolveClickedFilePath(currentSession.fullPath, relativePath);
+			const filename = getFilename(fullPath);
 
 			// Get SSH remote ID
 			const sshRemoteId =
@@ -137,13 +166,11 @@ export function useFileExplorerEffects(
 
 			// Check if file should be opened externally (PDF, etc.)
 			if (!sshRemoteId && shouldOpenExternally(filename)) {
-				const fullPath = `${currentSession.fullPath}/${relativePath}`;
 				window.maestro.shell.openPath(fullPath);
 				return;
 			}
 
 			try {
-				const fullPath = `${currentSession.fullPath}/${relativePath}`;
 				// Fetch content and stat in parallel for efficiency
 				const [content, stat] = await Promise.all([
 					window.maestro.fs.readFile(fullPath, sshRemoteId),
@@ -172,7 +199,7 @@ export function useFileExplorerEffects(
 			} catch (error) {
 				captureException(error, {
 					extra: {
-						fullPath: `${currentSession.fullPath}/${relativePath}`,
+						fullPath,
 						filename,
 						sshRemoteId,
 						operation: 'file-open',
@@ -323,6 +350,19 @@ export function useFileExplorerEffects(
 				e.preventDefault();
 				fileTreeKeyboardNavRef.current = true;
 				setSelectedFileIndex(flatFileList.length - 1);
+			}
+			// Shift+Arrow: peek scroll — move viewport without changing the
+			// focused file. Lets the user glance further down/up while keeping
+			// their place in the list.
+			else if (e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+				e.preventDefault();
+				const scrollEl = fileTreeContainerRef.current?.querySelector(
+					'[data-file-list-scroll]'
+				) as HTMLElement | null;
+				if (scrollEl) {
+					const ROW_HEIGHT = 28;
+					scrollEl.scrollTop += e.key === 'ArrowDown' ? ROW_HEIGHT : -ROW_HEIGHT;
+				}
 			}
 			// Option+Arrow: page up/down (10 items)
 			else if (e.altKey && e.key === 'ArrowUp') {

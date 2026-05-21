@@ -64,6 +64,7 @@ function resetStore() {
 	useSettingsStore.setState({
 		settingsLoaded: false,
 		conductorProfile: '',
+		globalShowHotkey: [],
 		llmProvider: 'openrouter',
 		modelSlug: 'anthropic/claude-3.5-sonnet',
 		apiKey: '',
@@ -1491,6 +1492,60 @@ describe('settingsStore', () => {
 			await loadAllSettings();
 
 			expect(useSettingsStore.getState().maxOutputLines).toBe(Infinity);
+		});
+
+		// Legacy installs persisted colorBlindMode as a string ('none' |
+		// 'enabled' | 'deuteranopia' | …); a bare `as boolean` cast left
+		// 'none' as a truthy string and silently forced every Usage Dashboard
+		// chart onto the colorblind palette. These guard the coercion.
+		it('coerces legacy colorBlindMode string "none" to false', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				colorBlindMode: 'none' as unknown as boolean,
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().colorBlindMode).toBe(false);
+		});
+
+		it('coerces legacy colorBlindMode string "enabled" to true', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				colorBlindMode: 'enabled' as unknown as boolean,
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().colorBlindMode).toBe(true);
+		});
+
+		it('coerces mobile colorBlindMode string "deuteranopia" to true', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				colorBlindMode: 'deuteranopia' as unknown as boolean,
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().colorBlindMode).toBe(true);
+		});
+
+		it('coerces legacy colorBlindMode string "false" to false', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				colorBlindMode: 'false' as unknown as boolean,
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().colorBlindMode).toBe(false);
+		});
+
+		it('passes boolean colorBlindMode through unchanged', async () => {
+			vi.mocked(window.maestro.settings.getAll).mockResolvedValue({
+				colorBlindMode: true,
+			});
+
+			await loadAllSettings();
+
+			expect(useSettingsStore.getState().colorBlindMode).toBe(true);
 		});
 
 		it('migrates shortcut Alt-key macOS special characters', async () => {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, memo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, memo } from 'react';
 import {
 	X,
 	Key,
@@ -52,15 +52,43 @@ type SettingsTabId =
 	| 'encore'
 	| 'prompts';
 
+// Alphabetized by label (case-insensitive) so the sidebar reads predictably
+// regardless of which tabs ship. Mount-time default is still 'general' —
+// that's enforced by the useState init below, not by list position.
+const TAB_ITEMS: Array<{
+	id: SettingsTabId;
+	label: string;
+	icon: typeof Settings;
+}> = [
+	{ id: 'aicommands', label: 'AI Commands', icon: Cpu },
+	{ id: 'display', label: 'Display', icon: Monitor },
+	{ id: 'encore', label: 'Encore Features', icon: FlaskConical },
+	{ id: 'environment', label: 'Environment', icon: Globe },
+	{ id: 'general', label: 'General', icon: Settings },
+	...(FEATURE_FLAGS.LLM_SETTINGS ? [{ id: 'llm' as const, label: 'LLM', icon: Key }] : []),
+	{ id: 'prompts', label: 'Maestro Prompts', icon: Wand2 },
+	{ id: 'notifications', label: 'Notifications', icon: Bell },
+	{ id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
+	{ id: 'ssh', label: 'SSH Hosts', icon: Server },
+	{ id: 'theme', label: 'Themes', icon: Palette },
+];
+
 // In-memory only — last tab the user was on. Resets on app restart, so the
 // modal still defaults to General on a fresh launch. Honors any explicit
 // `initialTab` prop (e.g. when a caller deep-links into a specific tab).
 let lastOpenSettingsTab: SettingsTabId | null = null;
 
+// In-memory only — last vertical scroll position per tab. Pairs with
+// lastOpenSettingsTab so the user can reopen Settings (or flip between tabs)
+// and land exactly where they were, instead of having to re-find the control
+// they were tweaking. Resets on app restart.
+const lastTabScrollPositions = new Map<SettingsTabId, number>();
+
 // Test-only: reset the remembered tab so suites that assume a fresh open
 // (e.g. "modal opens to General") aren't polluted by prior tests in the file.
 export function __resetLastOpenSettingsTabForTests(): void {
 	lastOpenSettingsTab = null;
+	lastTabScrollPositions.clear();
 }
 
 interface SettingsModalProps {
@@ -126,6 +154,12 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 		// AI Commands
 		customAICommands,
 		setCustomAICommands,
+		speckitEnabled,
+		setSpeckitEnabled,
+		openspecEnabled,
+		setOpenspecEnabled,
+		bmadEnabled,
+		setBmadEnabled,
 		// SSH Remote file indexing settings
 		sshRemoteIgnorePatterns,
 		setSshRemoteIgnorePatterns,
@@ -133,19 +167,13 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 		setSshRemoteHonorGitignore,
 	} = useSettings();
 
-	const [activeTab, setActiveTab] = useState<
-		| 'general'
-		| 'display'
-		| 'llm'
-		| 'shortcuts'
-		| 'theme'
-		| 'notifications'
-		| 'aicommands'
-		| 'ssh'
-		| 'environment'
-		| 'encore'
-		| 'prompts'
-	>('general');
+	// Lazy init reads the remembered tab on mount. Doing this in useState (rather
+	// than a restore effect) avoids racing with the persist effect below — under
+	// React StrictMode a restore-via-effect double-fires and clobbers the saved
+	// value with the initial 'general' before the restored value lands.
+	const [activeTab, setActiveTab] = useState<SettingsTabId>(
+		() => initialTab || lastOpenSettingsTab || 'general'
+	);
 	const [testingLLM, setTestingLLM] = useState(false);
 	const [testResult, setTestResult] = useState<{
 		status: 'success' | 'error' | null;
@@ -167,29 +195,56 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 	const jumpAccentRef = useRef(theme.colors.accent);
 	jumpAccentRef.current = theme.colors.accent;
 
+	// Pending scroll target — set when the user picks a search result, consumed
+	// by the effect below once the content panel is actually visible and the
+	// target tab has rendered. Doing this via state-driven effect (not RAF
+	// chains) avoids a race where scrollIntoView fires while the content div
+	// still has `hidden` / display:none from search mode, silently no-opping.
+	const pendingScrollIdRef = useRef<string | null>(null);
+
 	const handleSearchNavigate = useCallback((tab: SearchableSetting['tab'], settingId: string) => {
+		pendingScrollIdRef.current = settingId;
 		setQueryRef.current('');
 		setActiveTab(tab);
-		// Double-RAF to ensure DOM has rendered the new tab content before scrolling
-		requestAnimationFrame(() => {
-			requestAnimationFrame(() => {
-				const el = contentRef.current?.querySelector<HTMLElement>(
-					`[data-setting-id="${settingId}"]`
-				);
-				if (el) {
-					el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-					// Themed arrow indicator + outline flash; duration must match the
-					// 3s animations in .settings-search-highlight / ::before.
-					el.style.setProperty('--settings-search-jump-color', jumpAccentRef.current);
-					el.classList.add('settings-search-highlight');
-					setTimeout(() => {
-						el.classList.remove('settings-search-highlight');
-						el.style.removeProperty('--settings-search-jump-color');
-					}, 3000);
-				}
-			});
-		});
 	}, []);
+
+	useEffect(() => {
+		const targetId = pendingScrollIdRef.current;
+		if (!targetId || searchActive) return;
+
+		let cancelled = false;
+		let attempts = 0;
+		const MAX_ATTEMPTS = 30; // ~500ms at 60fps — enough for tab content + lazy renders
+
+		const tryScroll = () => {
+			if (cancelled) return;
+			const el = contentRef.current?.querySelector<HTMLElement>(`[data-setting-id="${targetId}"]`);
+			// offsetParent is null while any ancestor is display:none — the most
+			// common reason scroll fails right after exiting search mode.
+			if (el && el.offsetParent !== null) {
+				pendingScrollIdRef.current = null;
+				el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+				// Themed arrow indicator + outline flash; duration must match the
+				// 3s animations in .settings-search-highlight / ::before.
+				el.style.setProperty('--settings-search-jump-color', jumpAccentRef.current);
+				el.classList.add('settings-search-highlight');
+				setTimeout(() => {
+					el.classList.remove('settings-search-highlight');
+					el.style.removeProperty('--settings-search-jump-color');
+				}, 3000);
+				return;
+			}
+			if (attempts++ < MAX_ATTEMPTS) {
+				requestAnimationFrame(tryScroll);
+			} else {
+				pendingScrollIdRef.current = null;
+			}
+		};
+		requestAnimationFrame(tryScroll);
+		return () => {
+			cancelled = true;
+		};
+	}, [searchActive, activeTab]);
 
 	const search = useSettingsSearch({
 		isOpen,
@@ -202,21 +257,45 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 	const isRecordingShortcutRef = useRef(false);
 	const promptsEscapeHandlerRef = useRef<(() => boolean) | null>(null);
 
+	// Honor a deep-link initialTab change while the modal is already mounted
+	// (e.g. caller switches tab without closing). Mount-time restoration is
+	// handled by the lazy useState init above, not here.
 	useEffect(() => {
-		if (isOpen) {
-			// Explicit initialTab wins (deep-link). Otherwise restore the last tab the
-			// user viewed in this app session, falling back to 'general' on first open.
-			setActiveTab(initialTab || lastOpenSettingsTab || 'general');
+		if (isOpen && initialTab) {
+			setActiveTab(initialTab);
 		}
 	}, [isOpen, initialTab]);
 
-	// Remember the last tab the user viewed so re-opening the modal lands there.
+	// Persist the current tab in module memory so the next open lands here.
 	// In-memory only — resets on app restart by design.
 	useEffect(() => {
-		if (isOpen) {
-			lastOpenSettingsTab = activeTab;
-		}
-	}, [isOpen, activeTab]);
+		lastOpenSettingsTab = activeTab;
+	}, [activeTab]);
+
+	// Restore the per-tab scroll position whenever the active tab changes (or
+	// the modal reopens on a remembered tab). useLayoutEffect runs after the
+	// new tab's content has committed to the DOM but before paint, so the
+	// scroll lands without a visible flash at the top. `behavior: 'auto'` is
+	// intentional — smooth-scrolling on tab switch reads as sluggish.
+	useLayoutEffect(() => {
+		if (!isOpen) return;
+		const el = contentRef.current;
+		if (!el) return;
+		const saved = lastTabScrollPositions.get(activeTab) ?? 0;
+		el.scrollTop = saved;
+	}, [activeTab, isOpen]);
+
+	// Save scroll position for the currently active tab on every scroll event.
+	// Direct map write is cheap; no throttling needed. Pairs with the restore
+	// effect above so the user can tweak a setting low in a long panel, flip
+	// to another tab to verify the effect, and come back to exactly the same
+	// position.
+	const handleContentScroll = useCallback(
+		(e: React.UIEvent<HTMLDivElement>) => {
+			lastTabScrollPositions.set(activeTab, e.currentTarget.scrollTop);
+		},
+		[activeTab]
+	);
 
 	// Store onClose in a ref to avoid re-registering layer when onClose changes
 	const onCloseRef = useRef(onClose);
@@ -241,44 +320,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 		if (!isOpen) return;
 
 		const handleTabNavigation = (e: KeyboardEvent) => {
-			const tabs: Array<
-				| 'general'
-				| 'display'
-				| 'llm'
-				| 'shortcuts'
-				| 'theme'
-				| 'notifications'
-				| 'aicommands'
-				| 'ssh'
-				| 'environment'
-				| 'encore'
-				| 'prompts'
-			> = FEATURE_FLAGS.LLM_SETTINGS
-				? [
-						'general',
-						'display',
-						'llm',
-						'shortcuts',
-						'theme',
-						'notifications',
-						'aicommands',
-						'prompts',
-						'ssh',
-						'environment',
-						'encore',
-					]
-				: [
-						'general',
-						'display',
-						'shortcuts',
-						'theme',
-						'notifications',
-						'aicommands',
-						'prompts',
-						'ssh',
-						'environment',
-						'encore',
-					];
+			const tabs = TAB_ITEMS.map((t) => t.id);
 			const currentIndex = tabs.indexOf(activeTab);
 
 			if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === '[') {
@@ -411,25 +453,6 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 
 	if (!isOpen) return null;
 
-	const TAB_ITEMS: Array<{
-		id: typeof activeTab;
-		label: string;
-		icon: typeof Settings;
-		featureFlag?: boolean;
-	}> = [
-		{ id: 'general', label: 'General', icon: Settings },
-		{ id: 'display', label: 'Display', icon: Monitor },
-		...(FEATURE_FLAGS.LLM_SETTINGS ? [{ id: 'llm' as const, label: 'LLM', icon: Key }] : []),
-		{ id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
-		{ id: 'theme', label: 'Themes', icon: Palette },
-		{ id: 'notifications', label: 'Notifications', icon: Bell },
-		{ id: 'aicommands', label: 'AI Commands', icon: Cpu },
-		{ id: 'prompts', label: 'Maestro Prompts', icon: Wand2 },
-		{ id: 'ssh', label: 'SSH Hosts', icon: Server },
-		{ id: 'environment', label: 'Environment', icon: Globe },
-		{ id: 'encore', label: 'Encore Features', icon: FlaskConical },
-	];
-
 	return (
 		<div
 			className="fixed inset-0 modal-overlay flex items-center justify-center z-[9999]"
@@ -438,7 +461,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 			aria-label="Settings"
 		>
 			<div
-				className="w-[960px] h-[720px] rounded-xl border shadow-2xl overflow-hidden flex flex-col"
+				className="modal-w-xl h-[720px] rounded-xl border shadow-2xl overflow-hidden flex flex-col select-none"
 				style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.border }}
 			>
 				{/* Search Bar + Close Button */}
@@ -504,7 +527,11 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 					</nav>
 
 					{/* Content Area */}
-					<div ref={contentRef} className="flex-1 p-6 overflow-y-auto scrollbar-thin">
+					<div
+						ref={contentRef}
+						onScroll={handleContentScroll}
+						className="flex-1 p-6 overflow-y-auto scrollbar-thin"
+					>
 						{activeTab === 'general' && <GeneralTab theme={theme} isOpen={isOpen} />}
 
 						{activeTab === 'display' && <DisplayTab theme={theme} />}
@@ -659,7 +686,11 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 
 								{/* Spec Kit Commands Section */}
 								<div data-setting-id="aicommands-speckit">
-									<SpecKitCommandsPanel theme={theme} />
+									<SpecKitCommandsPanel
+										theme={theme}
+										enabled={speckitEnabled}
+										onEnabledChange={setSpeckitEnabled}
+									/>
 								</div>
 
 								{/* Divider */}
@@ -667,7 +698,11 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 
 								{/* OpenSpec Commands Section */}
 								<div data-setting-id="aicommands-openspec">
-									<OpenSpecCommandsPanel theme={theme} />
+									<OpenSpecCommandsPanel
+										theme={theme}
+										enabled={openspecEnabled}
+										onEnabledChange={setOpenspecEnabled}
+									/>
 								</div>
 
 								{/* Divider */}
@@ -675,7 +710,11 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 
 								{/* BMAD Commands Section */}
 								<div data-setting-id="aicommands-bmad">
-									<BmadCommandsPanel theme={theme} />
+									<BmadCommandsPanel
+										theme={theme}
+										enabled={bmadEnabled}
+										onEnabledChange={setBmadEnabled}
+									/>
 								</div>
 							</div>
 						)}

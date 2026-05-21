@@ -144,6 +144,8 @@ export interface SessionWizardState {
 	// Document generation state
 	/** Whether documents are currently being generated (triggers takeover view) */
 	isGeneratingDocs?: boolean;
+	/** Wall-clock timestamp when generation began (ms). Persisted so the elapsed counter survives tab switches. */
+	docGenerationStartedAt?: number;
 	/** Generated documents */
 	generatedDocuments?: WizardGeneratedDocument[];
 	/** Currently selected document index */
@@ -216,6 +218,13 @@ export interface LogEntry {
 			toolName?: string;
 		};
 	};
+	// How this turn was captured. 'structured' (default) is the normal JSON-stream
+	// pipeline from `claude --print`; 'text-stream' marks entries captured during
+	// maestro-p interactive-mode turns. The renderer uses the same tool-card /
+	// code-block / diff pipeline for both — the flag's only visible effect is the
+	// "Captured via interactive TUI" footer pill on non-user entries. Exists as
+	// forward-compatible metadata for any future divergence.
+	renderStyle?: 'structured' | 'text-stream';
 }
 
 // Queued item for the session-level execution queue
@@ -432,6 +441,7 @@ export interface AITab {
 	saveToHistory?: boolean; // When true, synopsis is requested after each completion and saved to History
 	lastSynopsisTime?: number; // Timestamp of last synopsis generation (for time-window context in prompts)
 	showThinking?: ThinkingMode; // Controls thinking display: 'off' | 'on' (temporary) | 'sticky' (persistent)
+	enterToSend?: boolean; // Per-tab send-key override; undefined inherits `enterToSendAI` setting. Toggling the chip or palette action stores an override here so new tabs continue using the global default.
 	customModel?: string; // Per-tab model override; falls back to session.customModel, then agent default
 	customEffort?: string; // Per-tab effort/reasoning override; falls back to session.customEffort, then agent default
 	awaitingSessionId?: boolean; // True when this tab sent a message and is awaiting its session ID
@@ -495,6 +505,20 @@ export interface FilePreviewTab {
 	// Navigation history for breadcrumb navigation (per-tab)
 	navigationHistory?: FilePreviewHistoryEntry[]; // Stack of visited files
 	navigationIndex?: number; // Current position in history (-1 or undefined = at end)
+	// Preview tier override (per-tab). When set, forces the FilePreview to use
+	// this tier regardless of file size. Cleared on tab close. Used by the
+	// PreviewTierChip in the header so users can escalate (Rich → Fast for
+	// performance) or de-escalate (Fast → Rich for full features) at will.
+	previewTierOverride?: 'rich' | 'fast' | 'giant';
+	// HTML render mode (per-tab). When true on a .html/.htm file, the preview
+	// renders the document in a sandboxed iframe instead of showing source.
+	// Toggled via the Globe icon in the FilePreview header.
+	htmlRenderMode?: boolean;
+	// Transient request to scroll the file editor to a specific 1-based line on
+	// next render. Set when a maestro://file/...#L<n> deep link opens this tab;
+	// FilePreview consumes it (flips to edit mode if needed, scrolls + places
+	// the caret) and then clears it.
+	pendingScrollToLine?: number;
 }
 
 /**
@@ -517,6 +541,12 @@ export interface TerminalTab {
 	// (e.g. shown as "term:3"). Assigned on add, never reused on close. Undefined
 	// for tabs that predate the coworking feature; treated as "no pill, no MCP exposure."
 	coworkingId?: number;
+	// Command to run automatically each time the PTY is spawned for this tab
+	// (e.g. on app restart). Empty/undefined disables the feature.
+	startupCommand?: string;
+	// Working directory for the startup command. When set, the PTY is spawned in
+	// this directory. Falls back to tab.cwd / session.cwd when unset.
+	startupCommandCwd?: string;
 }
 
 /**
@@ -685,6 +715,10 @@ export interface Session {
 	activeTabId: string;
 	// Stack of recently closed tabs for undo (max 25, runtime-only, not persisted)
 	closedTabHistory: ClosedTab[];
+	// Tabs that were closed while still thinking — kept here so the thinking pill
+	// can surface them until the underlying agent process finishes. Runtime-only,
+	// not persisted. Entries are removed by the agent exit/error listeners.
+	orphanedThinkingTabs?: AITab[];
 
 	// File Preview Tabs - in-tab file viewing (coexists with AI tabs and terminal tabs)
 	// Tabs are interspersed visually but stored separately for type safety
@@ -793,6 +827,25 @@ export interface Session {
 
 	// Symphony contribution metadata (only set for Symphony sessions)
 	symphonyMetadata?: SymphonySessionMetadata;
+
+	// Per-session Batch Mode opt-in (Claude Code only). When true, the spawner
+	// auto-switches between maestro-p (Time Limits / Max plan) and `claude
+	// --print` (API Limits / per-token) based on the latest usage snapshot.
+	enableMaestroP?: boolean;
+	// Optional override for the maestro-p binary path. When empty/undefined,
+	// the spawner uses the bundled script (`process.resourcesPath/maestro-p.js`
+	// in packaged builds, `dist/cli/maestro-p.js` in dev).
+	maestroPPath?: string;
+
+	// Last resolved Claude headless-mode state (only meaningful for Claude Code
+	// sessions with `enableMaestroP === true`). The spawner writes this after
+	// each `selectMode()` call so the context-window popover, sticky-limit
+	// logic, and reactive replay all read from a single source of truth.
+	claudeInteractive?: {
+		mode: 'interactive' | 'api';
+		modeReason: 'auto' | 'limit';
+		lastUsageSnapshotKey?: string;
+	};
 }
 
 // AgentConfigOption, AgentCapabilities, and AgentConfig are re-exported from shared/types above

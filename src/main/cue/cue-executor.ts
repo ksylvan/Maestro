@@ -17,13 +17,14 @@ import { substituteTemplateVariables, type TemplateContext } from '../../shared/
 import { buildCueTemplateContext } from './cue-template-context-builder';
 import { buildSpawnSpec } from './cue-spawn-builder';
 import { sliceHeadByChars } from './cue-text-utils';
-import { buildCueRunSummary } from '../../shared/cue/cue-summary';
+import { buildCueRunSummary, extractCueOutputExcerpt } from '../../shared/cue/cue-summary';
 import type { SshRemoteSettingsStore } from '../utils/ssh-remote-resolver';
 import {
 	runProcess,
 	stopProcess,
 	stopAllProcesses,
 	getActiveProcessMap,
+	getActiveProcessOutput,
 	getProcessList,
 } from './cue-process-lifecycle';
 import { getOutputParser } from '../parsers';
@@ -245,6 +246,16 @@ export function getCueProcessList(): import('./cue-process-lifecycle').CueProces
 }
 
 /**
+ * Snapshot the in-flight stdout/stderr buffers for a still-running Cue run.
+ * Returns null when the run is not currently active. Used by the dashboard's
+ * expand-active-run-row UI to surface live progress without spawning a
+ * dedicated stream channel.
+ */
+export function getCueRunLiveOutput(runId: string): { stdout: string; stderr: string } | null {
+	return getActiveProcessOutput(runId);
+}
+
+/**
  * Construct a HistoryEntry for a completed Cue run.
  *
  * Follows the same pattern as Auto Run's history recording with type: 'AUTO',
@@ -256,11 +267,13 @@ export function recordCueHistoryEntry(result: CueRunResult, session: SessionInfo
 			? sliceHeadByChars(result.stdout, MAX_HISTORY_RESPONSE_LENGTH)
 			: result.stdout;
 
+	const excerpt = extractCueOutputExcerpt(result.stdout);
+
 	return {
 		id: crypto.randomUUID(),
 		type: 'CUE',
 		timestamp: Date.now(),
-		summary: buildCueRunSummary(result),
+		summary: excerpt ?? buildCueRunSummary(result),
 		fullResponse: fullResponse || undefined,
 		projectPath: session.projectRoot || session.cwd,
 		sessionId: session.id,

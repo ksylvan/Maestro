@@ -48,7 +48,13 @@ import { registerDocumentGraphHandlers, DocumentGraphHandlerDependencies } from 
 import { registerSshRemoteHandlers, SshRemoteHandlerDependencies } from './ssh-remote';
 import { registerFilesystemHandlers } from './filesystem';
 import { registerAttachmentsHandlers, AttachmentsHandlerDependencies } from './attachments';
-import { registerWebHandlers, ensureCliServer, WebHandlerDependencies } from './web';
+import {
+	registerWebHandlers,
+	ensureCliServer,
+	startCliDiscoveryWatchdog,
+	stopCliDiscoveryWatchdog,
+	WebHandlerDependencies,
+} from './web';
 import { registerLeaderboardHandlers, LeaderboardHandlerDependencies } from './leaderboard';
 import { registerNotificationsHandlers } from './notifications';
 import { registerSymphonyHandlers, SymphonyHandlerDependencies } from './symphony';
@@ -56,6 +62,7 @@ import { registerAgentErrorHandlers } from './agent-error';
 import { registerTabNamingHandlers, TabNamingHandlerDependencies } from './tabNaming';
 import { registerDirectorNotesHandlers, DirectorNotesHandlerDependencies } from './director-notes';
 import { registerCueHandlers, CueHandlerDependencies } from './cue';
+import { registerCueBackupHandlers } from './cue-backup';
 import { registerWakatimeHandlers } from './wakatime';
 import { registerCoworkingHandlers } from './coworking';
 import { registerFeedbackHandlers } from './feedback';
@@ -100,7 +107,12 @@ export { registerSshRemoteHandlers };
 export { registerFilesystemHandlers };
 export { registerAttachmentsHandlers };
 export type { AttachmentsHandlerDependencies };
-export { registerWebHandlers, ensureCliServer };
+export {
+	registerWebHandlers,
+	ensureCliServer,
+	startCliDiscoveryWatchdog,
+	stopCliDiscoveryWatchdog,
+};
 export type { WebHandlerDependencies };
 export { registerLeaderboardHandlers };
 export type { LeaderboardHandlerDependencies };
@@ -113,6 +125,7 @@ export { registerDirectorNotesHandlers };
 export type { DirectorNotesHandlerDependencies };
 export { registerCueHandlers };
 export type { CueHandlerDependencies };
+export { registerCueBackupHandlers };
 export { registerWakatimeHandlers };
 export { registerCoworkingHandlers };
 export { registerFeedbackHandlers };
@@ -307,6 +320,10 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
 	// Register Feedback handlers (gh auth + feedback submission)
 	registerFeedbackHandlers({
 		getProcessManager: deps.getProcessManager,
+	});
+	// Register Cue Backup handlers (Cue modal Backup tab)
+	registerCueBackupHandlers({
+		sessionsStore: deps.sessionsStore,
 	});
 	// Register Core Prompts handlers (no dependencies needed)
 	registerPromptsHandlers();

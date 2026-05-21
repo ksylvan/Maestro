@@ -11,6 +11,8 @@
  */
 
 import { useEffect } from 'react';
+import { useStoreWithEqualityFn } from 'zustand/traditional';
+import { shallow } from 'zustand/shallow';
 import type {
 	LLMProvider,
 	ThemeId,
@@ -33,7 +35,14 @@ import {
 	loadAllSettings,
 	selectIsLeaderboardRegistered,
 } from '../../stores/settingsStore';
-import type { DocumentGraphLayoutType } from '../../stores/settingsStore';
+import type { SettingsStore } from '../../stores/settingsStore';
+import type {
+	DocumentGraphLayoutType,
+	FilePreviewToolbarButton,
+	FilePreviewToolbarVisibility,
+} from '../../stores/settingsStore';
+import { notifyToast } from '../../stores/notificationStore';
+import { formatShortcutKeys } from '../../utils/shortcutFormatter';
 import { logger } from '../../utils/logger';
 
 export interface UseSettingsReturn {
@@ -43,6 +52,10 @@ export interface UseSettingsReturn {
 	// Conductor Profile (About Me)
 	conductorProfile: string;
 	setConductorProfile: (value: string) => void;
+
+	// Global show-Maestro hotkey (system-wide). Empty array = unset.
+	globalShowHotkey: string[];
+	setGlobalShowHotkey: (value: string[]) => void;
 
 	// LLM settings
 	llmProvider: LLMProvider;
@@ -246,6 +259,8 @@ export interface UseSettingsReturn {
 	setShowStarredInUnreadFilter: (value: boolean) => void;
 	showFilePreviewsInUnreadFilter: boolean;
 	setShowFilePreviewsInUnreadFilter: (value: boolean) => void;
+	useCmd0AsLastTab: boolean;
+	setUseCmd0AsLastTab: (value: boolean) => void;
 
 	// Document Graph settings
 	documentGraphShowExternalLinks: boolean;
@@ -300,10 +315,22 @@ export interface UseSettingsReturn {
 	setUseSystemBrowser: (value: boolean) => void;
 	browserHomeUrl: string;
 	setBrowserHomeUrl: (value: string) => void;
+	htmlDoubleClickOpensInBrowser: boolean;
+	setHtmlDoubleClickOpensInBrowser: (value: boolean) => void;
 
 	// Automatic tab naming settings
 	automaticTabNamingEnabled: boolean;
 	setAutomaticTabNamingEnabled: (value: boolean) => void;
+
+	// Where new tabs are inserted in the tab bar (per content type)
+	newTabPlacement: 'end' | 'after-current';
+	setNewTabPlacement: (value: 'end' | 'after-current') => void;
+	newBrowserTabPlacement: 'end' | 'after-current';
+	setNewBrowserTabPlacement: (value: 'end' | 'after-current') => void;
+	newTerminalPlacement: 'end' | 'after-current';
+	setNewTerminalPlacement: (value: 'end' | 'after-current') => void;
+	openedFilePlacement: 'end' | 'after-current';
+	setOpenedFilePlacement: (value: 'end' | 'after-current') => void;
 
 	// File tab auto-refresh settings
 	fileTabAutoRefreshEnabled: boolean;
@@ -363,6 +390,26 @@ export interface UseSettingsReturn {
 	showWorktreeBranchName: boolean;
 	setShowWorktreeBranchName: (value: boolean) => void;
 
+	// Left side panel
+	showLeftPanelGroupMemberCount: boolean;
+	setShowLeftPanelGroupMemberCount: (value: boolean) => void;
+	showLeftPanelLocationPills: boolean;
+	setShowLeftPanelLocationPills: (value: boolean) => void;
+	showLeftPanelGitIndicator: boolean;
+	setShowLeftPanelGitIndicator: (value: boolean) => void;
+	showLeftPanelCueIndicator: boolean;
+	setShowLeftPanelCueIndicator: (value: boolean) => void;
+	showLeftPanelStartupCommandIndicator: boolean;
+	setShowLeftPanelStartupCommandIndicator: (value: boolean) => void;
+
+	// File Edit & Preview
+	fileEditWordWrap: boolean;
+	setFileEditWordWrap: (value: boolean) => void;
+	fileEditShowLineNumbers: boolean;
+	setFileEditShowLineNumbers: (value: boolean) => void;
+	filePreviewToolbarVisibility: FilePreviewToolbarVisibility;
+	setFilePreviewToolbarButtonVisibility: (button: FilePreviewToolbarButton, value: boolean) => void;
+
 	// Group Chat settings
 	moderatorStandingInstructions: string;
 	setModeratorStandingInstructions: (value: string) => void;
@@ -373,6 +420,14 @@ export interface UseSettingsReturn {
 	autoRunInactivityTimeoutMin: number;
 	setAutoRunInactivityTimeoutMin: (value: number) => void;
 
+	// Built-in AI command bundle visibility
+	speckitEnabled: boolean;
+	setSpeckitEnabled: (value: boolean) => void;
+	openspecEnabled: boolean;
+	setOpenspecEnabled: (value: boolean) => void;
+	bmadEnabled: boolean;
+	setBmadEnabled: (value: boolean) => void;
+
 	// Hide ".files" (dotfiles) toggle in file explorer toolbar
 	dotfilesToggleHidden: boolean;
 	setDotfilesToggleHidden: (value: boolean) => void;
@@ -382,8 +437,18 @@ export interface UseSettingsReturn {
 	setSpellCheck: (value: boolean) => void;
 }
 
+// PERF: Identity selector reused across renders so the hook doesn't allocate a new
+// selector function each call (Zustand's useStoreWithEqualityFn would otherwise see
+// a fresh selector and recompute every render).
+const selectAllSettings = (s: SettingsStore): SettingsStore => s;
+
 export function useSettings(): UseSettingsReturn {
-	const store = useSettingsStore();
+	// PERF: Subscribe with shallow equality on the top-level state so a `set()` call that
+	// only flips one field doesn't re-render every consumer of useSettings. Critically,
+	// when an action calls `set({ x: value })` where `x === value` already, the resulting
+	// state object has a new reference but identical fields — shallow equality stops the
+	// re-render cascade through MaestroConsoleInner → GitStatusProvider → workspace tree.
+	const store = useStoreWithEqualityFn(useSettingsStore, selectAllSettings, shallow);
 	const isLeaderboardRegistered = useSettingsStore(selectIsLeaderboardRegistered);
 
 	// Load settings on mount
@@ -416,13 +481,33 @@ export function useSettings(): UseSettingsReturn {
 		return cleanup;
 	}, []);
 
-	// Apply font size to HTML root element so rem-based Tailwind classes scale
+	// Apply font size to HTML root element so rem-based Tailwind classes scale.
+	// Also expose --font-scale so fixed-width modals can scale proportionally
+	// (see .modal-w-* utility classes in index.css). 14px is the design baseline.
 	// Only apply after settings are loaded to prevent layout shift from default->saved font size
 	useEffect(() => {
 		if (store.settingsLoaded) {
 			document.documentElement.style.fontSize = `${store.fontSize}px`;
+			document.documentElement.style.setProperty('--font-scale', String(store.fontSize / 14));
 		}
 	}, [store.fontSize, store.settingsLoaded]);
+
+	// Surface global-hotkey registration failures (e.g. combo already owned by
+	// another app). Mounted here so the toast fires even when Settings is closed.
+	useEffect(() => {
+		if (!window.maestro?.app?.onGlobalHotkeyRegistrationFailed) return;
+		const cleanup = window.maestro.app.onGlobalHotkeyRegistrationFailed((keys) => {
+			const combo = keys.length > 0 ? formatShortcutKeys(keys) : '(none)';
+			logger.warn(`[Settings] Global hotkey registration failed: ${combo}`);
+			notifyToast({
+				color: 'orange',
+				title: 'Global hotkey unavailable',
+				message: `${combo} is already in use by another app. Pick a different combo in Settings → General.`,
+				dismissible: true,
+			});
+		});
+		return cleanup;
+	}, []);
 
 	return {
 		...store,

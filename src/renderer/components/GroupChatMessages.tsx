@@ -24,6 +24,8 @@ import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { safeClipboardWrite } from '../utils/clipboard';
 import { formatTimestamp as formatTimestampShared } from '../../shared/formatters';
 import { useMessageGistStore } from '../stores/messageGistStore';
+import { jumpToMessageEdge, isTextInputTarget } from '../utils/messageScrollNavigation';
+import { JumpToMessageTopButton } from './JumpToMessageTopButton';
 
 interface GroupChatMessagesProps {
 	theme: Theme;
@@ -194,7 +196,36 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 		return (
 			<div
 				ref={containerRef}
-				className="group-chat-messages flex-1 overflow-y-auto scrollbar-thin py-2"
+				tabIndex={0}
+				role="region"
+				aria-label="Group chat messages"
+				className="group-chat-messages flex-1 overflow-y-auto scrollbar-thin py-2 outline-none"
+				onKeyDown={(e) => {
+					if (
+						(e.key !== 'ArrowUp' && e.key !== 'ArrowDown') ||
+						e.metaKey ||
+						e.ctrlKey ||
+						e.altKey ||
+						isTextInputTarget(e.target)
+					) {
+						return;
+					}
+					const container = containerRef.current;
+					if (!container) return;
+					// Shift+Arrow: jump message-by-message.
+					if (e.shiftKey) {
+						e.preventDefault();
+						jumpToMessageEdge(
+							container,
+							'[data-message-timestamp]',
+							e.key === 'ArrowUp' ? 'up' : 'down'
+						);
+						return;
+					}
+					// Plain Arrow: nudge scroll by ~100px.
+					e.preventDefault();
+					container.scrollBy({ top: e.key === 'ArrowUp' ? -100 : 100 });
+				}}
 			>
 				{/* Prose styles for markdown rendering */}
 				<style>{proseStyles}</style>
@@ -328,6 +359,7 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 														content={displayContent}
 														theme={theme}
 														onCopy={copyToClipboard}
+														chatLineBreaks
 													/>
 												) : (
 													<div className="whitespace-pre-wrap">
@@ -369,6 +401,7 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 														content={msg.content}
 														theme={theme}
 														onCopy={copyToClipboard}
+														chatLineBreaks
 													/>
 												) : (
 													<div className="whitespace-pre-wrap">
@@ -396,6 +429,7 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 												content={msg.content}
 												theme={theme}
 												onCopy={copyToClipboard}
+												chatLineBreaks
 											/>
 										</div>
 									) : (
@@ -405,6 +439,12 @@ export const GroupChatMessages = forwardRef<GroupChatMessagesHandle, GroupChatMe
 										</div>
 									)}
 
+									{/* Jump to top of this message - bottom left corner */}
+									<JumpToMessageTopButton
+										scrollContainerRef={containerRef}
+										messageAncestorSelector="[data-message-timestamp]"
+										theme={theme}
+									/>
 									{/* Action buttons - bottom right corner (non-user messages only) */}
 									{!isUser && (
 										<div

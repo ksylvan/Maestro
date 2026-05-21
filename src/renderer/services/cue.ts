@@ -26,6 +26,14 @@ export const cueService = {
 		});
 	},
 
+	async saveSettings(settings: CueSettings): Promise<{ writtenRoots: string[] }> {
+		return createIpcMethod({
+			call: () => window.maestro.cue.saveSettings(settings),
+			errorContext: 'Cue saveSettings',
+			rethrow: true,
+		});
+	},
+
 	async getStatus(): Promise<CueSessionStatus[]> {
 		return createIpcMethod({
 			call: () => window.maestro.cue.getStatus(),
@@ -152,6 +160,18 @@ export const cueService = {
 			call: () => window.maestro.cue.stopRun(runId),
 			errorContext: 'Cue stopRun',
 			rethrow: true,
+		});
+	},
+
+	// Read-side: getter for live in-flight stdout/stderr of an active Cue run.
+	// Returns `null` when the runId is no longer active (or was never active),
+	// so the dashboard's expand-row UI degrades silently to "no live output"
+	// rather than throwing on completed/stopped runs.
+	async getRunLiveOutput(runId: string): Promise<{ stdout: string; stderr: string } | null> {
+		return createIpcMethod({
+			call: () => window.maestro.cue.getRunLiveOutput(runId),
+			errorContext: 'Cue getRunLiveOutput',
+			defaultValue: null,
 		});
 	},
 

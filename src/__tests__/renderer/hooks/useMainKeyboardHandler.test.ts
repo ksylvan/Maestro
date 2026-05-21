@@ -804,10 +804,11 @@ describe('useMainKeyboardHandler', () => {
 	});
 
 	describe('wizard tab restrictions', () => {
-		it('should disable toggleMode (Cmd+J) for wizard tabs', () => {
+		it('should allow toggleMode (Cmd+J) for wizard tabs to open a new terminal tab', () => {
+			vi.useFakeTimers();
 			const { result } = renderHook(() => useMainKeyboardHandler());
 
-			const mockToggleInputMode = vi.fn();
+			const mockHandleOpenTerminalTab = vi.fn();
 			const wizardTab = {
 				id: 'tab-1',
 				name: 'Wizard',
@@ -824,7 +825,7 @@ describe('useMainKeyboardHandler', () => {
 					inputMode: 'ai',
 				},
 				activeSessionId: 'session-1',
-				toggleInputMode: mockToggleInputMode,
+				handleOpenTerminalTab: mockHandleOpenTerminalTab,
 			});
 
 			act(() => {
@@ -837,8 +838,9 @@ describe('useMainKeyboardHandler', () => {
 				);
 			});
 
-			// toggleInputMode should NOT be called for wizard tabs
-			expect(mockToggleInputMode).not.toHaveBeenCalled();
+			// Cmd+J opens a new terminal tab — safe in wizard tabs since it doesn't
+			// touch the wizard tab's input/state.
+			expect(mockHandleOpenTerminalTab).toHaveBeenCalled();
 		});
 
 		it('should allow toggleMode (Cmd+J) for regular tabs', () => {
@@ -2074,7 +2076,7 @@ describe('useMainKeyboardHandler', () => {
 				expect(mockToggleUnreadFilter).toHaveBeenCalled();
 			});
 
-			it('Alt+Shift+U toggles tab unread from terminal mode', () => {
+			it('Cmd+Shift+U toggles tab unread from terminal mode', () => {
 				const { result } = renderHook(() => useMainKeyboardHandler());
 
 				const mockToggleTabUnread = vi.fn();
@@ -2089,7 +2091,7 @@ describe('useMainKeyboardHandler', () => {
 					window.dispatchEvent(
 						new KeyboardEvent('keydown', {
 							key: 'u',
-							altKey: true,
+							metaKey: true,
 							shiftKey: true,
 							bubbles: true,
 						})
@@ -2489,7 +2491,7 @@ describe('useMainKeyboardHandler', () => {
 	});
 
 	describe('filterUnreadAgents shortcut', () => {
-		it('should toggle unread agents filter on Cmd+Shift+U', () => {
+		it('should toggle unread agents filter on Opt+U', () => {
 			const { result } = renderHook(() => useMainKeyboardHandler());
 			const mockToggle = vi.fn();
 
@@ -2505,8 +2507,7 @@ describe('useMainKeyboardHandler', () => {
 				window.dispatchEvent(
 					new KeyboardEvent('keydown', {
 						key: 'u',
-						metaKey: true,
-						shiftKey: true,
+						altKey: true,
 						bubbles: true,
 					})
 				);

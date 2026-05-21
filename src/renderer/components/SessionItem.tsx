@@ -6,13 +6,17 @@ import {
 	Bookmark,
 	AlertCircle,
 	Server,
-	Zap,
 	FolderTree,
 	ChevronRight,
 } from 'lucide-react';
 import { GhostIconButton } from './ui/GhostIconButton';
 import { WorktreePill } from './ui/WorktreePill';
+import { CueIndicator } from './SessionList/CueIndicator';
+import { StartupCommandIndicator } from './SessionList/StartupCommandIndicator';
+import { WizardIndicator } from './SessionList/WizardIndicator';
 import { useSettingsStore } from '../stores/settingsStore';
+import { COLORBLIND_STATUS_COLORS } from '../constants/colorblindPalettes';
+import { abbreviateGroupName } from '../../shared/formatters';
 import type { Session, Group, Theme } from '../types';
 
 // ============================================================================
@@ -44,10 +48,16 @@ export function hasNoClaudeProviderSession(session: Session): boolean {
 export function getEnhancedStatusColor(
 	session: Session,
 	theme: Theme,
-	isInBatch: boolean
+	isInBatch: boolean,
+	colorBlindMode: boolean = false
 ): { color: string; animate: boolean; label: string } {
+	const success = colorBlindMode ? COLORBLIND_STATUS_COLORS.success : theme.colors.success;
+	const warning = colorBlindMode ? COLORBLIND_STATUS_COLORS.warning : theme.colors.warning;
+	const error = colorBlindMode ? COLORBLIND_STATUS_COLORS.error : theme.colors.error;
+	const connecting = colorBlindMode ? COLORBLIND_STATUS_COLORS.connecting : '#ff8800';
+
 	if (isInBatch) {
-		return { color: theme.colors.warning, animate: true, label: 'Auto Run active' };
+		return { color: warning, animate: true, label: 'Auto Run active' };
 	}
 
 	if (hasNoClaudeProviderSession(session)) {
@@ -56,13 +66,13 @@ export function getEnhancedStatusColor(
 
 	switch (session.state) {
 		case 'idle':
-			return { color: theme.colors.success, animate: false, label: 'Ready' };
+			return { color: success, animate: false, label: 'Ready' };
 		case 'busy':
-			return { color: theme.colors.warning, animate: true, label: 'Thinking' };
+			return { color: warning, animate: true, label: 'Thinking' };
 		case 'error':
-			return { color: theme.colors.error, animate: false, label: 'Error' };
+			return { color: error, animate: false, label: 'Error' };
 		case 'connecting':
-			return { color: '#ff8800', animate: true, label: 'Connecting' };
+			return { color: connecting, animate: true, label: 'Connecting' };
 		case 'waiting_input':
 			return { color: theme.colors.accent, animate: true, label: 'Waiting for input' };
 		default:
@@ -100,6 +110,8 @@ export interface SessionItemProps {
 	jumpNumber?: string | null; // Session jump shortcut number (1-9, 0)
 	cueSubscriptionCount?: number; // Number of active Cue subscriptions (0 or undefined = no indicator)
 	cueActiveRun?: boolean; // Whether a Cue pipeline is currently running for this agent
+	wizardActive?: boolean; // Inline wizard active on at least one tab of this agent
+	wizardGeneratingDocs?: boolean; // Wizard is generating Auto Run documents (drives pulse)
 	worktreeChildCount?: number; // Number of worktree children (used for collapsed count badge)
 
 	// Handlers
@@ -144,6 +156,8 @@ export const SessionItem = memo(function SessionItem({
 	jumpNumber,
 	cueSubscriptionCount,
 	cueActiveRun,
+	wizardActive = false,
+	wizardGeneratingDocs = false,
 	worktreeChildCount,
 	onSelect,
 	onDragStart,
@@ -157,6 +171,22 @@ export const SessionItem = memo(function SessionItem({
 }: SessionItemProps) {
 	const showWorktreePill = useSettingsStore((s) => s.showWorktreePill);
 	const showWorktreeBranchName = useSettingsStore((s) => s.showWorktreeBranchName);
+	const showLeftPanelLocationPills = useSettingsStore((s) => s.showLeftPanelLocationPills);
+	const showLeftPanelGitIndicator = useSettingsStore((s) => s.showLeftPanelGitIndicator);
+	const showLeftPanelCueIndicator = useSettingsStore((s) => s.showLeftPanelCueIndicator);
+	const showLeftPanelStartupCommandIndicator = useSettingsStore(
+		(s) => s.showLeftPanelStartupCommandIndicator
+	);
+	const maestroCueEnabled = useSettingsStore((s) => s.encoreFeatures.maestroCue);
+	const colorBlindMode = useSettingsStore((s) => s.colorBlindMode);
+	const cueIndicatorVisible = maestroCueEnabled && showLeftPanelCueIndicator;
+	const startupCommandTabCount =
+		session.terminalTabs?.reduce(
+			(acc, tab) => (tab.startupCommand && tab.startupCommand.trim().length > 0 ? acc + 1 : acc),
+			0
+		) ?? 0;
+	const startupCommandIndicatorActive =
+		showLeftPanelStartupCommandIndicator && startupCommandTabCount > 0;
 
 	// Parent agents (sessions with worktreeConfig) get an inline chevron toggle.
 	// Default to expanded when worktreesExpanded is undefined to match useSortedSessions.
@@ -164,13 +194,16 @@ export const SessionItem = memo(function SessionItem({
 	const worktreesExpanded = session.worktreesExpanded ?? true;
 	const showCollapsedCountBadge =
 		isWorktreeParent && !worktreesExpanded && (worktreeChildCount ?? 0) > 0;
-	// Determine if we show the GIT/LOCAL badge (not shown in bookmark variant, terminal sessions, or worktree variant)
-	const showGitLocalBadge =
-		variant !== 'bookmark' && variant !== 'worktree' && session.toolType !== 'terminal';
+	// Location pills: SSH indicator always shown (even in bookmarks) since it
+	// signals where prompts will run. GIT/LOCAL are suppressed in the bookmark
+	// variant to keep the row compact.
+	const showLocationPills =
+		showLeftPanelLocationPills && variant !== 'worktree' && session.toolType !== 'terminal';
+	const showGitLocalBadge = showLocationPills && variant !== 'bookmark';
 
 	// Status indicator: enhanced color/animation/label, plus hollow signal for
 	// Claude Code agents that haven't bound to a provider session yet.
-	const statusInfo = getEnhancedStatusColor(session, theme, isInBatch);
+	const statusInfo = getEnhancedStatusColor(session, theme, isInBatch, colorBlindMode);
 	const isDisconnected = !isInBatch && hasNoClaudeProviderSession(session);
 
 	// Determine container styling based on variant
@@ -265,14 +298,6 @@ export const SessionItem = memo(function SessionItem({
 								{worktreeChildCount}
 							</span>
 						)}
-						{/* Bookmark icon (only in bookmark variant, always filled) */}
-						{variant === 'bookmark' && session.bookmarked && (
-							<Bookmark
-								className="w-3 h-3 shrink-0"
-								style={{ color: theme.colors.accent }}
-								fill={theme.colors.accent}
-							/>
-						)}
 						{/* Branch icon for worktree children */}
 						{variant === 'worktree' && (
 							<GitBranch className="w-3 h-3 shrink-0" style={{ color: theme.colors.accent }} />
@@ -293,15 +318,22 @@ export const SessionItem = memo(function SessionItem({
 						>
 							{session.name}
 						</span>
-						{/* Maestro Cue indicator: subscriptions registered (and pulsing when running) */}
-						{cueSubscriptionCount != null && cueSubscriptionCount > 0 && (
-							<span
-								className={`shrink-0 flex items-center${cueActiveRun ? ' animate-pulse' : ''}`}
-								title={`Maestro Cue ${cueActiveRun ? 'running' : 'active'} (${cueSubscriptionCount} subscription${cueSubscriptionCount === 1 ? '' : 's'})`}
-							>
-								<Zap className="w-3 h-3" style={{ color: '#2dd4bf' }} fill="#2dd4bf" />
-							</span>
+						{/* Maestro Cue indicator: subscriptions registered (and pulsing when running).
+						    Hidden when the Cue Encore Feature is off, or when the user has hidden it. */}
+						{cueIndicatorVisible && (
+							<CueIndicator
+								subscriptionCount={cueSubscriptionCount ?? 0}
+								activeRun={!!cueActiveRun}
+							/>
 						)}
+						{/* Persistent-terminal indicator: agent has at least one terminal tab with
+						    a saved startup command. Hidden when the user disables the setting. */}
+						<StartupCommandIndicator
+							active={startupCommandIndicatorActive}
+							count={startupCommandTabCount}
+						/>
+						{/* Inline wizard indicator: shown while /wizard is in dialog or doc-gen phase. */}
+						<WizardIndicator active={wizardActive} generatingDocs={wizardGeneratingDocs} />
 						{/* Worktree badge to visually mark worktree children */}
 						{variant === 'worktree' && showWorktreePill && <WorktreePill theme={theme} />}
 					</div>
@@ -338,34 +370,39 @@ export const SessionItem = memo(function SessionItem({
 						)}
 						<Activity className="w-3 h-3" /> {session.toolType}
 						{session.sessionSshRemoteConfig?.enabled ? ' (SSH)' : ''}
-						{/* Group badge (only in bookmark variant when session belongs to a group) */}
-						{variant === 'bookmark' && group && (
-							<span
-								className="text-[9px] px-1 py-0.5 rounded"
-								style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}
-							>
-								{group.name}
-							</span>
-						)}
 					</div>
 				)}
 			</div>
 
 			{/* Right side: Indicators and actions */}
 			<div className="flex items-center gap-2 ml-2">
-				{/* Git Dirty Indicator (only in wide mode) - placed before GIT/LOCAL for vertical alignment */}
-				{leftSidebarOpen && session.isGitRepo && gitFileCount !== undefined && gitFileCount > 0 && (
-					<div
-						className="flex items-center gap-0.5 text-[10px]"
-						style={{ color: theme.colors.warning }}
+				{/* Group badge (only in bookmark variant when session belongs to a group) */}
+				{variant === 'bookmark' && group && (
+					<span
+						className="text-[9px] px-1 py-0.5 rounded"
+						style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}
+						title={group.name}
 					>
-						<GitBranch className="w-2.5 h-2.5" />
-						<span>{gitFileCount}</span>
-					</div>
+						{abbreviateGroupName(group.name)}
+					</span>
 				)}
+				{/* Git Dirty Indicator (only in wide mode) - placed before GIT/LOCAL for vertical alignment */}
+				{showLeftPanelGitIndicator &&
+					leftSidebarOpen &&
+					session.isGitRepo &&
+					gitFileCount !== undefined &&
+					gitFileCount > 0 && (
+						<div
+							className="flex items-center gap-0.5 text-[10px]"
+							style={{ color: theme.colors.warning }}
+						>
+							<GitBranch className="w-2.5 h-2.5" />
+							<span>{gitFileCount}</span>
+						</div>
+					)}
 
 				{/* Location Indicator Pills */}
-				{showGitLocalBadge &&
+				{showLocationPills &&
 					(session.isGitRepo ? (
 						/* Git repo: Show server icon pill (if remote) + GIT pill */
 						<>
@@ -381,43 +418,51 @@ export const SessionItem = memo(function SessionItem({
 									<Server className="w-3 h-3" />
 								</div>
 							)}
-							<div
-								className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
-								style={{
-									backgroundColor: theme.colors.accent + '30',
-									color: theme.colors.accent,
-								}}
-								title="Git repository"
-							>
-								GIT
-							</div>
+							{showGitLocalBadge && (
+								<div
+									className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
+									style={{
+										backgroundColor: theme.colors.accent + '30',
+										color: theme.colors.accent,
+									}}
+									title="Git repository"
+								>
+									GIT
+								</div>
+							)}
 						</>
-					) : (
-						/* Plain directory: Show REMOTE or LOCAL (not both) */
+					) : session.sessionSshRemoteConfig?.enabled ? (
+						/* Plain directory on remote: always show REMOTE */
 						<div
 							className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
 							style={{
-								backgroundColor: session.sessionSshRemoteConfig?.enabled
-									? theme.colors.warning + '30'
-									: theme.colors.textDim + '20',
-								color: session.sessionSshRemoteConfig?.enabled
-									? theme.colors.warning
-									: theme.colors.textDim,
+								backgroundColor: theme.colors.warning + '30',
+								color: theme.colors.warning,
 							}}
-							title={
-								session.sessionSshRemoteConfig?.enabled
-									? 'Running on remote host via SSH'
-									: 'Local directory (not a git repo)'
-							}
+							title="Running on remote host via SSH"
 						>
-							{session.sessionSshRemoteConfig?.enabled ? 'REMOTE' : 'LOCAL'}
+							REMOTE
 						</div>
+					) : (
+						/* Plain local directory: LOCAL pill suppressed in bookmark variant */
+						showGitLocalBadge && (
+							<div
+								className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
+								style={{
+									backgroundColor: theme.colors.textDim + '20',
+									color: theme.colors.textDim,
+								}}
+								title="Local directory (not a git repo)"
+							>
+								LOCAL
+							</div>
+						)
 					))}
 
 				{/* AUTO Mode Indicator */}
 				{isInBatch && (
 					<div
-						className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase animate-status-pulse"
+						className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
 						style={{
 							backgroundColor: theme.colors.warning + '30',
 							color: theme.colors.warning,
@@ -449,7 +494,7 @@ export const SessionItem = memo(function SessionItem({
 								e.stopPropagation();
 								onToggleBookmark();
 							}}
-							className={`p-0.5 rounded hover:bg-white/10 transition-all ${session.bookmarked ? '' : 'opacity-0 group-hover:opacity-100'}`}
+							className="p-0.5 rounded hover:bg-white/10 transition-all"
 							title={session.bookmarked ? 'Remove bookmark' : 'Add bookmark'}
 						>
 							<Bookmark
@@ -475,8 +520,8 @@ export const SessionItem = memo(function SessionItem({
 						</GhostIconButton>
 					))}
 
-				{/* AI Status Indicator with Unread Badge - ml-auto ensures it aligns to right edge */}
-				<div className="relative ml-auto w-2 h-2">
+				{/* AI Status Indicator with Unread Badge */}
+				<div className="relative w-2 h-2 ml-auto">
 					{/* Pulse ring: only renders for animated states, sits behind the dot */}
 					{statusInfo.animate && (
 						<span

@@ -42,6 +42,7 @@ import { pipelinesToYaml } from '../../../../../renderer/components/CuePipelineE
 import { subscriptionsToPipelines } from '../../../../../renderer/components/CuePipelineEditor/utils/yamlToPipeline';
 import type {
 	AgentNodeData,
+	CommandNodeData,
 	CuePipeline,
 	PipelineEdge,
 	PipelineNode,
@@ -404,6 +405,46 @@ describe('round-trip: trigger event configs survive serialization', () => {
 		expect(data.config.repo).toBe('org/repo');
 		expect(data.config.poll_minutes).toBe(15);
 	});
+
+	it('github.pull_request preserves retrigger_on_comments + max_notifications', () => {
+		const data = getReconstructedTriggerConfig('github.pull_request', {
+			repo: 'org/repo',
+			poll_minutes: 5,
+			retrigger_on_comments: true,
+			max_notifications: 100,
+		});
+		expect(data.config.retrigger_on_comments).toBe(true);
+		expect(data.config.max_notifications).toBe(100);
+	});
+
+	it('github.issue preserves retrigger_on_comments with default cap (max omitted)', () => {
+		const data = getReconstructedTriggerConfig('github.issue', {
+			repo: 'org/repo',
+			poll_minutes: 10,
+			retrigger_on_comments: true,
+		});
+		expect(data.config.retrigger_on_comments).toBe(true);
+		// max_notifications absent in YAML = use the default at runtime,
+		// so the reconstructed config also leaves it undefined.
+		expect(data.config.max_notifications).toBeUndefined();
+	});
+
+	it('github.pull_request preserves max_notifications=0 (unlimited sentinel)', () => {
+		const data = getReconstructedTriggerConfig('github.pull_request', {
+			repo: 'org/repo',
+			retrigger_on_comments: true,
+			max_notifications: 0,
+		});
+		expect(data.config.max_notifications).toBe(0);
+	});
+
+	it('github.pull_request omits retrigger fields when toggle is off', () => {
+		const data = getReconstructedTriggerConfig('github.pull_request', {
+			repo: 'org/repo',
+		});
+		expect(data.config.retrigger_on_comments).toBeUndefined();
+		expect(data.config.max_notifications).toBeUndefined();
+	});
 });
 
 // ─── Shape: double round-trip is a no-op (idempotence) ──────────────────────
@@ -446,5 +487,156 @@ describe('round-trip: double round-trip is structurally idempotent', () => {
 				edgeCount: p.edges.length,
 			}));
 		expect(summarize(r2)).toEqual(summarize(r1));
+	});
+});
+
+// ─── Shape: trigger → command → agent (same session) ─────────────────────────
+//
+// Bug repro for the gist at https://gist.github.com/chr1syy/e68627975a064c28cf3e7d5fd4c7043b:
+// when the user builds Trigger (app.startup) → Command (shell, owner=Claude) →
+// Agent (Claude) and saves, reload must reconstruct three distinct nodes. The
+// historical failure mode collapsed the command + agent (which share an owning
+// session) into a single agent — yielding `agent (1) → agent (2)` after reload.
+// Both code paths through this topology must work: with explicit nodeKeys
+// (the editor's drag-drop path) and without (hand-written cue.yaml).
+
+describe('round-trip: trigger → command → agent shape', () => {
+	function command(
+		id: string,
+		name: string,
+		owningSessionId: string,
+		owningSessionName: string,
+		shell: string,
+		nodeKey?: string
+	): PipelineNode {
+		return {
+			id,
+			type: 'command',
+			position: { x: 400, y: 0 },
+			data: {
+				name,
+				mode: 'shell',
+				shell,
+				owningSessionId,
+				owningSessionName,
+				...(nodeKey ? { nodeKey } : {}),
+			} as CommandNodeData,
+		};
+	}
+
+	function agentWithKey(
+		id: string,
+		sessionId: string,
+		sessionName: string,
+		nodeKey: string,
+		inputPrompt?: string
+	): PipelineNode {
+		return {
+			id,
+			type: 'agent',
+			position: { x: 800, y: 0 },
+			data: {
+				sessionId,
+				sessionName,
+				toolType: 'claude-code',
+				nodeKey,
+				...(inputPrompt ? { inputPrompt } : {}),
+			} as AgentNodeData,
+		};
+	}
+
+	it('preserves all three nodes when command and agent share an owning session (with nodeKeys)', () => {
+		const t1 = trigger('t1', 'time.heartbeat', { interval_minutes: 5 });
+		const cmd = command(
+			'cmd1',
+			'Mail Ingest',
+			'sess-claude',
+			'Claude',
+			'python ingest.py',
+			'cmd-key-1'
+		);
+		const a1 = agentWithKey('a1', 'sess-claude', 'Claude', 'agent-key-1', 'synthesize');
+
+		const pipelines = [
+			pipeline(
+				'MailIngest',
+				'#06b6d4',
+				[t1, cmd, a1],
+				[edge('e1', 't1', 'cmd1'), edge('e2', 'cmd1', 'a1')]
+			),
+		];
+		const sessions: PipelineSession[] = [
+			{ id: 'sess-claude', name: 'Claude', toolType: 'claude-code' },
+		];
+
+		const [reconstructed] = roundTrip(pipelines, sessions);
+
+		const triggers = reconstructed.nodes.filter((n) => n.type === 'trigger');
+		const commands = reconstructed.nodes.filter((n) => n.type === 'command');
+		const agents = reconstructed.nodes.filter((n) => n.type === 'agent');
+
+		expect(triggers).toHaveLength(1);
+		expect(commands).toHaveLength(1);
+		expect(agents).toHaveLength(1);
+
+		// Edge topology: trigger → command → agent (NOT agent → agent).
+		const triggerOut = reconstructed.edges.filter((e) => e.source === triggers[0].id);
+		expect(triggerOut).toHaveLength(1);
+		expect(triggerOut[0].target).toBe(commands[0].id);
+
+		const commandOut = reconstructed.edges.filter((e) => e.source === commands[0].id);
+		expect(commandOut).toHaveLength(1);
+		expect(commandOut[0].target).toBe(agents[0].id);
+	});
+
+	it('preserves topology even when command and agent lack nodeKeys (legacy YAML)', () => {
+		// Pre-9ab11ce02 YAML and hand-written YAML will not have nodeKeys.
+		// The legacy dedup-by-sessionName path must still produce a distinct
+		// command and agent — they have different node types so the agent
+		// dedup loop should skip the command.
+		const t1 = trigger('t1', 'time.heartbeat', { interval_minutes: 5 });
+		const cmd = command('cmd1', 'Mail Ingest', 'sess-claude', 'Claude', 'python ingest.py');
+		const a1: PipelineNode = {
+			id: 'a1',
+			type: 'agent',
+			position: { x: 800, y: 0 },
+			data: {
+				sessionId: 'sess-claude',
+				sessionName: 'Claude',
+				toolType: 'claude-code',
+				inputPrompt: 'synthesize',
+			} as AgentNodeData,
+		};
+
+		const pipelines = [
+			pipeline(
+				'MailIngest',
+				'#06b6d4',
+				[t1, cmd, a1],
+				[edge('e1', 't1', 'cmd1'), edge('e2', 'cmd1', 'a1')]
+			),
+		];
+		const sessions: PipelineSession[] = [
+			{ id: 'sess-claude', name: 'Claude', toolType: 'claude-code' },
+		];
+
+		const [reconstructed] = roundTrip(pipelines, sessions);
+
+		const triggers = reconstructed.nodes.filter((n) => n.type === 'trigger');
+		const commands = reconstructed.nodes.filter((n) => n.type === 'command');
+		const agents = reconstructed.nodes.filter((n) => n.type === 'agent');
+
+		expect(triggers).toHaveLength(1);
+		expect(commands).toHaveLength(1);
+		expect(agents).toHaveLength(1);
+
+		// Edge topology: trigger → command → agent (NOT agent → agent).
+		const triggerOut = reconstructed.edges.filter((e) => e.source === triggers[0].id);
+		expect(triggerOut).toHaveLength(1);
+		expect(triggerOut[0].target).toBe(commands[0].id);
+
+		const commandOut = reconstructed.edges.filter((e) => e.source === commands[0].id);
+		expect(commandOut).toHaveLength(1);
+		expect(commandOut[0].target).toBe(agents[0].id);
 	});
 });

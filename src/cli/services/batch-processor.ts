@@ -1,7 +1,6 @@
 // Batch processor service for CLI
 // Executes playbooks and yields JSONL events
 
-import { execFileSync } from 'child_process';
 import type { Playbook, SessionInfo, UsageStats, HistoryEntry } from '../../shared/types';
 import type { JsonlEvent } from '../output/jsonl';
 import {
@@ -20,37 +19,30 @@ import { generateUUID } from '../../shared/uuid';
 import { formatElapsedTime } from '../../shared/formatters';
 import { PROMPT_IDS } from '../../shared/promptDefinitions';
 import { getCliPrompt } from './prompt-loader';
+import { getGitBranch, isGitRepo } from './git-utils';
+import { prepareMaestroSystemPromptCli } from './system-prompt';
 
 /**
- * Get the current git branch for a directory
+ * Detect the `<!-- maestro:halt -->` early-exit marker in a document.
+ *
+ * Agents write this marker into the current Auto Run document to abort the
+ * entire playbook (skipping all remaining tasks in the current document and
+ * all subsequent documents). The optional reason after the colon is surfaced
+ * in the History panel and JSONL `halt` event.
+ *
+ * Accepts:
+ *   <!-- maestro:halt -->
+ *   <!-- maestro:halt: brief reason here -->
+ *
+ * Match is case-insensitive on the keyword to tolerate agent variations,
+ * but the literal token `maestro:halt` is required to keep false positives
+ * effectively zero.
  */
-function getGitBranch(cwd: string): string | undefined {
-	try {
-		const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-			cwd,
-			encoding: 'utf-8',
-			stdio: ['pipe', 'pipe', 'pipe'],
-		}).trim();
-		return branch || undefined;
-	} catch {
-		return undefined;
-	}
-}
-
-/**
- * Check if a directory is a git repository
- */
-function isGitRepo(cwd: string): boolean {
-	try {
-		execFileSync('git', ['rev-parse', '--is-inside-work-tree'], {
-			cwd,
-			encoding: 'utf-8',
-			stdio: ['pipe', 'pipe', 'pipe'],
-		});
-		return true;
-	} catch {
-		return false;
-	}
+export function detectHaltMarker(content: string): { halted: boolean; reason?: string } {
+	const match = content.match(/<!--\s*maestro:halt\s*(?::\s*([^>]*?))?\s*-->/i);
+	if (!match) return { halted: false };
+	const reason = match[1]?.trim();
+	return { halted: true, reason: reason || undefined };
 }
 
 /**
@@ -132,10 +124,15 @@ export async function* runPlaybook(
 			};
 		}
 
-		// Calculate initial total tasks
+		// Calculate initial total tasks and detect any pre-existing halt markers
+		// in the same pass. We refuse to start if a stale marker is found — the
+		// previous run halted intentionally and the user must resolve it before
+		// re-running. Folding both checks into one scan keeps the read count
+		// per-document stable for callers/mocks.
 		let initialTotalTasks = 0;
+		let preExistingHalt: { document: string; reason?: string } | null = null;
 		for (const doc of playbook.documents) {
-			const { taskCount } = readDocAndCountTasks(folderPath, doc.filename);
+			const { taskCount, content } = readDocAndCountTasks(folderPath, doc.filename);
 			if (debug) {
 				yield {
 					type: 'debug',
@@ -145,6 +142,12 @@ export async function* runPlaybook(
 				};
 			}
 			initialTotalTasks += taskCount;
+			if (!preExistingHalt) {
+				const halt = detectHaltMarker(content);
+				if (halt.halted) {
+					preExistingHalt = { document: doc.filename, reason: halt.reason };
+				}
+			}
 		}
 		if (debug) {
 			yield {
@@ -162,6 +165,19 @@ export async function* runPlaybook(
 				timestamp: Date.now(),
 				message: 'No unchecked tasks found in any documents',
 				code: 'NO_TASKS',
+			};
+			return;
+		}
+
+		if (preExistingHalt) {
+			unregisterCliActivity(session.id);
+			yield {
+				type: 'error',
+				timestamp: Date.now(),
+				message: `Document "${preExistingHalt.document}" contains an unresolved halt marker${
+					preExistingHalt.reason ? `: ${preExistingHalt.reason}` : ''
+				}. Remove the <!-- maestro:halt --> marker before re-running.`,
+				code: 'HALT_MARKER_PRESENT',
 			};
 			return;
 		}
@@ -219,6 +235,15 @@ export async function* runPlaybook(
 			};
 			return;
 		}
+
+		// Build the Maestro system prompt once per playbook run. It's identical
+		// for every task in the loop (session/branch/conductor don't change
+		// between tasks), so caching avoids repeating the prompt-load + git
+		// branch probe per task. Mirrors the desktop Auto Run path which calls
+		// `prepareMaestroSystemPrompt` per spawn but reads from a hot in-memory
+		// cache (`useAgentExecution.ts:226`). Failure is non-fatal: tasks run
+		// without the system prompt rather than aborting the playbook.
+		const playbookSystemPrompt = await prepareMaestroSystemPromptCli(session);
 
 		// Track totals
 		let totalCompletedTasks = 0;
@@ -445,23 +470,31 @@ export async function* runPlaybook(
 						};
 					}
 
-					// Spawn agent with combined prompt + document
+					// Spawn agent with combined prompt + document. The Maestro
+					// system prompt is delivered as an out-of-band flag (or
+					// embedded in turn 1 for agents lacking native support) so
+					// the agent sees the same Maestro context as a desktop Auto
+					// Run task. Synopsis spawn below intentionally omits this
+					// — it's a resume into the same agent that already has the
+					// prompt and re-sending would waste tokens.
 					const result = await spawnAgent(session.toolType, session.cwd, finalPrompt, undefined, {
 						customModel: session.customModel,
 						customEffort: session.customEffort,
 						customArgs: session.customArgs,
 						customEnvVars: session.customEnvVars,
 						sshRemoteConfig: session.sessionSshRemoteConfig,
+						appendSystemPrompt: playbookSystemPrompt,
 					});
 
 					const elapsedMs = Date.now() - taskStartTime;
 
-					// Re-read document to get new task count
-					const { taskCount: newRemainingTasks } = readDocAndCountTasks(
+					// Re-read document to get new task count and check for halt marker
+					const { taskCount: newRemainingTasks, content: postContent } = readDocAndCountTasks(
 						folderPath,
 						docEntry.filename
 					);
 					const tasksCompletedThisRun = remainingTasks - newRemainingTasks;
+					const haltMarker = detectHaltMarker(postContent);
 
 					// Update counters
 					docTasksCompleted += tasksCompletedThisRun;
@@ -546,6 +579,43 @@ export async function* runPlaybook(
 								entryId: historyEntry.id,
 							};
 						}
+					}
+
+					// Halt marker detected — agent has signaled early exit. Stop the
+					// entire playbook now: no further tasks in this document, no
+					// further documents, no further loop iterations.
+					if (haltMarker.halted) {
+						const haltReason = haltMarker.reason || 'Halted by agent';
+
+						logger.autorun(`Auto Run halted by agent`, session.name, {
+							document: docEntry.filename,
+							taskIndex,
+							reason: haltReason,
+							loopNumber: loopIteration + 1,
+						});
+
+						yield {
+							type: 'halt',
+							timestamp: Date.now(),
+							document: docEntry.filename,
+							taskIndex,
+							reason: haltReason,
+						};
+
+						createFinalLoopEntry(`Halted by agent: ${haltReason}`);
+						unregisterCliActivity(session.id);
+
+						yield {
+							type: 'complete',
+							timestamp: Date.now(),
+							success: false,
+							totalTasksCompleted: totalCompletedTasks,
+							totalElapsedMs: Date.now() - batchStartTime,
+							totalCost,
+							halted: true,
+							haltReason,
+						};
+						return;
 					}
 
 					remainingTasks = newRemainingTasks;

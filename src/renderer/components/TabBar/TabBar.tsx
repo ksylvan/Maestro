@@ -68,9 +68,11 @@ function TabBarInner({
 	onCopyTerminalBuffer,
 	onPublishTerminalBufferGist,
 	onSendTerminalBufferToAgent,
+	onTerminalTabConfigureStartupCommand,
 	onCopyBrowserContent,
 	onSendBrowserContentToAgent,
 	colorBlindMode,
+	sshRemote,
 }: TabBarProps) {
 	// Dev-time warnings for missing handlers when unified tabs are provided
 	if (process.env.NODE_ENV !== 'production' && unifiedTabs) {
@@ -95,6 +97,7 @@ function TabBarInner({
 	const tabShortcuts = useSettingsStore((s) => s.tabShortcuts);
 	const showStarredInUnreadFilter = useSettingsStore((s) => s.showStarredInUnreadFilter);
 	const showFilePreviewsInUnreadFilter = useSettingsStore((s) => s.showFilePreviewsInUnreadFilter);
+	const useCmd0AsLastTab = useSettingsStore((s) => s.useCmd0AsLastTab);
 
 	const tabBarRef = useRef<HTMLDivElement>(null);
 	const stickyLeftRef = useRef<HTMLDivElement>(null);
@@ -179,9 +182,11 @@ function TabBarInner({
 					(showStarredInUnreadFilter && ut.data.starred)
 				);
 			}
-			// File preview tabs: hidden by default in unread filter, shown if setting enabled
+			// File preview tabs: hidden by default in unread filter, shown if setting
+			// enabled — but the currently active file tab is always visible so the user
+			// never loses sight of what they're looking at.
 			if (ut.type === 'file') {
-				return showFilePreviewsInUnreadFilter;
+				return showFilePreviewsInUnreadFilter || ut.id === activeFileTabId;
 			}
 			// Terminal tabs are always visible
 			return true;
@@ -308,6 +313,22 @@ function TabBarInner({
 	// Shared props computed once for the rendering loop
 	const allTabs = unifiedTabs ?? [];
 
+	// Map of terminal-tab id → display index, ordered by creation time so the
+	// "Terminal N" label reflects the order the user opened them — not the
+	// position in the visual tab strip. Without this, opening a 2nd terminal
+	// while an AI tab is active inserts the new terminal to the LEFT of the
+	// existing one (insertAfterActiveInUnifiedTabOrder), which would otherwise
+	// make the new tab "Terminal 1" and rename the original to "Terminal 2".
+	const terminalIndexById = useMemo(() => {
+		const terminals = allTabs.flatMap((ut) =>
+			ut.type === 'terminal' ? [{ id: ut.id, createdAt: ut.data.createdAt }] : []
+		);
+		terminals.sort((a, b) => a.createdAt - b.createdAt);
+		const map = new Map<string, number>();
+		terminals.forEach((t, idx) => map.set(t.id, idx));
+		return map;
+	}, [allTabs]);
+
 	/** Render a separator bar between inactive tabs */
 	const separator = (
 		<div
@@ -394,6 +415,7 @@ function TabBarInner({
 						onSearchMessages={onOpenOutputSearch ?? onOpenTabSearch}
 						tabSwitcherKeys={tabShortcuts.tabSwitcher?.keys ?? ['Alt', 'Meta', 't']}
 						searchOutputKeys={shortcuts.searchOutput?.keys ?? ['Meta', 'f']}
+						openTabCount={unifiedTabs?.length ?? tabs.length}
 					/>
 				)}
 				<button
@@ -462,8 +484,8 @@ function TabBarInner({
 						// underlying unifiedTabs index.
 						const isLastDisplayed = index === displayedUnifiedTabs.length - 1;
 						const shortcutHint = showUnreadOnly
-							? getShortcutHint(index, isLastDisplayed)
-							: getShortcutHint(originalIndex, isLastTab);
+							? getShortcutHint(index, isLastDisplayed, useCmd0AsLastTab)
+							: getShortcutHint(originalIndex, isLastTab, useCmd0AsLastTab);
 
 						if (unifiedTab.type === 'ai') {
 							return (
@@ -514,14 +536,13 @@ function TabBarInner({
 										tabIndex={originalIndex}
 										colorBlindMode={colorBlindMode}
 										shortcutHint={shortcutHint}
+										sshRemote={sshRemote}
 									/>
 								</React.Fragment>
 							);
 						} else if (unifiedTab.type === 'terminal') {
 							const terminalTab = unifiedTab.data;
-							const terminalIndex = allTabs
-								.filter((ut) => ut.type === 'terminal')
-								.findIndex((ut) => ut.id === unifiedTab.id);
+							const terminalIndex = terminalIndexById.get(unifiedTab.id) ?? 0;
 							return (
 								<React.Fragment key={unifiedTab.id}>
 									{showSeparator && separator}
@@ -552,6 +573,7 @@ function TabBarInner({
 										onCopyBuffer={onCopyTerminalBuffer}
 										onPublishBufferGist={ghCliAvailable ? onPublishTerminalBufferGist : undefined}
 										onSendBufferToAgent={onSendTerminalBufferToAgent}
+										onConfigureStartupCommand={onTerminalTabConfigureStartupCommand}
 										totalTabs={allTabs.length}
 										tabIndex={originalIndex}
 										shortcutHint={shortcutHint}
@@ -607,8 +629,8 @@ function TabBarInner({
 						// Legacy mode: displayedTabs is the filtered list when unread filter is on.
 						const isLastDisplayed = index === displayedTabs.length - 1;
 						const shortcutHint = showUnreadOnly
-							? getShortcutHint(index, isLastDisplayed)
-							: getShortcutHint(originalIndex, isLastTab);
+							? getShortcutHint(index, isLastDisplayed, useCmd0AsLastTab)
+							: getShortcutHint(originalIndex, isLastTab, useCmd0AsLastTab);
 
 						return (
 							<React.Fragment key={tab.id}>

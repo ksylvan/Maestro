@@ -366,6 +366,121 @@ describe('CopilotOutputParser', () => {
 		expect(error).toBeNull();
 	});
 
+	it('attaches per-turn output token usage from assistant.message events', () => {
+		// Copilot CLI ≥1.0.39 reports outputTokens directly on the final
+		// assistant.message. Without this, the context window UI shows 0/0%.
+		const parser = new CopilotOutputParser();
+
+		const event = parser.parseJsonObject({
+			type: 'assistant.message',
+			data: {
+				content: 'Hello!',
+				toolRequests: [],
+				outputTokens: 5,
+			},
+		});
+
+		expect(event?.type).toBe('result');
+		expect(event && parser.extractUsage(event)).toEqual({
+			inputTokens: 0,
+			outputTokens: 5,
+		});
+	});
+
+	it('attaches output token usage on intermediate tool-call messages too', () => {
+		// Tool-call assistant.messages also report outputTokens — capture them
+		// so per-turn usage isn't dropped on multi-turn responses.
+		const parser = new CopilotOutputParser();
+
+		const event = parser.parseJsonObject({
+			type: 'assistant.message',
+			data: {
+				content: '',
+				toolRequests: [{ toolCallId: 'call_1', name: 'bash', arguments: { command: 'ls' } }],
+				outputTokens: 12,
+			},
+		});
+
+		expect(event?.type).toBe('text');
+		expect(event && parser.extractUsage(event)).toEqual({
+			inputTokens: 0,
+			outputTokens: 12,
+		});
+	});
+
+	it('does not emit a usage object when outputTokens is missing or zero', () => {
+		const parser = new CopilotOutputParser();
+
+		const noField = parser.parseJsonObject({
+			type: 'assistant.message',
+			data: { content: 'Hello!', toolRequests: [] },
+		});
+		expect(noField && parser.extractUsage(noField)).toBeNull();
+
+		const zero = parser.parseJsonObject({
+			type: 'assistant.message',
+			data: { content: 'Hello!', toolRequests: [], outputTokens: 0 },
+		});
+		expect(zero && parser.extractUsage(zero)).toBeNull();
+	});
+
+	it('reports per-turn outputTokens on every assistant.message in a multi-turn run', () => {
+		// Verified against Copilot CLI 1.0.39 and 1.0.43: a tool-using response
+		// emits multiple assistant.message events, each with its own outputTokens.
+		// StdoutHandler doesn't delta-normalize copilot-cli, so the renderer sums
+		// these into the running total. The parser's job is to surface every value.
+		const parser = new CopilotOutputParser();
+
+		const toolTurn = parser.parseJsonObject({
+			type: 'assistant.message',
+			data: {
+				content: '',
+				toolRequests: [{ toolCallId: 'call_1', name: 'bash', arguments: { command: 'ls' } }],
+				outputTokens: 178,
+			},
+		});
+		const finalTurn = parser.parseJsonObject({
+			type: 'assistant.message',
+			data: { content: 'Done.', toolRequests: [], outputTokens: 35 },
+		});
+
+		expect(toolTurn && parser.extractUsage(toolTurn)).toEqual({
+			inputTokens: 0,
+			outputTokens: 178,
+		});
+		expect(finalTurn && parser.extractUsage(finalTurn)).toEqual({
+			inputTokens: 0,
+			outputTokens: 35,
+		});
+	});
+
+	it('extracts modelMetrics usage from session.shutdown events (legacy ≤1.0.5)', () => {
+		const parser = new CopilotOutputParser();
+
+		const event = parser.parseJsonObject({
+			type: 'session.shutdown',
+			data: {
+				modelMetrics: {
+					'claude-sonnet-4.6': {
+						usage: {
+							inputTokens: 100,
+							outputTokens: 50,
+							cacheReadTokens: 800,
+							cacheWriteTokens: 200,
+						},
+					},
+				},
+			},
+		});
+
+		expect(event && parser.extractUsage(event)).toEqual({
+			inputTokens: 100,
+			outputTokens: 50,
+			cacheReadTokens: 800,
+			cacheCreationTokens: 200,
+		});
+	});
+
 	it('maps no-tty interactive launch failures to a clearer crash message', () => {
 		const parser = new CopilotOutputParser();
 		const error = parser.detectErrorFromExit(

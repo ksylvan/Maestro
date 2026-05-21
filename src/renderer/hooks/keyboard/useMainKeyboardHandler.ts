@@ -338,6 +338,9 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 			if (ctx.handleEscapeInMain(e)) return;
 
 			// Helper to track shortcut usage for keyboard mastery gamification
+			// AND for the daily-usage time series shown on the Usage Dashboard.
+			// Mastery is short-circuited on second+ firings of the same shortcut
+			// (it's a unique-set), but the daily counter increments every time.
 			const trackShortcut = (shortcutId: string) => {
 				if (ctx.recordShortcutUsage) {
 					const result = ctx.recordShortcutUsage(shortcutId);
@@ -345,6 +348,9 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 						ctx.onKeyboardMasteryLevelUp(result.newLevel);
 					}
 				}
+				// Fire-and-forget. A failed IPC must never block a shortcut from
+				// taking effect; the daily counter is best-effort telemetry.
+				void window.maestro?.stats?.recordShortcutUsage?.(Date.now());
 			};
 
 			// General shortcuts
@@ -401,15 +407,11 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				ctx.handleNavForward();
 				trackShortcut('navForward');
 			} else if (ctx.isShortcut(e, 'toggleMode')) {
-				// Disable mode toggle for wizard tabs - they have a unique input that doesn't support CLI switchover
-				const activeTab = ctx.activeSession?.aiTabs?.find(
-					(t: AITab) => t.id === ctx.activeSession?.activeTabId
-				);
-				if (activeTab?.wizardState?.isActive) return;
 				e.preventDefault();
 				if (ctx.activeSessionId) {
 					// Cmd+J always opens a new terminal tab (analogous to Cmd+T for AI tabs).
 					// handleOpenTerminalTab creates the tab and sets inputMode:'terminal' automatically.
+					// Safe in wizard tabs — it creates a new tab rather than disrupting wizard state.
 					ctx.handleOpenTerminalTab();
 					setTimeout(() => ctx.mainPanelRef?.current?.focusActiveTerminal(), 100);
 				} else {
@@ -445,7 +447,6 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 			} else if (ctx.isShortcut(e, 'settings')) {
 				e.preventDefault();
 				ctx.setSettingsModalOpen(true);
-				ctx.setSettingsTab('general');
 				trackShortcut('settings');
 			} else if (ctx.isShortcut(e, 'agentSettings')) {
 				// Open agent settings for the current session
@@ -548,6 +549,10 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				ctx.setActiveFocus('sidebar');
 				setTimeout(() => ctx.sidebarContainerRef?.current?.focus(), 0);
 				trackShortcut('focusSidebar');
+			} else if (ctx.isShortcut(e, 'focusActiveTab')) {
+				e.preventDefault();
+				ctx.mainPanelRef?.current?.focusActiveTab();
+				trackShortcut('focusActiveTab');
 			} else if (ctx.isShortcut(e, 'viewGitDiff') && !ctx.activeGroupChatId) {
 				e.preventDefault();
 				ctx.handleViewGitDiff();
@@ -584,6 +589,10 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				e.preventDefault();
 				ctx.setUsageDashboardOpen(true);
 				trackShortcut('usageDashboard');
+			} else if (ctx.isShortcut(e, 'executionQueue')) {
+				e.preventDefault();
+				ctx.handleOpenQueueBrowser();
+				trackShortcut('executionQueue');
 			} else if (ctx.isShortcut(e, 'openSymphony') && ctx.encoreFeatures?.symphony) {
 				e.preventDefault();
 				ctx.setSymphonyModalOpen(true);
@@ -1005,7 +1014,11 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				// Cmd+1-9, Cmd+0 — Jump to tab by index in unified order.
 				// In unread-only mode, index into the filtered/visible tabs so Cmd+N matches
 				// the Nth tab currently shown in the tab bar (not the Nth tab overall).
-				for (let i = 1; i <= 9; i++) {
+				// When useCmd0AsLastTab is off, fall back to browser-style mapping:
+				// Cmd+1-8 jump to tabs 1-8, Cmd+9 jumps to the last tab, Cmd+0 is unused.
+				const useCmd0AsLastTab = useSettingsStore.getState().useCmd0AsLastTab;
+				const maxNumberedTab = useCmd0AsLastTab ? 9 : 8;
+				for (let i = 1; i <= maxNumberedTab; i++) {
 					if (ctx.isTabShortcut(e, `goToTab${i}`)) {
 						e.preventDefault();
 						ctx.setSessions((prev: Session[]) => {
@@ -1019,7 +1032,8 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 						break;
 					}
 				}
-				if (ctx.isTabShortcut(e, 'goToLastTab')) {
+				const lastTabActionId = useCmd0AsLastTab ? 'goToLastTab' : 'goToTab9';
+				if (ctx.isTabShortcut(e, lastTabActionId)) {
 					e.preventDefault();
 					ctx.setSessions((prev: Session[]) => {
 						const current = prev.find((s: Session) => s.id === ctx.activeSessionId);

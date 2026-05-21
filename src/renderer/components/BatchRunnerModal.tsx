@@ -51,6 +51,14 @@ interface BatchRunnerModalProps {
 	// Multi-document support
 	folderPath: string;
 	currentDocument: string;
+	/**
+	 * Optional pre-seeded list of documents (without `.md`) to populate the run
+	 * list with on first mount. When provided and non-empty, it overrides the
+	 * default `[currentDocument]` initialization. Used by the inline wizard's
+	 * "Start Auto Run" button to launch the modal with every freshly generated
+	 * doc already selected.
+	 */
+	presetDocuments?: string[];
 	allDocuments: string[]; // All available docs in folder (without .md)
 	documentTree?: Array<{
 		name: string;
@@ -95,6 +103,7 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 		showConfirmation,
 		folderPath,
 		currentDocument,
+		presetDocuments,
 		allDocuments,
 		documentTree,
 		getDocumentTaskCount,
@@ -139,7 +148,16 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 
 	// Document list state
 	const [documents, setDocuments] = useState<BatchDocumentEntry[]>(() => {
-		// Initialize with current document
+		// Pre-seeded list (e.g. wizard's "Start Auto Run") wins over single
+		// currentDocument so every freshly generated doc lands in the run list.
+		if (presetDocuments && presetDocuments.length > 0) {
+			return presetDocuments.map((filename) => ({
+				id: generateId(),
+				filename,
+				resetOnCompletion: false,
+				isDuplicate: false,
+			}));
+		}
 		if (currentDocument) {
 			return [
 				{
@@ -153,8 +171,13 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 		return [];
 	});
 
-	// Track initial document state for dirty checking
-	const initialDocumentsRef = useRef<string[]>([currentDocument].filter(Boolean));
+	// Track initial document state for dirty checking. Mirrors the run-list
+	// initialization above so dirty detection is correct for preset opens too.
+	const initialDocumentsRef = useRef<string[]>(
+		presetDocuments && presetDocuments.length > 0
+			? [...presetDocuments]
+			: [currentDocument].filter(Boolean)
+	);
 
 	// Task counts per document (keyed by filename, value = unchecked task count).
 	// Seeded synchronously from the batch store, which is already populated by
@@ -431,7 +454,7 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 			tabIndex={-1}
 		>
 			<div
-				className="w-[700px] max-h-[85vh] border rounded-lg shadow-2xl overflow-hidden flex flex-col"
+				className="modal-w-lg max-h-[85vh] border rounded-lg shadow-2xl overflow-hidden flex flex-col"
 				style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.border }}
 			>
 				{/* Header */}
@@ -546,27 +569,25 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 													</div>
 												))}
 											</div>
-											{/* Import playbook button */}
-											<div
-												className="border-t px-3 py-2"
-												style={{ borderColor: theme.colors.border }}
-											>
-												<button
-													onClick={(e) => {
-														e.stopPropagation();
-														handleImportPlaybook();
-													}}
-													className="flex items-center gap-2 w-full px-2 py-1.5 rounded hover:bg-white/5 transition-colors text-sm"
-													style={{ color: theme.colors.accent }}
-												>
-													<Upload className="w-3.5 h-3.5" />
-													Import Playbook
-												</button>
-											</div>
 										</div>
 									)}
 								</div>
 							)}
+
+							{/* Import Playbook — always visible so users with zero existing
+							    playbooks can still import a .maestro-playbook.zip. Previously
+							    lived inside the Load Playbook dropdown, which only renders when
+							    at least one playbook exists — making the entry point unreachable
+							    on fresh worktrees / first-time users. */}
+							<button
+								onClick={handleImportPlaybook}
+								className="flex items-center gap-2 px-3 py-1.5 rounded-lg border hover:bg-white/5 transition-colors"
+								style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
+								title="Import a playbook from a .maestro-playbook.zip file"
+							>
+								<Upload className="w-4 h-4" style={{ color: theme.colors.accent }} />
+								<span className="text-sm">Import Playbook</span>
+							</button>
 
 							{/* Playbook Exchange button */}
 							{onOpenMarketplace && (

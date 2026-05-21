@@ -23,7 +23,7 @@ import {
 	HostSourceFilter,
 	LOCAL_HOST_KEY,
 	ESTIMATED_ROW_HEIGHT,
-	ESTIMATED_ROW_HEIGHT_SIMPLE,
+	estimateHistoryRowHeight,
 	LOOKBACK_OPTIONS,
 } from './History';
 import type { GraphBucket } from './History/ActivityGraph';
@@ -90,11 +90,11 @@ export const HistoryPanel = React.memo(
 		const rightPanelWidth = useSettingsStore((s) => s.rightPanelWidth);
 		const compact = rightPanelWidth < RIGHT_PANEL_COMPACT_THRESHOLD;
 		const visibleTypes: HistoryEntryType[] = maestroCueEnabled
-			? ['AUTO', 'USER', 'CUE']
-			: ['AUTO', 'USER'];
+			? ['USER', 'AUTO', 'CUE']
+			: ['USER', 'AUTO'];
 
 		const [activeFilters, setActiveFilters] = useState<Set<HistoryEntryType>>(
-			() => new Set(maestroCueEnabled ? ['AUTO', 'USER', 'CUE'] : ['AUTO', 'USER'])
+			() => new Set(maestroCueEnabled ? ['USER', 'AUTO', 'CUE'] : ['USER', 'AUTO'])
 		);
 		const [detailModalEntry, setDetailModalEntry] = useState<HistoryEntry | null>(null);
 		const [searchFilter, setSearchFilter] = useState('');
@@ -373,17 +373,15 @@ export const HistoryPanel = React.memo(
 		// Virtualization Setup (must be before handlers that use it)
 		// ============================================================================
 
-		// Estimate row height based on entry content
+		// Estimate row height based on entry content. The estimate is the
+		// upper bound (assumes the line-clamp ceiling) so measureElement's
+		// correction only ever shrinks the row — preventing adjacent rows
+		// from overlapping in the gap between initial paint and ResizeObserver.
 		const estimateSize = useCallback(
 			(index: number) => {
 				const entry = allFilteredEntries[index];
 				if (!entry) return ESTIMATED_ROW_HEIGHT;
-				// Entries with footer (elapsed time, cost, or achievement) are taller
-				const hasFooter =
-					entry.elapsedTimeMs !== undefined ||
-					(entry.usageStats && entry.usageStats.totalCostUsd > 0) ||
-					entry.achievementAction;
-				return hasFooter ? ESTIMATED_ROW_HEIGHT : ESTIMATED_ROW_HEIGHT_SIMPLE;
+				return estimateHistoryRowHeight(entry);
 			},
 			[allFilteredEntries]
 		);
@@ -650,31 +648,42 @@ export const HistoryPanel = React.memo(
 					{/* Search Filter — above buttons when open */}
 					{searchFilterOpen && (
 						<div>
-							<input
-								ref={searchInputRef}
-								autoFocus
-								type="text"
-								placeholder="Filter history..."
-								value={searchFilter}
-								onChange={(e) => setSearchFilter(e.target.value)}
-								onKeyDown={(e) => {
-									if (e.key === 'Escape') {
-										setSearchFilterOpen(false);
-										setSearchFilter('');
-										// Return focus to the list
-										listRef.current?.focus();
-									} else if (e.key === 'ArrowDown') {
-										e.preventDefault();
-										// Move focus to list and select first item
-										listRef.current?.focus();
-										if (filteredEntries.length > 0) {
-											setSelectedIndex(0);
+							<div className="relative">
+								<input
+									ref={searchInputRef}
+									autoFocus
+									type="text"
+									placeholder="Filter history..."
+									value={searchFilter}
+									onChange={(e) => setSearchFilter(e.target.value)}
+									onKeyDown={(e) => {
+										if (e.key === 'Escape') {
+											setSearchFilterOpen(false);
+											setSearchFilter('');
+											// Return focus to the list
+											listRef.current?.focus();
+										} else if (e.key === 'ArrowDown') {
+											e.preventDefault();
+											// Move focus to list and select first item
+											listRef.current?.focus();
+											if (filteredEntries.length > 0) {
+												setSelectedIndex(0);
+											}
 										}
-									}
-								}}
-								className="w-full px-3 py-2 rounded border bg-transparent outline-none text-sm"
-								style={{ borderColor: theme.colors.accent, color: theme.colors.textMain }}
-							/>
+									}}
+									className="w-full pl-3 pr-14 py-2 rounded border bg-transparent outline-none text-sm"
+									style={{ borderColor: theme.colors.accent, color: theme.colors.textMain }}
+								/>
+								<div
+									className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-0.5 rounded text-xs font-bold pointer-events-none"
+									style={{
+										backgroundColor: theme.colors.bgMain,
+										color: theme.colors.textDim,
+									}}
+								>
+									ESC
+								</div>
+							</div>
 							{searchFilter && (
 								<div
 									className="text-[10px] mt-1 text-right"

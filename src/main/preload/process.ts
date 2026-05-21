@@ -211,6 +211,13 @@ export function createProcessApi() {
 		getActiveProcesses: (): Promise<ActiveProcess[]> =>
 			ipcRenderer.invoke('process:getActiveProcesses'),
 
+		/**
+		 * Check whether a terminal tab's PTY has a non-shell foreground process
+		 * (i.e. is actively running a command). Returns false if no PTY is found.
+		 */
+		isTerminalBusy: (sessionId: string): Promise<boolean> =>
+			ipcRenderer.invoke('process:isTerminalBusy', sessionId),
+
 		// Event listeners
 
 		/**
@@ -288,6 +295,36 @@ export function createProcessApi() {
 				callback(sessionId, sshRemote);
 			ipcRenderer.on('process:ssh-remote', handler);
 			return () => ipcRenderer.removeListener('process:ssh-remote', handler);
+		},
+
+		/**
+		 * Subscribe to Claude headless-mode resolution.
+		 * Emitted after a Claude Code spawn succeeds, carrying the mode the spawner
+		 * actually picked (`api` vs `interactive`/maestro-p), the reason tag for
+		 * persistence, and the canonical CLAUDE_CONFIG_DIR key the snapshot was
+		 * consulted under. Non-Claude agents and SSH Claude spawns don't fire this.
+		 */
+		onClaudeModeResolved: (
+			callback: (
+				sessionId: string,
+				resolution: {
+					mode: 'interactive' | 'api';
+					reason: 'auto' | 'limit';
+					configDirKey: string;
+				}
+			) => void
+		): (() => void) => {
+			const handler = (
+				_: unknown,
+				sessionId: string,
+				resolution: {
+					mode: 'interactive' | 'api';
+					reason: 'auto' | 'limit';
+					configDirKey: string;
+				}
+			) => callback(sessionId, resolution);
+			ipcRenderer.on('process:claude-mode-resolved', handler);
+			return () => ipcRenderer.removeListener('process:claude-mode-resolved', handler);
 		},
 
 		/**
@@ -465,13 +502,15 @@ export function createProcessApi() {
 		},
 
 		/**
-		 * Subscribe to remote open file tab from web interface
+		 * Subscribe to remote open file tab from web interface.
+		 * `switchToAgent` controls whether the UI switches to the target agent
+		 * (defaults to true if the sender omits it).
 		 */
 		onRemoteOpenFileTab: (
-			callback: (sessionId: string, filePath: string) => void
+			callback: (sessionId: string, filePath: string, switchToAgent: boolean) => void
 		): (() => void) => {
-			const handler = (_: unknown, sessionId: string, filePath: string) =>
-				callback(sessionId, filePath);
+			const handler = (_: unknown, sessionId: string, filePath: string, switchToAgent?: boolean) =>
+				callback(sessionId, filePath, switchToAgent !== false);
 			ipcRenderer.on('remote:openFileTab', handler);
 			return () => ipcRenderer.removeListener('remote:openFileTab', handler);
 		},
@@ -1491,71 +1530,6 @@ export function createProcessApi() {
 			responseChannel: string,
 			result: { success: boolean; gistUrl?: string; error?: string }
 		): void => {
-			ipcRenderer.send(responseChannel, result);
-		},
-
-		/**
-		 * Subscribe to remote get Cue subscriptions from web interface
-		 */
-		onRemoteGetCueSubscriptions: (
-			callback: (sessionId: string | undefined, responseChannel: string) => void
-		): (() => void) => {
-			const handler = (_: unknown, sessionId: string | undefined, responseChannel: string) =>
-				callback(sessionId, responseChannel);
-			ipcRenderer.on('remote:getCueSubscriptions', handler);
-			return () => ipcRenderer.removeListener('remote:getCueSubscriptions', handler);
-		},
-
-		/**
-		 * Send response for remote get Cue subscriptions
-		 */
-		sendRemoteGetCueSubscriptionsResponse: (responseChannel: string, result: unknown): void => {
-			ipcRenderer.send(responseChannel, result);
-		},
-
-		/**
-		 * Subscribe to remote toggle Cue subscription from web interface
-		 */
-		onRemoteToggleCueSubscription: (
-			callback: (subscriptionId: string, enabled: boolean, responseChannel: string) => void
-		): (() => void) => {
-			const handler = (
-				_: unknown,
-				subscriptionId: string,
-				enabled: boolean,
-				responseChannel: string
-			) => callback(subscriptionId, enabled, responseChannel);
-			ipcRenderer.on('remote:toggleCueSubscription', handler);
-			return () => ipcRenderer.removeListener('remote:toggleCueSubscription', handler);
-		},
-
-		/**
-		 * Send response for remote toggle Cue subscription
-		 */
-		sendRemoteToggleCueSubscriptionResponse: (responseChannel: string, success: boolean): void => {
-			ipcRenderer.send(responseChannel, success);
-		},
-
-		/**
-		 * Subscribe to remote get Cue activity from web interface
-		 */
-		onRemoteGetCueActivity: (
-			callback: (sessionId: string | undefined, limit: number, responseChannel: string) => void
-		): (() => void) => {
-			const handler = (
-				_: unknown,
-				sessionId: string | undefined,
-				limit: number,
-				responseChannel: string
-			) => callback(sessionId, limit, responseChannel);
-			ipcRenderer.on('remote:getCueActivity', handler);
-			return () => ipcRenderer.removeListener('remote:getCueActivity', handler);
-		},
-
-		/**
-		 * Send response for remote get Cue activity
-		 */
-		sendRemoteGetCueActivityResponse: (responseChannel: string, result: unknown): void => {
 			ipcRenderer.send(responseChannel, result);
 		},
 

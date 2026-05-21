@@ -24,11 +24,15 @@ vi.mock('../../../cli/services/agent-spawner', () => ({
 	detectAgent: vi.fn(),
 }));
 
+// Mock system-prompt so we can assert it gets called (or skipped on --no-system-prompt)
+vi.mock('../../../cli/services/system-prompt', () => ({
+	prepareMaestroSystemPromptCli: vi.fn(),
+}));
+
 // Mock storage
 vi.mock('../../../cli/services/storage', () => ({
 	resolveAgentId: vi.fn(),
 	getSessionById: vi.fn(),
-	readSettingValue: vi.fn(),
 }));
 
 // Mock usage-aggregator
@@ -52,8 +56,9 @@ vi.mock('../../../main/agents/definitions', () => ({
 import { send } from '../../../cli/commands/send';
 import { withMaestroClient } from '../../../cli/services/maestro-client';
 import { spawnAgent, detectAgent } from '../../../cli/services/agent-spawner';
-import { resolveAgentId, getSessionById, readSettingValue } from '../../../cli/services/storage';
+import { resolveAgentId, getSessionById } from '../../../cli/services/storage';
 import { estimateContextUsage } from '../../../main/parsers/usage-aggregator';
+import { prepareMaestroSystemPromptCli } from '../../../cli/services/system-prompt';
 
 describe('send command', () => {
 	let consoleSpy: MockInstance;
@@ -72,6 +77,10 @@ describe('send command', () => {
 		vi.clearAllMocks();
 		consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 		processExitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+		// Default: system-prompt builder returns undefined so existing assertions
+		// that don't include `appendSystemPrompt` keep passing (vitest treats
+		// undefined-valued object keys as absent in `toHaveBeenCalledWith`).
+		vi.mocked(prepareMaestroSystemPromptCli).mockResolvedValue(undefined);
 	});
 
 	it('should query an agent and return JSON response for new session', async () => {
@@ -292,6 +301,98 @@ describe('send command', () => {
 		expect(processExitSpy).toHaveBeenCalledWith(1);
 	});
 
+	it('builds and passes the Maestro system prompt by default', async () => {
+		vi.mocked(resolveAgentId).mockReturnValue('agent-abc-123');
+		const agent = mockAgent();
+		vi.mocked(getSessionById).mockReturnValue(agent);
+		vi.mocked(detectAgent).mockResolvedValue({ available: true, path: '/usr/bin/claude' });
+		vi.mocked(prepareMaestroSystemPromptCli).mockResolvedValue('the maestro context');
+		vi.mocked(spawnAgent).mockResolvedValue({
+			success: true,
+			response: 'ok',
+			agentSessionId: 'session-1',
+		});
+
+		await send('agent-abc', 'hello', {});
+
+		expect(prepareMaestroSystemPromptCli).toHaveBeenCalledWith(agent);
+		expect(spawnAgent).toHaveBeenCalledWith(
+			'claude-code',
+			'/path/to/project',
+			'hello',
+			undefined,
+			expect.objectContaining({ appendSystemPrompt: 'the maestro context' })
+		);
+	});
+
+	it('skips building the Maestro system prompt when --no-system-prompt is set', async () => {
+		vi.mocked(resolveAgentId).mockReturnValue('agent-abc-123');
+		vi.mocked(getSessionById).mockReturnValue(mockAgent());
+		vi.mocked(detectAgent).mockResolvedValue({ available: true, path: '/usr/bin/claude' });
+		vi.mocked(spawnAgent).mockResolvedValue({
+			success: true,
+			response: 'ok',
+			agentSessionId: 'session-1',
+		});
+
+		// Commander negates `--no-system-prompt` to `systemPrompt: false`
+		await send('agent-abc', 'hello', { systemPrompt: false });
+
+		expect(prepareMaestroSystemPromptCli).not.toHaveBeenCalled();
+		expect(spawnAgent).toHaveBeenCalledWith(
+			'claude-code',
+			'/path/to/project',
+			'hello',
+			undefined,
+			expect.objectContaining({ appendSystemPrompt: undefined })
+		);
+	});
+
+	it('still injects the system prompt on resume (parity with desktop)', async () => {
+		vi.mocked(resolveAgentId).mockReturnValue('agent-abc-123');
+		vi.mocked(getSessionById).mockReturnValue(mockAgent());
+		vi.mocked(detectAgent).mockResolvedValue({ available: true, path: '/usr/bin/claude' });
+		vi.mocked(prepareMaestroSystemPromptCli).mockResolvedValue('still here on resume');
+		vi.mocked(spawnAgent).mockResolvedValue({
+			success: true,
+			response: 'ok',
+			agentSessionId: 'session-xyz',
+		});
+
+		await send('agent-abc', 'follow-up', { session: 'session-xyz' });
+
+		expect(prepareMaestroSystemPromptCli).toHaveBeenCalled();
+		expect(spawnAgent).toHaveBeenCalledWith(
+			'claude-code',
+			'/path/to/project',
+			'follow-up',
+			'session-xyz',
+			expect.objectContaining({ appendSystemPrompt: 'still here on resume' })
+		);
+	});
+
+	it('continues without the system prompt when prepareMaestroSystemPromptCli returns undefined (non-fatal)', async () => {
+		vi.mocked(resolveAgentId).mockReturnValue('agent-abc-123');
+		vi.mocked(getSessionById).mockReturnValue(mockAgent());
+		vi.mocked(detectAgent).mockResolvedValue({ available: true, path: '/usr/bin/claude' });
+		vi.mocked(prepareMaestroSystemPromptCli).mockResolvedValue(undefined);
+		vi.mocked(spawnAgent).mockResolvedValue({
+			success: true,
+			response: 'ok',
+			agentSessionId: 'session-1',
+		});
+
+		await send('agent-abc', 'hello', {});
+
+		expect(prepareMaestroSystemPromptCli).toHaveBeenCalled();
+		expect(spawnAgent).toHaveBeenCalled();
+		const callArgs = vi.mocked(spawnAgent).mock.calls[0];
+		expect(callArgs[4]?.appendSystemPrompt).toBeUndefined();
+		// And the send must still succeed end-to-end
+		const output = JSON.parse(consoleSpy.mock.calls[0][0]);
+		expect(output.success).toBe(true);
+	});
+
 	it('should handle null usage stats gracefully', async () => {
 		vi.mocked(resolveAgentId).mockReturnValue('agent-abc-123');
 		vi.mocked(getSessionById).mockReturnValue(mockAgent());
@@ -307,289 +408,5 @@ describe('send command', () => {
 		const output = JSON.parse(consoleSpy.mock.calls[0][0]);
 		expect(output.success).toBe(true);
 		expect(output.usage).toBeNull();
-	});
-
-	describe('--live mode', () => {
-		it('should send send_command WebSocket message via withMaestroClient', async () => {
-			vi.mocked(resolveAgentId).mockReturnValue('agent-abc-123');
-			const mockSendCommand = vi.fn().mockResolvedValue({ type: 'command_result' });
-			vi.mocked(withMaestroClient).mockImplementation(async (action) => {
-				const mockClient = { sendCommand: mockSendCommand };
-				return action(mockClient as never);
-			});
-
-			await send('my-agent-id', 'Hello live', { live: true });
-
-			expect(resolveAgentId).toHaveBeenCalledWith('my-agent-id');
-			expect(mockSendCommand).toHaveBeenCalledWith(
-				{
-					type: 'send_command',
-					sessionId: 'agent-abc-123',
-					command: 'Hello live',
-					inputMode: 'ai',
-				},
-				'command_result'
-			);
-
-			const output = JSON.parse(consoleSpy.mock.calls[0][0]);
-			expect(output.success).toBe(true);
-			expect(output.agentId).toBe('agent-abc-123');
-			expect(output.agentName).toBe('live');
-			expect(output.sessionId).toBeNull();
-			expect(output.response).toBeNull();
-			expect(output.usage).toBeNull();
-			expect(processExitSpy).not.toHaveBeenCalled();
-		});
-
-		it('should resolve partial agent IDs before sending to server', async () => {
-			vi.mocked(resolveAgentId).mockReturnValue('agent-abc-123');
-			const mockSendCommand = vi.fn().mockResolvedValue({ type: 'command_result' });
-			vi.mocked(withMaestroClient).mockImplementation(async (action) => {
-				const mockClient = { sendCommand: mockSendCommand };
-				return action(mockClient as never);
-			});
-
-			await send('agent-abc', 'Hello live', { live: true });
-
-			expect(resolveAgentId).toHaveBeenCalledWith('agent-abc');
-			expect(mockSendCommand).toHaveBeenCalledWith(
-				expect.objectContaining({ sessionId: 'agent-abc-123' }),
-				'command_result'
-			);
-		});
-
-		it('should emit AGENT_NOT_FOUND when --live partial ID fails to resolve', async () => {
-			vi.mocked(resolveAgentId).mockImplementation(() => {
-				throw new Error('No agent matching "bogus"');
-			});
-
-			await send('bogus', 'Hello', { live: true });
-
-			const output = JSON.parse(consoleSpy.mock.calls[0][0]);
-			expect(output.success).toBe(false);
-			expect(output.code).toBe('AGENT_NOT_FOUND');
-			expect(output.error).toBe('No agent matching "bogus"');
-			expect(processExitSpy).toHaveBeenCalledWith(1);
-		});
-
-		it('should send new_ai_tab_with_prompt when --new-tab is set', async () => {
-			vi.mocked(resolveAgentId).mockReturnValue('agent-abc-123');
-			const mockSendCommand = vi.fn().mockResolvedValue({ type: 'new_ai_tab_with_prompt_result' });
-			vi.mocked(withMaestroClient).mockImplementation(async (action) => {
-				const mockClient = { sendCommand: mockSendCommand };
-				return action(mockClient as never);
-			});
-
-			await send('my-agent-id', 'Hello new tab', { live: true, newTab: true });
-
-			expect(mockSendCommand).toHaveBeenCalledWith(
-				{
-					type: 'new_ai_tab_with_prompt',
-					sessionId: 'agent-abc-123',
-					prompt: 'Hello new tab',
-				},
-				'new_ai_tab_with_prompt_result'
-			);
-		});
-
-		it('should error when --new-tab is used without --live', async () => {
-			await send('my-agent-id', 'Hello', { newTab: true });
-
-			const output = JSON.parse(consoleSpy.mock.calls[0][0]);
-			expect(output.success).toBe(false);
-			expect(output.code).toBe('INVALID_OPTIONS');
-			expect(output.error).toBe('--new-tab requires --live');
-			expect(processExitSpy).toHaveBeenCalledWith(1);
-		});
-
-		it('should include force=true in send_command payload when --force is set and setting is enabled', async () => {
-			vi.mocked(resolveAgentId).mockReturnValue('agent-abc-123');
-			vi.mocked(readSettingValue).mockReturnValue(true);
-			const mockSendCommand = vi.fn().mockResolvedValue({ type: 'command_result' });
-			vi.mocked(withMaestroClient).mockImplementation(async (action) => {
-				const mockClient = { sendCommand: mockSendCommand };
-				return action(mockClient as never);
-			});
-
-			await send('my-agent-id', 'Forced message', { live: true, force: true });
-
-			expect(readSettingValue).toHaveBeenCalledWith('allowConcurrentSend');
-			expect(mockSendCommand).toHaveBeenCalledWith(
-				{
-					type: 'send_command',
-					sessionId: 'agent-abc-123',
-					command: 'Forced message',
-					inputMode: 'ai',
-					force: true,
-				},
-				'command_result'
-			);
-		});
-
-		it('should omit force field when --force is not set', async () => {
-			vi.mocked(resolveAgentId).mockReturnValue('agent-abc-123');
-			const mockSendCommand = vi.fn().mockResolvedValue({ type: 'command_result' });
-			vi.mocked(withMaestroClient).mockImplementation(async (action) => {
-				const mockClient = { sendCommand: mockSendCommand };
-				return action(mockClient as never);
-			});
-
-			await send('my-agent-id', 'Normal', { live: true });
-
-			const [payload] = mockSendCommand.mock.calls[0];
-			expect(payload).not.toHaveProperty('force');
-		});
-
-		it('should error when --force is used without --live', async () => {
-			await send('my-agent-id', 'Hello', { force: true });
-
-			const output = JSON.parse(consoleSpy.mock.calls[0][0]);
-			expect(output.success).toBe(false);
-			expect(output.code).toBe('INVALID_OPTIONS');
-			expect(output.error).toBe('--force requires --live');
-			expect(processExitSpy).toHaveBeenCalledWith(1);
-		});
-
-		it('should error FORCE_NOT_ALLOWED when --force is used and allowConcurrentSend is disabled', async () => {
-			vi.mocked(resolveAgentId).mockReturnValue('agent-abc-123');
-			vi.mocked(readSettingValue).mockReturnValue(false);
-
-			// Production relies on process.exit(1) halting execution after emitting
-			// FORCE_NOT_ALLOWED. The shared spy swallows exit; override it locally so
-			// the mocked exit throws and control cannot fall through to the --live branch.
-			processExitSpy.mockImplementation(() => {
-				throw new Error('PROCESS_EXIT');
-			});
-
-			await expect(send('my-agent-id', 'Hello', { live: true, force: true })).rejects.toThrow(
-				'PROCESS_EXIT'
-			);
-
-			const output = JSON.parse(consoleSpy.mock.calls[0][0]);
-			expect(output.success).toBe(false);
-			expect(output.code).toBe('FORCE_NOT_ALLOWED');
-			expect(output.error).toContain('allowConcurrentSend');
-			expect(processExitSpy).toHaveBeenCalledWith(1);
-			// Must not reach the WS layer
-			expect(withMaestroClient).not.toHaveBeenCalled();
-		});
-
-		it('should error FORCE_NOT_ALLOWED when --force is used and setting is unset (default off)', async () => {
-			vi.mocked(resolveAgentId).mockReturnValue('agent-abc-123');
-			vi.mocked(readSettingValue).mockReturnValue(undefined);
-
-			await send('my-agent-id', 'Hello', { live: true, force: true });
-
-			const output = JSON.parse(consoleSpy.mock.calls[0][0]);
-			expect(output.success).toBe(false);
-			expect(output.code).toBe('FORCE_NOT_ALLOWED');
-			expect(processExitSpy).toHaveBeenCalledWith(1);
-		});
-
-		it('should error when --live is combined with --session', async () => {
-			await send('my-agent-id', 'Hello', { live: true, session: 'some-session' });
-
-			const output = JSON.parse(consoleSpy.mock.calls[0][0]);
-			expect(output.success).toBe(false);
-			expect(output.code).toBe('INVALID_OPTIONS');
-			expect(output.error).toBe('--live cannot be combined with --session or --read-only');
-			expect(processExitSpy).toHaveBeenCalledWith(1);
-		});
-
-		it('should error when --live is combined with --read-only', async () => {
-			await send('my-agent-id', 'Hello', { live: true, readOnly: true });
-
-			const output = JSON.parse(consoleSpy.mock.calls[0][0]);
-			expect(output.success).toBe(false);
-			expect(output.code).toBe('INVALID_OPTIONS');
-			expect(output.error).toBe('--live cannot be combined with --session or --read-only');
-			expect(processExitSpy).toHaveBeenCalledWith(1);
-		});
-
-		it('should produce MAESTRO_NOT_RUNNING error when connection fails', async () => {
-			vi.mocked(resolveAgentId).mockReturnValue('agent-abc-123');
-			vi.mocked(withMaestroClient).mockRejectedValue(new Error('Connection refused'));
-
-			await send('my-agent-id', 'Hello', { live: true });
-
-			const output = JSON.parse(consoleSpy.mock.calls[0][0]);
-			expect(output.success).toBe(false);
-			expect(output.code).toBe('MAESTRO_NOT_RUNNING');
-			expect(output.error).toBe('Maestro desktop is not running or not reachable');
-			expect(processExitSpy).toHaveBeenCalledWith(1);
-		});
-
-		it('should produce SESSION_NOT_FOUND error when session is unknown', async () => {
-			vi.mocked(resolveAgentId).mockReturnValue('bad-session-id');
-			vi.mocked(withMaestroClient).mockRejectedValue(new Error('Unknown session ID'));
-
-			await send('bad-session-id', 'Hello', { live: true });
-
-			const output = JSON.parse(consoleSpy.mock.calls[0][0]);
-			expect(output.success).toBe(false);
-			expect(output.code).toBe('SESSION_NOT_FOUND');
-			expect(processExitSpy).toHaveBeenCalledWith(1);
-		});
-
-		it('should not call getSessionById/detectAgent/spawnAgent in --live mode', async () => {
-			vi.mocked(resolveAgentId).mockReturnValue('agent-abc-123');
-			vi.mocked(withMaestroClient).mockImplementation(async (action) => {
-				const mockClient = { sendCommand: vi.fn().mockResolvedValue({ type: 'command_result' }) };
-				return action(mockClient as never);
-			});
-
-			await send('my-agent-id', 'Hello live', { live: true });
-
-			expect(getSessionById).not.toHaveBeenCalled();
-			expect(detectAgent).not.toHaveBeenCalled();
-			expect(spawnAgent).not.toHaveBeenCalled();
-		});
-
-		it('emits a stderr deprecation notice on every --live invocation', async () => {
-			// `send --live` is retained as a hidden alias for `dispatch` during
-			// the deprecation window. The notice goes to stderr so JSON-parsing
-			// callers reading stdout aren't broken by the new line.
-			vi.mocked(resolveAgentId).mockReturnValue('agent-abc-123');
-			vi.mocked(withMaestroClient).mockImplementation(async (action) => {
-				const mockClient = { sendCommand: vi.fn().mockResolvedValue({ type: 'command_result' }) };
-				return action(mockClient as never);
-			});
-			const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-
-			await send('my-agent-id', 'Hello live', { live: true });
-
-			const stderrText = stderrSpy.mock.calls.map((call) => String(call[0])).join('');
-			expect(stderrText).toMatch(/deprecated/i);
-			expect(stderrText).toMatch(/dispatch/);
-
-			stderrSpy.mockRestore();
-		});
-
-		it('preserves the legacy SendResponse shape (agentName="live", null fields) so existing scripts keep parsing', async () => {
-			vi.mocked(resolveAgentId).mockReturnValue('agent-abc-123');
-			vi.mocked(withMaestroClient).mockImplementation(async (action) => {
-				const mockClient = {
-					sendCommand: vi
-						.fn()
-						.mockResolvedValue({ type: 'command_result', success: true, tabId: 'tab-99' }),
-				};
-				return action(mockClient as never);
-			});
-
-			await send('my-agent-id', 'Hello live', { live: true });
-
-			const output = JSON.parse(consoleSpy.mock.calls[0][0]);
-			// PR1 surfaces tabId in `dispatch` output but `send --live` keeps
-			// the historic shape — sessionId stays null and agentName stays
-			// "live" so downstream parsers don't break mid-deprecation window.
-			expect(output).toEqual({
-				agentId: 'agent-abc-123',
-				agentName: 'live',
-				sessionId: null,
-				response: null,
-				success: true,
-				usage: null,
-			});
-		});
 	});
 });

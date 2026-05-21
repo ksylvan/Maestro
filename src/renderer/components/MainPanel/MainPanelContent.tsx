@@ -13,6 +13,7 @@ import { WizardConversationView, DocumentGenerationView } from '../InlineWizard'
 import { BrowserTabView } from './BrowserTabView';
 import { useUIStore } from '../../stores/uiStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useTabStore } from '../../stores/tabStore';
 import type {
 	Session,
 	Theme,
@@ -212,13 +213,17 @@ export interface MainPanelContentProps {
 	onPublishGist?: () => void;
 	hasGist?: boolean;
 	onOpenInGraph?: () => void;
+	/** Open the currently previewed file in a new Maestro browser tab. */
+	onOpenInBrowser?: () => void;
 	onPublishMessageGist?: (text: string, messageId?: string) => void;
 	onToggleTabReadOnlyMode?: () => void;
 	onToggleTabSaveToHistory?: () => void;
 	onToggleTabShowThinking?: () => void;
+	onToggleTabEnterToSend?: () => void;
 
 	// Wizard callbacks
 	onWizardComplete?: () => void;
+	onWizardCompleteAndStartAutoRun?: () => void;
 	onWizardDocumentSelect?: (index: number) => void;
 	onWizardContentChange?: (content: string, docIndex: number) => void;
 	onWizardLetsGo?: () => void;
@@ -365,11 +370,14 @@ export const MainPanelContent = React.memo(function MainPanelContent(props: Main
 		onPublishGist,
 		hasGist,
 		onOpenInGraph,
+		onOpenInBrowser,
 		onPublishMessageGist,
 		onToggleTabReadOnlyMode,
 		onToggleTabSaveToHistory,
 		onToggleTabShowThinking,
+		onToggleTabEnterToSend,
 		onWizardComplete,
+		onWizardCompleteAndStartAutoRun,
 		onWizardDocumentSelect,
 		onWizardContentChange,
 		onWizardLetsGo,
@@ -476,6 +484,7 @@ export const MainPanelContent = React.memo(function MainPanelContent(props: Main
 						onPublishGist={onPublishGist}
 						hasGist={hasGist}
 						onOpenInGraph={onOpenInGraph}
+						onOpenInBrowser={onOpenInBrowser}
 						sshRemoteId={filePreviewSshRemoteId}
 						// Pass external edit content for persistence across tab switches
 						externalEditContent={activeFileTab.editContent}
@@ -489,6 +498,23 @@ export const MainPanelContent = React.memo(function MainPanelContent(props: Main
 						// File change detection
 						lastModified={activeFileTab.lastModified}
 						onReloadFile={handleFilePreviewReload}
+						// Phase 2: per-tab preview tier override.
+						previewTierOverride={activeFileTab.previewTierOverride}
+						onPreviewTierChange={(tier) =>
+							useTabStore.getState().setFileTabPreviewTier(activeFileTabId, tier)
+						}
+						// HTML render mode (per-tab, persists across tab switches).
+						htmlRenderMode={activeFileTab.htmlRenderMode}
+						onHtmlRenderModeChange={(value) =>
+							useTabStore.getState().setFileTabHtmlRenderMode(activeFileTabId, value)
+						}
+						// Transient deep-link scroll target. FilePreview clears this
+						// via onPendingScrollToLineConsumed once the editor has
+						// jumped, so subsequent re-renders don't re-scroll.
+						pendingScrollToLine={activeFileTab.pendingScrollToLine}
+						onPendingScrollToLineConsumed={() =>
+							useTabStore.getState().clearFileTabPendingScrollToLine(activeFileTabId)
+						}
 					/>
 				</div>
 			) : (
@@ -508,6 +534,7 @@ export const MainPanelContent = React.memo(function MainPanelContent(props: Main
 								isGenerating={activeTab?.wizardState?.isGeneratingDocs ?? false}
 								streamingContent={activeTab?.wizardState?.streamingContent}
 								onComplete={onWizardComplete || (() => {})}
+								onCompleteAndStartAutoRun={onWizardCompleteAndStartAutoRun}
 								onDocumentSelect={onWizardDocumentSelect || (() => {})}
 								folderPath={
 									activeTab?.wizardState?.subfolderPath ?? activeTab?.wizardState?.autoRunFolderPath
@@ -518,6 +545,7 @@ export const MainPanelContent = React.memo(function MainPanelContent(props: Main
 								totalDocuments={activeTab?.wizardState?.totalDocuments}
 								onCancel={onWizardCancelGeneration}
 								subfolderName={activeTab?.wizardState?.subfolderName}
+								startedAt={activeTab?.wizardState?.docGenerationStartedAt}
 							/>
 						) : activeSession.inputMode === 'ai' && activeTab?.wizardState?.isActive ? (
 							<WizardConversationView
@@ -604,8 +632,12 @@ export const MainPanelContent = React.memo(function MainPanelContent(props: Main
 									theme={theme}
 									inputValue={inputValue}
 									setInputValue={setInputValue}
-									enterToSend={enterToSendAI}
-									setEnterToSend={useSettingsStore.getState().setEnterToSendAI}
+									enterToSend={activeTab?.enterToSend ?? enterToSendAI}
+									setEnterToSend={
+										onToggleTabEnterToSend
+											? () => onToggleTabEnterToSend()
+											: useSettingsStore.getState().setEnterToSendAI
+									}
 									stagedImages={stagedImages}
 									setStagedImages={setStagedImages}
 									setLightboxImage={setLightboxImage}

@@ -103,6 +103,8 @@ import type {
 	RenameSessionCallback,
 	GetGitStatusCallback,
 	GetGitDiffCallback,
+	GetGitBranchesForSessionCallback,
+	ListWorktreesForSessionCallback,
 	GroupData,
 	GetGroupChatsCallback,
 	StartGroupChatCallback,
@@ -126,6 +128,10 @@ import type {
 	GenerateDirectorNotesSynopsisCallback,
 	NotifyToastCallback,
 	NotifyCenterFlashCallback,
+	GetMarketplaceManifestCallback,
+	GetMarketplaceDocumentCallback,
+	GetMarketplaceReadmeCallback,
+	ImportMarketplacePlaybookCallback,
 	ListDesktopSessionsCallback,
 	GetSessionHistoryCallback,
 } from './types';
@@ -572,6 +578,14 @@ export class WebServer {
 		this.callbackRegistry.setGetGitDiffCallback(callback);
 	}
 
+	setGetGitBranchesForSessionCallback(callback: GetGitBranchesForSessionCallback): void {
+		this.callbackRegistry.setGetGitBranchesForSessionCallback(callback);
+	}
+
+	setListWorktreesForSessionCallback(callback: ListWorktreesForSessionCallback): void {
+		this.callbackRegistry.setListWorktreesForSessionCallback(callback);
+	}
+
 	setGetGroupChatsCallback(callback: GetGroupChatsCallback): void {
 		this.callbackRegistry.setGetGroupChatsCallback(callback);
 	}
@@ -642,6 +656,22 @@ export class WebServer {
 
 	setNotifyCenterFlashCallback(callback: NotifyCenterFlashCallback): void {
 		this.callbackRegistry.setNotifyCenterFlashCallback(callback);
+	}
+
+	setGetMarketplaceManifestCallback(callback: GetMarketplaceManifestCallback): void {
+		this.callbackRegistry.setGetMarketplaceManifestCallback(callback);
+	}
+
+	setGetMarketplaceDocumentCallback(callback: GetMarketplaceDocumentCallback): void {
+		this.callbackRegistry.setGetMarketplaceDocumentCallback(callback);
+	}
+
+	setGetMarketplaceReadmeCallback(callback: GetMarketplaceReadmeCallback): void {
+		this.callbackRegistry.setGetMarketplaceReadmeCallback(callback);
+	}
+
+	setImportMarketplacePlaybookCallback(callback: ImportMarketplacePlaybookCallback): void {
+		this.callbackRegistry.setImportMarketplacePlaybookCallback(callback);
 	}
 
 	setListDesktopSessionsCallback(callback: ListDesktopSessionsCallback): void {
@@ -821,8 +851,8 @@ export class WebServer {
 			reorderTab: async (sessionId: string, fromIndex: number, toIndex: number) =>
 				this.callbackRegistry.reorderTab(sessionId, fromIndex, toIndex),
 			toggleBookmark: async (sessionId: string) => this.callbackRegistry.toggleBookmark(sessionId),
-			openFileTab: async (sessionId: string, filePath: string) =>
-				this.callbackRegistry.openFileTab(sessionId, filePath),
+			openFileTab: async (sessionId: string, filePath: string, switchToAgent: boolean) =>
+				this.callbackRegistry.openFileTab(sessionId, filePath, switchToAgent),
 			refreshFileTree: async (sessionId: string) =>
 				this.callbackRegistry.refreshFileTree(sessionId),
 			openBrowserTab: async (sessionId: string, url: string) =>
@@ -894,6 +924,10 @@ export class WebServer {
 			getGitStatus: async (sessionId: string) => this.callbackRegistry.getGitStatus(sessionId),
 			getGitDiff: async (sessionId: string, filePath?: string) =>
 				this.callbackRegistry.getGitDiff(sessionId, filePath),
+			getGitBranchesForSession: async (sessionId: string) =>
+				this.callbackRegistry.getGitBranchesForSession(sessionId),
+			listWorktreesForSession: async (sessionId: string) =>
+				this.callbackRegistry.listWorktreesForSession(sessionId),
 			getGroupChats: async () => this.callbackRegistry.getGroupChats(),
 			startGroupChat: async (topic: string, participantIds: string[]) =>
 				this.callbackRegistry.startGroupChat(topic, participantIds),
@@ -920,9 +954,34 @@ export class WebServer {
 				prompt?: string,
 				sourceAgentId?: string
 			) => this.callbackRegistry.triggerCueSubscription(subscriptionName, prompt, sourceAgentId),
+			// Cue pipeline-layout mutations operate directly on the
+			// main-process layout file via the mutation primitives — no
+			// renderer round-trip needed. The Pipeline Editor (when open)
+			// keeps its own in-memory state, so CLI edits made while the
+			// editor is open will be overwritten on the editor's next
+			// save. The CLI surface documents this; we don't gate here.
+			listCuePipelines: async () => {
+				const { listPipelinesFromDisk } = await import('../cue/pipeline-layout-mutations');
+				const result = listPipelinesFromDisk();
+				return { pipelines: result.pipelines as unknown[] };
+			},
+			getCuePipeline: async (identifier: string) => {
+				const { getPipelineFromDisk } = await import('../cue/pipeline-layout-mutations');
+				return getPipelineFromDisk(identifier);
+			},
+			setCuePipeline: async (identifier: string, pipeline: unknown, policy: 'add' | 'replace') => {
+				const { setPipelineOnDisk } = await import('../cue/pipeline-layout-mutations');
+				return setPipelineOnDisk(pipeline, policy, identifier);
+			},
+			removeCuePipeline: async (identifier: string) => {
+				const { removePipelineOnDisk } = await import('../cue/pipeline-layout-mutations');
+				return removePipelineOnDisk(identifier);
+			},
 			getUsageDashboard: async (timeRange: 'day' | 'week' | 'month' | 'all') =>
 				this.callbackRegistry.getUsageDashboard(timeRange),
 			getAchievements: async () => this.callbackRegistry.getAchievements(),
+			generateDirectorNotesSynopsis: async (lookbackDays: number, provider: string) =>
+				this.callbackRegistry.generateDirectorNotesSynopsis(lookbackDays, provider),
 			writeToTerminal: (sessionId: string, data: string) =>
 				this.writeToTerminalCallback?.(sessionId, data) ?? false,
 			resizeTerminal: (sessionId: string, cols: number, rows: number) =>
@@ -937,6 +996,17 @@ export class WebServer {
 				this.killTerminalForWebCallback?.(sessionId) ?? false,
 			notifyToast: async (params) => this.callbackRegistry.notifyToast(params),
 			notifyCenterFlash: async (params) => this.callbackRegistry.notifyCenterFlash(params),
+			getMarketplaceManifest: async (options) =>
+				this.callbackRegistry.getMarketplaceManifest(options),
+			getMarketplaceDocument: async (playbookPath: string, filename: string) =>
+				this.callbackRegistry.getMarketplaceDocument(playbookPath, filename),
+			getMarketplaceReadme: async (playbookPath: string) =>
+				this.callbackRegistry.getMarketplaceReadme(playbookPath),
+			importMarketplacePlaybook: async (
+				sessionId: string,
+				playbookId: string,
+				targetFolderName: string
+			) => this.callbackRegistry.importMarketplacePlaybook(sessionId, playbookId, targetFolderName),
 			listDesktopSessions: () => this.callbackRegistry.listDesktopSessions(),
 			getSessionHistory: (tabId, options) =>
 				this.callbackRegistry.getSessionHistory(tabId, options),

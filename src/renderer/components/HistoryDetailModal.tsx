@@ -185,7 +185,7 @@ export function HistoryDetailModal({
 
 			{/* Modal */}
 			<div
-				className="relative w-full max-w-3xl max-h-[80vh] overflow-hidden rounded-lg border shadow-2xl flex flex-col"
+				className="relative w-full max-w-3xl max-h-[80vh] overflow-hidden rounded-lg border shadow-2xl flex flex-col select-text"
 				style={{
 					backgroundColor: theme.colors.bgSidebar,
 					borderColor: theme.colors.border,
@@ -539,6 +539,7 @@ export function HistoryDetailModal({
 						projectRoot={projectRoot}
 						onFileClick={onFileClick}
 						enableBionifyReadingMode={bionifyReadingMode}
+						chatLineBreaks
 					/>
 				</div>
 
@@ -625,7 +626,7 @@ export function HistoryDetailModal({
 				>
 					<div className="absolute inset-0 bg-black/60" />
 					<div
-						className="relative w-[400px] border rounded-lg shadow-2xl overflow-hidden"
+						className="relative modal-w-xs border rounded-lg shadow-2xl overflow-hidden"
 						style={{
 							backgroundColor: theme.colors.bgSidebar,
 							borderColor: theme.colors.border,

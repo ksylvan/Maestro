@@ -58,6 +58,8 @@ export interface SettingsModalData {
 /** New instance modal data */
 export interface NewInstanceModalData {
 	duplicatingSessionId: string | null;
+	/** When set, the new agent is created inside this group (ignored if duplicatingSessionId is set — duplicates inherit the source's group). */
+	presetGroupId?: string | null;
 }
 
 /** Edit agent modal data */
@@ -88,6 +90,15 @@ export interface RenameInstanceModalData {
 export interface RenameTabModalData {
 	tabId: string;
 	initialName: string;
+}
+
+/** Terminal tab startup command modal data */
+export interface TerminalStartupCommandModalData {
+	sessionId: string;
+	tabId: string;
+	initialCommand: string;
+	initialCwd: string;
+	defaultCwd: string;
 }
 
 /** Rename group modal data */
@@ -127,6 +138,7 @@ export interface DirectorNotesData {
 /** Cue modal data */
 export interface QuitConfirmModalData {
 	activeTerminalTasks?: string[];
+	hasFeedbackDraft?: boolean;
 }
 
 export interface CueModalData {
@@ -164,6 +176,12 @@ export interface KeyboardMasteryData {
 	level: number;
 }
 
+/** Batch Runner modal data — used to pre-seed the doc list when opened programmatically (e.g. from the inline wizard's "Start Auto Run" button). */
+export interface BatchRunnerModalData {
+	/** Document filenames (without `.md`) to pre-populate the run list with. When set, overrides the default `[currentDocument]` initialization. */
+	presetDocuments?: string[];
+}
+
 // ============================================================================
 // Modal ID Registry
 // ============================================================================
@@ -196,6 +214,7 @@ export type ModalId =
 	| 'promptComposer'
 	// Tab Management
 	| 'renameTab'
+	| 'terminalStartupCommand'
 	// Group Management
 	| 'renameGroup'
 	// Session Operations
@@ -265,8 +284,10 @@ export interface ModalDataMap {
 	confirm: ConfirmModalData;
 	renameInstance: RenameInstanceModalData;
 	renameTab: RenameTabModalData;
+	terminalStartupCommand: TerminalStartupCommandModalData;
 	renameGroup: RenameGroupModalData;
 	agentSessions: AgentSessionsModalData;
+	batchRunner: BatchRunnerModalData;
 	wizardResume: WizardResumeModalData;
 	agentError: AgentErrorModalData;
 	deleteAgent: DeleteAgentModalData;
@@ -615,8 +636,10 @@ export function getModalActions() {
 		closeConfirmation: () => closeModal('confirm'),
 
 		// Quit Confirmation Modal
-		setQuitConfirmModalOpen: (open: boolean, data?: { activeTerminalTasks?: string[] }) =>
-			open ? openModal('quitConfirm', data) : closeModal('quitConfirm'),
+		setQuitConfirmModalOpen: (
+			open: boolean,
+			data?: { activeTerminalTasks?: string[]; hasFeedbackDraft?: boolean }
+		) => (open ? openModal('quitConfirm', data) : closeModal('quitConfirm')),
 
 		// Rename Instance Modal
 		setRenameInstanceModalOpen: (open: boolean) => {
@@ -663,6 +686,11 @@ export function getModalActions() {
 				openModal('renameTab', { tabId: '', initialName });
 			}
 		},
+
+		// Terminal Tab Startup Command Modal
+		openTerminalStartupCommandModal: (data: TerminalStartupCommandModalData) =>
+			openModal('terminalStartupCommand', data),
+		closeTerminalStartupCommandModal: () => closeModal('terminalStartupCommand'),
 
 		// Rename Group Modal
 		setRenameGroupModalOpen: (open: boolean) => {
@@ -717,7 +745,9 @@ export function getModalActions() {
 
 		// Batch Runner Modal
 		setBatchRunnerModalOpen: (open: boolean) =>
-			open ? openModal('batchRunner') : closeModal('batchRunner'),
+			open ? openModal('batchRunner', {}) : closeModal('batchRunner'),
+		openBatchRunnerWithPresets: (presetDocuments: string[]) =>
+			openModal('batchRunner', { presetDocuments }),
 
 		// Auto Run Setup Modal
 		setAutoRunSetupModalOpen: (open: boolean) =>
@@ -933,6 +963,7 @@ export function useModalActions() {
 		// New Instance Modal
 		newInstanceModalOpen,
 		duplicatingSessionId: newInstanceData?.duplicatingSessionId ?? null,
+		newInstancePresetGroupId: newInstanceData?.presetGroupId ?? null,
 
 		// Edit Agent Modal
 		editAgentModalOpen,
@@ -1003,6 +1034,7 @@ export function useModalActions() {
 		// Quit Confirmation Modal
 		quitConfirmModalOpen,
 		activeTerminalTasks: (quitConfirmData?.activeTerminalTasks as string[]) ?? [],
+		hasFeedbackDraft: quitConfirmData?.hasFeedbackDraft ?? false,
 
 		// Rename Instance Modal
 		renameInstanceModalOpen,

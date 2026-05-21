@@ -196,6 +196,30 @@ vi.mock('../../../../main/utils/cliDetection', () => ({
 	resolveSshPath: vi.fn().mockResolvedValue('ssh'),
 }));
 
+// Mock platformDetection. Default mirrors the host so the existing
+// `appendSystemPrompt delivery` test still picks the right branch on
+// Windows CI; new tests override per-case with mockReturnValue(true).
+vi.mock('../../../../shared/platformDetection', () => ({
+	isWindows: vi.fn(() => process.platform === 'win32'),
+	isMacOS: vi.fn(() => process.platform === 'darwin'),
+	isLinux: vi.fn(() => process.platform === 'linux'),
+}));
+
+// Mock fs/promises so the new temp-file tests can assert on writeFile/unlink
+// without touching the real filesystem. Other tests in this file don't use
+// fs/promises, so the module-level mock is safe.
+vi.mock('fs/promises', () => ({
+	writeFile: vi.fn().mockResolvedValue(undefined),
+	unlink: vi.fn().mockResolvedValue(undefined),
+}));
+
+// Mock sentry — captureException is asserted on by the new cleanup-error
+// tests; addBreadcrumb is a no-op stub so existing tests don't hit real Sentry.
+vi.mock('../../../../main/utils/sentry', () => ({
+	captureException: vi.fn(),
+	addBreadcrumb: vi.fn(),
+}));
+
 describe('process IPC handlers', () => {
 	let handlers: Map<string, Function>;
 	let mockProcessManager: {
@@ -205,6 +229,7 @@ describe('process IPC handlers', () => {
 		kill: ReturnType<typeof vi.fn>;
 		resize: ReturnType<typeof vi.fn>;
 		getAll: ReturnType<typeof vi.fn>;
+		get: ReturnType<typeof vi.fn>;
 		runCommand: ReturnType<typeof vi.fn>;
 		spawnTerminalTab: ReturnType<typeof vi.fn>;
 	};
@@ -216,6 +241,10 @@ describe('process IPC handlers', () => {
 		set: ReturnType<typeof vi.fn>;
 	};
 	let mockSettingsStore: {
+		get: ReturnType<typeof vi.fn>;
+		set: ReturnType<typeof vi.fn>;
+	};
+	let mockSessionsStore: {
 		get: ReturnType<typeof vi.fn>;
 		set: ReturnType<typeof vi.fn>;
 	};
@@ -233,6 +262,7 @@ describe('process IPC handlers', () => {
 			kill: vi.fn(),
 			resize: vi.fn(),
 			getAll: vi.fn(),
+			get: vi.fn(),
 			runCommand: vi.fn(),
 			spawnTerminalTab: vi.fn(),
 		};
@@ -250,7 +280,14 @@ describe('process IPC handlers', () => {
 
 		// Create mock settings store
 		mockSettingsStore = {
-			get: vi.fn().mockImplementation((key, defaultValue) => defaultValue),
+			get: vi.fn().mockImplementation((_key, defaultValue) => defaultValue),
+			set: vi.fn(),
+		};
+
+		// Create mock sessions store. Defaults to an empty session list so the
+		// spawn handler's stale-claudeInteractive cleanup branch reads cleanly.
+		mockSessionsStore = {
+			get: vi.fn().mockImplementation((_key, defaultValue) => defaultValue),
 			set: vi.fn(),
 		};
 
@@ -269,6 +306,7 @@ describe('process IPC handlers', () => {
 			getAgentDetector: () => mockAgentDetector as any,
 			agentConfigsStore: mockAgentConfigsStore as any,
 			settingsStore: mockSettingsStore as any,
+			sessionsStore: mockSessionsStore as any,
 			getMainWindow: () => mockMainWindow as any,
 		};
 
@@ -295,6 +333,7 @@ describe('process IPC handlers', () => {
 				'process:kill',
 				'process:resize',
 				'process:getActiveProcesses',
+				'process:isTerminalBusy',
 				'process:spawnTerminalTab',
 				'process:runCommand',
 			];
@@ -647,6 +686,146 @@ describe('process IPC handlers', () => {
 				})
 			);
 		});
+
+		// Batch Mode default-off: when `enableMaestroP` isn't set on the spawn
+		// config, the resolver is skipped entirely and API-mode args pass through.
+		// (Tests for the toggle-on path live in claude-mode-selector.test.ts and the
+		// integration story for the binary swap is exercised via manual QA — the
+		// swap depends on fs.existsSync + an actual snapshot which is awkward to
+		// stub at the IPC layer.)
+		describe('Batch Mode gating', () => {
+			const claudeCodeAgent = {
+				id: 'claude-code',
+				name: 'Claude Code',
+				command: 'claude',
+				args: ['--print', '--verbose', '--output-format', 'stream-json'],
+				apiCommand: 'claude',
+				interactiveCommand: 'maestro-p',
+				interactiveModeArgs: ['--dangerously-skip-permissions'],
+				requiresPty: true,
+			};
+
+			it('leaves API-mode args intact when Batch Mode is off (default)', async () => {
+				mockAgentDetector.getAgent.mockResolvedValue(claudeCodeAgent);
+				mockProcessManager.spawn.mockReturnValue({ pid: 4244, success: true });
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, {
+					sessionId: 'session-default',
+					toolType: 'claude-code',
+					cwd: '/test',
+					command: 'claude',
+					args: claudeCodeAgent.args,
+					prompt: 'hi',
+				});
+
+				const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
+				expect(spawnCall.args).toContain('--print');
+				expect(spawnCall.args).toContain('--verbose');
+				expect(spawnCall.args).toContain('--output-format');
+				expect(spawnCall.args).toContain('stream-json');
+			});
+
+			it('emits interactive resolution when Path is wired directly at maestro-p', async () => {
+				mockAgentDetector.getAgent.mockResolvedValue(claudeCodeAgent);
+				mockProcessManager.spawn.mockReturnValue({ pid: 4245, success: true });
+				const sendSpy = vi.fn();
+				deps = {
+					...deps,
+					getMainWindow: () =>
+						({
+							isDestroyed: vi.fn().mockReturnValue(false),
+							webContents: {
+								send: sendSpy,
+								isDestroyed: vi.fn().mockReturnValue(false),
+							},
+						}) as any,
+				};
+				handlers.clear();
+				vi.mocked(ipcMain.handle).mockImplementation((channel, h) => {
+					handlers.set(channel, h);
+				});
+				registerProcessHandlers(deps);
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, {
+					sessionId: 'session-direct-mp',
+					toolType: 'claude-code',
+					cwd: '/test',
+					command: 'claude',
+					args: claudeCodeAgent.args,
+					sessionCustomPath: '/Users/x/dist/cli/maestro-p.js',
+					prompt: 'hi',
+				});
+
+				const resolveCalls = sendSpy.mock.calls.filter(
+					(c) => c[0] === 'process:claude-mode-resolved'
+				);
+				expect(resolveCalls.length).toBeGreaterThan(0);
+				const [, sessionId, payload] = resolveCalls[0];
+				expect(sessionId).toBe('session-direct-mp');
+				expect(payload.mode).toBe('interactive');
+				expect(payload.reason).toBe('auto');
+			});
+
+			it('clears stale claudeInteractive=interactive when neither toggle nor maestro-p Path is active', async () => {
+				mockAgentDetector.getAgent.mockResolvedValue(claudeCodeAgent);
+				mockProcessManager.spawn.mockReturnValue({ pid: 4246, success: true });
+
+				// Stage a prior interactive run on this session so the cleanup branch fires.
+				mockSessionsStore.get.mockImplementation((key: string, defaultValue: unknown) => {
+					if (key === 'sessions') {
+						return [
+							{
+								id: 'session-stale',
+								claudeInteractive: { mode: 'interactive', modeReason: 'auto' },
+							},
+						];
+					}
+					return defaultValue;
+				});
+
+				const sendSpy = vi.fn();
+				deps = {
+					...deps,
+					getMainWindow: () =>
+						({
+							isDestroyed: vi.fn().mockReturnValue(false),
+							webContents: {
+								send: sendSpy,
+								isDestroyed: vi.fn().mockReturnValue(false),
+							},
+						}) as any,
+				};
+				handlers.clear();
+				vi.mocked(ipcMain.handle).mockImplementation((channel, h) => {
+					handlers.set(channel, h);
+				});
+				registerProcessHandlers(deps);
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, {
+					sessionId: 'session-stale',
+					toolType: 'claude-code',
+					cwd: '/test',
+					command: 'claude',
+					args: claudeCodeAgent.args,
+					prompt: 'hi',
+				});
+
+				const persisted = mockSessionsStore.set.mock.calls.find((c) => c[0] === 'sessions');
+				expect(persisted).toBeDefined();
+				const nextSessions = persisted![1] as Array<{ id: string; claudeInteractive: any }>;
+				const stale = nextSessions.find((s) => s.id === 'session-stale');
+				expect(stale?.claudeInteractive?.mode).toBe('api');
+
+				const resolveCalls = sendSpy.mock.calls.filter(
+					(c) => c[0] === 'process:claude-mode-resolved'
+				);
+				expect(resolveCalls.length).toBeGreaterThan(0);
+				expect(resolveCalls[0][2].mode).toBe('api');
+			});
+		});
 	});
 
 	describe('process:write', () => {
@@ -848,6 +1027,54 @@ describe('process IPC handlers', () => {
 			expect(result[0]).not.toHaveProperty('outputParser');
 			expect(result[0]).toHaveProperty('sessionId');
 			expect(result[0]).toHaveProperty('pid');
+		});
+	});
+
+	describe('process:isTerminalBusy', () => {
+		it('returns false when no managed process exists for the session id', async () => {
+			mockProcessManager.get.mockReturnValue(undefined);
+
+			const handler = handlers.get('process:isTerminalBusy');
+			const result = await handler!({} as any, 'session-1-terminal-tab-1');
+
+			expect(mockProcessManager.get).toHaveBeenCalledWith('session-1-terminal-tab-1');
+			expect(result).toBe(false);
+		});
+
+		it('returns false when the PTY foreground process matches the shell', async () => {
+			mockProcessManager.get.mockReturnValue({
+				command: '/bin/zsh',
+				ptyProcess: { process: 'zsh' },
+			});
+
+			const handler = handlers.get('process:isTerminalBusy');
+			const result = await handler!({} as any, 'session-1-terminal-tab-1');
+
+			expect(result).toBe(false);
+		});
+
+		it('returns true when the PTY foreground process differs from the shell', async () => {
+			mockProcessManager.get.mockReturnValue({
+				command: '/bin/zsh',
+				ptyProcess: { process: 'vim' },
+			});
+
+			const handler = handlers.get('process:isTerminalBusy');
+			const result = await handler!({} as any, 'session-1-terminal-tab-1');
+
+			expect(result).toBe(true);
+		});
+
+		it('returns false when the managed process has no ptyProcess', async () => {
+			mockProcessManager.get.mockReturnValue({
+				command: '/bin/zsh',
+				ptyProcess: undefined,
+			});
+
+			const handler = handlers.get('process:isTerminalBusy');
+			const result = await handler!({} as any, 'session-1-terminal-tab-1');
+
+			expect(result).toBe(false);
 		});
 	});
 
@@ -2484,6 +2711,134 @@ describe('process IPC handlers', () => {
 			const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
 			expect(spawnCall.args).not.toContain('--append-system-prompt');
 			expect(spawnCall.prompt).toBe('Hello world');
+		});
+
+		describe('Windows temp prompt file (async fs/promises)', () => {
+			// PR-D 3.1: writeFileSync/unlinkSync replaced with fs/promises.
+			// These tests force isWindows() = true so they exercise the
+			// temp-file branch on every platform.
+
+			beforeEach(async () => {
+				const { isWindows } = await import('../../../../shared/platformDetection');
+				vi.mocked(isWindows).mockReturnValue(true);
+			});
+
+			afterEach(async () => {
+				const { isWindows } = await import('../../../../shared/platformDetection');
+				vi.mocked(isWindows).mockReset();
+				vi.mocked(isWindows).mockImplementation(() => process.platform === 'win32');
+				vi.useRealTimers();
+			});
+
+			const buildSpawnConfig = () => ({
+				sessionId: 'session-1',
+				toolType: 'claude-code',
+				cwd: '/home/user/project',
+				command: 'claude',
+				args: ['--print'],
+				prompt: 'Hello world',
+				appendSystemPrompt: 'You are Maestro system prompt content',
+			});
+
+			const mockAgent = {
+				id: 'claude-code',
+				name: 'Claude Code',
+				requiresPty: true,
+				path: '/usr/local/bin/claude',
+				capabilities: {
+					supportsAppendSystemPrompt: true,
+					supportsStreamJsonInput: true,
+				},
+			};
+
+			it('writes temp file with prompt content via fs/promises', async () => {
+				const fsp = await import('fs/promises');
+				mockAgentDetector.getAgent.mockResolvedValue(mockAgent);
+				mockProcessManager.spawn.mockReturnValue({ pid: 12345, success: true });
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, buildSpawnConfig());
+
+				expect(fsp.writeFile).toHaveBeenCalledTimes(1);
+				const [tempPath, content, encoding] = vi.mocked(fsp.writeFile).mock.calls[0];
+				expect(tempPath).toMatch(/maestro-sysprompt-session-1-\d+\.txt/);
+				expect(content).toBe('You are Maestro system prompt content');
+				expect(encoding).toBe('utf-8');
+			});
+
+			it('schedules unlink after 30s timer', async () => {
+				vi.useFakeTimers();
+				const fsp = await import('fs/promises');
+				mockAgentDetector.getAgent.mockResolvedValue(mockAgent);
+				mockProcessManager.spawn.mockReturnValue({ pid: 12345, success: true });
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, buildSpawnConfig());
+
+				// Unlink not called yet — timer hasn't fired
+				expect(fsp.unlink).not.toHaveBeenCalled();
+
+				await vi.advanceTimersByTimeAsync(30_001);
+
+				expect(fsp.unlink).toHaveBeenCalledTimes(1);
+				const [unlinkPath] = vi.mocked(fsp.unlink).mock.calls[0];
+				expect(unlinkPath).toMatch(/maestro-sysprompt-session-1-\d+\.txt/);
+			});
+
+			it('silences ENOENT cleanup errors (file already gone)', async () => {
+				vi.useFakeTimers();
+				const fsp = await import('fs/promises');
+				const { captureException } = await import('../../../../main/utils/sentry');
+				const enoentErr: NodeJS.ErrnoException = Object.assign(new Error('ENOENT: no such file'), {
+					code: 'ENOENT',
+				});
+				vi.mocked(fsp.unlink).mockRejectedValueOnce(enoentErr);
+
+				mockAgentDetector.getAgent.mockResolvedValue(mockAgent);
+				mockProcessManager.spawn.mockReturnValue({ pid: 12345, success: true });
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, buildSpawnConfig());
+
+				vi.mocked(captureException).mockClear();
+				await vi.advanceTimersByTimeAsync(30_001);
+				// Allow the rejected unlink promise to settle
+				await Promise.resolve();
+
+				expect(fsp.unlink).toHaveBeenCalledTimes(1);
+				expect(captureException).not.toHaveBeenCalled();
+			});
+
+			it('captures non-ENOENT cleanup errors via Sentry', async () => {
+				vi.useFakeTimers();
+				const fsp = await import('fs/promises');
+				const { captureException } = await import('../../../../main/utils/sentry');
+				const eaccesErr: NodeJS.ErrnoException = Object.assign(
+					new Error('EACCES: permission denied'),
+					{ code: 'EACCES' }
+				);
+				vi.mocked(fsp.unlink).mockRejectedValueOnce(eaccesErr);
+
+				mockAgentDetector.getAgent.mockResolvedValue(mockAgent);
+				mockProcessManager.spawn.mockReturnValue({ pid: 12345, success: true });
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, buildSpawnConfig());
+
+				vi.mocked(captureException).mockClear();
+				await vi.advanceTimersByTimeAsync(30_001);
+				await Promise.resolve();
+
+				expect(captureException).toHaveBeenCalledTimes(1);
+				const [errArg, ctxArg] = vi.mocked(captureException).mock.calls[0];
+				expect(errArg).toBe(eaccesErr);
+				expect(ctxArg).toEqual(
+					expect.objectContaining({
+						context: 'systemPromptTempFile cleanup (safety)',
+						file: expect.stringMatching(/maestro-sysprompt-session-1-\d+\.txt/),
+					})
+				);
+			});
 		});
 	});
 });

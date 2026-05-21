@@ -32,6 +32,8 @@ export interface MainPanelHandle {
 	openTerminalSearch: () => void;
 	/** Focus the browser address bar in the active browser tab */
 	focusBrowserAddressBar: () => void;
+	/** Scroll the active tab header into view and focus it */
+	focusActiveTab: () => void;
 	/** Reload the active browser tab (or stop loading if in progress) */
 	reloadBrowserTab: () => void;
 }
@@ -153,6 +155,7 @@ export interface MainPanelProps {
 	onToggleTabReadOnlyMode?: () => void;
 	onToggleTabSaveToHistory?: () => void;
 	onToggleTabShowThinking?: () => void;
+	onToggleTabEnterToSend?: () => void;
 	onToggleUnreadFilter?: () => void;
 	onOpenTabSearch?: () => void;
 	/** Handler to open output/message search (Cmd+F) */
@@ -182,6 +185,8 @@ export interface MainPanelProps {
 	onTerminalTabSelect?: (tabId: string) => void;
 	onTerminalTabClose?: (tabId: string) => void;
 	onTerminalTabRename?: (tabId: string) => void;
+	/** Handler to open the startup-command modal for a terminal tab */
+	onTerminalTabConfigureStartupCommand?: (tabId: string) => void;
 	onOpenFileTab?: (filePath: string) => void;
 	/** Handler to update file tab editMode when toggled in FilePreview */
 	onFileTabEditModeChange?: (tabId: string, editMode: boolean) => void;
@@ -294,9 +299,14 @@ export interface MainPanelProps {
 	// Document Graph
 	onOpenInGraph?: () => void;
 
+	/** Open the currently previewed file in a new Maestro browser tab. */
+	onOpenInBrowser?: () => void;
+
 	// Wizard document generation callbacks
 	/** Called when wizard document generation completes and user clicks Done */
 	onWizardComplete?: () => void;
+	/** Called when user wants to complete the wizard AND immediately start the Batch Runner for the generated docs */
+	onWizardCompleteAndStartAutoRun?: () => void;
 	/** Called when user selects a different document in the wizard */
 	onWizardDocumentSelect?: (index: number) => void;
 	/** Called when user edits document content in the wizard */

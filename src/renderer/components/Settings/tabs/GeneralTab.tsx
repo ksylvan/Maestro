@@ -46,6 +46,7 @@ import { getOpenInLabel, isLinuxPlatform } from '../../../utils/platformUtils';
 import { ToggleButtonGroup } from '../../ToggleButtonGroup';
 import { SettingCheckbox } from '../../SettingCheckbox';
 import { ToggleSwitch } from '../../ui/ToggleSwitch';
+import { KeyCaptureButton } from '../../ui/KeyCaptureButton';
 import { logger } from '../../../utils/logger';
 
 export interface GeneralTabProps {
@@ -60,6 +61,9 @@ export function GeneralTab({ theme, isOpen }: GeneralTabProps) {
 		// Conductor Profile
 		conductorProfile,
 		setConductorProfile,
+		// Global show-Maestro hotkey
+		globalShowHotkey,
+		setGlobalShowHotkey,
 		// Shell settings
 		defaultShell,
 		setDefaultShell,
@@ -84,14 +88,24 @@ export function GeneralTab({ theme, isOpen }: GeneralTabProps) {
 		// Spell check
 		spellCheck,
 		setSpellCheck,
-		// Tab naming
+		// Tab behavior
 		automaticTabNamingEnabled,
 		setAutomaticTabNamingEnabled,
+		newTabPlacement,
+		setNewTabPlacement,
+		newBrowserTabPlacement,
+		setNewBrowserTabPlacement,
+		newTerminalPlacement,
+		setNewTerminalPlacement,
+		openedFilePlacement,
+		setOpenedFilePlacement,
 		// Browser settings
 		useSystemBrowser,
 		setUseSystemBrowser,
 		browserHomeUrl,
 		setBrowserHomeUrl,
+		htmlDoubleClickOpensInBrowser,
+		setHtmlDoubleClickOpensInBrowser,
 		// Power management
 		preventSleepEnabled,
 		setPreventSleepEnabled,
@@ -295,6 +309,25 @@ export function GeneralTab({ theme, isOpen }: GeneralTabProps) {
 				>
 					{conductorProfile.length}/5000
 				</div>
+			</div>
+
+			{/* Global Show Hotkey */}
+			<div data-setting-id="general-global-show-hotkey">
+				<div className="block text-xs font-bold opacity-70 uppercase mb-1 flex items-center gap-2">
+					<Keyboard className="w-3 h-3" />
+					Global Hotkey to Show Maestro
+				</div>
+				<p className="text-xs opacity-50 mb-2">
+					System-wide shortcut that brings Maestro to the foreground from any app. Works on macOS,
+					Windows, and Linux. Leave blank to disable. (Tip: pick something with two modifiers, e.g.{' '}
+					{formatShortcutKeys(['Meta', 'Shift', 'M'])}, to avoid clashes.)
+				</p>
+				<KeyCaptureButton
+					theme={theme}
+					keys={globalShowHotkey}
+					onKeysChange={setGlobalShowHotkey}
+					emptyLabel="Click to set hotkey"
+				/>
 			</div>
 
 			{/* Default Shell */}
@@ -724,6 +757,10 @@ export function GeneralTab({ theme, isOpen }: GeneralTabProps) {
 							? 'Press Enter to send. Use Shift+Enter for new line.'
 							: `Press ${formatMetaKey()}+Enter to send. Enter creates new line.`}
 					</p>
+					<p className="text-[11px] opacity-40 mt-1">
+						Default for new tabs. Toggling the chip in an AI tab (or running &quot;Toggle Enter to
+						Send&quot; from the command palette) overrides this for that tab only.
+					</p>
 				</div>
 
 				{/* Expanded AI Mode Setting (Prompt Composer) */}
@@ -898,17 +935,122 @@ export function GeneralTab({ theme, isOpen }: GeneralTabProps) {
 				</div>
 			</div>
 
-			{/* Automatic Tab Naming */}
-			<div data-setting-id="general-tab-naming">
-				<SettingCheckbox
-					icon={Tag}
-					sectionLabel="Automatic Tab Naming"
-					title="Automatically name tabs based on first message"
-					description="When you send your first message to a new tab, an AI will analyze it and generate a descriptive tab name. The naming request runs in parallel and leaves no history."
-					checked={automaticTabNamingEnabled}
-					onChange={setAutomaticTabNamingEnabled}
-					theme={theme}
-				/>
+			{/* Tab Behavior */}
+			<div data-setting-id="general-tab-behavior">
+				<div className="block text-xs font-bold opacity-70 uppercase mb-2 flex items-center gap-2">
+					<Tag className="w-3 h-3" />
+					Tab Behavior
+				</div>
+				<div
+					className="p-3 rounded border space-y-3"
+					style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
+				>
+					{/* Automatic Tab Naming */}
+					<div
+						className="flex items-center justify-between cursor-pointer"
+						onClick={() => setAutomaticTabNamingEnabled(!automaticTabNamingEnabled)}
+						role="button"
+						tabIndex={0}
+						onKeyDown={(e) => {
+							if (e.key === 'Enter' || e.key === ' ') {
+								e.preventDefault();
+								setAutomaticTabNamingEnabled(!automaticTabNamingEnabled);
+							}
+						}}
+					>
+						<div className="flex-1 pr-3">
+							<div className="font-medium" style={{ color: theme.colors.textMain }}>
+								Automatically name tabs based on first message
+							</div>
+							<div className="text-xs opacity-50 mt-0.5" style={{ color: theme.colors.textDim }}>
+								When you send your first message to a new tab, an AI will analyze it and generate a
+								descriptive tab name. The naming request runs in parallel and leaves no history.
+							</div>
+						</div>
+						<ToggleSwitch
+							checked={automaticTabNamingEnabled}
+							onChange={setAutomaticTabNamingEnabled}
+							theme={theme}
+							ariaLabel="Automatically name tabs based on first message"
+						/>
+					</div>
+
+					{/* New Tab Placement */}
+					<div>
+						<div className="font-medium" style={{ color: theme.colors.textMain }}>
+							New tab placement
+						</div>
+						<div className="text-xs opacity-50 mt-0.5 mb-2" style={{ color: theme.colors.textDim }}>
+							Where new AI tabs appear in the tab bar.
+						</div>
+						<ToggleButtonGroup
+							options={[
+								{ value: 'end' as const, label: 'End of list' },
+								{ value: 'after-current' as const, label: 'After current tab' },
+							]}
+							value={newTabPlacement}
+							onChange={setNewTabPlacement}
+							theme={theme}
+						/>
+					</div>
+
+					{/* New Browser Tab Placement */}
+					<div>
+						<div className="font-medium" style={{ color: theme.colors.textMain }}>
+							New browser tab placement
+						</div>
+						<div className="text-xs opacity-50 mt-0.5 mb-2" style={{ color: theme.colors.textDim }}>
+							Where new browser tabs appear in the tab bar.
+						</div>
+						<ToggleButtonGroup
+							options={[
+								{ value: 'end' as const, label: 'End of list' },
+								{ value: 'after-current' as const, label: 'After current tab' },
+							]}
+							value={newBrowserTabPlacement}
+							onChange={setNewBrowserTabPlacement}
+							theme={theme}
+						/>
+					</div>
+
+					{/* New Terminal Placement */}
+					<div>
+						<div className="font-medium" style={{ color: theme.colors.textMain }}>
+							New terminal placement
+						</div>
+						<div className="text-xs opacity-50 mt-0.5 mb-2" style={{ color: theme.colors.textDim }}>
+							Where new terminal tabs appear in the tab bar.
+						</div>
+						<ToggleButtonGroup
+							options={[
+								{ value: 'end' as const, label: 'End of list' },
+								{ value: 'after-current' as const, label: 'After current tab' },
+							]}
+							value={newTerminalPlacement}
+							onChange={setNewTerminalPlacement}
+							theme={theme}
+						/>
+					</div>
+
+					{/* Opened File Placement */}
+					<div>
+						<div className="font-medium" style={{ color: theme.colors.textMain }}>
+							Opened file placement
+						</div>
+						<div className="text-xs opacity-50 mt-0.5 mb-2" style={{ color: theme.colors.textDim }}>
+							Where opened file preview tabs appear in the tab bar.
+						</div>
+						<ToggleButtonGroup
+							options={[
+								{ value: 'end' as const, label: 'End of list' },
+								{ value: 'after-current' as const, label: 'After current tab' },
+							]}
+							value={openedFilePlacement}
+							onChange={setOpenedFilePlacement}
+							theme={theme}
+						/>
+					</div>
+				</div>
 			</div>
 
 			{/* Spell Check */}
@@ -1198,6 +1340,36 @@ export function GeneralTab({ theme, isOpen }: GeneralTabProps) {
 					onChange={setUseSystemBrowser}
 					theme={theme}
 				/>
+				<div
+					data-setting-id="general-html-double-click"
+					className="mt-3 flex items-center justify-between p-3 rounded border cursor-pointer hover:bg-opacity-10"
+					style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
+					onClick={() => setHtmlDoubleClickOpensInBrowser(!htmlDoubleClickOpensInBrowser)}
+					role="button"
+					tabIndex={0}
+					onKeyDown={(e) => {
+						if (e.key === 'Enter' || e.key === ' ') {
+							e.preventDefault();
+							setHtmlDoubleClickOpensInBrowser(!htmlDoubleClickOpensInBrowser);
+						}
+					}}
+				>
+					<div className="flex-1 pr-3">
+						<div className="font-medium" style={{ color: theme.colors.textMain }}>
+							Open HTML files in Maestro Browser on double-click
+						</div>
+						<div className="text-xs opacity-50 mt-0.5" style={{ color: theme.colors.textDim }}>
+							When enabled, double-clicking an HTML file in the file explorer opens it in the
+							Maestro browser instead of the file preview. Right-click for the full menu either way.
+						</div>
+					</div>
+					<ToggleSwitch
+						checked={htmlDoubleClickOpensInBrowser}
+						onChange={setHtmlDoubleClickOpensInBrowser}
+						theme={theme}
+						ariaLabel="Open HTML files in Maestro Browser on double-click"
+					/>
+				</div>
 				<div
 					className="mt-3 p-3 rounded border"
 					style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
