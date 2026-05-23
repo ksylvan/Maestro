@@ -22,6 +22,9 @@ import { readSessions } from '../services/storage';
 import { generateUUID } from '../../shared/uuid';
 import { getAgentDisplayName } from '../../shared/agentMetadata';
 import { CUE_CONFIG_PATH, LEGACY_CUE_CONFIG_PATH, MAESTRO_DIR } from '../../shared/maestro-paths';
+import { loadCueConfigDetailed } from '../../main/cue/cue-yaml-loader';
+import { removeSubscriptionFromYaml } from '../../main/cue/cue-self-destruct';
+import type { CueSubscription } from '../../shared/cue';
 import type { SessionInfo } from '../../shared/types';
 
 export interface CueScheduleOptions {
@@ -248,12 +251,266 @@ function errorOut(message: string, options: CueScheduleOptions, code?: string): 
 /** CLI entry point. Routes to the create/list/cancel branch based on flags. */
 export async function cueSchedule(options: CueScheduleOptions): Promise<void> {
 	if (options.list) {
-		errorOut('cue schedule --list is not yet implemented', options, 'NOT_IMPLEMENTED');
+		await runList(options);
+		return;
 	}
 	if (options.cancel !== undefined) {
-		errorOut('cue schedule --cancel is not yet implemented', options, 'NOT_IMPLEMENTED');
+		await runCancel(options);
+		return;
 	}
 	await runCreate(options);
+}
+
+/**
+ * Row shape emitted by `--list`. Mirrors the table columns plus the agent
+ * `id`/`projectRoot` and original `fire_at` ISO string so JSON consumers can
+ * round-trip the data into a follow-up `--cancel` call without re-parsing the
+ * human formatter.
+ */
+interface PendingTaskRow {
+	name: string;
+	fire_at: string;
+	in: string;
+	agent_id: string;
+	agent_name: string;
+	project_root: string;
+	action: string;
+	label: string;
+}
+
+/**
+ * Collect every `time.once` subscription across all configured agents. Skips
+ * agents whose cue.yaml is missing — that's the normal "no scheduled tasks"
+ * state. Parse / schema errors are surfaced as warnings on stderr but do not
+ * abort the listing of valid agents.
+ */
+function collectPendingTasks(
+	sessions: SessionInfo[],
+	options: CueScheduleOptions
+): PendingTaskRow[] {
+	const rows: PendingTaskRow[] = [];
+	const now = Date.now();
+
+	for (const session of sessions) {
+		const result = loadCueConfigDetailed(session.projectRoot);
+		if (!result.ok) {
+			if (result.reason === 'missing') continue;
+			if (!options.json) {
+				const detail = result.reason === 'parse-error' ? result.message : result.errors.join('; ');
+				const agentDisplay = session.name || getAgentDisplayName(session.toolType);
+				console.error(
+					`Warning: failed to load cue.yaml for agent ${agentDisplay} (${session.id.slice(0, 8)}): ${detail}`
+				);
+			}
+			continue;
+		}
+
+		for (const sub of result.config.subscriptions) {
+			if (sub.event !== 'time.once') continue;
+			if (!sub.fire_at) continue;
+			const fireMs = Date.parse(sub.fire_at);
+			const relative = Number.isFinite(fireMs) ? formatRelativeDuration(fireMs - now) : 'unknown';
+			rows.push({
+				name: sub.name,
+				fire_at: sub.fire_at,
+				in: relative,
+				agent_id: session.id,
+				agent_name: session.name || getAgentDisplayName(session.toolType),
+				project_root: session.projectRoot,
+				action: sub.action ?? 'prompt',
+				label: sub.label ?? '',
+			});
+		}
+	}
+
+	// Sort by fire_at ascending so the next-to-fire row appears first. Rows
+	// with unparseable fire_at sink to the bottom.
+	rows.sort((a, b) => {
+		const aMs = Date.parse(a.fire_at);
+		const bMs = Date.parse(b.fire_at);
+		const aOk = Number.isFinite(aMs);
+		const bOk = Number.isFinite(bMs);
+		if (aOk && bOk) return aMs - bMs;
+		if (aOk) return -1;
+		if (bOk) return 1;
+		return 0;
+	});
+
+	return rows;
+}
+
+/**
+ * Render a fixed-width table for human consumption. Column widths flex to the
+ * widest value so labels with embedded spaces (the common case) stay readable.
+ */
+function renderPendingTaskTable(rows: PendingTaskRow[]): string {
+	const headers: PendingTaskRow = {
+		name: 'NAME',
+		fire_at: 'FIRES_AT',
+		in: 'IN',
+		agent_id: '',
+		agent_name: 'AGENT',
+		project_root: '',
+		action: 'ACTION',
+		label: 'LABEL',
+	};
+	const display = [headers, ...rows];
+	const widths = {
+		name: Math.max(...display.map((r) => r.name.length)),
+		fire_at: Math.max(...display.map((r) => r.fire_at.length)),
+		in: Math.max(...display.map((r) => r.in.length)),
+		agent: Math.max(...display.map((r) => r.agent_name.length)),
+		action: Math.max(...display.map((r) => r.action.length)),
+	};
+
+	const pad = (text: string, width: number) =>
+		text.length >= width ? text : text + ' '.repeat(width - text.length);
+
+	const lines: string[] = [];
+	lines.push(
+		[
+			pad('NAME', widths.name),
+			pad('FIRES_AT', widths.fire_at),
+			pad('IN', widths.in),
+			pad('AGENT', widths.agent),
+			pad('ACTION', widths.action),
+			'LABEL',
+		].join('  ')
+	);
+	for (const row of rows) {
+		lines.push(
+			[
+				pad(row.name, widths.name),
+				pad(row.fire_at, widths.fire_at),
+				pad(row.in, widths.in),
+				pad(row.agent_name, widths.agent),
+				pad(row.action, widths.action),
+				row.label,
+			].join('  ')
+		);
+	}
+	return lines.join('\n');
+}
+
+async function runList(options: CueScheduleOptions): Promise<void> {
+	const sessions = readSessions();
+	const rows = collectPendingTasks(sessions, options);
+
+	if (options.json) {
+		console.log(JSON.stringify(rows));
+		return;
+	}
+
+	if (rows.length === 0) {
+		console.log('No pending one-shot tasks.');
+		return;
+	}
+
+	console.log(renderPendingTaskTable(rows));
+}
+
+/**
+ * Locate the agent(s) whose cue.yaml carries a `time.once` subscription with
+ * the exact given name. Used by `--cancel` to disambiguate when two agents
+ * happen to share a subscription name (rare, but possible if a user picks the
+ * same `--name` for two scheduled tasks across different projects).
+ */
+function findAgentsWithSub(
+	sessions: SessionInfo[],
+	subscriptionName: string,
+	options: CueScheduleOptions
+): { session: SessionInfo; subscription: CueSubscription }[] {
+	const matches: { session: SessionInfo; subscription: CueSubscription }[] = [];
+	for (const session of sessions) {
+		const result = loadCueConfigDetailed(session.projectRoot);
+		if (!result.ok) {
+			if (result.reason === 'missing') continue;
+			if (!options.json) {
+				const detail = result.reason === 'parse-error' ? result.message : result.errors.join('; ');
+				const agentDisplay = session.name || getAgentDisplayName(session.toolType);
+				console.error(
+					`Warning: failed to load cue.yaml for agent ${agentDisplay} (${session.id.slice(0, 8)}): ${detail}`
+				);
+			}
+			continue;
+		}
+		for (const sub of result.config.subscriptions) {
+			if (sub.event === 'time.once' && sub.name === subscriptionName) {
+				matches.push({ session, subscription: sub });
+				break;
+			}
+		}
+	}
+	return matches;
+}
+
+async function runCancel(options: CueScheduleOptions): Promise<void> {
+	const subscriptionName = options.cancel;
+	if (!subscriptionName || subscriptionName.length === 0) {
+		errorOut('--cancel requires a subscription name', options, 'MISSING_NAME');
+	}
+
+	const sessions = readSessions();
+	const matches = findAgentsWithSub(sessions, subscriptionName, options);
+
+	if (matches.length === 0) {
+		errorOut(`No pending task named '${subscriptionName}' found.`, options, 'NOT_FOUND');
+	}
+
+	let target: { session: SessionInfo; subscription: CueSubscription };
+	if (matches.length > 1) {
+		if (!options.agent) {
+			const list = matches
+				.map((m) => {
+					const display = m.session.name || getAgentDisplayName(m.session.toolType);
+					return `  ${m.session.id.slice(0, 8)}  ${display}`;
+				})
+				.join('\n');
+			errorOut(
+				`Multiple agents have a pending task named '${subscriptionName}'. Pass --agent to disambiguate:\n${list}`,
+				options,
+				'AMBIGUOUS_NAME'
+			);
+		}
+		let resolved: SessionInfo | null;
+		try {
+			resolved = resolveAgent(options.agent, sessions);
+		} catch (err) {
+			errorOut(err instanceof Error ? err.message : String(err), options, 'AMBIGUOUS_AGENT');
+		}
+		if (!resolved) {
+			errorOut(`agent "${options.agent}" not found`, options, 'AGENT_NOT_FOUND');
+		}
+		const narrowed = matches.find((m) => m.session.id === resolved!.id);
+		if (!narrowed) {
+			errorOut(
+				`No pending task named '${subscriptionName}' on agent ${resolved!.name || resolved!.id}.`,
+				options,
+				'NOT_FOUND'
+			);
+		}
+		target = narrowed;
+	} else {
+		target = matches[0];
+	}
+
+	const result = await removeSubscriptionFromYaml(target.session.projectRoot, subscriptionName);
+	if (!result.removed) {
+		errorOut(
+			`Failed to remove '${subscriptionName}': ${result.reason ?? 'unknown reason'}`,
+			options,
+			'REMOVE_FAILED'
+		);
+	}
+
+	const agentDisplay = target.session.name || getAgentDisplayName(target.session.toolType);
+	if (options.json) {
+		console.log(
+			JSON.stringify({ ok: true, removed: subscriptionName, agent_id: target.session.id })
+		);
+		return;
+	}
+	console.log(`Cancelled task '${subscriptionName}' on agent ${agentDisplay}.`);
 }
 
 async function runCreate(options: CueScheduleOptions): Promise<void> {
