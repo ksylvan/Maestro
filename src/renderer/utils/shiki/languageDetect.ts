@@ -10,17 +10,13 @@
 import { captureException } from '../sentry';
 import { resolveLanguage } from './highlighterManager';
 
-type HljsModule = typeof import('highlight.js');
-type Hljs = HljsModule['default'];
+type Hljs = typeof import('highlight.js');
 
 let hljsPromise: Promise<Hljs> | null = null;
 
 function loadHljs(): Promise<Hljs> {
 	if (hljsPromise) return hljsPromise;
-	hljsPromise = (async () => {
-		const mod = await import('highlight.js');
-		return mod.default;
-	})();
+	hljsPromise = import('highlight.js');
 	return hljsPromise;
 }
 
