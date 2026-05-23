@@ -84,14 +84,24 @@ let bundledAliasMapPromise: Promise<Map<string, string>> | null = null;
 /**
  * Get (or lazily create) the singleton Shiki highlighter. Both light/dark
  * themes are preloaded so callers can switch without an extra round trip.
+ *
+ * Engine: we explicitly use Shiki's JavaScript regex engine instead of the
+ * default Oniguruma WASM engine. Oniguruma needs a `.wasm` asset that Vite's
+ * renderer bundle does not serve out-of-the-box in Electron, which caused
+ * `createHighlighter` to throw silently (colours never appeared). The JS
+ * engine is bundler-friendly and covers every TextMate grammar Shiki ships.
  */
 export function getHighlighter(): Promise<Highlighter> {
 	if (highlighterPromise) return highlighterPromise;
 	highlighterPromise = (async () => {
-		const shiki = await import('shiki');
+		const [shiki, jsEngine] = await Promise.all([
+			import('shiki'),
+			import('shiki/engine/javascript'),
+		]);
 		return shiki.createHighlighter({
 			themes: [LIGHT_THEME, DARK_THEME],
 			langs: [...PRELOADED_LANGUAGES],
+			engine: jsEngine.createJavaScriptRegexEngine(),
 		});
 	})();
 	return highlighterPromise;

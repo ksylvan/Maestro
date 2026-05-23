@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { Clipboard } from 'lucide-react';
 import type { Theme } from '../../types';
+import { captureException } from '../../utils/sentry';
 import {
 	ensureLanguage,
 	getHighlighter,
@@ -93,8 +94,14 @@ export const CodeFence = memo(function CodeFence({
 				const themeName = themeNameForMode(theme.mode);
 				const rendered = highlighter.codeToHtml(code, { lang, theme: themeName });
 				if (!cancelled) setHtml(rendered);
-			} catch {
+			} catch (err) {
+				// Shiki failed (WASM load, missing grammar, malformed theme, …).
+				// Reset to the plain fallback so the user still sees the code, and
+				// report so we hear about real regressions in production.
 				if (!cancelled) setHtml(null);
+				captureException(err, {
+					extra: { component: 'CodeFence', lang: resolvedLang, themeMode: theme.mode },
+				});
 			}
 		})();
 		return () => {

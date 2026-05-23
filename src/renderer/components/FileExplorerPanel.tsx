@@ -878,6 +878,13 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 	} | null>(null);
 	const [isDeleting, setIsDeleting] = useState(false);
 
+	// Multi-delete confirmation modal state. Populated when the user invokes
+	// "Delete N items" from the file-tree context menu on a multi-selection.
+	const [multiDeleteModal, setMultiDeleteModal] = useState<{
+		nodes: { node: FileNode; path: string }[];
+	} | null>(null);
+	const [isMultiDeleting, setIsMultiDeleting] = useState(false);
+
 	// New-file modal state. `parentFolderPath` is the relative path of the
 	// destination folder (empty string = project root).
 	const [newFileModal, setNewFileModal] = useState<{
@@ -1061,6 +1068,12 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 			e.stopPropagation();
 			// Update selection to the right-clicked item so user sees which item the menu affects
 			setSelectedFileIndex(globalIndex);
+			// Finder/Explorer semantics: right-clicking outside the active multi-
+			// selection collapses it to just the clicked row. Right-clicking ON a
+			// multi-selected row preserves the group so the menu acts on the batch.
+			if (selectedPathsRef.current.size > 0 && !selectedPathsRef.current.has(path)) {
+				setSelectedPaths(new Set());
+			}
 			setContextMenu({
 				x: e.clientX,
 				y: e.clientY,
@@ -1753,6 +1766,114 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 		}));
 		void performMoves(batch, moveConflict.destFolderRelativePath);
 	}, [moveConflict, performMoves]);
+
+	// ====================================================================
+	// Multi-selection context-menu actions
+	// ====================================================================
+	// All three operate on the live `selectedPaths` set when the right-click
+	// landed on a row that's part of an active multi-selection. Right-clicking
+	// outside the selection collapses it (see handleContextMenu), so by the
+	// time these run we know the user wants the batch.
+
+	// Resolve the multi-selection's relative paths back to live FileNodes.
+	// Filtering drops paths that no longer resolve (tree refreshed mid-flight).
+	const resolveSelectedNodes = useCallback((): { node: FileNode; path: string }[] => {
+		const result: { node: FileNode; path: string }[] = [];
+		for (const path of selectedPathsRef.current) {
+			const node = findNodeAtPath(path);
+			if (node) result.push({ node, path });
+		}
+		return result;
+	}, [findNodeAtPath]);
+
+	const handlePreviewMulti = useCallback(() => {
+		setContextMenu(null);
+		const previewable = resolveSelectedNodes().filter(
+			({ node }) => node.type === 'file' && !shouldOpenExternally(node.name)
+		);
+		if (previewable.length === 0) {
+			onShowFlash?.('No previewable files in selection');
+			return;
+		}
+		const openAll = async () => {
+			for (const f of previewable) {
+				await handleFileClick(f.node, f.path, session);
+			}
+			onShowFlash?.(`Opened ${previewable.length} file${previewable.length !== 1 ? 's' : ''}`);
+		};
+		if (previewable.length > PREVIEW_ALL_CONFIRM_THRESHOLD) {
+			useModalStore.getState().openModal('confirm', {
+				message: `Preview all ${previewable.length} selected files? This opens a tab for each file.`,
+				onConfirm: () => void openAll(),
+			});
+			return;
+		}
+		void openAll();
+	}, [resolveSelectedNodes, handleFileClick, session, onShowFlash]);
+
+	const handleOpenInDefaultAppMulti = useCallback(() => {
+		setContextMenu(null);
+		const files = resolveSelectedNodes().filter(({ node }) => node.type === 'file');
+		if (files.length === 0) {
+			onShowFlash?.('No files in selection');
+			return;
+		}
+		const openAll = () => {
+			for (const f of files) {
+				const absolutePath = `${session.fullPath}/${f.path}`;
+				window.maestro?.shell?.openPath(absolutePath);
+			}
+			onShowFlash?.(`Opened ${files.length} file${files.length !== 1 ? 's' : ''}`);
+		};
+		if (files.length > PREVIEW_ALL_CONFIRM_THRESHOLD) {
+			useModalStore.getState().openModal('confirm', {
+				message: `Open all ${files.length} selected files in their default apps?`,
+				onConfirm: () => openAll(),
+			});
+			return;
+		}
+		openAll();
+	}, [resolveSelectedNodes, session.fullPath, onShowFlash]);
+
+	const handleOpenDeleteMulti = useCallback(() => {
+		setContextMenu(null);
+		const nodes = resolveSelectedNodes();
+		if (nodes.length === 0) return;
+		setMultiDeleteModal({ nodes });
+	}, [resolveSelectedNodes]);
+
+	const handleDeleteMulti = useCallback(async () => {
+		if (!multiDeleteModal) return;
+		setIsMultiDeleting(true);
+		let succeeded = 0;
+		let failed = 0;
+		let lastError: unknown = null;
+		for (const item of multiDeleteModal.nodes) {
+			const absolutePath = `${session.fullPath}/${item.path}`;
+			try {
+				await window.maestro.fs.delete(absolutePath, { sshRemoteId });
+				succeeded++;
+			} catch (err) {
+				failed++;
+				lastError = err;
+				logger.warn(`[FileExplorer] Multi-delete failed for "${item.path}"`, undefined, err);
+			}
+		}
+		// One full refresh is cheaper and less error-prone than per-path in-place
+		// patching across mixed file/folder deletes.
+		await refreshFileTree(session.id);
+		setSelectedPaths(new Set());
+		setMultiDeleteModal(null);
+		setIsMultiDeleting(false);
+		if (succeeded > 0 && failed === 0) {
+			onShowFlash?.(`Deleted ${succeeded} item${succeeded !== 1 ? 's' : ''}`);
+		} else if (succeeded > 0 && failed > 0) {
+			onShowFlash?.(`Deleted ${succeeded}, ${failed} failed`);
+		} else if (failed > 0) {
+			const msg = lastError instanceof Error ? lastError.message : 'Unknown error';
+			onShowFlash?.(`Delete failed: ${msg}`);
+		}
+	}, [multiDeleteModal, session.fullPath, session.id, sshRemoteId, refreshFileTree, onShowFlash]);
 
 	// Close context menu on Escape key (only attached while the menu is open).
 	useEventListener(
@@ -2558,12 +2679,7 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 							</div>
 						)}
 					{flattenedTree.length > 0 && (
-						<div
-							ref={parentRef}
-							data-file-list-scroll
-							className="flex-1 overflow-auto"
-							style={{ height: 'calc(100vh - 200px)' }}
-						>
+						<div ref={parentRef} data-file-list-scroll className="flex-1 min-h-0 overflow-auto">
 							<div
 								style={{
 									height: `${virtualizer.getTotalSize()}px`,
@@ -2697,7 +2813,61 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 				</div>
 			)}
 
-			{/* File tree context menu - rendered via portal */}
+			{/* Multi-delete confirmation modal */}
+			{multiDeleteModal && (
+				<Modal
+					theme={theme}
+					title={`Delete ${multiDeleteModal.nodes.length} items`}
+					priority={MODAL_PRIORITIES.CONFIRM}
+					onClose={isMultiDeleting ? () => {} : () => setMultiDeleteModal(null)}
+					headerIcon={<Trash2 className="w-4 h-4" style={{ color: theme.colors.error }} />}
+					footer={
+						<ModalFooter
+							theme={theme}
+							onCancel={() => setMultiDeleteModal(null)}
+							onConfirm={handleDeleteMulti}
+							confirmLabel={isMultiDeleting ? 'Deleting...' : 'Delete'}
+							confirmDisabled={isMultiDeleting}
+							destructive
+						/>
+					}
+				>
+					<div className="flex gap-4">
+						<div
+							className="flex-shrink-0 p-2 rounded-full h-fit"
+							style={{ backgroundColor: `${theme.colors.error}20` }}
+						>
+							<AlertTriangle className="w-5 h-5" style={{ color: theme.colors.error }} />
+						</div>
+						<div className="min-w-0 flex-1">
+							<p style={{ color: theme.colors.textMain }}>
+								Delete the following {multiDeleteModal.nodes.length} items? This action cannot be
+								undone.
+							</p>
+							<div
+								className="text-xs rounded border px-2 py-1.5 mt-3 max-h-40 overflow-auto font-mono"
+								style={{
+									borderColor: theme.colors.border,
+									color: theme.colors.textDim,
+									backgroundColor: theme.colors.bgActivity,
+								}}
+							>
+								{multiDeleteModal.nodes.map((n) => (
+									<div key={n.path} className="truncate" title={n.path}>
+										{n.path}
+									</div>
+								))}
+							</div>
+						</div>
+					</div>
+				</Modal>
+			)}
+
+			{/* File tree context menu - rendered via portal. When the right-clicked
+				row is part of a multi-selection, a slimmed-down batch menu replaces
+				the single-row menu — Rename / Copy Path / Reveal / Document Graph /
+				Open in Maestro Browser / New File don't have batch semantics, so
+				they're hidden to avoid implying they do. */}
 			{contextMenu &&
 				createPortal(
 					<div
@@ -2713,133 +2883,176 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 						}}
 					>
 						<div className="p-1">
-							{/* New File + Preview all - for folders only, top of the menu */}
-							{contextMenu.node.type === 'folder' && (
+							{selectedPaths.size > 1 && selectedPaths.has(contextMenu.path) ? (
 								<>
 									<button
-										onClick={handleOpenNewFile}
+										onClick={handlePreviewMulti}
 										className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
 										style={{ color: theme.colors.textMain }}
 									>
-										<FilePlus className="w-3.5 h-3.5" style={{ color: theme.colors.accent }} />
-										<span>New File</span>
+										<FileText className="w-3.5 h-3.5" style={{ color: theme.colors.accent }} />
+										<span>Preview {selectedPaths.size} items</span>
 									</button>
-									<button
-										onClick={handlePreviewAllInFolder}
-										className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
-										style={{ color: theme.colors.textMain }}
-									>
-										<Files className="w-3.5 h-3.5" style={{ color: theme.colors.accent }} />
-										<span>Preview all files under Folder</span>
-									</button>
+									{!sshRemoteId && (
+										<button
+											onClick={handleOpenInDefaultAppMulti}
+											className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
+											style={{ color: theme.colors.textMain }}
+										>
+											<ExternalLink
+												className="w-3.5 h-3.5"
+												style={{ color: theme.colors.accent }}
+											/>
+											<span>Open {selectedPaths.size} in Default App</span>
+										</button>
+									)}
 									<div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
+									<button
+										onClick={handleOpenDeleteMulti}
+										className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
+										style={{ color: theme.colors.error }}
+									>
+										<Trash2 className="w-3.5 h-3.5" />
+										<span>Delete {selectedPaths.size} items</span>
+									</button>
+								</>
+							) : (
+								<>
+									{/* New File + Preview all - for folders only, top of the menu */}
+									{contextMenu.node.type === 'folder' && (
+										<>
+											<button
+												onClick={handleOpenNewFile}
+												className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
+												style={{ color: theme.colors.textMain }}
+											>
+												<FilePlus className="w-3.5 h-3.5" style={{ color: theme.colors.accent }} />
+												<span>New File</span>
+											</button>
+											<button
+												onClick={handlePreviewAllInFolder}
+												className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
+												style={{ color: theme.colors.textMain }}
+											>
+												<Files className="w-3.5 h-3.5" style={{ color: theme.colors.accent }} />
+												<span>Preview all files under Folder</span>
+											</button>
+											<div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
+										</>
+									)}
+
+									{/* Preview option - for files only */}
+									{contextMenu.node.type === 'file' && (
+										<button
+											onClick={handlePreviewFile}
+											className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
+											style={{ color: theme.colors.textMain }}
+										>
+											<FileText className="w-3.5 h-3.5" style={{ color: theme.colors.accent }} />
+											<span>Preview</span>
+										</button>
+									)}
+
+									{/* Document Graph option - only for markdown files */}
+									{contextMenu.node.type === 'file' &&
+										(contextMenu.node.name.endsWith('.md') ||
+											contextMenu.node.name.endsWith('.markdown')) &&
+										onFocusFileInGraph && (
+											<button
+												onClick={handleFocusInGraph}
+												className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
+												style={{ color: theme.colors.textMain }}
+											>
+												<Target className="w-3.5 h-3.5" style={{ color: theme.colors.accent }} />
+												<span>Document Graph</span>
+											</button>
+										)}
+
+									{/* Open in Maestro Browser - HTML files only, not over SSH (file:// won't reach the remote) */}
+									{contextMenu.node.type === 'file' &&
+										(contextMenu.node.name.toLowerCase().endsWith('.html') ||
+											contextMenu.node.name.toLowerCase().endsWith('.htm')) &&
+										!sshRemoteId &&
+										onOpenBrowserTabAt && (
+											<button
+												onClick={handleOpenInMaestroBrowser}
+												className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
+												style={{ color: theme.colors.textMain }}
+											>
+												<Globe className="w-3.5 h-3.5" style={{ color: theme.colors.accent }} />
+												<span>Open in Maestro Browser</span>
+											</button>
+										)}
+
+									{/* Open in Default App option - for files only, not available over SSH */}
+									{contextMenu.node.type === 'file' && !sshRemoteId && (
+										<button
+											onClick={handleOpenInDefaultApp}
+											className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
+											style={{ color: theme.colors.textMain }}
+										>
+											<ExternalLink
+												className="w-3.5 h-3.5"
+												style={{ color: theme.colors.accent }}
+											/>
+											<span>Open in Default App</span>
+										</button>
+									)}
+
+									{/* Divider after preview/graph options if any were shown */}
+									{contextMenu.node.type === 'file' && (
+										<div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
+									)}
+
+									{/* Copy Path option */}
+									<button
+										onClick={handleCopyPath}
+										className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
+										style={{ color: theme.colors.textMain }}
+									>
+										<Copy className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
+										<span>Copy Path</span>
+									</button>
+
+									{/* Reveal in Finder / Explorer option — local-only, hidden over SSH */}
+									{!sshRemoteId && (
+										<button
+											onClick={handleOpenInExplorer}
+											className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
+											style={{ color: theme.colors.textMain }}
+										>
+											<ExternalLink
+												className="w-3.5 h-3.5"
+												style={{ color: theme.colors.textDim }}
+											/>
+											<span>{getRevealLabel(window.maestro.platform)}</span>
+										</button>
+									)}
+
+									{/* Divider before destructive actions */}
+									<div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
+
+									{/* Rename option */}
+									<button
+										onClick={handleOpenRename}
+										className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
+										style={{ color: theme.colors.textMain }}
+									>
+										<Edit2 className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
+										<span>Rename</span>
+									</button>
+
+									{/* Delete option */}
+									<button
+										onClick={handleOpenDelete}
+										className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
+										style={{ color: theme.colors.error }}
+									>
+										<Trash2 className="w-3.5 h-3.5" />
+										<span>Delete</span>
+									</button>
 								</>
 							)}
-
-							{/* Preview option - for files only */}
-							{contextMenu.node.type === 'file' && (
-								<button
-									onClick={handlePreviewFile}
-									className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
-									style={{ color: theme.colors.textMain }}
-								>
-									<FileText className="w-3.5 h-3.5" style={{ color: theme.colors.accent }} />
-									<span>Preview</span>
-								</button>
-							)}
-
-							{/* Document Graph option - only for markdown files */}
-							{contextMenu.node.type === 'file' &&
-								(contextMenu.node.name.endsWith('.md') ||
-									contextMenu.node.name.endsWith('.markdown')) &&
-								onFocusFileInGraph && (
-									<button
-										onClick={handleFocusInGraph}
-										className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
-										style={{ color: theme.colors.textMain }}
-									>
-										<Target className="w-3.5 h-3.5" style={{ color: theme.colors.accent }} />
-										<span>Document Graph</span>
-									</button>
-								)}
-
-							{/* Open in Maestro Browser - HTML files only, not over SSH (file:// won't reach the remote) */}
-							{contextMenu.node.type === 'file' &&
-								(contextMenu.node.name.toLowerCase().endsWith('.html') ||
-									contextMenu.node.name.toLowerCase().endsWith('.htm')) &&
-								!sshRemoteId &&
-								onOpenBrowserTabAt && (
-									<button
-										onClick={handleOpenInMaestroBrowser}
-										className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
-										style={{ color: theme.colors.textMain }}
-									>
-										<Globe className="w-3.5 h-3.5" style={{ color: theme.colors.accent }} />
-										<span>Open in Maestro Browser</span>
-									</button>
-								)}
-
-							{/* Open in Default App option - for files only, not available over SSH */}
-							{contextMenu.node.type === 'file' && !sshRemoteId && (
-								<button
-									onClick={handleOpenInDefaultApp}
-									className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
-									style={{ color: theme.colors.textMain }}
-								>
-									<ExternalLink className="w-3.5 h-3.5" style={{ color: theme.colors.accent }} />
-									<span>Open in Default App</span>
-								</button>
-							)}
-
-							{/* Divider after preview/graph options if any were shown */}
-							{contextMenu.node.type === 'file' && (
-								<div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
-							)}
-
-							{/* Copy Path option */}
-							<button
-								onClick={handleCopyPath}
-								className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
-								style={{ color: theme.colors.textMain }}
-							>
-								<Copy className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
-								<span>Copy Path</span>
-							</button>
-
-							{/* Reveal in Finder / Explorer option — local-only, hidden over SSH */}
-							{!sshRemoteId && (
-								<button
-									onClick={handleOpenInExplorer}
-									className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
-									style={{ color: theme.colors.textMain }}
-								>
-									<ExternalLink className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
-									<span>{getRevealLabel(window.maestro.platform)}</span>
-								</button>
-							)}
-
-							{/* Divider before destructive actions */}
-							<div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
-
-							{/* Rename option */}
-							<button
-								onClick={handleOpenRename}
-								className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
-								style={{ color: theme.colors.textMain }}
-							>
-								<Edit2 className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
-								<span>Rename</span>
-							</button>
-
-							{/* Delete option */}
-							<button
-								onClick={handleOpenDelete}
-								className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/10 transition-colors"
-								style={{ color: theme.colors.error }}
-							>
-								<Trash2 className="w-3.5 h-3.5" />
-								<span>Delete</span>
-							</button>
 						</div>
 					</div>,
 					document.body
