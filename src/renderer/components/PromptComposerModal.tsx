@@ -29,31 +29,10 @@ import {
 import { normalizeMentionName } from '../utils/participantColors';
 import { useAtMentionCompletion } from '../hooks/input/useAtMentionCompletion';
 import { useSettingsStore } from '../stores/settingsStore';
+import { useModalStore } from '../stores/modalStore';
 import { isMacOSPlatform } from '../utils/platformUtils';
 
 const EMPTY_STAGED_IMAGES: string[] = [];
-
-// Persisted fullscreen preference — the last state the user left the composer
-// in becomes the default the next time it opens.
-const FULLSCREEN_STORAGE_KEY = 'maestro.promptComposer.fullscreen';
-
-function readStoredFullscreen(): boolean {
-	if (typeof window === 'undefined') return false;
-	try {
-		return window.localStorage.getItem(FULLSCREEN_STORAGE_KEY) === 'true';
-	} catch {
-		return false;
-	}
-}
-
-function writeStoredFullscreen(value: boolean): void {
-	if (typeof window === 'undefined') return;
-	try {
-		window.localStorage.setItem(FULLSCREEN_STORAGE_KEY, String(value));
-	} catch {
-		// Ignore quota / privacy-mode errors — preference just won't persist.
-	}
-}
 
 /** Union type for items shown in the @ mention dropdown */
 type MentionItem =
@@ -137,7 +116,10 @@ export function PromptComposerModal({
 	const needsTitleBarInset = !useNativeTitleBar;
 	const isMac = isMacOSPlatform();
 	const [value, setValue] = useState('');
-	const [isFullscreen, setIsFullscreen] = useState(readStoredFullscreen);
+	// Full-screen state lives in the modal store so the open-composer hotkey can
+	// cycle sizes while the modal is open (see cyclePromptComposer in modalStore).
+	const isFullscreen = useModalStore((s) => s.promptComposerFullscreen);
+	const toggleFullscreen = useModalStore((s) => s.togglePromptComposerFullscreen);
 	const [showMentions, setShowMentions] = useState(false);
 	const [mentionFilter, setMentionFilter] = useState('');
 	const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
@@ -300,14 +282,6 @@ export function PromptComposerModal({
 		},
 		[value]
 	);
-
-	const toggleFullscreen = useCallback(() => {
-		setIsFullscreen((prev) => {
-			const next = !prev;
-			writeStoredFullscreen(next);
-			return next;
-		});
-	}, []);
 
 	const handleValueChange = useCallback((newValue: string) => {
 		setValue(newValue);

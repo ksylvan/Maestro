@@ -509,9 +509,11 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				trackShortcut('toggleTabStar');
 			} else if (ctx.isShortcut(e, 'openPromptComposer')) {
 				e.preventDefault();
-				// Only open in AI mode
+				// Only act in AI mode — the composer is AI-only. While it's already
+				// open, the hotkey cycles between windowed and full-screen instead of
+				// being a no-op.
 				if (ctx.activeSession?.inputMode === 'ai') {
-					ctx.setPromptComposerOpen(true);
+					useModalStore.getState().cyclePromptComposer();
 					trackShortcut('openPromptComposer');
 				}
 			} else if (ctx.isShortcut(e, 'openWizard')) {

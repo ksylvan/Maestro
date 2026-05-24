@@ -4,6 +4,7 @@ import type { AgentConfig, Session, ToolType } from '../../types';
 import type { SshRemoteConfig, AgentSshRemoteConfig } from '../../../shared/types';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { validateNewSession } from '../../utils/sessionValidation';
+import { isAdaptiveModeDefaultOn } from '../../../shared/agentConstants';
 import { FormInput } from '../ui/FormInput';
 import { Modal, ModalFooter } from '../ui/Modal';
 import { SshRemoteSelector } from '../shared/SshRemoteSelector';
@@ -273,6 +274,16 @@ export function NewInstanceModal({
 					...prev,
 					[source.toolType]: source.customEnvVars || {},
 				}));
+				// Mirror the source agent's Adaptive Mode setting (falling back to the
+				// per-agent default) so a duplicate inherits it instead of the form default.
+				setEnableMaestroPByAgent((prev) => ({
+					...prev,
+					[source.toolType]: source.enableMaestroP ?? isAdaptiveModeDefaultOn(source.toolType),
+				}));
+				setMaestroPPathByAgent((prev) => ({
+					...prev,
+					[source.toolType]: source.maestroPPath || '',
+				}));
 
 				// Pre-fill SSH remote configuration if source session has it
 				if (source.sessionSshRemoteConfig?.enabled && source.sessionSshRemoteConfig?.remoteId) {
@@ -441,7 +452,10 @@ export function NewInstanceModal({
 		// selection naturally overrides those defaults.
 		const targetGroupId = selectedGroupId || undefined;
 
-		const agentEnableMaestroP = enableMaestroPByAgent[selectedAgent] || undefined;
+		// New agents default Adaptive Mode on for Claude Code (isAdaptiveModeDefaultOn);
+		// an explicit toggle in the form (true/false) always wins over the default.
+		const agentEnableMaestroP =
+			(enableMaestroPByAgent[selectedAgent] ?? isAdaptiveModeDefaultOn(selectedAgent)) || undefined;
 		const agentMaestroPPath =
 			agentEnableMaestroP && maestroPPathByAgent[selectedAgent]?.trim()
 				? maestroPPathByAgent[selectedAgent].trim()
@@ -476,7 +490,13 @@ export function NewInstanceModal({
 		setCustomAgentPaths((prev) => ({ ...prev, [selectedAgent]: '' }));
 		setCustomAgentArgs((prev) => ({ ...prev, [selectedAgent]: '' }));
 		setCustomAgentEnvVars((prev) => ({ ...prev, [selectedAgent]: {} }));
-		setEnableMaestroPByAgent((prev) => ({ ...prev, [selectedAgent]: false }));
+		// Clear the explicit override (rather than forcing false) so the agent's
+		// default (on for Claude Code) applies again on the next open.
+		setEnableMaestroPByAgent((prev) => {
+			const next = { ...prev };
+			delete next[selectedAgent];
+			return next;
+		});
 		setMaestroPPathByAgent((prev) => ({ ...prev, [selectedAgent]: '' }));
 		setAgentSshRemoteConfigs((prev) => {
 			const newConfigs = { ...prev };

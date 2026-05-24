@@ -124,6 +124,12 @@ export const CodeFence = memo(function CodeFence({
 		border: `1px solid ${theme.colors.border}`,
 		overflow: 'hidden' as const,
 		fontSize: '0.9em',
+		// Contain the fence's internal z-index (picker/copy buttons sit at z-10)
+		// to its own stacking context. Without this, those positioned children
+		// are hoisted into the ancestor context and paint over the terminal
+		// overlay (z-index: 1) when the terminal tab is active. The language
+		// picker popover is portaled to document.body, so it's unaffected.
+		isolation: 'isolate' as const,
 	};
 
 	const fallbackPreStyle = {

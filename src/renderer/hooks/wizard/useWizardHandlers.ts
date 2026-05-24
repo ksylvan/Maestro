@@ -60,6 +60,7 @@ function getAutorunSynopsisPrompt(): string {
 import { formatRelativeTime } from '../../../shared/formatters';
 import { gitService } from '../../services/git';
 import { PLAYBOOKS_DIR } from '../../../shared/maestro-paths';
+import { isAdaptiveModeDefaultOn } from '../../../shared/agentConstants';
 import { DEFAULT_BATCH_PROMPT } from '../../components/BatchRunnerModal';
 import type { PreviousUIState, UseInlineWizardReturn } from '../batch/useInlineWizard';
 import type { WizardState } from '../../components/Wizard/WizardContext';
@@ -1286,6 +1287,9 @@ export function useWizardHandlers(deps: UseWizardHandlersDeps): UseWizardHandler
 				customArgs,
 				customEnvVars,
 				sessionSshRemoteConfig,
+				// New agents default Adaptive Mode on for Claude Code (the wizard has no
+				// toggle, so this is purely the default).
+				enableMaestroP: isAdaptiveModeDefaultOn(selectedAgent) || undefined,
 				claudeInteractive:
 					selectedAgent === 'claude-code' ? { mode: 'api', modeReason: 'auto' } : undefined,
 			};

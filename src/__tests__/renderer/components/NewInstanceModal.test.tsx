@@ -736,7 +736,7 @@ describe('NewInstanceModal', () => {
 				expect.objectContaining({ enabled: false, remoteId: null }),
 				undefined,
 				undefined,
-				undefined,
+				true, // enableMaestroP defaults on for Claude Code (Adaptive Mode)
 				undefined
 			);
 		});
@@ -787,7 +787,7 @@ describe('NewInstanceModal', () => {
 				expect.objectContaining({ enabled: false, remoteId: null }),
 				undefined,
 				undefined,
-				undefined,
+				true, // enableMaestroP defaults on for Claude Code (Adaptive Mode)
 				undefined
 			);
 		});
@@ -838,7 +838,7 @@ describe('NewInstanceModal', () => {
 				expect.objectContaining({ enabled: false, remoteId: null }),
 				undefined,
 				undefined,
-				undefined,
+				true, // enableMaestroP defaults on for Claude Code (Adaptive Mode)
 				undefined
 			);
 		});
@@ -890,7 +890,7 @@ describe('NewInstanceModal', () => {
 				expect.objectContaining({ enabled: false, remoteId: null }),
 				undefined,
 				undefined,
-				undefined,
+				true, // enableMaestroP defaults on for Claude Code (Adaptive Mode)
 				undefined
 			);
 			expect(onClose).toHaveBeenCalled();
@@ -1405,7 +1405,7 @@ describe('NewInstanceModal', () => {
 				expect.objectContaining({ enabled: false, remoteId: null }),
 				undefined,
 				undefined,
-				undefined,
+				true, // enableMaestroP defaults on for Claude Code (Adaptive Mode)
 				undefined
 			);
 		});
@@ -1556,7 +1556,7 @@ describe('NewInstanceModal', () => {
 				expect.objectContaining({ enabled: false, remoteId: null }),
 				undefined,
 				undefined,
-				undefined,
+				true, // enableMaestroP defaults on for Claude Code (Adaptive Mode)
 				undefined
 			);
 		});
@@ -2942,7 +2942,7 @@ describe('NewInstanceModal', () => {
 				}),
 				undefined,
 				undefined,
-				undefined,
+				true, // enableMaestroP defaults on for Claude Code (Adaptive Mode)
 				undefined
 			);
 		});
@@ -3056,7 +3056,7 @@ describe('NewInstanceModal', () => {
 				}),
 				undefined,
 				undefined,
-				undefined,
+				true, // enableMaestroP defaults on for Claude Code (Adaptive Mode)
 				undefined
 			);
 		});

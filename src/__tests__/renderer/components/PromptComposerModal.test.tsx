@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { PromptComposerModal } from '../../../renderer/components/PromptComposerModal';
+import { useModalStore } from '../../../renderer/stores/modalStore';
 import { formatEnterToSend } from '../../../renderer/utils/shortcutFormatter';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme, Session, Group } from '../../../renderer/types';
@@ -125,6 +126,9 @@ describe('PromptComposerModal', () => {
 			configurable: true,
 			writable: true,
 		});
+		// Full-screen state now lives in the modal store (a module singleton), so
+		// reset it between tests to keep them isolated.
+		useModalStore.setState({ promptComposerFullscreen: false });
 	});
 
 	afterEach(() => {

@@ -538,6 +538,12 @@ describe('shared/formatters', () => {
 			expect(abbreviateGroupName('client-facing-team')).toBe('CFT');
 		});
 
+		it('drops leading numbering/bracket tokens from initials', () => {
+			expect(abbreviateGroupName('[1] Aleyemma/Money-Sessions')).toBe('AMS');
+			expect(abbreviateGroupName('(2) Research Operations')).toBe('RO');
+			expect(abbreviateGroupName('#3 backend-api-gateway')).toBe('BAG');
+		});
+
 		it('strips vowels from single long words, preserving the first character', () => {
 			expect(abbreviateGroupName('Engineering')).toBe('Engnrng');
 			expect(abbreviateGroupName('Documentation')).toBe('Dcmnttn');
