@@ -13,6 +13,7 @@ import {
 	AlignHorizontalJustifyCenter,
 	AlertTriangle,
 	AppWindow,
+	Bell,
 	Database,
 	Eye,
 	FileText,
@@ -88,6 +89,8 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 		setUserMessageAlignment,
 		fileExplorerIconTheme,
 		setFileExplorerIconTheme,
+		toastWidth,
+		setToastWidth,
 		showStarredInUnreadFilter,
 		setShowStarredInUnreadFilter,
 		showFilePreviewsInUnreadFilter,
@@ -316,6 +319,24 @@ export function DisplayTab({ theme }: DisplayTabProps) {
 				<p className="text-xs opacity-50 mt-2">
 					Rich uses Material Icon Theme style file and folder SVGs in the Files pane. Default
 					preserves Maestro&apos;s current icon behavior.
+				</p>
+			</div>
+
+			<div data-setting-id="display-toast-width">
+				<SettingsSectionHeading icon={Bell}>Toast Notification Width</SettingsSectionHeading>
+				<ToggleButtonGroup
+					options={[
+						{ value: 'small', label: 'Small' },
+						{ value: 'medium', label: 'Medium' },
+						{ value: 'large', label: 'Large' },
+					]}
+					value={toastWidth}
+					onChange={setToastWidth}
+					theme={theme}
+				/>
+				<p className="text-xs opacity-50 mt-2">
+					Controls how wide toast notifications appear in the corner. Small is the default compact
+					size; Large is roughly 1.8&times; wider.
 				</p>
 			</div>
 

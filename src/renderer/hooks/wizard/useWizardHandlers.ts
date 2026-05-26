@@ -365,6 +365,7 @@ export function useWizardHandlers(deps: UseWizardHandlersDeps): UseWizardHandler
 
 				const newWizardState: SessionWizardState = {
 					isActive: tabWizardState.isActive,
+					isInitializing: tabWizardState.isInitializing,
 					isWaiting: tabWizardState.isWaiting,
 					mode: (tabWizardState.mode === 'ask' ? 'new' : tabWizardState.mode) as WizardMode,
 					goal: tabWizardState.goal ?? undefined,

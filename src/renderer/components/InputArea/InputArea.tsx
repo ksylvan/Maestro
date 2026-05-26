@@ -294,7 +294,8 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 				toggleInputMode={toggleInputMode}
 				confidence={wizardState.confidence}
 				canAttachImages={canAttachImages}
-				isBusy={wizardState.isWaiting || session.state === 'busy'}
+				isInitializing={wizardState.isInitializing ?? false}
+				isBusy={wizardState.isWaiting || activeTab?.state === 'busy'}
 				onExitWizard={onExitWizard}
 				enterToSend={enterToSend}
 				setEnterToSend={setEnterToSend}

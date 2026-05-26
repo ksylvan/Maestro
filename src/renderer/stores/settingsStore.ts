@@ -38,6 +38,8 @@ import { getLevelIndex } from '../constants/keyboardMastery';
 import { RIGHT_PANEL_MIN_WIDTH, RIGHT_PANEL_MAX_WIDTH } from '../constants/rightPanel';
 import type { FileExplorerIconTheme } from '../utils/fileExplorerIcons/shared';
 import { isFileExplorerIconTheme } from '../utils/fileExplorerIcons/shared';
+import type { ToastWidth } from '../../shared/toastWidth';
+import { isToastWidth } from '../../shared/toastWidth';
 import { logger } from '../utils/logger';
 
 // ============================================================================
@@ -327,6 +329,7 @@ export interface SettingsStoreState {
 	bionifyAlgorithm: string;
 	showHiddenFiles: boolean;
 	fileExplorerIconTheme: FileExplorerIconTheme;
+	toastWidth: ToastWidth;
 	terminalWidth: number;
 	logLevel: string;
 	maxLogBuffer: number;
@@ -467,6 +470,7 @@ export interface SettingsStoreActions {
 	setBionifyAlgorithm: (value: string) => void;
 	setShowHiddenFiles: (value: boolean) => void;
 	setFileExplorerIconTheme: (value: FileExplorerIconTheme) => void;
+	setToastWidth: (value: ToastWidth) => void;
 	setTerminalWidth: (value: number) => void;
 	setMaxOutputLines: (value: number) => void;
 	setOsNotificationsEnabled: (value: boolean) => void;
@@ -668,6 +672,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		bionifyAlgorithm: '- 0 1 1 2 0.4',
 		showHiddenFiles: true,
 		fileExplorerIconTheme: 'default',
+		toastWidth: 'small',
 		terminalWidth: 100,
 		logLevel: 'info',
 		maxLogBuffer: 5000,
@@ -933,6 +938,11 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		setFileExplorerIconTheme: (value) => {
 			set({ fileExplorerIconTheme: value });
 			window.maestro.settings.set('fileExplorerIconTheme', value);
+		},
+
+		setToastWidth: (value) => {
+			set({ toastWidth: value });
+			window.maestro.settings.set('toastWidth', value);
 		},
 
 		setTerminalWidth: (value) => {
@@ -2177,6 +2187,12 @@ export async function loadAllSettings(): Promise<void> {
 				: 'default';
 		}
 
+		if (allSettings['toastWidth'] !== undefined) {
+			patch.toastWidth = isToastWidth(allSettings['toastWidth'])
+				? allSettings['toastWidth']
+				: 'small';
+		}
+
 		if (allSettings['terminalWidth'] !== undefined)
 			patch.terminalWidth = allSettings['terminalWidth'] as number;
 
@@ -2754,6 +2770,7 @@ export function getSettingsActions() {
 		setBionifyAlgorithm: state.setBionifyAlgorithm,
 		setShowHiddenFiles: state.setShowHiddenFiles,
 		setFileExplorerIconTheme: state.setFileExplorerIconTheme,
+		setToastWidth: state.setToastWidth,
 		setTerminalWidth: state.setTerminalWidth,
 		setLogLevel: state.setLogLevel,
 		setMaxLogBuffer: state.setMaxLogBuffer,

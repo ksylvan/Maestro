@@ -124,6 +124,8 @@ export interface WizardGeneratedDocument {
 export interface SessionWizardState {
 	/** Whether wizard is currently active */
 	isActive: boolean;
+	/** Whether the wizard is performing first-load initialization (fetching docs, parsing intent) */
+	isInitializing?: boolean;
 	/** Whether waiting for AI response */
 	isWaiting?: boolean;
 	/** Current wizard mode: 'new' for creating documents, 'iterate' for modifying existing */

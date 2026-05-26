@@ -802,7 +802,12 @@ describe('SettingsModal', () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
-			fireEvent.click(screen.getByRole('button', { name: 'Small' }));
+			// Scope to the font-size section — the toast-width setting also renders
+			// Small/Medium/Large buttons, so an unscoped query is ambiguous.
+			const fontSizeSection = within(
+				document.querySelector('[data-setting-id="display-font-size"]') as HTMLElement
+			);
+			fireEvent.click(fontSizeSection.getByRole('button', { name: 'Small' }));
 			expect(mockSetFontSize).toHaveBeenCalledWith(12);
 		});
 
@@ -814,7 +819,10 @@ describe('SettingsModal', () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
-			fireEvent.click(screen.getByRole('button', { name: 'Medium' }));
+			const fontSizeSection = within(
+				document.querySelector('[data-setting-id="display-font-size"]') as HTMLElement
+			);
+			fireEvent.click(fontSizeSection.getByRole('button', { name: 'Medium' }));
 			expect(mockSetFontSize).toHaveBeenCalledWith(14);
 		});
 
@@ -826,7 +834,10 @@ describe('SettingsModal', () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
-			fireEvent.click(screen.getByRole('button', { name: 'Large' }));
+			const fontSizeSection = within(
+				document.querySelector('[data-setting-id="display-font-size"]') as HTMLElement
+			);
+			fireEvent.click(fontSizeSection.getByRole('button', { name: 'Large' }));
 			expect(mockSetFontSize).toHaveBeenCalledWith(16);
 		});
 
@@ -849,7 +860,10 @@ describe('SettingsModal', () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
-			const mediumButton = screen.getByText('Medium');
+			const fontSizeSection = within(
+				document.querySelector('[data-setting-id="display-font-size"]') as HTMLElement
+			);
+			const mediumButton = fontSizeSection.getByText('Medium');
 			expect(mediumButton).toHaveClass('ring-2');
 		});
 	});

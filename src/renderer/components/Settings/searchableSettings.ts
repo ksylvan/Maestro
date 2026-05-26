@@ -491,6 +491,14 @@ export const DISPLAY_SETTINGS: SearchableSetting[] = [
 		keywords: ['icon', 'theme', 'files', 'material', 'rich', 'explorer'],
 	},
 	{
+		id: 'display-toast-width',
+		tab: 'display',
+		tabLabel: 'Display',
+		label: 'Toast Notification Width',
+		description: 'Width of toast notifications: Small, Medium, or Large',
+		keywords: ['toast', 'notification', 'width', 'size', 'small', 'medium', 'large'],
+	},
+	{
 		id: 'display-window-chrome',
 		tab: 'display',
 		tabLabel: 'Display',

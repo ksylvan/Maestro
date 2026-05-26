@@ -238,6 +238,12 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		default: 'default',
 		category: 'appearance',
 	},
+	toastWidth: {
+		description: 'Width of toast notifications. Options: small (default), medium, large.',
+		type: 'string',
+		default: 'small',
+		category: 'appearance',
+	},
 	disableConfetti: {
 		description: 'Disable confetti animations for badge unlocks and achievements.',
 		type: 'boolean',

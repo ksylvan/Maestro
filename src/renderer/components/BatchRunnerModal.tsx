@@ -44,6 +44,8 @@ import {
 import { generateId } from '../utils/ids';
 import { formatMetaKey } from '../utils/shortcutFormatter';
 import { logger } from '../utils/logger';
+import { resolveEffectiveContextWindow } from '../utils/contextWindowResolver';
+import { PER_DOCUMENT_CONTEXT_THRESHOLD } from '../../shared/agentConstants';
 
 // Re-export for external consumers
 export { DEFAULT_BATCH_PROMPT, validateAgentPromptHasTaskReference } from '../hooks';
@@ -323,6 +325,48 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 		},
 		onApplyPlaybook: handleApplyPlaybook,
 	});
+
+	// Auto-pick the fresh-context mode from the active agent's context window the
+	// first time the modal opens on a blank config (no loaded playbook). Windows
+	// at/above the per-document threshold (Claude 1M, etc.) default to walking the
+	// whole document in one shared context; smaller windows default to per-task.
+	// A loaded playbook's saved mode and any manual toggle take precedence — this
+	// only seeds the initial default, and updating the ref keeps it non-dirty.
+	const autoModeAppliedRef = useRef(false);
+	const loadedPlaybookRef = useRef(loadedPlaybook);
+	loadedPlaybookRef.current = loadedPlaybook;
+	useEffect(() => {
+		if (autoModeAppliedRef.current) return;
+		// A playbook supplies its own mode — don't second-guess it.
+		if (loadedPlaybook) {
+			autoModeAppliedRef.current = true;
+			return;
+		}
+		if (!activeSession) return;
+
+		let active = true;
+		(async () => {
+			const configured = await resolveEffectiveContextWindow(activeSession);
+			// Also honor a window the agent reported at runtime (e.g. Claude's 1M
+			// beta) even when the configured value was left at the default.
+			const reported = activeSession.aiTabs.reduce(
+				(max, tab) => Math.max(max, tab.usageStats?.contextWindow ?? 0),
+				0
+			);
+			const contextWindow = Math.max(configured, reported);
+			// Re-check via refs: a playbook may have loaded (or the auto-pick may
+			// have already run) while the agent config IPC was in flight.
+			if (!active || autoModeAppliedRef.current || loadedPlaybookRef.current) return;
+			const mode: TaskSelectionMode =
+				contextWindow >= PER_DOCUMENT_CONTEXT_THRESHOLD ? 'document' : 'task';
+			autoModeAppliedRef.current = true;
+			setTaskSelectionMode(mode);
+			initialTaskSelectionModeRef.current = mode;
+		})();
+		return () => {
+			active = false;
+		};
+	}, [activeSession, loadedPlaybook]);
 
 	// Use ref for getDocumentTaskCount to avoid dependency issues
 	const getDocumentTaskCountRef = useRef(getDocumentTaskCount);

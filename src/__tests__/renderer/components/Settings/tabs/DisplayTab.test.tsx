@@ -36,6 +36,7 @@ const mockSetBionifyIntensity = vi.fn();
 const mockSetBionifyAlgorithm = vi.fn();
 const mockSetUserMessageAlignment = vi.fn();
 const mockSetFileExplorerIconTheme = vi.fn();
+const mockSetToastWidth = vi.fn();
 const mockSetUseNativeTitleBar = vi.fn();
 const mockSetAutoHideMenuBar = vi.fn();
 const mockSetDocumentGraphShowExternalLinks = vi.fn();
@@ -76,6 +77,8 @@ vi.mock('../../../../../renderer/hooks/settings/useSettings', () => ({
 		setUserMessageAlignment: mockSetUserMessageAlignment,
 		fileExplorerIconTheme: 'default',
 		setFileExplorerIconTheme: mockSetFileExplorerIconTheme,
+		toastWidth: 'small',
+		setToastWidth: mockSetToastWidth,
 		useNativeTitleBar: false,
 		setUseNativeTitleBar: mockSetUseNativeTitleBar,
 		autoHideMenuBar: false,
@@ -638,7 +641,10 @@ describe('DisplayTab', () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			fireEvent.click(screen.getByRole('button', { name: 'Small' }));
+			const fontSizeSection = within(
+				document.querySelector('[data-setting-id="display-font-size"]') as HTMLElement
+			);
+			fireEvent.click(fontSizeSection.getByRole('button', { name: 'Small' }));
 			expect(mockSetFontSize).toHaveBeenCalledWith(12);
 		});
 
@@ -649,7 +655,10 @@ describe('DisplayTab', () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			fireEvent.click(screen.getByRole('button', { name: 'Medium' }));
+			const fontSizeSection = within(
+				document.querySelector('[data-setting-id="display-font-size"]') as HTMLElement
+			);
+			fireEvent.click(fontSizeSection.getByRole('button', { name: 'Medium' }));
 			expect(mockSetFontSize).toHaveBeenCalledWith(14);
 		});
 
@@ -660,7 +669,10 @@ describe('DisplayTab', () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			fireEvent.click(screen.getByRole('button', { name: 'Large' }));
+			const fontSizeSection = within(
+				document.querySelector('[data-setting-id="display-font-size"]') as HTMLElement
+			);
+			fireEvent.click(fontSizeSection.getByRole('button', { name: 'Large' }));
 			expect(mockSetFontSize).toHaveBeenCalledWith(16);
 		});
 
@@ -682,7 +694,10 @@ describe('DisplayTab', () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			const mediumButton = screen.getByText('Medium');
+			const fontSizeSection = within(
+				document.querySelector('[data-setting-id="display-font-size"]') as HTMLElement
+			);
+			const mediumButton = fontSizeSection.getByText('Medium');
 			expect(mediumButton).toHaveClass('ring-2');
 		});
 
@@ -694,8 +709,63 @@ describe('DisplayTab', () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			const smallButton = screen.getByText('Small');
+			const fontSizeSection = within(
+				document.querySelector('[data-setting-id="display-font-size"]') as HTMLElement
+			);
+			const smallButton = fontSizeSection.getByText('Small');
 			expect(smallButton).toHaveClass('ring-2');
+		});
+	});
+
+	// =========================================================================
+	// Toast Width
+	// =========================================================================
+
+	describe('Toast Width', () => {
+		const toastSection = () =>
+			within(document.querySelector('[data-setting-id="display-toast-width"]') as HTMLElement);
+
+		it('should call setToastWidth with "medium" when Medium is clicked', async () => {
+			render(<DisplayTab theme={mockTheme} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			fireEvent.click(toastSection().getByRole('button', { name: 'Medium' }));
+			expect(mockSetToastWidth).toHaveBeenCalledWith('medium');
+		});
+
+		it('should call setToastWidth with "large" when Large is clicked', async () => {
+			render(<DisplayTab theme={mockTheme} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			fireEvent.click(toastSection().getByRole('button', { name: 'Large' }));
+			expect(mockSetToastWidth).toHaveBeenCalledWith('large');
+		});
+
+		it('should highlight the selected width (Small by default)', async () => {
+			render(<DisplayTab theme={mockTheme} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			expect(toastSection().getByText('Small')).toHaveClass('ring-2');
+		});
+
+		it('should highlight Large when toastWidth is large', async () => {
+			mockUseSettingsOverrides = { toastWidth: 'large' };
+			render(<DisplayTab theme={mockTheme} />);
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			expect(toastSection().getByText('Large')).toHaveClass('ring-2');
 		});
 	});
 

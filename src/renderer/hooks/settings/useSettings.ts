@@ -30,6 +30,7 @@ import type {
 	EncoreFeatureFlags,
 } from '../../types';
 import type { FileExplorerIconTheme } from '../../utils/fileExplorerIcons/shared';
+import type { ToastWidth } from '../../../shared/toastWidth';
 import {
 	useSettingsStore,
 	loadAllSettings,
@@ -120,6 +121,8 @@ export interface UseSettingsReturn {
 	setShowHiddenFiles: (value: boolean) => void;
 	fileExplorerIconTheme: FileExplorerIconTheme;
 	setFileExplorerIconTheme: (value: FileExplorerIconTheme) => void;
+	toastWidth: ToastWidth;
+	setToastWidth: (value: ToastWidth) => void;
 
 	// Logging settings
 	logLevel: string;
