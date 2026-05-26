@@ -12,6 +12,7 @@ import {
 	Monitor,
 	Globe,
 	Wand2,
+	Box,
 	Info,
 } from 'lucide-react';
 import { useSettings } from '../../hooks';
@@ -32,6 +33,7 @@ import { EncoreTab } from './tabs/EncoreTab';
 import { ShortcutsTab } from './tabs/ShortcutsTab';
 import { ThemeTab } from './tabs/ThemeTab';
 import { EnvironmentTab } from './tabs/EnvironmentTab';
+import { AgentsTab } from './tabs/AgentsTab';
 import { AboutTab } from './tabs/AboutTab';
 import { useSettingsSearch, SettingsSearchInput, SettingsSearchResults } from './SettingsSearch';
 import type { SearchableSetting } from './searchableSettings';
@@ -50,6 +52,7 @@ type SettingsTabId =
 	| 'theme'
 	| 'notifications'
 	| 'aicommands'
+	| 'agents'
 	| 'ssh'
 	| 'environment'
 	| 'encore'
@@ -64,6 +67,7 @@ const TAB_ITEMS: Array<{
 	icon: typeof Settings;
 }> = [
 	{ id: 'about', label: 'About', icon: Info },
+	{ id: 'agents', label: 'Agents', icon: Box },
 	{ id: 'aicommands', label: 'AI Commands', icon: Cpu },
 	{ id: 'display', label: 'Display', icon: Monitor },
 	{ id: 'encore', label: 'Encore Features', icon: FlaskConical },
@@ -108,6 +112,7 @@ interface SettingsModalProps {
 		| 'theme'
 		| 'notifications'
 		| 'aicommands'
+		| 'agents'
 		| 'ssh'
 		| 'environment'
 		| 'encore'
@@ -755,6 +760,8 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 						{activeTab === 'environment' && <EnvironmentTab theme={theme} />}
 
 						{activeTab === 'encore' && <EncoreTab theme={theme} isOpen={isOpen} />}
+
+						{activeTab === 'agents' && <AgentsTab theme={theme} />}
 
 						{activeTab === 'about' && <AboutTab theme={theme} />}
 					</div>

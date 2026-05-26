@@ -39,6 +39,7 @@ import {
 	getSessionsStore,
 	getGroupsStore,
 	getAgentConfigsStore,
+	getAgentCapabilitiesStore,
 	getWindowStateStore,
 	getClaudeSessionOriginsStore,
 	getAgentSessionOriginsStore,
@@ -141,6 +142,7 @@ import {
 } from './group-chat/output-buffer';
 // Phase 2 refactoring - dependency injection
 import { createSafeSend, isWebContentsAvailable } from './utils/safe-send';
+import { capabilitySnapshots, createSnapshotBroadcaster } from './agents/capability-snapshot';
 import { createWebServerFactory } from './web-server/web-server-factory';
 // Phase 4 refactoring - app lifecycle
 import {
@@ -327,6 +329,7 @@ if (crashReportingEnabled && !isDevelopment) {
 const sessionsStore = getSessionsStore();
 const groupsStore = getGroupsStore();
 const agentConfigsStore = getAgentConfigsStore();
+const agentCapabilitiesStore = getAgentCapabilitiesStore();
 const windowStateStore = getWindowStateStore();
 const claudeSessionOriginsStore = getClaudeSessionOriginsStore();
 const agentSessionOriginsStore = getAgentSessionOriginsStore();
@@ -353,6 +356,10 @@ let interactiveReplayController: InteractiveReplayController<ProcessSpawnConfig>
 
 // Create safeSend with dependency injection (Phase 2 refactoring)
 const safeSend = createSafeSend(() => mainWindow);
+
+// Hydrate capability snapshots from disk and wire IPC broadcaster so the
+// renderer status pills update live as detection / spawn-error events fire.
+capabilitySnapshots.init(agentCapabilitiesStore, createSnapshotBroadcaster(safeSend));
 
 // Create CLI activity watcher with dependency injection (Phase 4 refactoring)
 const cliWatcher = createCliWatcher({
