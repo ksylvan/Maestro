@@ -1,5 +1,8 @@
 import type { Session } from '../../../types';
 import type { QuickAction } from '../types';
+import { useImageAnnotatorStore } from '../../ImageAnnotator/imageAnnotatorStore';
+import { safeClipboardReadImage, safeClipboardWriteImage } from '../../../utils/clipboard';
+import { notifyCenterFlash } from '../../../stores/centerFlashStore';
 
 interface BuildFeatureCommandsArgs {
 	activeSession: Session | undefined;
@@ -99,6 +102,29 @@ export function buildFeatureCommands({
 	tabShortcuts,
 }: BuildFeatureCommandsArgs): QuickAction[] {
 	const commands: QuickAction[] = [
+		{
+			id: 'editClipboardImage',
+			label: 'Edit Image from Clipboard',
+			subtext: 'Open the image annotator on the current clipboard image',
+			action: async () => {
+				setQuickActionOpen(false);
+				const dataUrl = await safeClipboardReadImage();
+				if (!dataUrl) {
+					notifyCenterFlash({
+						message: 'No image found in the clipboard.',
+						color: 'theme',
+					});
+					return;
+				}
+				useImageAnnotatorStore.getState().openAnnotator(dataUrl, async (newDataUrl) => {
+					const ok = await safeClipboardWriteImage(newDataUrl);
+					notifyCenterFlash({
+						message: ok ? 'Copied edited image to clipboard' : 'Failed to copy image to clipboard',
+						color: ok ? 'green' : 'red',
+					});
+				});
+			},
+		},
 		{
 			id: 'toggleBionifyReadingMode',
 			label: bionifyReadingMode ? 'Turn Off Bionify Emphasis' : 'Turn On Bionify Emphasis',
