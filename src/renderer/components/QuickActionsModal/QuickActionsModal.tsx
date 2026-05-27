@@ -10,6 +10,7 @@ import { flashCopiedToClipboard } from '../../utils/flashCopiedToClipboard';
 import { useModalStore } from '../../stores/modalStore';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { gitService } from '../../services/git';
+import { useGitDetail } from '../../contexts/GitStatusContext';
 import { safeClipboardWrite } from '../../utils/clipboard';
 import { getOpenInLabel } from '../../utils/platformUtils';
 import { useListNavigation } from '../../hooks';
@@ -150,6 +151,11 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 		onNewTerminalTab,
 		onGoToNextUnread,
 	} = props;
+
+	// Git status refresh — used to re-sync polling cache when `git diff` comes
+	// back empty despite the widget advertising changes (e.g. files were
+	// reverted or committed since the last poll).
+	const { refreshGitStatus } = useGitDetail();
 
 	// UI store actions for search commands (avoid threading more props through 3-layer chain)
 	const setActiveFocus = useUIStore((s) => s.setActiveFocus);
@@ -507,6 +513,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			onQuickCreateWorktree,
 			onOpenCreatePR,
 			onRefreshGitFileState,
+			onRefreshGitStatus: refreshGitStatus,
 			shortcuts: {
 				viewGitDiff: shortcuts.viewGitDiff,
 				viewGitLog: shortcuts.viewGitLog,

@@ -33,6 +33,7 @@ import { notifyToast } from '../../stores/notificationStore';
 import type { CuePipelineSessionInfo as SessionInfo } from '../../../shared/cue-pipeline-types';
 import { flushAllPendingEdits } from './pendingEditsRegistry';
 import { cueDebugLog } from '../../../shared/cueDebug';
+import { useCueDirtyStore } from '../../stores/cueDirtyStore';
 
 const SAVE_SUCCESS_IDLE_DELAY_MS = 2000;
 const SAVE_ERROR_IDLE_DELAY_MS = 3000;
@@ -285,6 +286,10 @@ export function usePipelinePersistence({
 		const previousRoots = new Set(lastWrittenRootsRef.current);
 
 		setSaveStatus('saving');
+		// Publish "saving" to the shared dirty store so the modal's close handler
+		// can let the user dismiss CueModal mid-save (the save promise continues
+		// in the background and toasts on completion).
+		useCueDirtyStore.getState().setPipelineSaving(true);
 		try {
 			const touchedRoots = new Set<string>([...currentRoots, ...previousRoots]);
 			let rootsCleared = 0;
@@ -453,6 +458,8 @@ export function usePipelinePersistence({
 				title: 'Cue save failed',
 				message: `Your changes were NOT saved. ${message}`,
 			});
+		} finally {
+			useCueDirtyStore.getState().setPipelineSaving(false);
 		}
 	}, [
 		pipelinesRef,

@@ -625,6 +625,10 @@ export const MainPanel = React.memo(
 				setGitDiffPreview(diff.diff);
 			} else {
 				notifyCenterFlash({ message: 'No diff to examine', color: 'theme' });
+				// Polling cache said there were changes but `git diff` is empty —
+				// repo state changed since the last poll. Re-sync so the widget
+				// stops advertising stale stats.
+				void refreshGitStatus();
 			}
 		}, [
 			activeSession?.isGitRepo,
@@ -633,6 +637,7 @@ export const MainPanel = React.memo(
 			activeSession?.cwd,
 			filePreviewSshRemoteId,
 			setGitDiffPreview,
+			refreshGitStatus,
 		]);
 
 		// Show log viewer

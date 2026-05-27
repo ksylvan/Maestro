@@ -1,4 +1,13 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
+import React, {
+	useState,
+	useEffect,
+	useRef,
+	useMemo,
+	useCallback,
+	lazy,
+	Suspense,
+	type ReactNode,
+} from 'react';
 import { useFocusAfterRender } from './hooks/utils/useFocusAfterRender';
 // SettingsModal is now lazy-loaded inside AppStandaloneModals
 import { SessionList } from './components/SessionList';
@@ -2651,7 +2660,7 @@ function MaestroConsoleInner() {
 	});
 
 	return (
-		<GitStatusProvider sessions={sessions} activeSessionId={activeSessionId}>
+		<>
 			<div
 				className={`flex h-screen w-full font-mono overflow-hidden transition-colors duration-300 ${
 					isMobileLandscape || useNativeTitleBar ? 'pt-0' : 'pt-10'
@@ -3325,6 +3334,22 @@ function MaestroConsoleInner() {
 				{/* --- CENTER FLASH (single, app-wide; mounted via portal) --- */}
 				<CenterFlash theme={theme} />
 			</div>
+		</>
+	);
+}
+
+/**
+ * GitStatusProviderFromStore — reads sessions/activeSessionId from the store
+ * so GitStatusProvider can sit ABOVE MaestroConsoleInner. Required because
+ * useModalHandlers (called inside MaestroConsoleInner) consumes useGitDetail,
+ * and a context provider must wrap its consumer.
+ */
+function GitStatusProviderFromStore({ children }: { children: ReactNode }) {
+	const sessions = useSessionStore((s) => s.sessions);
+	const activeSessionId = useSessionStore((s) => s.activeSessionId);
+	return (
+		<GitStatusProvider sessions={sessions} activeSessionId={activeSessionId}>
+			{children}
 		</GitStatusProvider>
 	);
 }
@@ -3357,7 +3382,9 @@ export default function MaestroConsole() {
 	return (
 		<InlineWizardProvider>
 			<InputProvider>
-				<MaestroConsoleInner />
+				<GitStatusProviderFromStore>
+					<MaestroConsoleInner />
+				</GitStatusProviderFromStore>
 			</InputProvider>
 		</InlineWizardProvider>
 	);
