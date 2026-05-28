@@ -10,7 +10,7 @@ export const FILE_TREE_MULTI_MIME = 'application/x-maestro-file-paths';
 export const FILE_TREE_SINGLE_MIME = 'application/x-maestro-file-path';
 
 /**
- * Above this many files, "Preview all files under Folder" asks for confirmation
+ * Above this many files, "Preview All Files in Folder" asks for confirmation
  * first so a deep folder doesn't silently flood the tab bar with hundreds of tabs.
  */
 export const PREVIEW_ALL_CONFIRM_THRESHOLD = 25;

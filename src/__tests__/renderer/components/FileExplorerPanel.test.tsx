@@ -3008,22 +3008,22 @@ describe('FileExplorerPanel', () => {
 			expect(screen.queryByText('New File')).not.toBeInTheDocument();
 		});
 
-		it('shows "Preview all files under Folder" option on folder context menu', () => {
+		it('shows "Preview All Files in Folder" option on folder context menu', () => {
 			const { container } = render(<FileExplorerPanel {...defaultProps} />);
 			const folderItem = Array.from(container.querySelectorAll('[data-file-index]')).find((el) =>
 				el.textContent?.includes('src')
 			);
 			fireEvent.contextMenu(folderItem!, { clientX: 100, clientY: 200 });
-			expect(screen.getByText('Preview all files under Folder')).toBeInTheDocument();
+			expect(screen.getByText('Preview All Files in Folder')).toBeInTheDocument();
 		});
 
-		it('does not show "Preview all files under Folder" option on file context menu', () => {
+		it('does not show "Preview All Files in Folder" option on file context menu', () => {
 			const { container } = render(<FileExplorerPanel {...defaultProps} />);
 			const fileItem = Array.from(container.querySelectorAll('[data-file-index]')).find((el) =>
 				el.textContent?.includes('package.json')
 			);
 			fireEvent.contextMenu(fileItem!, { clientX: 100, clientY: 200 });
-			expect(screen.queryByText('Preview all files under Folder')).not.toBeInTheDocument();
+			expect(screen.queryByText('Preview All Files in Folder')).not.toBeInTheDocument();
 		});
 
 		it('opens every previewable file under a folder recursively when clicked', async () => {
@@ -3042,7 +3042,7 @@ describe('FileExplorerPanel', () => {
 			fireEvent.contextMenu(folderItem!, { clientX: 100, clientY: 200 });
 
 			await act(async () => {
-				fireEvent.click(screen.getByText('Preview all files under Folder'));
+				fireEvent.click(screen.getByText('Preview All Files in Folder'));
 				await Promise.resolve();
 				await Promise.resolve();
 				await Promise.resolve();

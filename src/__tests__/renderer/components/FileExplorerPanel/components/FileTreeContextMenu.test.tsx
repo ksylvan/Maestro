@@ -88,7 +88,7 @@ describe('FileTreeContextMenu', () => {
 		render(<FileTreeContextMenu {...defaultProps} contextMenu={makeContextMenu(folderNode)} />);
 		expect(screen.getByText('New File')).toBeTruthy();
 		expect(screen.getByText('New Folder')).toBeTruthy();
-		expect(screen.getByText('Preview all files under Folder')).toBeTruthy();
+		expect(screen.getByText('Preview All Files in Folder')).toBeTruthy();
 		expect(screen.getByText('Copy Path')).toBeTruthy();
 		expect(screen.queryByText('Preview')).toBeNull();
 	});

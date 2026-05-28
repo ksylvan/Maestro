@@ -145,7 +145,7 @@ export function FileTreeContextMenu({
 									style={{ color: theme.colors.textMain }}
 								>
 									<Files className="w-3.5 h-3.5" style={{ color: theme.colors.accent }} />
-									<span>Preview all files under Folder</span>
+									<span>Preview All Files in Folder</span>
 								</button>
 								<div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
 							</>
