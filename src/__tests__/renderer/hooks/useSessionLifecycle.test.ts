@@ -1192,6 +1192,7 @@ describe('useSessionLifecycle', () => {
 			expect(mockPushNavigation).toHaveBeenCalledWith({
 				sessionId: 'session-1',
 				tabId: 'tab-1',
+				tabKind: 'ai',
 			});
 		});
 
@@ -1250,6 +1251,7 @@ describe('useSessionLifecycle', () => {
 			expect(mockPushNavigation).toHaveBeenCalledWith({
 				sessionId: 'session-1',
 				tabId: 'tab-2',
+				tabKind: 'ai',
 			});
 		});
 	});
@@ -1619,7 +1621,11 @@ describe('useSessionLifecycle', () => {
 	// ======================================================================
 
 	describe('navigation history edge cases', () => {
-		it('tracks tabId as undefined when session has aiTabs but inputMode is terminal', () => {
+		it('resolves the AI tab when aiTabs exist and no other tab kind is active (field-based, ignores inputMode)', () => {
+			// The breadcrumb resolves the visible tab from the active*TabId fields
+			// (terminal > file > browser > ai), the same priority findActiveUnifiedTabIndex
+			// uses - not from inputMode. With no activeTerminalTabId set, it falls through
+			// to the active AI tab even though inputMode is 'terminal'.
 			const tab = createMockAITab({ id: 'tab-1' });
 			const session = createMockSession({
 				id: 'session-1',
@@ -1634,7 +1640,8 @@ describe('useSessionLifecycle', () => {
 
 			expect(mockPushNavigation).toHaveBeenCalledWith({
 				sessionId: 'session-1',
-				tabId: undefined,
+				tabId: 'tab-1',
+				tabKind: 'ai',
 			});
 		});
 	});
