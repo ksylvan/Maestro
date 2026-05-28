@@ -903,6 +903,11 @@ interface MaestroAPI {
 			content: string,
 			sshRemoteId?: string
 		) => Promise<{ success: boolean }>;
+		writeImageFile: (
+			filePath: string,
+			dataUrl: string,
+			sshRemoteId?: string
+		) => Promise<{ success: boolean }>;
 		stat: (
 			filePath: string,
 			sshRemoteId?: string

@@ -6,7 +6,7 @@ icon: pen-line
 
 The Image Annotator is a full-screen modal for drawing on top of images you're about to attach to a prompt. Circle the bug, point an arrow at the misaligned button, scribble a quick note - then save back into the message and send.
 
-It works on every image surface in Maestro: staged attachments in the input area, attachments inside Group Chat, the lightbox preview, inline images in Auto Run documents, and the image currently on your system clipboard.
+It works on every image surface in Maestro: staged attachments in the input area, attachments inside Group Chat, the lightbox preview, inline images in Auto Run documents, image files open in the File Preview pane, and the image currently on your system clipboard.
 
 ## Opening the Annotator
 
@@ -16,6 +16,7 @@ A pencil button appears on every image thumbnail Maestro renders:
 - **Group Chat input** - Same hover-overlay pattern on staged thumbnails.
 - **Lightbox** - Open any image in the lightbox (`Cmd+Y` / `Ctrl+Y` carousel, or click an attachment) and press the **Annotate** button in the top-right, or use `Cmd+E` / `Ctrl+E`.
 - **Auto Run attachments** - Hover an inline image in an Auto Run document and click the pencil overlay. Saving rewrites the file on disk so subsequent runs pick up the annotations.
+- **File Preview** - Open an image file from the Files pane and click the **Edit image** (wand) button in the preview toolbar. Saving prompts you to overwrite the file or write a new one (see [Saving and copying](#saving-and-copying)).
 - **Clipboard** - Press `Opt+Cmd+E` / `Alt+Ctrl+E` (or run **Edit Image from Clipboard** from the Command Palette) to open the annotator on whatever image is currently on your system clipboard. Saving (or pressing the copy icon) writes the edited image back to the clipboard, ready to paste anywhere. If the clipboard has no image, a flash tells you so. This turns the annotator into a standalone image editor: copy a screenshot, mark it up, and paste it into Slack, a GitHub issue, or any other app without ever attaching it to a prompt.
 
 ## Tools
@@ -69,6 +70,8 @@ Two ways to leave the annotator with your work intact:
 - **Copy** (clipboard icon) - Composites and copies the annotated PNG to your system clipboard without closing the modal. A "Copied annotated image to clipboard" flash confirms success. Handy when you want to drop the annotated screenshot into a different message, a Slack thread, or a GitHub issue.
 
 **Cancel** (`Esc` or the X button) discards all changes.
+
+When you open the annotator from the **File Preview** pane, saving opens a destination picker first: **Overwrite the existing file**, or **Save to a new file** (named alongside the original). The annotator always exports PNG, so if the original isn't a PNG (for example a `.jpg`), overwrite can't reproduce the original format and instead writes a sibling `.png` next to it.
 
 ## Keyboard shortcuts
 

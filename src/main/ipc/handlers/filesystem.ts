@@ -450,6 +450,42 @@ export function registerFilesystemHandlers(): void {
 		}
 	);
 
+	// Write a base64 data URL to disk as binary (supports SSH remote). Used by
+	// the image annotator's "save to file" flow, where the composited image is a
+	// `data:image/...;base64,...` URL that must be written as raw bytes (the
+	// plain `fs:writeFile` handler encodes content as UTF-8, which corrupts
+	// binary payloads).
+	ipcMain.handle(
+		'fs:writeImageFile',
+		async (_, filePath: string, dataUrl: string, sshRemoteId?: string) => {
+			try {
+				const commaIndex = dataUrl.indexOf(',');
+				const base64 =
+					commaIndex >= 0 && dataUrl.startsWith('data:') ? dataUrl.slice(commaIndex + 1) : dataUrl;
+				const buffer = Buffer.from(base64, 'base64');
+
+				// SSH remote: writeFileRemote accepts a Buffer and base64-encodes it
+				// for safe transfer, decoding on the remote side.
+				if (sshRemoteId) {
+					const sshConfig = getSshRemoteById(sshRemoteId);
+					if (!sshConfig) {
+						throw new Error(`SSH remote not found: ${sshRemoteId}`);
+					}
+					const result = await writeFileRemote(filePath, buffer, sshConfig);
+					if (!result.success) {
+						throw new Error(result.error || 'Failed to write remote file');
+					}
+					return { success: true };
+				}
+
+				await fs.writeFile(filePath, buffer);
+				return { success: true };
+			} catch (error) {
+				throw new Error(`Failed to write image file: ${error}`);
+			}
+		}
+	);
+
 	// Rename a file or folder (supports SSH remote)
 	ipcMain.handle('fs:rename', async (_, oldPath: string, newPath: string, sshRemoteId?: string) => {
 		try {

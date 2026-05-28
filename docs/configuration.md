@@ -16,7 +16,7 @@ Settings are organized into tabs:
 | **Display**                     | Font family and size, terminal width, log level and buffer, max output lines per response, document graph settings, context window warnings, [Accessibility](#accessibility) (Color Blind Mode, Bionify reading emphasis)                                                                            |
 | **Shortcuts**                   | Customize keyboard shortcuts (see [Keyboard Shortcuts](./keyboard-shortcuts))                                                                                                                                                                                                                        |
 | **Themes**                      | Dark, light, and vibe mode themes, custom theme builder with import/export                                                                                                                                                                                                                           |
-| **Notifications**               | OS notifications, custom command notifications, toast notification duration                                                                                                                                                                                                                          |
+| **Notifications**               | OS notifications, custom command notifications, toast notification duration and width                                                                                                                                                                                                                |
 | **AI Commands**                 | View and edit slash commands, [Spec-Kit](./speckit-commands), [OpenSpec](./openspec-commands), and [BMAD](./bmad-commands) prompts                                                                                                                                                                   |
 | **Maestro Prompts**             | Browse and edit the 23 core system prompts (wizard, Auto Run, group chat, context, etc.). Changes take effect immediately; reset to bundled defaults at any time                                                                                                                                     |
 | **SSH Hosts**                   | Configure remote hosts for [SSH agent execution](./ssh-remote-execution)                                                                                                                                                                                                                             |
@@ -264,6 +264,14 @@ In-app toast notifications appear in the corner when events occur. Configure how
 | **Off**                  | Toasts are disabled entirely              |
 | **5s / 10s / 20s / 30s** | Toast disappears after the specified time |
 | **Never**                | Toast stays until manually dismissed      |
+
+You can also set how wide toasts render:
+
+| Width      | Behavior                                          |
+| ---------- | ------------------------------------------------- |
+| **Small**  | Default compact size                              |
+| **Medium** | Roughly 1.4x wider than Small                     |
+| **Large**  | Roughly 1.8x wider than Small, for longer content |
 
 ### When Notifications Trigger
 

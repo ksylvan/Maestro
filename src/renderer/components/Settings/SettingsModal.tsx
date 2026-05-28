@@ -151,6 +151,8 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 		setAudioFeedbackCommand,
 		toastDuration,
 		setToastDuration,
+		toastWidth,
+		setToastWidth,
 		idleNotificationEnabled,
 		setIdleNotificationEnabled,
 		idleNotificationCommand,
@@ -667,6 +669,8 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 								setAudioFeedbackCommand={setAudioFeedbackCommand}
 								toastDuration={toastDuration}
 								setToastDuration={setToastDuration}
+								toastWidth={toastWidth}
+								setToastWidth={setToastWidth}
 								idleNotificationEnabled={idleNotificationEnabled}
 								setIdleNotificationEnabled={setIdleNotificationEnabled}
 								idleNotificationCommand={idleNotificationCommand}

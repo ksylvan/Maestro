@@ -265,6 +265,10 @@ export const MODAL_PRIORITIES = {
 	/** Save markdown modal */
 	SAVE_MARKDOWN: 160,
 
+	/** Image save destination modal (overwrite vs save-as) - above the annotator
+	 * so it layers correctly if the annotator is still settling closed. */
+	IMAGE_SAVE: 168,
+
 	/** Image annotator modal - above lightbox so Escape closes annotator first */
 	IMAGE_ANNOTATOR: 165,
 

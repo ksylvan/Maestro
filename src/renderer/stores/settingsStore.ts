@@ -223,6 +223,7 @@ export const FILE_PREVIEW_TOOLBAR_BUTTON_KEYS = [
 	'htmlRender',
 	'previewTier',
 	'editToggle',
+	'editImage',
 	'copyContent',
 	'publishGist',
 	'documentGraph',

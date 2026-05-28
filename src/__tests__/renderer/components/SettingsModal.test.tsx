@@ -307,6 +307,7 @@ vi.mock('../../../renderer/hooks/settings/useSettings', () => ({
 			htmlRender: true,
 			previewTier: true,
 			editToggle: true,
+			editImage: true,
 			copyContent: true,
 			publishGist: true,
 			documentGraph: true,

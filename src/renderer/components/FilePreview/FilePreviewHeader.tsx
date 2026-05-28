@@ -15,6 +15,7 @@ import {
 	GitGraph,
 	ExternalLink,
 	WrapText,
+	Wand2,
 } from 'lucide-react';
 import type { FilePreviewToolbarVisibility } from '../../stores/settingsStore';
 import { Spinner } from '../ui/Spinner';
@@ -63,6 +64,8 @@ interface FilePreviewHeaderProps {
 	sshRemoteId?: string;
 	copyContentToClipboard: () => Promise<void>;
 	copyPathToClipboard: () => void;
+	/** Open the image annotator to edit the previewed image. Images only. */
+	onEditImage?: () => void;
 	headerBtnClass: string;
 	headerIconClass: string;
 	/** Whether the previewed file is HTML (.html / .htm). */
@@ -121,6 +124,7 @@ export const FilePreviewHeader = React.memo(function FilePreviewHeader({
 	sshRemoteId,
 	copyContentToClipboard,
 	copyPathToClipboard,
+	onEditImage,
 	headerBtnClass,
 	headerIconClass,
 	isHtml,
@@ -270,6 +274,19 @@ export const FilePreviewHeader = React.memo(function FilePreviewHeader({
 									) : (
 										<Edit className={headerIconClass} />
 									)}
+								</button>
+							</HoverTooltip>
+						)}
+						{/* Edit image - opens the image annotator. Images only. */}
+						{toolbarVisibility.editImage && isImage && onEditImage && (
+							<HoverTooltip theme={theme} label="Edit image">
+								<button
+									onClick={onEditImage}
+									className={headerBtnClass}
+									style={{ color: theme.colors.textDim }}
+									data-testid="edit-image-button"
+								>
+									<Wand2 className={headerIconClass} />
 								</button>
 							</HoverTooltip>
 						)}
