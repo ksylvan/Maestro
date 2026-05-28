@@ -2117,6 +2117,7 @@ function MaestroConsoleInner() {
 		activeSession,
 		fileTreeFilter,
 		fileTreeFilterOpen,
+		fileTreeFilterInputRef,
 		gitDiffPreview,
 		gitLogOpen,
 		lightboxImage,

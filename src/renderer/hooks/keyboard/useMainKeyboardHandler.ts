@@ -1081,7 +1081,19 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				}
 				if (ctx.activeFocus === 'right' && ctx.activeRightTab === 'files') {
 					e.preventDefault();
-					ctx.setFileTreeFilterOpen(true);
+					if (!ctx.fileTreeFilterOpen) {
+						ctx.setFileTreeFilterOpen(true);
+					}
+					// Re-focus the filter input (and put the caret at the end of any
+					// existing query) so Cmd+F while the filter is already open but
+					// focus has moved into the file list pulls focus back here.
+					setTimeout(() => {
+						const input = ctx.fileTreeFilterInputRef?.current;
+						if (!input) return;
+						input.focus();
+						const len = input.value.length;
+						input.setSelectionRange(len, len);
+					}, 0);
 					trackShortcut('filterFiles');
 				} else if (ctx.activeFocus === 'sidebar') {
 					// Sidebar filter - handled by SessionList component, just track here

@@ -409,6 +409,7 @@ function SessionListInner(props: SessionListProps) {
 		: 0;
 	const menuRef = useRef<HTMLDivElement>(null);
 	const ignoreNextBlurRef = useRef(false);
+	const sessionFilterInputRef = useRef<HTMLInputElement>(null);
 
 	// Toggle bookmark for a session - memoized to prevent SessionItem re-renders
 	const toggleBookmark = useCallback(
@@ -790,16 +791,28 @@ function SessionListInner(props: SessionListProps) {
 			onClick={() => setActiveFocus('sidebar')}
 			onFocus={() => setActiveFocus('sidebar')}
 			onKeyDown={(e) => {
-				// Open session filter with Cmd+F when sidebar has focus
+				// Open (or re-focus) the session filter with Cmd+F when the sidebar
+				// has focus. If the filter is already open and the user has moved
+				// focus elsewhere (e.g. arrow-key navigation through agents), pull
+				// focus back to the input and put the caret at the end of any
+				// existing query.
 				if (
 					e.key === 'f' &&
 					(e.metaKey || e.ctrlKey) &&
 					activeFocus === 'sidebar' &&
-					leftSidebarOpen &&
-					!sessionFilterOpen
+					leftSidebarOpen
 				) {
 					e.preventDefault();
-					setSessionFilterOpen(true);
+					if (!sessionFilterOpen) {
+						setSessionFilterOpen(true);
+					}
+					setTimeout(() => {
+						const input = sessionFilterInputRef.current;
+						if (!input) return;
+						input.focus();
+						const len = input.value.length;
+						input.setSelectionRange(len, len);
+					}, 0);
 				}
 			}}
 		>
@@ -987,6 +1000,7 @@ function SessionListInner(props: SessionListProps) {
 					{sessionFilterOpen && (
 						<div className="mx-3 mb-3 relative">
 							<input
+								ref={sessionFilterInputRef}
 								autoFocus
 								type="text"
 								placeholder="Filter agents..."
