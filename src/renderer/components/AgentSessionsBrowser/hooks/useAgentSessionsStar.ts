@@ -26,11 +26,11 @@ export function useAgentSessionsStar({
 		async (sessionId: string, e: React.MouseEvent) => {
 			e.stopPropagation();
 
-			// Functional updater avoids stale-closure race on rapid toggles
-			let isNowStarred = false;
+			// Compute desired state from the current closure value (synchronous),
+			// then use functional updater so rapid multi-session toggles compose correctly.
+			const isNowStarred = !starredSessions.has(sessionId);
 			setStarredSessions((prev) => {
 				const updated = new Set(prev);
-				isNowStarred = !updated.has(sessionId);
 				if (isNowStarred) {
 					updated.add(sessionId);
 				} else {
@@ -75,7 +75,7 @@ export function useAgentSessionsStar({
 
 			onUpdateTab?.(sessionId, { starred: isNowStarred });
 		},
-		[activeSession?.projectRoot, agentId, onUpdateTab]
+		[starredSessions, activeSession?.projectRoot, agentId, onUpdateTab]
 	);
 
 	return { starredSessions, setStarredSessions, toggleStar };
