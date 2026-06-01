@@ -87,6 +87,36 @@ describe('arrangePipelineNodes', () => {
 		expect(byId.get('high')!.y).toBeLessThan(byId.get('low')!.y);
 	});
 
+	it('keeps independent chains on their own row bands instead of merging columns', () => {
+		// Two independent trigger→agent chains. The old single-rank Tidy stacked
+		// BOTH triggers into one column and BOTH agents into the next — collapsing
+		// the chains on top of each other ("rearranging the graph"). Per-component
+		// Tidy keeps each chain on its own horizontal band.
+		const p = pipeline({
+			nodes: [
+				triggerNode('t1', 0, 0),
+				agentNode('a1', 0, 0),
+				triggerNode('t2', 0, 300),
+				agentNode('a2', 0, 300),
+			],
+			edges: [
+				{ id: 'e1', source: 't1', target: 'a1', mode: 'pass' },
+				{ id: 'e2', source: 't2', target: 'a2', mode: 'pass' },
+			],
+		});
+		const byId = new Map(arrangePipelineNodes(p).map((n) => [n.id, n.position]));
+		// Triggers share the left column; agents share the next column.
+		expect(byId.get('t1')!.x).toBe(byId.get('t2')!.x);
+		expect(byId.get('a1')!.x).toBe(byId.get('a2')!.x);
+		// Each chain sits on its own band: chain 1 entirely above chain 2.
+		const chain1MaxY = Math.max(byId.get('t1')!.y, byId.get('a1')!.y);
+		const chain2MinY = Math.min(byId.get('t2')!.y, byId.get('a2')!.y);
+		expect(chain1MaxY).toBeLessThan(chain2MinY);
+		// Within a chain the trigger and its agent are level → straight edge.
+		expect(byId.get('t1')!.y).toBe(byId.get('a1')!.y);
+		expect(byId.get('t2')!.y).toBe(byId.get('a2')!.y);
+	});
+
 	it('grids edge-less nodes into multiple columns instead of one tall stack', () => {
 		const nodes = Array.from({ length: 4 }, (_, i) => agentNode(`a${i}`, 0, i * 10));
 		const arranged = arrangePipelineNodes(pipeline({ nodes }));
@@ -164,24 +194,32 @@ describe('untanglePipelineNodes', () => {
 		return crossings;
 	}
 
-	it('removes crossings on a shuffled 1:1 trigger→agent mapping', () => {
-		// Triggers and agents both sit in screen order (t0..t5 top-to-bottom,
-		// a0..a5 top-to-bottom), but edges wire them in a shuffled order. Tidy
-		// keeps the crossings; Arrange must reorder the agent column to remove
-		// them.
+	it('removes crossings within a connected component (shuffled middle layer)', () => {
+		// One trigger T fans out to A0..A5; each Ai then feeds B_perm[i]. Because
+		// everything is wired through T it is a SINGLE connected component, so both
+		// buttons lay it out in the same band. Tidy keeps the A/B columns in
+		// current Y order (the a→b edges cross); Arrange reorders the B column to
+		// remove the crossings. (Independent t→a pairs would land in separate
+		// bands and could never cross — that's the per-component behavior covered
+		// by the Tidy banding test above.)
 		const perm = [2, 0, 3, 1, 5, 4];
-		const nodes: PipelineNode[] = [];
+		const nodes: PipelineNode[] = [triggerNode('t', 0, 0)];
 		const edges: CuePipeline['edges'] = [];
-		for (let i = 0; i < perm.length; i++) nodes.push(triggerNode(`t${i}`, 0, i * 100));
-		for (let i = 0; i < perm.length; i++) nodes.push(agentNode(`a${i}`, 0, i * 100));
 		for (let i = 0; i < perm.length; i++) {
-			edges.push({ id: `e${i}`, source: `t${i}`, target: `a${perm[i]}`, mode: 'pass' });
+			nodes.push(agentNode(`a${i}`, 0, i * 100));
+			edges.push({ id: `ta${i}`, source: 't', target: `a${i}`, mode: 'pass' });
+		}
+		for (let i = 0; i < perm.length; i++) {
+			nodes.push(agentNode(`b${i}`, 0, i * 100));
+			edges.push({ id: `ab${i}`, source: `a${i}`, target: `b${perm[i]}`, mode: 'pass' });
 		}
 		const p = pipeline({ nodes, edges });
 
 		const tidied = new Map(arrangePipelineNodes(p).map((n) => [n.id, n.position]));
 		const arranged = new Map(untanglePipelineNodes(p).map((n) => [n.id, n.position]));
 
+		// countCrossings skips edges sharing an endpoint, so the t→a fan-out edges
+		// drop out automatically and only the a→b permutation edges are counted.
 		expect(countCrossings(edges, tidied)).toBeGreaterThan(0);
 		expect(countCrossings(edges, arranged)).toBe(0);
 	});

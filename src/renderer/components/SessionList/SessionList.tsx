@@ -165,6 +165,7 @@ function SessionListInner(props: SessionListProps) {
 	const webInterfaceUseCustomPort = useSettingsStore((s) => s.webInterfaceUseCustomPort);
 	const webInterfaceCustomPort = useSettingsStore((s) => s.webInterfaceCustomPort);
 	const ungroupedCollapsed = useSettingsStore((s) => s.ungroupedCollapsed);
+	const starredSectionCollapsed = useSettingsStore((s) => s.starredSessionsCollapsed);
 	const showStarredSessionsSection = useSettingsStore((s) => s.showStarredSessionsSection);
 	const showLeftPanelGroupMemberCount = useSettingsStore((s) => s.showLeftPanelGroupMemberCount);
 	const leftPanelCollapsedPillsPerRow = useSettingsStore((s) => s.leftPanelCollapsedPillsPerRow);
@@ -285,7 +286,7 @@ function SessionListInner(props: SessionListProps) {
 			lastActivityAt?: number;
 		}>
 	>([]);
-	const [starredSectionCollapsed, setStarredSectionCollapsed] = useState(false);
+	const setStarredSectionCollapsed = useSettingsStore.getState().setStarredSessionsCollapsed;
 	const loadStarredNamedSessions = useCallback(async () => {
 		if (!showStarredSessionsSection) return;
 		try {

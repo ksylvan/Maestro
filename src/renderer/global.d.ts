@@ -3231,6 +3231,7 @@ interface MaestroAPI {
 				sessionCount: number;
 				autoCount: number;
 				userCount: number;
+				cueCount: number;
 				totalCount: number;
 			};
 			graphBuckets?: Array<{ auto: number; user: number; cue: number }>;
@@ -3253,6 +3254,7 @@ interface MaestroAPI {
 				sessionCount: number;
 				autoCount: number;
 				userCount: number;
+				cueCount: number;
 				totalCount: number;
 			};
 		}>;

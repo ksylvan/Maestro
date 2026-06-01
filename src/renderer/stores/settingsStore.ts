@@ -41,6 +41,7 @@ import { isFileExplorerIconTheme } from '../utils/fileExplorerIcons/shared';
 import type { ToastWidth } from '../../shared/toastWidth';
 import { isToastWidth } from '../../shared/toastWidth';
 import { logger } from '../utils/logger';
+import { useUIStore } from './uiStore';
 
 // ============================================================================
 // Prompt cache (loaded via IPC at startup)
@@ -353,6 +354,7 @@ export interface SettingsStoreState {
 	usageStats: MaestroUsageStats;
 	ungroupedCollapsed: boolean;
 	groupChatsExpanded: boolean;
+	starredSessionsCollapsed: boolean;
 	tourCompleted: boolean;
 	firstAutoRunCompleted: boolean;
 	onboardingStats: OnboardingStats;
@@ -491,6 +493,7 @@ export interface SettingsStoreActions {
 	setCustomAICommands: (value: CustomAICommand[]) => void;
 	setUngroupedCollapsed: (value: boolean) => void;
 	setGroupChatsExpanded: (value: boolean) => void;
+	setStarredSessionsCollapsed: (value: boolean) => void;
 	setTourCompleted: (value: boolean) => void;
 	setFirstAutoRunCompleted: (value: boolean) => void;
 	setLeaderboardRegistration: (value: LeaderboardRegistration | null) => void;
@@ -700,6 +703,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		usageStats: DEFAULT_USAGE_STATS,
 		ungroupedCollapsed: false,
 		groupChatsExpanded: true,
+		starredSessionsCollapsed: false,
 		tourCompleted: false,
 		firstAutoRunCompleted: false,
 		onboardingStats: DEFAULT_ONBOARDING_STATS,
@@ -1035,6 +1039,11 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		setGroupChatsExpanded: (value) => {
 			set({ groupChatsExpanded: value });
 			window.maestro.settings.set('groupChatsExpanded', value);
+		},
+
+		setStarredSessionsCollapsed: (value) => {
+			set({ starredSessionsCollapsed: value });
+			window.maestro.settings.set('starredSessionsCollapsed', value);
 		},
 
 		setTourCompleted: (value) => {
@@ -2386,6 +2395,22 @@ export async function loadAllSettings(): Promise<void> {
 		if (allSettings['groupChatsExpanded'] !== undefined)
 			patch.groupChatsExpanded = allSettings['groupChatsExpanded'] as boolean;
 
+		if (allSettings['starredSessionsCollapsed'] !== undefined)
+			patch.starredSessionsCollapsed = allSettings['starredSessionsCollapsed'] as boolean;
+
+		// Bookmarks collapse lives in uiStore (it's transiently toggled by filter
+		// mode at runtime), so its persisted value is hydrated directly into that
+		// store rather than the settings store.
+		if (allSettings['bookmarksCollapsed'] !== undefined)
+			useUIStore.setState({ bookmarksCollapsed: allSettings['bookmarksCollapsed'] as boolean });
+
+		// Hidden quota accounts live in uiStore (toggled at runtime from the Usage
+		// Dashboard provider panels), so its persisted map hydrates directly there.
+		if (allSettings['hiddenQuotaAccounts'] !== undefined)
+			useUIStore.setState({
+				hiddenQuotaAccounts: allSettings['hiddenQuotaAccounts'] as Record<string, string[]>,
+			});
+
 		if (allSettings['tourCompleted'] !== undefined)
 			patch.tourCompleted = allSettings['tourCompleted'] as boolean;
 
@@ -2830,6 +2855,7 @@ export function getSettingsActions() {
 		updateUsageStats: state.updateUsageStats,
 		setUngroupedCollapsed: state.setUngroupedCollapsed,
 		setGroupChatsExpanded: state.setGroupChatsExpanded,
+		setStarredSessionsCollapsed: state.setStarredSessionsCollapsed,
 		setTourCompleted: state.setTourCompleted,
 		setFirstAutoRunCompleted: state.setFirstAutoRunCompleted,
 		setOnboardingStats: state.setOnboardingStats,

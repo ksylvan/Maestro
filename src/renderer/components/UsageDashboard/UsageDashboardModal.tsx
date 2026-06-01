@@ -50,6 +50,7 @@ import type {
 	AutoRunStats as AutoRunStatsType,
 	MaestroUsageStats,
 	LeaderboardRegistration,
+	UsageDashboardViewMode as ViewMode,
 } from '../../types';
 import {
 	AchievementShareButton,
@@ -58,6 +59,7 @@ import {
 import { useModalLayer } from '../../hooks/ui/useModalLayer';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useUIStore } from '../../stores/uiStore';
 import { useClaudeUsageStore, type ClaudeUsageSnapshot } from '../../stores/claudeUsageStore';
 import { useCodexUsageStore, type CodexUsageSnapshot } from '../../stores/codexUsageStore';
 import { useGlobalAgentStats } from '../../hooks/stats/useGlobalAgentStats';
@@ -103,17 +105,6 @@ const perfMetrics = getRendererPerfMetrics('UsageDashboard');
 // StatsTimeRange and StatsAggregation imported from shared/stats-types above
 
 // View mode options for the dashboard
-type ViewMode =
-	| 'overview'
-	| 'agents'
-	| 'agent-overview'
-	| 'activity'
-	| 'autorun'
-	| 'anthropic-usage'
-	| 'codex-usage'
-	| 'cue'
-	| 'shortcuts';
-
 interface UsageDashboardModalProps {
 	isOpen: boolean;
 	onClose: () => void;
@@ -235,21 +226,31 @@ export function UsageDashboardModal({
 	const hasCodexUsageDetails =
 		usageStatsTabEnabled && Object.values(codexUsageSnapshots).some(hasUsefulCodexQuotaDetails);
 	const VIEW_MODE_TABS = useMemo<{ value: ViewMode; label: string }[]>(() => {
-		const tabs = [...BASE_VIEW_MODE_TABS];
+		const tabs: { value: ViewMode; label: string }[] = [];
+		for (const tab of BASE_VIEW_MODE_TABS) {
+			tabs.push(tab);
+			// Cue sits immediately after Auto Run, before Shortcuts.
+			if (tab.value === 'autorun' && cueTabEnabled) {
+				tabs.push({ value: 'cue', label: 'Cue' });
+			}
+		}
 		if (hasAnthropicUsageDetails) {
 			tabs.push({ value: 'anthropic-usage', label: 'Anthropic Usage' });
 		}
 		if (hasCodexUsageDetails) {
-			tabs.push({ value: 'codex-usage', label: 'Codex Usage' });
-		}
-		if (cueTabEnabled) {
-			tabs.push({ value: 'cue', label: 'Cue' });
+			tabs.push({ value: 'codex-usage', label: 'OpenAI Usage' });
 		}
 		return tabs;
 	}, [cueTabEnabled, hasAnthropicUsageDetails, hasCodexUsageDetails]);
 
 	const [timeRange, setTimeRange] = useState<StatsTimeRange>(defaultTimeRange);
-	const [viewMode, setViewMode] = useState<ViewMode>('overview');
+	// Restore the tab the user last left off on. The store is in-memory, so this
+	// survives closing and reopening the dashboard but resets to 'overview' on
+	// app restart. Persist every switch back to the store via setUsageDashboardViewMode.
+	const setUsageDashboardViewMode = useUIStore((s) => s.setUsageDashboardViewMode);
+	const [viewMode, setViewMode] = useState<ViewMode>(
+		() => useUIStore.getState().usageDashboardViewMode
+	);
 	const [data, setData] = useState<StatsAggregation | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
@@ -426,16 +427,21 @@ export function UsageDashboardModal({
 		}
 	}, [isOpen]);
 
-	const switchViewMode = useCallback((mode: ViewMode) => {
-		setViewMode(mode);
-		setFocusedSection(null);
-		// Anchor the newly selected tab to the top. The scroll container
-		// (contentRef) persists across tab switches, so without this the new
-		// tab would inherit the previous tab's scroll position.
-		if (contentRef.current) {
-			contentRef.current.scrollTop = 0;
-		}
-	}, []);
+	const switchViewMode = useCallback(
+		(mode: ViewMode) => {
+			setViewMode(mode);
+			// Remember the selection so reopening the dashboard returns here.
+			setUsageDashboardViewMode(mode);
+			setFocusedSection(null);
+			// Anchor the newly selected tab to the top. The scroll container
+			// (contentRef) persists across tab switches, so without this the new
+			// tab would inherit the previous tab's scroll position.
+			if (contentRef.current) {
+				contentRef.current.scrollTop = 0;
+			}
+		},
+		[setUsageDashboardViewMode]
+	);
 
 	// Handle Cmd+Shift+[ and Cmd+Shift+] for tab navigation
 	useEffect(() => {
@@ -548,7 +554,7 @@ export function UsageDashboardModal({
 			'agent-overview-cards': 'Active Agents Overview',
 			'session-stats': 'Agent Statistics',
 			'anthropic-usage': 'Anthropic Usage',
-			'codex-usage': 'Codex Usage',
+			'codex-usage': 'OpenAI Usage',
 			'agent-efficiency': 'Agent Efficiency Chart',
 			'agent-comparison': 'Provider Comparison Chart',
 			'provider-trends': 'Provider Trends Over Time',
@@ -985,7 +991,7 @@ export function UsageDashboardModal({
 								}}
 								data-testid="section-codex-usage"
 							>
-								<ChartErrorBoundary theme={theme} chartName="Codex Usage">
+								<ChartErrorBoundary theme={theme} chartName="OpenAI Usage">
 									<CodexPlanUsage theme={theme} showAllAccounts autoRefresh={false} />
 								</ChartErrorBoundary>
 							</div>

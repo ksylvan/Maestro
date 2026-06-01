@@ -889,6 +889,18 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		default: true,
 		category: 'onboarding',
 	},
+	starredSessionsCollapsed: {
+		description: 'Whether the "Starred Sessions" section in the left bar is collapsed.',
+		type: 'boolean',
+		default: false,
+		category: 'onboarding',
+	},
+	bookmarksCollapsed: {
+		description: 'Whether the "Bookmarks" section in the left bar is collapsed.',
+		type: 'boolean',
+		default: false,
+		category: 'onboarding',
+	},
 
 	// --- Integrations ---
 	wakatimeEnabled: {

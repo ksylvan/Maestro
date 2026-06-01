@@ -332,18 +332,32 @@ function CuePipelineEditorInner({
 	// recomputed because a non-positional dep changed" (activeRuns polling
 	// produced a fresh `runningPipelineIds` Set, theme change, etc.).
 	const lastSyncedPipelinesRef = useRef(pipelineState.pipelines);
+	// Tracks the selected pipeline the resync last observed. A selection change
+	// (single ↔ All Pipelines, or between pipelines) leaves the `pipelines`
+	// reference untouched but changes the view geometry: All-Pipelines view
+	// applies per-pipeline auto-stack `yOffset`s that single-pipeline view does
+	// not. Because node ids are composite (`${pipeline.id}:${node.id}`) and
+	// therefore identical across both views, the position-preservation branch
+	// below would otherwise force the stale view's coordinates back onto every
+	// node — making a freshly switched All view render the pipeline at its
+	// single-view positions (rearrangement appears undone). Treat a selection
+	// change as a real geometry change and take fresh `computedNodes`.
+	const lastSyncedSelectedIdRef = useRef(pipelineState.selectedPipelineId);
 	useEffect(() => {
 		setDisplayNodes((prev) => {
-			// If pipelineState.pipelines is unchanged since the last resync, this
-			// fire is poll-driven (or theme/selection/running-state-driven), NOT a
-			// real position update. Preserve ReactFlow's live positions on prev so
-			// a just-dragged node isn't snapped back when activeRuns polls a few
-			// seconds later. Tracking by reference rather than gating on isDirty
-			// because the dirty flag flips AFTER its own effect runs and isn't
-			// load-bearing for "did the source-of-truth positions change."
+			// If pipelineState.pipelines AND the selection are unchanged since the
+			// last resync, this fire is poll-driven (or theme/running-state-driven),
+			// NOT a real position or geometry update. Preserve ReactFlow's live
+			// positions on prev so a just-dragged node isn't snapped back when
+			// activeRuns polls a few seconds later. Tracking by reference rather
+			// than gating on isDirty because the dirty flag flips AFTER its own
+			// effect runs and isn't load-bearing for "did the source-of-truth
+			// positions change."
 			const pipelinesChanged = lastSyncedPipelinesRef.current !== pipelineState.pipelines;
+			const selectionChanged = lastSyncedSelectedIdRef.current !== pipelineState.selectedPipelineId;
 			lastSyncedPipelinesRef.current = pipelineState.pipelines;
-			if (pipelinesChanged) return computedNodes;
+			lastSyncedSelectedIdRef.current = pipelineState.selectedPipelineId;
+			if (pipelinesChanged || selectionChanged) return computedNodes;
 			const prevById = new Map(prev.map((n) => [n.id, n]));
 			return computedNodes.map((cn) => {
 				const existing = prevById.get(cn.id);
@@ -351,7 +365,7 @@ function CuePipelineEditorInner({
 				return { ...cn, position: existing.position };
 			});
 		});
-	}, [computedNodes, pipelineState.pipelines]);
+	}, [computedNodes, pipelineState.pipelines, pipelineState.selectedPipelineId]);
 
 	const nodes = displayNodes;
 

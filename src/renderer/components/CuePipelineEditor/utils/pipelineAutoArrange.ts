@@ -5,13 +5,17 @@
  * nodes WITHIN each flow-depth column:
  *
  *  1. arrangePipelineNodes(pipeline) — "Tidy"
- *     Lays nodes out left→right in columns by data-flow depth (rank = longest
- *     path from a root), stacking nodes within a column. Within a column nodes
- *     keep their CURRENT top-to-bottom order — it aligns the existing layout
- *     onto an even grid without reshuffling. Edge crossings are left as-is.
+ *     Lays each weakly-connected component out as its OWN horizontal band
+ *     (left→right columns by data-flow depth), then stacks the bands
+ *     top-to-bottom in current reading order. Independent trigger→…→agent
+ *     chains stay on their own rows instead of being merged into shared
+ *     columns; the result snaps onto a clean grid (triggers aligned left,
+ *     uniform spacing, no overlaps) WITHOUT rearranging the graph's topology.
+ *     Within a band, nodes keep their CURRENT top-to-bottom order, so edge
+ *     crossings within a component are left as-is.
  *
  *  2. untanglePipelineNodes(pipeline) — "Arrange"
- *     Same column assignment and centering, but reorders nodes within each
+ *     Same per-component banding and centering, but reorders nodes within each
  *     column to MINIMIZE edge crossings (the Sugiyama ordering phase:
  *     barycenter sweeps + adjacent-swap transpose refinement). Seeded by the
  *     current vertical order so, where reordering isn't needed to remove a
@@ -23,8 +27,8 @@
  *     are left untouched — only the cards move. There are no edges between
  *     cards to cross, so Tidy and Arrange both route here.
  *
- * Both single-pipeline layouts center each column on a shared vertical midline
- * so edges read cleanly, and a pipeline with no edges (a bag of disconnected
+ * Both single-pipeline layouts center each column within its component band so
+ * edges read cleanly, and a pipeline with no edges (a bag of disconnected
  * nodes) is packed into a balanced grid instead of a single tall column.
  * Group cards keep their CURRENT reading order (top-to-bottom, then
  * left-to-right) so packing tidies without scrambling placement.
@@ -238,47 +242,124 @@ function minimizeCrossingsWithinColumns(
 }
 
 /**
- * Shared column layout for both single-pipeline buttons. Assigns flow-depth
- * columns, orders nodes within each column (current-order for Tidy, crossing
- * minimization for Arrange via `untangle`), then centers each column on y = 0.
- * Returns a NEW nodes array; the input is not mutated.
+ * Split a pipeline into weakly-connected components (treating edges as
+ * undirected). Each independent trigger→…→agent chain is its own component, so
+ * the layout can keep them on separate rows instead of collapsing every chain's
+ * roots into one shared column. Components are returned in the user's current
+ * reading order (top-to-bottom, then left-to-right) so banding preserves the
+ * arrangement rather than reshuffling it.
+ */
+function weaklyConnectedComponents(pipeline: CuePipeline): PipelineNode[][] {
+	const ids = new Set(pipeline.nodes.map((n) => n.id));
+	const parent = new Map<string, string>();
+	for (const n of pipeline.nodes) parent.set(n.id, n.id);
+	const find = (x: string): string => {
+		let root = x;
+		while (parent.get(root) !== root) root = parent.get(root)!;
+		// Path-compress so repeated finds stay near-flat.
+		let cur = x;
+		while (parent.get(cur) !== root) {
+			const next = parent.get(cur)!;
+			parent.set(cur, root);
+			cur = next;
+		}
+		return root;
+	};
+	for (const edge of pipeline.edges) {
+		if (!ids.has(edge.source) || !ids.has(edge.target)) continue;
+		const a = find(edge.source);
+		const b = find(edge.target);
+		if (a !== b) parent.set(a, b);
+	}
+
+	const groups = new Map<string, PipelineNode[]>();
+	for (const node of pipeline.nodes) {
+		const root = find(node.id);
+		const bucket = groups.get(root);
+		if (bucket) bucket.push(node);
+		else groups.set(root, [node]);
+	}
+
+	const minOf = (nodes: PipelineNode[], axis: 'x' | 'y'): number =>
+		Math.min(...nodes.map((n) => n.position[axis]));
+	return [...groups.values()].sort(
+		(a, b) => minOf(a, 'y') - minOf(b, 'y') || minOf(a, 'x') - minOf(b, 'x')
+	);
+}
+
+// Vertical gap between two stacked component bands.
+const BAND_GAP = NODE_ROW_SPACING;
+
+/**
+ * Shared layout for both single-pipeline buttons. Lays each weakly-connected
+ * component out as its OWN horizontal band (flow-depth columns left→right),
+ * then stacks the bands top-to-bottom in current reading order. This snaps the
+ * graph onto a clean grid — triggers column-aligned at the left, uniform
+ * column/row spacing, no overlaps — WITHOUT merging independent chains into
+ * shared columns (which is what made the old single-rank layout "rearrange the
+ * graph"). Within each band, Tidy keeps the current top-to-bottom order while
+ * Arrange (`untangle`) reorders to minimize edge crossings. Truly disconnected
+ * single nodes are packed into a grid band beneath the chains rather than
+ * forming a tall thin column. Returns a NEW nodes array; the input is not mutated.
  */
 function arrangeByColumns(pipeline: CuePipeline, untangle: boolean): PipelineNode[] {
 	if (pipeline.nodes.length <= 1) return pipeline.nodes;
 
-	const ranks = computeNodeRanks(pipeline);
-	const maxRank = Math.max(0, ...pipeline.nodes.map((n) => ranks.get(n.id) ?? 0));
-
-	// No flow structure (no edges, or every node is a root): a single column
-	// would just be the vertical pile the user asked us to avoid, so grid it.
-	if (maxRank === 0) return gridArrangeNodes(pipeline.nodes);
-
-	const byRank = new Map<number, PipelineNode[]>();
-	for (const node of pipeline.nodes) {
-		const r = ranks.get(node.id) ?? 0;
-		const bucket = byRank.get(r);
-		if (bucket) bucket.push(node);
-		else byRank.set(r, [node]);
-	}
-
-	if (untangle) {
-		minimizeCrossingsWithinColumns(byRank, pipeline.edges);
-	} else {
-		// Tidy: keep the current top-to-bottom order within each column.
-		for (const group of byRank.values()) group.sort(byCurrentPosition);
-	}
+	const components = weaklyConnectedComponents(pipeline);
+	const linked = components.filter((c) => c.length > 1);
+	const isolated = components.filter((c) => c.length === 1).map((c) => c[0]);
 
 	const arranged: PipelineNode[] = [];
-	for (const [r, group] of byRank) {
-		// Center each column on y = 0 so the pipeline reads as a balanced fan.
-		const startY = -((group.length - 1) * NODE_ROW_SPACING) / 2;
-		group.forEach((node, i) => {
+	let bandTop = 0;
+
+	for (const comp of linked) {
+		const compIds = new Set(comp.map((n) => n.id));
+		const compEdges = pipeline.edges.filter((e) => compIds.has(e.source) && compIds.has(e.target));
+		const ranks = computeNodeRanks({ ...pipeline, nodes: comp, edges: compEdges });
+
+		const byRank = new Map<number, PipelineNode[]>();
+		for (const node of comp) {
+			const r = ranks.get(node.id) ?? 0;
+			const bucket = byRank.get(r);
+			if (bucket) bucket.push(node);
+			else byRank.set(r, [node]);
+		}
+
+		if (untangle) {
+			minimizeCrossingsWithinColumns(byRank, compEdges);
+		} else {
+			// Tidy: keep the current top-to-bottom order within each column.
+			for (const group of byRank.values()) group.sort(byCurrentPosition);
+		}
+
+		// Band height is driven by the tallest column so columns center cleanly
+		// and the next band never overlaps this one.
+		const tallestColumn = Math.max(1, ...[...byRank.values()].map((g) => g.length));
+		const bandHeight = tallestColumn * NODE_ROW_SPACING;
+
+		for (const [r, group] of byRank) {
+			// Center each column within the band so edges read as a balanced fan.
+			const startY = bandTop + (bandHeight - group.length * NODE_ROW_SPACING) / 2;
+			group.forEach((node, i) => {
+				arranged.push({
+					...node,
+					position: { x: r * NODE_COL_SPACING, y: startY + i * NODE_ROW_SPACING },
+				});
+			});
+		}
+		bandTop += bandHeight + BAND_GAP;
+	}
+
+	// Pack any standalone nodes (no edges) into a grid beneath the chains.
+	if (isolated.length > 0) {
+		for (const node of gridArrangeNodes(isolated)) {
 			arranged.push({
 				...node,
-				position: { x: r * NODE_COL_SPACING, y: startY + i * NODE_ROW_SPACING },
+				position: { x: node.position.x, y: node.position.y + bandTop },
 			});
-		});
+		}
 	}
+
 	return arranged;
 }
 
