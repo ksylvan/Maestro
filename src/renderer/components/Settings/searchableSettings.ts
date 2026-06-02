@@ -898,8 +898,20 @@ export const NOTIFICATION_SETTINGS: SearchableSetting[] = [
 		tab: 'notifications',
 		tabLabel: 'Notifications',
 		label: 'Toast Notification Width',
-		description: 'Width of toast notifications: Small, Medium, or Large',
-		keywords: ['toast', 'notification', 'width', 'size', 'small', 'medium', 'large'],
+		description:
+			'Width of toast notifications: Small, Medium, Large, or Dynamic (match the Right Bar)',
+		keywords: [
+			'toast',
+			'notification',
+			'width',
+			'size',
+			'small',
+			'medium',
+			'large',
+			'dynamic',
+			'right bar',
+			'panel',
+		],
 	},
 ];
 

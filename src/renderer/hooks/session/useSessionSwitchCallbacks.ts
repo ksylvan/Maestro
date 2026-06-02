@@ -20,6 +20,7 @@ import type { Session, LogEntry, UsageStats } from '../../types';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useActiveSession } from './useActiveSession';
 import { useUIStore } from '../../stores/uiStore';
+import { useFileExplorerStore } from '../../stores/fileExplorerStore';
 import { subscribeToInAppDeepLinks } from '../../utils/openMaestroLink';
 import type { ParsedDeepLink } from '../../../shared/types';
 
@@ -157,6 +158,13 @@ export function useSessionSwitchCallbacks(
 	// Navigate from toast notification to a session/tab
 	const handleToastSessionClick = useCallback(
 		(sessionId: string, tabId?: string) => {
+			// Close the Document Graph if it's open. It's a full-screen modal
+			// overlay (fixed inset-0, z-9999), so without this the graph stays
+			// on top of the agent we just jumped to and swallows clicks meant
+			// for it. The toast jump should always land the user on the agent.
+			if (useFileExplorerStore.getState().isGraphViewOpen) {
+				useFileExplorerStore.getState().closeGraphView();
+			}
 			// Switch to the session
 			setActiveSessionId(sessionId);
 			// Clear file preview and switch to AI tab (with specific tab if provided)

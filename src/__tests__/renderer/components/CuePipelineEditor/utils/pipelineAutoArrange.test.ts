@@ -72,6 +72,52 @@ describe('arrangePipelineNodes', () => {
 		expect(byId.get('a1')!.x).toBeLessThan(byId.get('a2')!.x);
 	});
 
+	it('snaps a chain onto a grid: exactly 25px of clear space between columns', () => {
+		// Every column pitch = node footprint + 25px gap, so the orthogonal edge
+		// bridging two nodes is exactly 25px and the whole chain reads as one grid.
+		const GAP = 25;
+		const p = pipeline({
+			nodes: [triggerNode('t', 0, 0), agentNode('a1', 0, 0), agentNode('a2', 0, 0)],
+			edges: [
+				{ id: 'e1', source: 't', target: 'a1', mode: 'pass' },
+				{ id: 'e2', source: 'a1', target: 'a2', mode: 'pass' },
+			],
+		});
+		const byId = new Map(arrangePipelineNodes(p).map((n) => [n.id, n.position]));
+		// Gap between a node's right edge and the next node's left edge is 25px.
+		expect(byId.get('a1')!.x - (byId.get('t')!.x + NODE_BG_WIDTH)).toBe(GAP);
+		expect(byId.get('a2')!.x - (byId.get('a1')!.x + NODE_BG_WIDTH)).toBe(GAP);
+		// A linear chain stays on one row ⇒ identical y ⇒ dead-straight edges.
+		expect(byId.get('t')!.y).toBe(byId.get('a1')!.y);
+		expect(byId.get('a1')!.y).toBe(byId.get('a2')!.y);
+	});
+
+	it('top-aligns columns into a grid with 25px between stacked nodes', () => {
+		// Fan-out: t → a, b, c. The three targets share a column and stack from the
+		// band top (no centering), spaced footprint + 25px apart so rows align on a
+		// single grid. The single trigger sits in row 0, level with the first target.
+		const GAP = 25;
+		const p = pipeline({
+			nodes: [
+				triggerNode('t', 0, 0),
+				agentNode('a', 0, 100),
+				agentNode('b', 0, 200),
+				agentNode('c', 0, 300),
+			],
+			edges: [
+				{ id: 'e1', source: 't', target: 'a', mode: 'pass' },
+				{ id: 'e2', source: 't', target: 'b', mode: 'pass' },
+				{ id: 'e3', source: 't', target: 'c', mode: 'pass' },
+			],
+		});
+		const byId = new Map(arrangePipelineNodes(p).map((n) => [n.id, n.position]));
+		// Column is top-aligned: trigger (row 0) and first target share a row.
+		expect(byId.get('t')!.y).toBe(byId.get('a')!.y);
+		// Stacked nodes are exactly 25px apart edge-to-edge.
+		expect(byId.get('b')!.y - (byId.get('a')!.y + NODE_BG_HEIGHT)).toBe(GAP);
+		expect(byId.get('c')!.y - (byId.get('b')!.y + NODE_BG_HEIGHT)).toBe(GAP);
+	});
+
 	it('places fan-out targets in the same column, ordered by current Y', () => {
 		const p = pipeline({
 			nodes: [

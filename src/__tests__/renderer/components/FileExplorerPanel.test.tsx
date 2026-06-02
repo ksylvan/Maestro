@@ -2034,7 +2034,12 @@ describe('FileExplorerPanel', () => {
 			expect(queryByText('Drop here to move to root')).toBeNull();
 
 			const row = getRow(container, 'index.ts');
-			fireEvent.dragStart(row, { dataTransfer: makeDataTransfer() });
+			// The flag flip is deferred a tick (so it doesn't reflow during
+			// dragstart and abort the Chromium drag), so advance timers to mount it.
+			act(() => {
+				fireEvent.dragStart(row, { dataTransfer: makeDataTransfer() });
+				vi.advanceTimersByTime(0);
+			});
 			expect(queryByText('Drop here to move to root')).not.toBeNull();
 
 			// dragend tears it back down (drop happened off-target or was cancelled).
@@ -2057,9 +2062,12 @@ describe('FileExplorerPanel', () => {
 				/>
 			);
 
-			// Drag the nested src/index.ts so the receptacle mounts.
+			// Drag the nested src/index.ts so the receptacle mounts (deferred a tick).
 			const nestedRow = getRow(container, 'index.ts');
-			fireEvent.dragStart(nestedRow, { dataTransfer: makeDataTransfer() });
+			act(() => {
+				fireEvent.dragStart(nestedRow, { dataTransfer: makeDataTransfer() });
+				vi.advanceTimersByTime(0);
+			});
 
 			const receptacle = getByText('Drop here to move to root');
 			const dt = makeDataTransfer({ 'application/x-maestro-file-path': 'src/index.ts' });

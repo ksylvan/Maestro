@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { Session } from '../../../types';
 import type { FileNode } from '../../../types/fileTree';
@@ -80,6 +80,9 @@ export function useDragToMove({
 	const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
 	const [isExternalDrag, setIsExternalDrag] = useState(false);
 	const [internalDragActive, setInternalDragActive] = useState(false);
+	// Guards the deferred dragstart flag: if the drag ends before the next tick
+	// (a flick or instant cancel), we must not flip the receptacle on afterwards.
+	const dragActiveRef = useRef(false);
 	const [moveConflict, setMoveConflict] = useState<MoveConflictState | null>(null);
 	const [isMoving, setIsMoving] = useState(false);
 
@@ -485,11 +488,20 @@ export function useDragToMove({
 	// so it flips this flag to reveal the "move to root" receptacle. dragend
 	// always fires - successful drop or cancel - so it doubly clears any leftover
 	// hover state in case the drop happened outside a registered handler.
+	//
+	// The flag flip is deferred to the next tick on purpose: mounting the
+	// receptacle reflows the panel, and Chromium ABORTS an in-flight drag if the
+	// layout mutates synchronously inside the dragstart handler. Letting dragstart
+	// finish first (drag image captured) before the DOM grows keeps the drag alive.
 	const handleInternalDragStart = useCallback(() => {
-		setInternalDragActive(true);
+		dragActiveRef.current = true;
+		setTimeout(() => {
+			if (dragActiveRef.current) setInternalDragActive(true);
+		}, 0);
 	}, []);
 
 	const handleInternalDragEnd = useCallback(() => {
+		dragActiveRef.current = false;
 		setInternalDragActive(false);
 		setDragOverFolder(null);
 		setIsExternalDrag(false);

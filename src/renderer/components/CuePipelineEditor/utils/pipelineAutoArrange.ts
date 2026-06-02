@@ -27,9 +27,10 @@
  *     are left untouched — only the cards move. There are no edges between
  *     cards to cross, so Tidy and Arrange both route here.
  *
- * Both single-pipeline layouts center each column within its component band so
- * edges read cleanly, and a pipeline with no edges (a bag of disconnected
- * nodes) is packed into a balanced grid instead of a single tall column.
+ * Both single-pipeline layouts snap nodes onto one orthogonal grid: columns are
+ * top-aligned so rows line up edge-to-edge with NODE_GAP (25px) of clear space
+ * between every node, and a pipeline with no edges (a bag of disconnected nodes)
+ * is packed into a balanced grid instead of a single tall column.
  * Group cards keep their CURRENT reading order (top-to-bottom, then
  * left-to-right) so packing tidies without scrambling placement.
  */
@@ -42,11 +43,18 @@ import {
 	resolvePipelineOffset,
 } from './pipelineGraph';
 
-// Step between successive node top-left corners. Tight enough to read as one
-// pipeline, loose enough that nodes and their edge labels never touch.
+// Empty space the grid leaves between adjacent node footprints. This is also the
+// MINIMUM length of the orthogonal edge segment that bridges two nodes, so the
+// whole graph snaps onto a clean grid where every gap (and every straight edge)
+// reads as the same 25px. Bump this to widen the grid.
+const NODE_GAP = 25;
+// Step between successive node top-left corners = footprint + gap. Using the
+// canonical node footprint (NODE_BG_WIDTH/HEIGHT, the box that always encloses a
+// rendered node) guarantees at least NODE_GAP of clear space between every node,
+// so columns never overlap and rows line up on a single grid.
 // (All-Pipelines card packing uses a shortest-column masonry; see arrangePipelineGroups.)
-const NODE_COL_SPACING = 300; // horizontal distance between rank columns
-const NODE_ROW_SPACING = 130; // vertical distance between nodes in a column
+const NODE_COL_SPACING = NODE_BG_WIDTH + NODE_GAP; // horizontal distance between rank columns
+const NODE_ROW_SPACING = NODE_BG_HEIGHT + NODE_GAP; // vertical distance between nodes in a column
 
 // Visible breathing room between adjacent group cards in the All-Pipelines grid.
 const GROUP_GAP = 64;
@@ -115,10 +123,9 @@ function gridArrangeNodes(nodes: PipelineNode[]): PipelineNode[] {
  * is the current vertical position, so where reordering isn't needed to remove a
  * crossing the user's existing arrangement is preserved.
  *
- * Crossings are compared by centered rank rather than raw row index: columns
- * hold different node counts and are each centered on y = 0, so row 0 is the TOP
- * of a tall column but the CENTER of a single-node column. Comparing centered
- * ranks aligns nodes by their actual on-screen vertical position.
+ * Crossings and barycenters are compared by raw row index because the layout is
+ * top-aligned: every column starts at the band's top row, so a node's row index
+ * IS its on-screen vertical slot. (No centering offset to correct for.)
  */
 function minimizeCrossingsWithinColumns(
 	byRank: Map<number, PipelineNode[]>,
@@ -155,12 +162,6 @@ function minimizeCrossingsWithinColumns(
 	};
 	computeRows();
 
-	const centeredRank = (id: string): number => {
-		const col = column.get(id) ?? 0;
-		const size = (byRank.get(col) ?? []).length;
-		return (rowOf.get(id) ?? 0) - (size - 1) / 2;
-	};
-
 	// Count crossings between edges that share the same column pair. Two such
 	// edges cross iff their endpoints are in opposite vertical order.
 	const countCrossings = (): number => {
@@ -194,8 +195,8 @@ function minimizeCrossingsWithinColumns(
 				bary.set(
 					node.id,
 					neighbors.length === 0
-						? centeredRank(node.id)
-						: neighbors.reduce((sum, n) => sum + centeredRank(n), 0) / neighbors.length
+						? (rowOf.get(node.id) ?? 0)
+						: neighbors.reduce((sum, n) => sum + (rowOf.get(n) ?? 0), 0) / neighbors.length
 				);
 			}
 			ids.sort((a, b) => (bary.get(a.id) ?? 0) - (bary.get(b.id) ?? 0));
@@ -288,15 +289,16 @@ function weaklyConnectedComponents(pipeline: CuePipeline): PipelineNode[][] {
 	);
 }
 
-// Vertical gap between two stacked component bands.
+// Vertical gap between two stacked component bands. One full row pitch keeps
+// every band's top on the same global grid as the rows inside it.
 const BAND_GAP = NODE_ROW_SPACING;
 
 /**
  * Shared layout for both single-pipeline buttons. Lays each weakly-connected
  * component out as its OWN horizontal band (flow-depth columns left→right),
  * then stacks the bands top-to-bottom in current reading order. This snaps the
- * graph onto a clean grid — triggers column-aligned at the left, uniform
- * column/row spacing, no overlaps — WITHOUT merging independent chains into
+ * graph onto a clean grid - triggers column-aligned at the left, uniform
+ * column/row spacing, no overlaps - WITHOUT merging independent chains into
  * shared columns (which is what made the old single-rank layout "rearrange the
  * graph"). Within each band, Tidy keeps the current top-to-bottom order while
  * Arrange (`untangle`) reorders to minimize edge crossings. Truly disconnected
@@ -333,18 +335,18 @@ function arrangeByColumns(pipeline: CuePipeline, untangle: boolean): PipelineNod
 			for (const group of byRank.values()) group.sort(byCurrentPosition);
 		}
 
-		// Band height is driven by the tallest column so columns center cleanly
-		// and the next band never overlaps this one.
+		// Band height is driven by the tallest column. Every column is TOP-aligned
+		// to the band so rows line up across columns on one grid (no per-column
+		// centering, which would knock nodes off the shared row lines and bend the
+		// edges). The tallest column sizes the band so the next one never overlaps.
 		const tallestColumn = Math.max(1, ...[...byRank.values()].map((g) => g.length));
 		const bandHeight = tallestColumn * NODE_ROW_SPACING;
 
 		for (const [r, group] of byRank) {
-			// Center each column within the band so edges read as a balanced fan.
-			const startY = bandTop + (bandHeight - group.length * NODE_ROW_SPACING) / 2;
 			group.forEach((node, i) => {
 				arranged.push({
 					...node,
-					position: { x: r * NODE_COL_SPACING, y: startY + i * NODE_ROW_SPACING },
+					position: { x: r * NODE_COL_SPACING, y: bandTop + i * NODE_ROW_SPACING },
 				});
 			});
 		}

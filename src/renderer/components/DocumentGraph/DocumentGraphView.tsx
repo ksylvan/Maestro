@@ -1899,6 +1899,7 @@ export function DocumentGraphView({
 							nodePositions={nodePositions}
 							onNodePositionChange={handleNodePositionChange}
 							containerRef={mindMapContainerRef}
+							legendExpanded={legendExpanded}
 						/>
 					) : (
 						<div

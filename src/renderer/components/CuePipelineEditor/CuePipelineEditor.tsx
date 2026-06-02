@@ -328,57 +328,77 @@ function CuePipelineEditorInner({
 	const [displayNodes, setDisplayNodes] = useState<Node[]>(computedNodes);
 	// Tracks the `pipelineState.pipelines` reference the resync last observed.
 	// A changed reference means a real state MUTATION committed (drag-stop, Tidy/
-	// Arrange, discard, node add/delete) — take fresh `computedNodes` wholesale.
+	// Arrange, discard, node add/delete): take fresh `computedNodes` wholesale.
 	// This is load-bearing for discard specifically: discard reverts canonical
 	// positions to values that may equal an EARLIER snapshot, which the per-node
 	// position comparison below cannot distinguish from a no-op poll refire.
 	const lastSyncedPipelinesRef = useRef(pipelineState.pipelines);
-	// Snapshot of the LAST computedNodes positions (by id). When the pipelines
-	// reference is UNCHANGED (a selection/view switch or a data-only recompute),
-	// the resync compares each fresh computed position against this snapshot to
-	// decide, per node, whether the canonical position actually moved. This is
-	// the robust replacement for the old ref/selection/band heuristics: it is
-	// immune to effect-fire ordering, so a single↔All switch (which changes the
-	// per-pipeline viewOffset but NOT the pipelines reference) always re-adopts
-	// the fresh offset position instead of stranding content outside its band.
+	// Tracks the selected pipeline the resync last observed. A selection change
+	// (single ↔ All Pipelines, or between pipelines) is USER navigation: it asks
+	// for a different set of visible nodes and a different view geometry, so the
+	// resync adopts fresh `computedNodes` even while dirty. Distinguishing this
+	// from a background recompute is what lets the dirty-freeze below hold the
+	// arrangement still WITHOUT stranding nodes when the user switches views.
+	const lastSyncedSelectedIdRef = useRef(pipelineState.selectedPipelineId);
+	// Snapshot of the LAST computedNodes positions (by id). In the CLEAN state,
+	// when neither the pipelines reference nor the selection changed, the resync
+	// compares each fresh computed position against this snapshot to adopt genuine
+	// canonical shifts (e.g. a band/offset that lands a render after a view switch)
+	// while preserving live positions on pure data-only refires.
 	const lastComputedPosRef = useRef<Map<string, { x: number; y: number }>>(
 		new Map(computedNodes.map((n) => [n.id, n.position]))
 	);
 	useEffect(() => {
 		const pipelinesChanged = lastSyncedPipelinesRef.current !== pipelineState.pipelines;
+		const selectionChanged = lastSyncedSelectedIdRef.current !== pipelineState.selectedPipelineId;
 		lastSyncedPipelinesRef.current = pipelineState.pipelines;
+		lastSyncedSelectedIdRef.current = pipelineState.selectedPipelineId;
 		// Capture the PREVIOUS computed positions before overwriting the ref, so
 		// the state updater (which runs during reconciliation, after this effect
 		// body) closes over the right snapshot.
 		const prevComputedPos = lastComputedPosRef.current;
 		setDisplayNodes((prev) => {
-			// Real mutation committed — adopt the fresh layout in full.
+			// Real mutation committed (drag-stop, Tidy/Arrange, add/delete, save,
+			// discard): adopt the fresh layout in full.
 			if (pipelinesChanged) return computedNodes;
+			// User navigation (selecting a different pipeline, or single vs All):
+			// adopt fresh geometry. Not a background refresh; the user asked for it.
+			if (selectionChanged) return computedNodes;
+			// A drag/rearrange is IN FLIGHT (ReactFlow stamps `dragging: true` on
+			// the nodes under the cursor). This is the FIRST move of a clean
+			// pipeline, before the drag-stop commit has flipped `isDirty`. A
+			// poll-driven recompute landing here must NOT touch displayNodes -
+			// doing so yanks the node you're holding back to its canonical
+			// position. Skip until the gesture ends.
+			if (prev.some((n) => n.dragging)) return prev;
+
 			const prevById = new Map(prev.map((n) => [n.id, n]));
 			return computedNodes.map((cn) => {
 				const existing = prevById.get(cn.id);
 				// New node, or a band / content node that appears when switching into
-				// All-Pipelines view — take the fresh computed node as-is.
+				// All-Pipelines view: surface it. Adding a node is never a "revert".
 				if (!existing) return cn;
+				// UNSAVED EDITS: freeze every existing node's on-screen position.
+				// Once the user has moved something the pipeline is dirty, and NO
+				// background recompute (activeRuns poll, theme change, running-state
+				// Sets, a layout re-fit) may shift anything they've arranged until
+				// they Save or Discard. Non-positional data (isRunning, etc.) still
+				// updates - only the position is pinned. This is the hard rule the
+				// user asked for: as soon as you move something, the view holds
+				// still until you commit or revert. The committed mutation (which
+				// flips `pipelinesChanged`) and Save/Discard are the only ways out.
+				if (isDirty) return { ...cn, position: existing.position };
+				// CLEAN state: adopt a genuine canonical position change (band/offset
+				// lag on a view switch); otherwise preserve to avoid needless churn.
 				const prevPos = prevComputedPos.get(cn.id);
-				// Canonical position changed since the last computedNodes without a
-				// pipelines mutation: a view switch (single ↔ All applies/removes the
-				// per-pipeline viewOffset). Adopt the fresh position. This is what was
-				// previously missed — on a single→All switch the band moved to its
-				// offset slot while the preserve-branch kept content at stale
-				// single-view coords, leaving nodes stranded outside their band.
 				if (!prevPos || prevPos.x !== cn.position.x || prevPos.y !== cn.position.y) {
 					return cn;
 				}
-				// Canonical position UNCHANGED: this fire is data-only (activeRuns
-				// poll, theme, running-state Sets). Preserve ReactFlow's live
-				// displayNodes position so an in-progress drag isn't snapped back
-				// mid-gesture.
 				return { ...cn, position: existing.position };
 			});
 		});
 		lastComputedPosRef.current = new Map(computedNodes.map((n) => [n.id, n.position]));
-	}, [computedNodes, pipelineState.pipelines]);
+	}, [computedNodes, pipelineState.pipelines, pipelineState.selectedPipelineId, isDirty]);
 
 	const nodes = displayNodes;
 

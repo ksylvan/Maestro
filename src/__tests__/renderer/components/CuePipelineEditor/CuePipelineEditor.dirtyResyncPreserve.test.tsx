@@ -38,13 +38,26 @@ vi.mock('reactflow', () => ({
 	}),
 	useNodesInitialized: () => false,
 	applyNodeChanges: (changes: any[], nodes: any[]) => {
-		const positionById = new Map<string, { x: number; y: number }>();
+		// Mirror ReactFlow: a position change carries both the new position AND
+		// the live `dragging` flag, which the resync guard keys on to skip
+		// resyncing mid-gesture.
+		const changeById = new Map<
+			string,
+			{ position?: { x: number; y: number }; dragging?: boolean }
+		>();
 		for (const c of changes) {
-			if (c?.type === 'position' && c.position) positionById.set(c.id, c.position);
+			if (c?.type === 'position')
+				changeById.set(c.id, { position: c.position, dragging: c.dragging });
 		}
-		return nodes.map((n) =>
-			positionById.has(n.id) ? { ...n, position: positionById.get(n.id) } : n
-		);
+		return nodes.map((n) => {
+			const change = changeById.get(n.id);
+			if (!change) return n;
+			return {
+				...n,
+				...(change.position ? { position: change.position } : {}),
+				dragging: change.dragging,
+			};
+		});
 	},
 	Background: () => null,
 	Controls: () => null,
@@ -106,6 +119,13 @@ vi.mock('../../../../renderer/components/CuePipelineEditor/utils/pipelineGraph',
 	convertToReactFlowNodes: (...args: any[]) => mockConvertToReactFlowNodes(...args),
 	convertToReactFlowEdges: vi.fn(() => []),
 	computePipelineYOffsets: vi.fn(() => new Map()),
+	// Footprint constants read at module-eval time by pipelineAutoArrange
+	// (imported transitively via CuePipelineEditor). Must be present on the mock
+	// or the import throws "No export is defined".
+	NODE_BG_WIDTH: 320,
+	NODE_BG_HEIGHT: 100,
+	PIPELINE_GROUP_PADDING: 28,
+	resolvePipelineOffset: vi.fn(() => ({ x: 0, y: 0 })),
 }));
 
 import { CuePipelineEditor } from '../../../../renderer/components/CuePipelineEditor/CuePipelineEditor';
@@ -270,6 +290,163 @@ describe('CuePipelineEditor — resync preserves live positions when pipelineSta
 		const movedNode = capturedNodes.find((n) => n.id === 'p1:agent-1');
 		expect(movedNode).toBeTruthy();
 		expect(movedNode!.position).toEqual({ x: 350, y: 100 });
+	});
+
+	it('poll tick DURING the first move (dragging:true, not yet dirty) never reverts', () => {
+		// The FIRST move of a clean pipeline: the live position changes but the
+		// drag-stop commit hasn't fired yet, so `isDirty` is still false. A
+		// poll-driven recompute landing here must not be adopted - doing so snaps
+		// the node out from under the cursor. The drag-in-flight guard (ReactFlow
+		// stamps `dragging:true`) skips the resync until the gesture ends.
+		const pipelines = makePipelines();
+		mockUsePipelineState.mockReturnValue(buildStateHookReturn(pipelines));
+		mockConvertToReactFlowNodes.mockReturnValue([makeNode('p1:agent-1', 0, 0)]);
+
+		const { rerender } = renderEditor();
+
+		// User is actively dragging: live position moves AND dragging is true.
+		// pipelineState is NOT committed yet (commit happens on drag-stop).
+		capturedSetDisplayNodes!([
+			{ type: 'position', id: 'p1:agent-1', position: { x: 350, y: 100 }, dragging: true },
+		]);
+
+		// Poll tick mid-drag: same pipelines ref (no commit), still clean, but
+		// computedNodes recomputes to a DIFFERENT geometry. Without the guard this
+		// fresh position would be adopted and the node would jump to (999, 999).
+		mockUsePipelineState.mockReturnValue(
+			buildStateHookReturn(pipelines, { runningPipelineIds: new Set(['p1']) })
+		);
+		mockConvertToReactFlowNodes.mockReturnValue([makeNode('p1:agent-1', 999, 999)]);
+		rerender(
+			<CuePipelineEditor
+				sessions={[]}
+				graphSessions={[]}
+				onSwitchToSession={vi.fn()}
+				onClose={vi.fn()}
+				theme={mockTheme}
+			/>
+		);
+
+		const heldNode = capturedNodes.find((n) => n.id === 'p1:agent-1');
+		expect(heldNode).toBeTruthy();
+		// Live drag position is held; the (999, 999) recompute is ignored.
+		expect(heldNode!.position).toEqual({ x: 350, y: 100 });
+	});
+
+	it('DIRTY (unsaved edits): background recompute never moves an arranged node until save/discard', () => {
+		// The core directive: once the user has moved something the pipeline is
+		// dirty, and NO background refresh (activeRuns poll, theme, running-state
+		// Sets, layout re-fit) may shift anything they have arranged until they
+		// Save or Discard. This holds even when the node is at rest (dragging
+		// false) and the recompute reports a wildly different geometry.
+		const pipelines = makePipelines();
+		mockUsePipelineState.mockReturnValue(buildStateHookReturn(pipelines, { isDirty: true }));
+		mockConvertToReactFlowNodes.mockReturnValue([makeNode('p1:agent-1', 0, 0)]);
+
+		const { rerender } = renderEditor();
+
+		// User dragged earlier; the arranged position is live in displayNodes and
+		// the gesture has ended (dragging false). pipelineState already reflects
+		// the committed move on the SAME pipelines ref for this test's purposes.
+		capturedSetDisplayNodes!([
+			{ type: 'position', id: 'p1:agent-1', position: { x: 350, y: 100 }, dragging: false },
+		]);
+
+		// Background recompute while dirty: same pipelines ref, same selection, a
+		// fresh running-state Set, and a DIFFERENT computed position. The freeze
+		// must hold the arranged (350, 100), ignoring the (999, 999) recompute.
+		mockUsePipelineState.mockReturnValue(
+			buildStateHookReturn(pipelines, { isDirty: true, runningPipelineIds: new Set(['p1']) })
+		);
+		mockConvertToReactFlowNodes.mockReturnValue([makeNode('p1:agent-1', 999, 999)]);
+		rerender(
+			<CuePipelineEditor
+				sessions={[]}
+				graphSessions={[]}
+				onSwitchToSession={vi.fn()}
+				onClose={vi.fn()}
+				theme={mockTheme}
+			/>
+		);
+
+		const node = capturedNodes.find((n) => n.id === 'p1:agent-1');
+		expect(node).toBeTruthy();
+		expect(node!.position).toEqual({ x: 350, y: 100 });
+	});
+
+	it('DIRTY: a brand-new node still appears (adding a node is not a positional revert)', () => {
+		// The freeze pins EXISTING nodes' positions but must not hide nodes that
+		// genuinely appear (a paste, an undo that re-adds, a band on view switch).
+		const pipelines = makePipelines();
+		mockUsePipelineState.mockReturnValue(buildStateHookReturn(pipelines, { isDirty: true }));
+		mockConvertToReactFlowNodes.mockReturnValue([makeNode('p1:agent-1', 0, 0)]);
+
+		const { rerender } = renderEditor();
+
+		capturedSetDisplayNodes!([
+			{ type: 'position', id: 'p1:agent-1', position: { x: 350, y: 100 }, dragging: false },
+		]);
+
+		mockUsePipelineState.mockReturnValue(buildStateHookReturn(pipelines, { isDirty: true }));
+		mockConvertToReactFlowNodes.mockReturnValue([
+			makeNode('p1:agent-1', 999, 999),
+			makeNode('p1:agent-2', 500, 500),
+		]);
+		rerender(
+			<CuePipelineEditor
+				sessions={[]}
+				graphSessions={[]}
+				onSwitchToSession={vi.fn()}
+				onClose={vi.fn()}
+				theme={mockTheme}
+			/>
+		);
+
+		// Existing node frozen at its arranged spot; new node surfaces fresh.
+		const existing = capturedNodes.find((n) => n.id === 'p1:agent-1');
+		expect(existing!.position).toEqual({ x: 350, y: 100 });
+		const added = capturedNodes.find((n) => n.id === 'p1:agent-2');
+		expect(added).toBeTruthy();
+		expect(added!.position).toEqual({ x: 500, y: 500 });
+	});
+
+	it('DIRTY but user switches pipeline (selection change): adopts the newly selected geometry', () => {
+		// Selection change is user navigation, not a background refresh - it must
+		// still adopt fresh geometry even while dirty, otherwise switching views
+		// would show stale node positions. The user's edits live in pipelineState
+		// and reappear (from computedNodes) when they switch back.
+		const pipelines = makePipelines();
+		mockUsePipelineState.mockReturnValue(buildStateHookReturn(pipelines, { isDirty: true }));
+		mockConvertToReactFlowNodes.mockReturnValue([makeNode('p1:agent-1', 0, 0)]);
+
+		const { rerender } = renderEditor();
+
+		capturedSetDisplayNodes!([
+			{ type: 'position', id: 'p1:agent-1', position: { x: 350, y: 100 }, dragging: false },
+		]);
+
+		// Switch to All Pipelines view while dirty: selection p1 → null, fresh
+		// computed geometry for the now-visible node.
+		mockUsePipelineState.mockReturnValue(
+			buildStateHookReturn(pipelines, {
+				isDirty: true,
+				pipelineState: { pipelines, selectedPipelineId: null },
+				isAllPipelinesView: true,
+			})
+		);
+		mockConvertToReactFlowNodes.mockReturnValue([makeNode('p1:agent-1', 0, 220)]);
+		rerender(
+			<CuePipelineEditor
+				sessions={[]}
+				graphSessions={[]}
+				onSwitchToSession={vi.fn()}
+				onClose={vi.fn()}
+				theme={mockTheme}
+			/>
+		);
+
+		const node = capturedNodes.find((n) => n.id === 'p1:agent-1');
+		expect(node!.position).toEqual({ x: 0, y: 220 });
 	});
 
 	it('pipelineState changes (drag committed): full resync to computedNodes', () => {

@@ -253,7 +253,8 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		category: 'appearance',
 	},
 	toastWidth: {
-		description: 'Width of toast notifications. Options: small (default), medium, large.',
+		description:
+			'Width of toast notifications. Options: small (default), medium, large, dynamic (match the Right Bar width).',
 		type: 'string',
 		default: 'small',
 		category: 'appearance',
