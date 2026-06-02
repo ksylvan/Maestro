@@ -2,6 +2,7 @@ import { ExternalLink } from 'lucide-react';
 import type { MarketplacePlaybook } from '../../../../shared/marketplace-types';
 import type { Theme } from '../../../types';
 import { openUrl } from '../../../utils/openUrl';
+import { LOCAL_BADGE_BG, LOCAL_BADGE_FG } from '../helpers';
 
 export interface PlaybookMetadataSidebarProps {
 	theme: Theme;
@@ -164,8 +165,8 @@ export function PlaybookMetadataSidebar({
 					<span
 						className="px-2 py-0.5 rounded text-xs font-medium inline-block"
 						style={{
-							backgroundColor: '#3b82f620',
-							color: '#3b82f6',
+							backgroundColor: LOCAL_BADGE_BG,
+							color: LOCAL_BADGE_FG,
 						}}
 						title="Custom local playbook"
 					>

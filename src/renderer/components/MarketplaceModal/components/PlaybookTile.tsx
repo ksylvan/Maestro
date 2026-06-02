@@ -1,7 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { isBeta, isCompatible } from '../../../../shared/marketplace-compatibility';
 import type { PlaybookTileProps } from '../types';
-import { BADGE_FG, BETA_BADGE_BG, INCOMPAT_BADGE_BG } from '../helpers';
+import {
+	BADGE_FG,
+	BETA_BADGE_BG,
+	INCOMPAT_BADGE_BG,
+	LOCAL_BADGE_BG,
+	LOCAL_BADGE_FG,
+} from '../helpers';
 
 export function PlaybookTile({
 	playbook,
@@ -88,8 +94,8 @@ export function PlaybookTile({
 						<span
 							className="px-2 py-0.5 rounded text-xs font-medium"
 							style={{
-								backgroundColor: '#3b82f620',
-								color: '#3b82f6',
+								backgroundColor: LOCAL_BADGE_BG,
+								color: LOCAL_BADGE_FG,
 							}}
 							title="Custom local playbook"
 						>

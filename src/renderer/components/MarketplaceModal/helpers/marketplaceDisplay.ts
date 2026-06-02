@@ -13,6 +13,8 @@ export const LOADING_TILE_IDS = [
 // Badge colors are fixed independent of theme so they remain recognizable.
 export const BETA_BADGE_BG = '#F59E0B';
 export const INCOMPAT_BADGE_BG = '#EF4444';
+export const LOCAL_BADGE_BG = '#3b82f620';
+export const LOCAL_BADGE_FG = '#3b82f6';
 export const BADGE_FG = '#ffffff';
 
 export interface PartitionedPlaybooks {

@@ -3,7 +3,13 @@ import { isBeta, isCompatible } from '../../../../shared/marketplace-compatibili
 import { GhostIconButton } from '../../ui/GhostIconButton';
 import { openUrl } from '../../../utils/openUrl';
 import type { PlaybookDetailViewProps } from '../types';
-import { BADGE_FG, BETA_BADGE_BG, INCOMPAT_BADGE_BG } from '../helpers';
+import {
+	BADGE_FG,
+	BETA_BADGE_BG,
+	INCOMPAT_BADGE_BG,
+	LOCAL_BADGE_BG,
+	LOCAL_BADGE_FG,
+} from '../helpers';
 import { DocumentSelector } from './DocumentSelector';
 import { MarkdownPreviewPane } from './MarkdownPreviewPane';
 import { PlaybookImportFooter } from './PlaybookImportFooter';
@@ -56,8 +62,8 @@ export function PlaybookDetailView({
 							<span
 								className="px-2 py-0.5 rounded text-xs font-medium"
 								style={{
-									backgroundColor: '#3b82f620',
-									color: '#3b82f6',
+									backgroundColor: LOCAL_BADGE_BG,
+									color: LOCAL_BADGE_FG,
 								}}
 								title="Custom local playbook"
 							>

@@ -16,7 +16,7 @@ export const mockTheme: Theme = {
 		textMain: '#fff',
 		textDim: '#aaa',
 		accent: '#5af',
-		accentDim: '#5af80',
+		accentDim: '#5af880',
 		accentText: '#5af',
 		accentForeground: '#000',
 		success: '#0f0',
