@@ -875,6 +875,12 @@ export function DocumentGraphView({
 		window.maestro.fs
 			.stat(fullPath, sshRemoteId)
 			.then((stats) => {
+				// stat returns null for a phantom target (e.g. an unresolved [[wiki]]
+				// link that points nowhere) - treat it as "no stats" like the catch.
+				if (!stats) {
+					setSelectedNodeStats(null);
+					return;
+				}
 				setSelectedNodeStats({
 					createdAt: stats.createdAt ? new Date(stats.createdAt) : null,
 					modifiedAt: stats.modifiedAt ? new Date(stats.modifiedAt) : null,
