@@ -92,7 +92,8 @@ export interface SessionLifecycleReturn {
 			shareHistoryToProjectDir?: boolean;
 		},
 		enableMaestroP?: boolean,
-		maestroPPath?: string
+		maestroPPath?: string,
+		maestroPMode?: 'interactive' | 'dynamic'
 	) => void;
 	/** Rename the currently-selected tab (persists to agent session storage + history) */
 	handleRenameTab: (newName: string) => void;
@@ -159,7 +160,8 @@ export function useSessionLifecycle(deps: SessionLifecycleDeps): SessionLifecycl
 				shareHistoryToProjectDir?: boolean;
 			},
 			enableMaestroP?: boolean,
-			maestroPPath?: string
+			maestroPPath?: string,
+			maestroPMode?: 'interactive' | 'dynamic'
 		) => {
 			useSessionStore.getState().setSessions((prev) =>
 				prev.map((s) => {
@@ -177,6 +179,7 @@ export function useSessionLifecycle(deps: SessionLifecycleDeps): SessionLifecycl
 						sessionSshRemoteConfig,
 						enableMaestroP,
 						maestroPPath,
+						maestroPMode,
 					};
 
 					// If provider changed, reset tabs and provider-specific config
@@ -208,6 +211,7 @@ export function useSessionLifecycle(deps: SessionLifecycleDeps): SessionLifecycl
 							customContextWindow: undefined,
 							enableMaestroP: undefined,
 							maestroPPath: undefined,
+							maestroPMode: undefined,
 							// Reset file preview tabs and unified tab order
 							filePreviewTabs: [],
 							activeFileTabId: null,
