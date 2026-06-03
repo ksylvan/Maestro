@@ -64,13 +64,18 @@ export interface CueSessionRegistry {
 
 	// ── time.once dedup ──────────────────────────────────────────────────
 	/**
-	 * Atomically check-and-set the fired flag for a `(session, sub)` time.once tuple.
-	 * Returns `true` if this is the first time the subscription has fired within
-	 * this process lifetime, `false` if it was already fired. Used by the
-	 * `time.once` trigger source to ensure a single fire even when poll ticks
-	 * overlap with hot-reload re-creation of the source.
+	 * Atomically check-and-set the fired flag for a `(session, sub, fireAt)`
+	 * time.once tuple. Returns `true` if this is the first time this specific
+	 * scheduled instance has fired within this process lifetime, `false` if it
+	 * was already fired. Used by the `time.once` trigger source to ensure a
+	 * single fire even when poll ticks overlap with hot-reload re-creation of
+	 * the source.
+	 *
+	 * Keying includes `fireAt` so that re-creating a `time.once` with the same
+	 * name but a new `fire_at` (a fresh schedule after the prior one fired or
+	 * self-destructed) is not blocked by the stale key.
 	 */
-	markOnceFired(sessionId: string, subName: string): boolean;
+	markOnceFired(sessionId: string, subName: string, fireAt: string): boolean;
 
 	/**
 	 * Drop all sessions and clear `time.scheduled` dedup state.
@@ -101,8 +106,8 @@ export function createCueSessionRegistry(): CueSessionRegistry {
 		return `${sessionId}:${subName}`;
 	}
 
-	function onceKey(sessionId: string, subName: string): string {
-		return `${sessionId}:${subName}`;
+	function onceKey(sessionId: string, subName: string, fireAt: string): string {
+		return `${sessionId}:${subName}:${fireAt}`;
 	}
 
 	return {
@@ -176,8 +181,8 @@ export function createCueSessionRegistry(): CueSessionRegistry {
 			startupFiredKeys.clear();
 		},
 
-		markOnceFired(sessionId, subName) {
-			const key = onceKey(sessionId, subName);
+		markOnceFired(sessionId, subName, fireAt) {
+			const key = onceKey(sessionId, subName, fireAt);
 			if (onceFiredKeys.has(key)) return false;
 			onceFiredKeys.add(key);
 			return true;

@@ -19,30 +19,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { resolveCueConfigPath } from './cue-yaml-loader';
+import { extractLeadingCommentBlock } from './cue-yaml-write';
 
 export interface SelfDestructResult {
 	removed: boolean;
 	reason?: string;
-}
-
-/**
- * Extract the leading comment block from a raw YAML file — every line at the
- * top of the file that is either blank or starts with `#`. Returns the block
- * including its trailing newline, or an empty string if none.
- */
-function extractLeadingCommentBlock(raw: string): string {
-	const lines = raw.split('\n');
-	const headerLines: string[] = [];
-	for (const line of lines) {
-		const trimmed = line.trimStart();
-		if (trimmed.length === 0 || trimmed.startsWith('#')) {
-			headerLines.push(line);
-			continue;
-		}
-		break;
-	}
-	if (headerLines.length === 0) return '';
-	return headerLines.join('\n') + '\n';
 }
 
 export async function removeSubscriptionFromYaml(

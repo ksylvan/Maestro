@@ -29,11 +29,16 @@ export function createCueOnceTriggerSource(ctx: CueTriggerSourceContext): CueTri
 	const fireAt = ctx.subscription.fire_at;
 	if (typeof fireAt !== 'string' || fireAt.length === 0) return null;
 
-	const targetMs = Date.parse(fireAt);
+	// Bind an explicitly-typed string after the guard above so the value stays
+	// `string` (not `string | undefined`) inside the hoisted `checkAndFire`
+	// closure, where the registry dedup key requires a concrete string.
+	const fireAtIso: string = fireAt;
+
+	const targetMs = Date.parse(fireAtIso);
 	if (!Number.isFinite(targetMs)) {
 		ctx.onLog(
 			'warn',
-			`[CUE] "${ctx.subscription.name}" has an unparseable fire_at "${fireAt}" — disabling`
+			`[CUE] "${ctx.subscription.name}" has an unparseable fire_at "${fireAtIso}" — disabling`
 		);
 		return null;
 	}
@@ -58,7 +63,7 @@ export function createCueOnceTriggerSource(ctx: CueTriggerSourceContext): CueTri
 
 		// Atomic check-and-set against the registry so a YAML hot-reload that
 		// re-creates the source mid-poll cannot double-fire.
-		if (!ctx.registry.markOnceFired(ctx.session.id, ctx.subscription.name)) {
+		if (!ctx.registry.markOnceFired(ctx.session.id, ctx.subscription.name, fireAtIso)) {
 			fired = true;
 			nextFireMs = null;
 			stopInternal();
@@ -75,7 +80,7 @@ export function createCueOnceTriggerSource(ctx: CueTriggerSourceContext): CueTri
 		if (graceMs <= 0 || elapsed > graceMs) {
 			ctx.onLog(
 				'cue',
-				`[CUE] "${ctx.subscription.name}" missed its fire window (fired_at: ${fireAt}, grace: ${graceMinutes}m) — self-destructing without firing`
+				`[CUE] "${ctx.subscription.name}" missed its fire window (fired_at: ${fireAtIso}, grace: ${graceMinutes}m) — self-destructing without firing`
 			);
 			ctx.requestSelfDestruct?.(ctx.subscription.name, 'missed-grace');
 			stopInternal();
@@ -83,12 +88,16 @@ export function createCueOnceTriggerSource(ctx: CueTriggerSourceContext): CueTri
 		}
 
 		const event = createCueEvent('time.once', ctx.subscription.name, {
-			fire_at: fireAt,
+			fire_at: fireAtIso,
 			fired_at: new Date(now).toISOString(),
 			grace_minutes: graceMinutes,
 		});
 
 		if (!passesFilter(ctx.subscription, event, ctx.onLog)) {
+			// The sub is consumed for this process (markOnceFired ran above) and
+			// will never fire, so it must self-destruct - otherwise the YAML entry
+			// is stranded forever, mirroring the missed-grace path.
+			ctx.requestSelfDestruct?.(ctx.subscription.name, 'filtered');
 			stopInternal();
 			return;
 		}

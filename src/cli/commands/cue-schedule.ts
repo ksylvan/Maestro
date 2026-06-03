@@ -24,6 +24,7 @@ import { getAgentDisplayName } from '../../shared/agentMetadata';
 import { CUE_CONFIG_PATH, LEGACY_CUE_CONFIG_PATH, MAESTRO_DIR } from '../../shared/maestro-paths';
 import { loadCueConfigDetailed } from '../../main/cue/cue-yaml-loader';
 import { removeSubscriptionFromYaml } from '../../main/cue/cue-self-destruct';
+import { extractLeadingCommentBlock, writeCueYamlAtomicSync } from '../../main/cue/cue-yaml-write';
 import type { CueSubscription } from '../../shared/cue';
 import type { SessionInfo } from '../../shared/types';
 
@@ -155,26 +156,6 @@ function resolveAgent(input: string, sessions: SessionInfo[]): SessionInfo | nul
 	return null;
 }
 
-/**
- * Extract the leading comment block from raw YAML — every line at the top of
- * the file that is blank or starts with `#`. Mirrors `cue-self-destruct.ts`
- * so a hand-authored `# Pipeline: …` header survives the round-trip.
- */
-function extractLeadingCommentBlock(raw: string): string {
-	const lines = raw.split('\n');
-	const header: string[] = [];
-	for (const line of lines) {
-		const trimmed = line.trimStart();
-		if (trimmed.length === 0 || trimmed.startsWith('#')) {
-			header.push(line);
-			continue;
-		}
-		break;
-	}
-	if (header.length === 0) return '';
-	return header.join('\n') + '\n';
-}
-
 function existingCueConfigPath(projectRoot: string): string | null {
 	const canonical = path.join(projectRoot, CUE_CONFIG_PATH);
 	if (fs.existsSync(canonical)) return canonical;
@@ -214,6 +195,24 @@ function appendSubscriptionsToYaml(
 	const existingSubs = Array.isArray(parsed.subscriptions)
 		? (parsed.subscriptions as unknown[])
 		: [];
+
+	// Reject names that already exist in this file. `removeSubscriptionFromYaml`
+	// (used by --cancel and self-destruct) keys solely on name, so two subs
+	// sharing a name would both be deleted by a single later --cancel. Fail
+	// loudly at creation instead.
+	const existingNames = new Set(
+		existingSubs.flatMap((entry) =>
+			entry && typeof entry === 'object' && typeof (entry as { name?: unknown }).name === 'string'
+				? [(entry as { name: string }).name]
+				: []
+		)
+	);
+	for (const newSub of newSubs) {
+		if (typeof newSub.name === 'string' && existingNames.has(newSub.name)) {
+			throw new Error(`subscription "${newSub.name}" already exists in ${canonicalPath}`);
+		}
+	}
+
 	parsed.subscriptions = [...existingSubs, ...newSubs];
 
 	const dumped = yaml.dump(parsed, { lineWidth: -1, noRefs: true, sortKeys: false });
@@ -223,16 +222,20 @@ function appendSubscriptionsToYaml(
 	if (!fs.existsSync(maestroDir)) {
 		fs.mkdirSync(maestroDir, { recursive: true });
 	}
-	fs.writeFileSync(canonicalPath, output, 'utf-8');
+	writeCueYamlAtomicSync(canonicalPath, output);
 
 	// Migrate away from the legacy path on the same write so we don't leave
-	// two competing config files behind.
+	// two competing config files behind. The canonical file already wins on
+	// read, so a failed cleanup is non-fatal - warn (don't crash, don't
+	// silently swallow) so a leftover legacy file is at least visible.
 	if (existing && existing !== canonicalPath) {
 		try {
 			fs.unlinkSync(existing);
-		} catch {
-			// best-effort migration — leaving the legacy file in place is
-			// acceptable; the canonical file now wins on read.
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			console.error(
+				`Warning: wrote ${canonicalPath} but failed to remove legacy ${existing}: ${message}`
+			);
 		}
 	}
 
@@ -458,20 +461,11 @@ async function runCancel(options: CueScheduleOptions): Promise<void> {
 	}
 
 	let target: { session: SessionInfo; subscription: CueSubscription };
-	if (matches.length > 1) {
-		if (!options.agent) {
-			const list = matches
-				.map((m) => {
-					const display = m.session.name || getAgentDisplayName(m.session.toolType);
-					return `  ${m.session.id.slice(0, 8)}  ${display}`;
-				})
-				.join('\n');
-			errorOut(
-				`Multiple agents have a pending task named '${subscriptionName}'. Pass --agent to disambiguate:\n${list}`,
-				options,
-				'AMBIGUOUS_NAME'
-			);
-		}
+	if (options.agent) {
+		// `--agent` is a hard scope for this destructive command - always honor
+		// it, even when the name matches a single agent. Otherwise
+		// `--cancel foo --agent Beta` would happily delete Alpha's `foo` when
+		// Alpha is the only match.
 		let resolved: SessionInfo | null;
 		try {
 			resolved = resolveAgent(options.agent, sessions);
@@ -490,6 +484,18 @@ async function runCancel(options: CueScheduleOptions): Promise<void> {
 			);
 		}
 		target = narrowed;
+	} else if (matches.length > 1) {
+		const list = matches
+			.map((m) => {
+				const display = m.session.name || getAgentDisplayName(m.session.toolType);
+				return `  ${m.session.id.slice(0, 8)}  ${display}`;
+			})
+			.join('\n');
+		errorOut(
+			`Multiple agents have a pending task named '${subscriptionName}'. Pass --agent to disambiguate:\n${list}`,
+			options,
+			'AMBIGUOUS_NAME'
+		);
 	} else {
 		target = matches[0];
 	}

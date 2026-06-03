@@ -15,6 +15,7 @@ import { createTriggerSource } from './triggers/cue-trigger-source-registry';
 import { passesFilter } from './triggers/cue-trigger-filter';
 import type { CueTriggerSource } from './triggers/cue-trigger-source';
 import { removeSubscriptionFromYaml } from './cue-self-destruct';
+import { captureException } from '../utils/sentry';
 
 /**
  * Why a session is being initialized. Used to gate `app.startup` triggers,
@@ -266,6 +267,15 @@ export function createCueSessionRuntimeService(
 								'warn',
 								`[CUE] self-destruct threw for "${subscriptionName}" (${reason}): ${message}`
 							);
+							// Expected file errors come back as a structured
+							// { removed: false } result, so a throw here is unexpected -
+							// report it to Sentry rather than only logging.
+							void captureException(err, {
+								operation: 'cueRequestSelfDestruct',
+								sessionId: session.id,
+								subscriptionName,
+								reason,
+							});
 						});
 				},
 			});

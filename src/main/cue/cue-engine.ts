@@ -1236,6 +1236,15 @@ export class CueEngine {
 					'warn',
 					`[CUE] self-destruct threw for "${subscriptionName}" (${reason}): ${message}`
 				);
+				// removeSubscriptionFromYaml resolves expected file errors via its
+				// structured { removed: false } result, so reaching this catch means
+				// an unexpected throw - surface it to Sentry rather than only logging.
+				void captureException(err, {
+					operation: 'maybeSelfDestructOnce',
+					sessionId,
+					subscriptionName,
+					reason,
+				});
 			});
 	}
 

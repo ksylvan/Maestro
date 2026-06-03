@@ -151,6 +151,7 @@ Either `prompt` or `prompt_file` must be provided. If both are present, `prompt_
 | `label`                    | string            | -        | Human-readable label displayed in the Cue dashboard and pipeline editor                                                                                                                                                                   |
 | `action`                   | string            | `prompt` | Action to dispatch when the event fires: `prompt` (run the agent), `notify` (surface a toast through the owning agent - clicking it jumps there), or `command` (shell/cli call)                                                           |
 | `notify`                   | object            | -        | Notify payload when `action: notify`. Fields: `message` (string, required), `sticky` (boolean), `level` (`info` \| `success` \| `warning` \| `error`). The toast renders through the owning agent; clicking it jumps there                |
+| `command`                  | object            | -        | Command spec when `action: command`. Fields include `mode` (`shell` \| `cli`), `shell`/`cli` invocation, and related options (see [Command Nodes](./maestro-cue-advanced))                                                                |
 
 ### Prompt Field
 

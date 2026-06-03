@@ -281,7 +281,10 @@ function normalizeSubscription(
 			typeof sub.gh_state === 'string' && CUE_GITHUB_STATES.includes(sub.gh_state as CueGitHubState)
 				? (sub.gh_state as CueGitHubState)
 				: undefined,
-		agent_id: typeof sub.agent_id === 'string' ? sub.agent_id : undefined,
+		agent_id:
+			typeof sub.agent_id === 'string' && sub.agent_id.trim().length > 0
+				? sub.agent_id.trim()
+				: undefined,
 		label: typeof sub.label === 'string' ? sub.label : undefined,
 		fire_at: typeof sub.fire_at === 'string' ? sub.fire_at : undefined,
 		grace_minutes:

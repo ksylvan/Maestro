@@ -350,6 +350,62 @@ describe('cue schedule --cancel <name>', () => {
 		);
 	});
 
+	it('honors --agent as a hard scope even when only one agent matches', async () => {
+		// Regression: `--cancel <name> --agent <other>` must NOT delete the sole
+		// matching agent's task just because the name is unique. --agent is a hard
+		// filter for this destructive command.
+		processExitSpy.mockImplementation(() => {
+			throw new Error('process.exit');
+		});
+		const alpha = session({ id: 'agent-aaa', name: 'Alpha', projectRoot: '/p/alpha' });
+		const beta = session({ id: 'agent-bbb', name: 'Beta', projectRoot: '/p/beta' });
+		mockReadSessions.mockReturnValue([alpha, beta]);
+		mockLoadCueConfigDetailed.mockImplementation((root: string) =>
+			root === '/p/alpha'
+				? detailedOk([
+						{
+							name: 'task-x',
+							event: 'time.once',
+							enabled: true,
+							prompt: '',
+							fire_at: '2026-05-23T13:00:00.000Z',
+							action: 'prompt',
+						},
+					])
+				: detailedOk([])
+		);
+
+		// Only Alpha holds task-x, but we target Beta - must error, not delete Alpha's.
+		await expect(cueSchedule({ cancel: 'task-x', agent: 'Beta' })).rejects.toThrow('process.exit');
+
+		expect(processExitSpy).toHaveBeenCalledWith(1);
+		expect(consoleErrorSpy.mock.calls[0][0] as string).toContain('task-x');
+		expect(mockRemoveSubscriptionFromYaml).not.toHaveBeenCalled();
+	});
+
+	it('honors --agent on a unique match when it points at the right agent', async () => {
+		const alpha = session({ id: 'agent-aaa', name: 'Alpha', projectRoot: '/p/alpha' });
+		mockReadSessions.mockReturnValue([alpha]);
+		mockLoadCueConfigDetailed.mockReturnValue(
+			detailedOk([
+				{
+					name: 'task-x',
+					event: 'time.once',
+					enabled: true,
+					prompt: '',
+					fire_at: '2026-05-23T13:00:00.000Z',
+					action: 'prompt',
+				},
+			])
+		);
+		mockRemoveSubscriptionFromYaml.mockResolvedValue({ removed: true });
+
+		await cueSchedule({ cancel: 'task-x', agent: 'Alpha' });
+
+		expect(mockRemoveSubscriptionFromYaml).toHaveBeenCalledWith('/p/alpha', 'task-x');
+		expect(processExitSpy).not.toHaveBeenCalled();
+	});
+
 	it('emits structured JSON on success when --json is set', async () => {
 		mockReadSessions.mockReturnValue([
 			session({ id: 'agent-aaa', name: 'Alpha', projectRoot: '/p/alpha' }),

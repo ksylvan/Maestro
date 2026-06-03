@@ -312,7 +312,7 @@ cue
 	.option('--grace-minutes <n>', 'Override the default 360-minute grace window')
 	.option(
 		'--keep-on-failure',
-		'Keep the subscription on failure (default: self-destruct on success only)'
+		'Keep the subscription on a failed/timed-out run (default: self-destructs on both success and failure)'
 	)
 	.option('--json', 'Output as JSON (for scripting)')
 	.action(cueSchedule);

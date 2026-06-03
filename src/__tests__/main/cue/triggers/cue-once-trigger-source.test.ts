@@ -158,7 +158,8 @@ describe('cue-once-trigger-source', () => {
 		const registry = createCueSessionRegistry();
 		// Pre-mark the once-key as fired (simulates a hot-reload that re-creates
 		// the source while another instance has already claimed the dedup slot).
-		expect(registry.markOnceFired('session-1', 'once-task')).toBe(true);
+		// The key includes fire_at, so pre-mark with the same instant the source uses.
+		expect(registry.markOnceFired('session-1', 'once-task', '2026-03-09T09:00:00Z')).toBe(true);
 
 		const source = createCueOnceTriggerSource({
 			session: makeSession(),
@@ -179,6 +180,71 @@ describe('cue-once-trigger-source', () => {
 		expect(emit).not.toHaveBeenCalled();
 
 		source.stop();
+	});
+
+	it('self-destructs (without emitting) when the fire-time filter does not match', () => {
+		// At fire time the sub is consumed (markOnceFired) but the filter rejects
+		// the event. It can never fire, so it must request self-destruct rather
+		// than leave a stranded YAML entry.
+		vi.setSystemTime(new Date('2026-03-09T09:05:00Z'));
+		const emit = vi.fn();
+		const requestSelfDestruct = vi.fn();
+		const source = createCueOnceTriggerSource({
+			session: makeSession(),
+			subscription: makeSub({
+				fire_at: '2026-03-09T09:00:00Z',
+				filter: { nonexistent_field: 'never-matches' },
+			}),
+			registry: createCueSessionRegistry(),
+			enabled: () => true,
+			onLog: vi.fn(),
+			emit,
+			requestSelfDestruct,
+		})!;
+
+		source.start();
+
+		expect(emit).not.toHaveBeenCalled();
+		expect(requestSelfDestruct).toHaveBeenCalledOnce();
+		expect(requestSelfDestruct).toHaveBeenCalledWith('once-task', 'filtered');
+
+		source.stop();
+	});
+
+	it('re-fires a same-named sub when fire_at differs (dedup keyed by instance)', () => {
+		// A prior time.once fired and self-destructed; the user schedules a new
+		// one reusing the name. The dedup key includes fire_at, so the fresh
+		// instance must still fire within the same process.
+		vi.setSystemTime(new Date('2026-03-09T11:00:00Z'));
+		const registry = createCueSessionRegistry();
+
+		const firstEmit = vi.fn();
+		const first = createCueOnceTriggerSource({
+			session: makeSession(),
+			subscription: makeSub({ fire_at: '2026-03-09T09:00:00Z' }),
+			registry,
+			enabled: () => true,
+			onLog: vi.fn(),
+			emit: firstEmit,
+			requestSelfDestruct: vi.fn(),
+		})!;
+		first.start();
+		expect(firstEmit).toHaveBeenCalledOnce();
+		first.stop();
+
+		const secondEmit = vi.fn();
+		const second = createCueOnceTriggerSource({
+			session: makeSession(),
+			subscription: makeSub({ fire_at: '2026-03-09T10:00:00Z' }),
+			registry,
+			enabled: () => true,
+			onLog: vi.fn(),
+			emit: secondEmit,
+			requestSelfDestruct: vi.fn(),
+		})!;
+		second.start();
+		expect(secondEmit).toHaveBeenCalledOnce();
+		second.stop();
 	});
 
 	it('returns null and logs once when fire_at is an unparseable string', () => {

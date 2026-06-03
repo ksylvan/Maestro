@@ -53,14 +53,23 @@ export function emitCueNotifyToast(
 		sessionId: params.agentId,
 	};
 
-	mainWindow.webContents.send('remote:notifyToast', {
-		title: params.title,
-		message: params.message,
-		color: 'theme' as const,
-		dismissible: params.sticky === true,
-		sessionId: params.agentId,
-		clickAction,
-	});
+	// `isWebContentsAvailable` above is a check, not a guarantee: a dispose /
+	// shutdown race can still make `send()` throw synchronously. Guard it so we
+	// honor the documented "logged but not thrown" contract and keep
+	// `executeCueNotify()`'s never-throws behavior intact.
+	try {
+		mainWindow.webContents.send('remote:notifyToast', {
+			title: params.title,
+			message: params.message,
+			color: 'theme' as const,
+			dismissible: params.sticky === true,
+			sessionId: params.agentId,
+			clickAction,
+		});
+	} catch (err) {
+		logger.warn('Failed to send Cue notify toast to renderer', 'Cue', err);
+		return false;
+	}
 
 	return true;
 }

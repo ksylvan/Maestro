@@ -264,6 +264,37 @@ describe('cue schedule (create)', () => {
 		expect(fs.existsSync(path.join(projectRoot, '.maestro', 'cue.yaml'))).toBe(false);
 	});
 
+	it('rejects a create whose name already exists in cue.yaml (exit 1, file unchanged)', async () => {
+		mockReadSessions.mockReturnValue([session({ id: 'agent-alpha', name: 'Alpha', projectRoot })]);
+
+		// First create succeeds.
+		await cueSchedule({
+			in: '5m',
+			agent: 'Alpha',
+			notify: true,
+			message: 'first',
+			name: 'dup-task',
+		});
+		expect(processExitSpy).not.toHaveBeenCalled();
+		expect((readCueYaml(projectRoot).parsed.subscriptions as unknown[]).length).toBe(1);
+
+		// Second create reusing the name must fail loudly - otherwise a later
+		// --cancel would delete both (removeSubscriptionFromYaml keys on name).
+		processExitSpy.mockImplementation(() => {
+			throw new Error('process.exit');
+		});
+		await expect(
+			cueSchedule({ in: '10m', agent: 'Alpha', notify: true, message: 'second', name: 'dup-task' })
+		).rejects.toThrow('process.exit');
+
+		expect(processExitSpy).toHaveBeenCalledWith(1);
+		expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('already exists'));
+		// File still holds exactly the original sub.
+		const subs = readCueYaml(projectRoot).parsed.subscriptions as Array<Record<string, unknown>>;
+		expect(subs).toHaveLength(1);
+		expect(subs[0].name).toBe('dup-task');
+	});
+
 	it('--at "YYYY-MM-DD HH:MM" (naive local) converts to ISO-8601 with TZ marker', async () => {
 		mockReadSessions.mockReturnValue([session({ id: 'agent-alpha', name: 'Alpha', projectRoot })]);
 
