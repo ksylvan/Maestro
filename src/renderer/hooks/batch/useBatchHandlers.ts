@@ -794,6 +794,10 @@ export function useBatchHandlers(deps: UseBatchHandlersDeps): UseBatchHandlersRe
 			if (!ops.hasActiveOperations && !ops.hasFeedbackDraft) {
 				window.maestro.app.confirmQuit();
 			} else {
+				// Tell main the modal is up so it disarms the dead-renderer safety
+				// timeout — otherwise the app force-quits after a few seconds while
+				// the user is still deciding.
+				window.maestro.app.quitConfirmationPending?.();
 				getModalActions().setQuitConfirmModalOpen(true, {
 					activeTerminalTasks: ops.activeTerminalTasks,
 					activeCueRunCount: ops.activeCueRunCount,

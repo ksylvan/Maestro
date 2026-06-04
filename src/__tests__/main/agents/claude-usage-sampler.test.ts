@@ -226,6 +226,19 @@ describe('claude-usage-sampler', () => {
 			expect(env.MAESTRO_CLAUDE_BIN).toBe('/opt/claude');
 		});
 
+		it('forces BROWSER to a no-op so an expired-token account can never pop the OAuth browser', async () => {
+			// A read-only `/usage` probe must stay OAuth-silent: claude's URL opener
+			// uses $BROWSER as the launch command and does not fall back to the
+			// system opener, so a no-op here makes the consent flow open nothing on
+			// an unattended background refresh tick. Regressing this silently
+			// re-pops authorization windows.
+			process.env.BROWSER = '/usr/bin/open-a-real-browser';
+			const inspect = primeSuccess(wireEnvelope());
+			await sampleUsage({ binPath: '/bin/maestro-p.js', cwd: '/tmp' });
+			const env = inspect()?.options.env as NodeJS.ProcessEnv;
+			expect(env.BROWSER).toBe('/usr/bin/true');
+		});
+
 		it('sets ELECTRON_RUN_AS_NODE=1 so the Electron execPath runs maestro-p as Node', async () => {
 			// Without this, a packaged app would spawn a second GUI instance
 			// instead of executing the maestro-p script, and --status would

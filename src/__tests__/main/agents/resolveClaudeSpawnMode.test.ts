@@ -190,7 +190,7 @@ describe('resolveClaudeSpawnMode', () => {
 });
 
 describe('applyClaudeSpawnDecision (batch surfaces)', () => {
-	it('runs maestro-p via execPath, prepends its flags, preserves the prompt args, and injects MAESTRO_CLAUDE_BIN', () => {
+	it('runs maestro-p via execPath, prepends its flags, preserves the prompt args, and injects MAESTRO_CLAUDE_BIN + ELECTRON_RUN_AS_NODE', () => {
 		const result = applyClaudeSpawnDecision({
 			decision: {
 				mode: 'interactive',
@@ -217,7 +217,52 @@ describe('applyClaudeSpawnDecision (batch surfaces)', () => {
 			'--',
 			'hello there',
 		]);
-		expect(result.customEnvVars).toEqual({ FOO: 'bar', MAESTRO_CLAUDE_BIN: '/bin/claude' });
+		// ELECTRON_RUN_AS_NODE=1 is mandatory: command is `process.execPath` (the
+		// Electron binary in a packaged app), which would otherwise launch a GUI
+		// instead of running maestro-p.js as Node. NODE_PATH is only added when
+		// `process.resourcesPath` is set (packaged); in the test env it is not, so
+		// it must be absent here.
+		expect(result.customEnvVars).toEqual({
+			FOO: 'bar',
+			MAESTRO_CLAUDE_BIN: '/bin/claude',
+			ELECTRON_RUN_AS_NODE: '1',
+		});
+	});
+
+	it('adds NODE_PATH to the unpacked modules dir when running packaged (resourcesPath set)', () => {
+		const original = process.resourcesPath;
+		try {
+			// Simulate a packaged app: resourcesPath points at the app Resources dir.
+			Object.defineProperty(process, 'resourcesPath', {
+				value: '/Applications/Maestro.app/Contents/Resources',
+				configurable: true,
+			});
+			const result = applyClaudeSpawnDecision({
+				decision: {
+					mode: 'interactive',
+					reason: 'auto',
+					maestroPBinPath: '/res/maestro-p.js',
+					claudeRealBinPath: '/bin/claude',
+				},
+				interactiveModeArgs: [],
+				command: 'claude',
+				args: ['--print', '--', 'hi'],
+				execPath: '/Applications/Maestro.app/Contents/MacOS/Maestro',
+			});
+			expect(result.customEnvVars?.ELECTRON_RUN_AS_NODE).toBe('1');
+			// NODE_PATH must point at the IN-ASAR node_modules, not the unpacked
+			// copy: node-pty rewrites 'app.asar' -> 'app.asar.unpacked' for its
+			// spawn-helper, so handing it the unpacked path double-applies and the
+			// helper exec fails (posix_spawn ENOENT).
+			expect(result.customEnvVars?.NODE_PATH).toBe(
+				'/Applications/Maestro.app/Contents/Resources/app.asar/node_modules'
+			);
+		} finally {
+			Object.defineProperty(process, 'resourcesPath', {
+				value: original,
+				configurable: true,
+			});
+		}
 	});
 
 	it('passes through unchanged for api mode', () => {

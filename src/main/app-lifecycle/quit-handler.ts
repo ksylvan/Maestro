@@ -26,19 +26,45 @@ import { powerManager as powerManagerInstance } from '../power-manager';
 const QUIT_CONFIRMATION_TIMEOUT_MS = 5000;
 
 /**
- * Grace window between running cleanup and hard-exiting via app.exit() on a
- * normal user quit.
+ * Grace window between running cleanup and hard-exiting on a normal user quit.
  *
  * After performCleanup() the only work left is fire-and-forget (telemetry POST,
  * the tunnel's SIGTERM->exit, web-server socket close). The critical teardown
  * (PTY SIGKILL, stats DB close) already ran synchronously. We let those tails
- * make progress for this long, then call app.exit() to bypass Electron's native
- * Node-environment teardown — which can deadlock on native addon finalizers
- * (e.g. node-pty ThreadSafeFunctions, MAESTRO-3B) and leave the process alive
- * forever, forcing the user to kill it manually. Kept short so quit still feels
- * instant; the trade is a sub-second delay for a guaranteed exit.
+ * make progress for this long, then hardExit() the process. Kept short so quit
+ * still feels instant; the trade is a sub-second delay for a guaranteed exit.
  */
 const FORCE_EXIT_GRACE_MS = 750;
+
+/**
+ * Terminates the process immediately, bypassing Electron's Node-environment
+ * teardown.
+ *
+ * Why not app.exit()/process.exit(): both still run node::FreeEnvironment ->
+ * Environment::CleanupHandles, which finalizes native-addon ThreadSafeFunctions.
+ * A node-pty / fsevents TSFN whose underlying mutex is already gone deadlocks
+ * there on uv_mutex_lock and hangs the process forever, forcing the user to kill
+ * it from Activity Monitor (MAESTRO-3B). Confirmed via `sample`: on quit the main
+ * thread parks in napi_release_threadsafe_function -> uv_mutex_lock ->
+ * __psynch_mutexwait and never returns, even after app.exit(0) is called.
+ *
+ * SIGKILL to self is kernel-enforced, uncatchable, and runs no finalizers, so it
+ * cannot deadlock. On Windows, Node maps 'SIGKILL' to TerminateProcess on the
+ * target, which is the equivalent hard kill. All durable state (stats DB,
+ * unflushed telemetry rows in SQLite) was already persisted synchronously in
+ * performCleanup before the grace window, so nothing is lost.
+ */
+function hardExit(): void {
+	try {
+		process.kill(process.pid, 'SIGKILL');
+	} catch (err) {
+		// process.kill should never throw when signalling self, but if it does
+		// fall back to app.exit() so we still attempt to terminate rather than
+		// linger in the background.
+		logger.error(`Hard exit via SIGKILL failed, falling back to app.exit: ${err}`, 'Shutdown');
+		app.exit(0);
+	}
+}
 
 /** Dependencies for quit handler */
 export interface QuitHandlerDependencies {
@@ -153,6 +179,16 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 				// Nothing to do - app stays running
 			});
 
+			// Renderer is showing the quit-confirmation modal and is waiting on the
+			// user. Disarm the dead-renderer safety timeout so we don't force-quit
+			// out from under an open dialog. We keep isRequestingConfirmation set so
+			// repeat quit attempts stay suppressed; the eventual confirm/cancel from
+			// the modal clears it.
+			ipcMain.on('app:quitConfirmationPending', () => {
+				logger.info('Quit confirmation pending — user deciding, disarming timeout', 'Window');
+				clearConfirmationTimeout();
+			});
+
 			// IMPORTANT: This handler must be synchronous for event.preventDefault() to work!
 			// Async handlers return a Promise immediately, which breaks preventDefault in Electron.
 			app.on('before-quit', (event) => {
@@ -214,15 +250,15 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 
 				// On the update-install path, let Electron's graceful teardown run so
 				// electron-updater can apply the update. Otherwise, take control of the
-				// exit: hold the event loop open (preventDefault) and hard-exit via
-				// app.exit() after a short grace window. This dodges the native
-				// Node-environment teardown that can deadlock on native addon
-				// finalizers and hang the process forever (see FORCE_EXIT_GRACE_MS).
+				// exit: hold the event loop open (preventDefault) and hardExit() after a
+				// short grace window. This dodges the native Node-environment teardown
+				// that can deadlock on native addon finalizers and hang the process
+				// forever (see hardExit() and FORCE_EXIT_GRACE_MS).
 				if (!state.installingUpdate) {
 					event.preventDefault();
 					setTimeout(() => {
-						logger.info('Force-exiting after cleanup grace window', 'Shutdown');
-						app.exit(0);
+						logger.info('Hard-exiting after cleanup grace window', 'Shutdown');
+						hardExit();
 					}, FORCE_EXIT_GRACE_MS);
 				}
 			});

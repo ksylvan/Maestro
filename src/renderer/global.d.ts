@@ -1404,6 +1404,7 @@ interface MaestroAPI {
 		onQuitConfirmationRequest: (callback: () => void) => () => void;
 		confirmQuit: () => void;
 		cancelQuit: () => void;
+		quitConfirmationPending: () => void;
 		onSystemResume: (callback: () => void) => () => void;
 		onBrowserTabShortcutKey: (
 			callback: (input: {

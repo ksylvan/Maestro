@@ -134,12 +134,11 @@ export const CodeFence = memo(function CodeFence({
 
 	const fallbackPreStyle = {
 		margin: 0,
-		// Extra top/bottom padding reserves room for the absolutely-positioned
-		// language badge (top-right) and copy button (bottom-right) so the first
-		// and last lines never render underneath them. This also keeps short
-		// blocks tall enough that the two buttons can't overlap each other. Kept
-		// in sync with the Shiki path in index.css (.code-fence .shiki-host pre.shiki).
-		padding: '2.75em 1em',
+		// Extra top padding reserves room for the language picker (top-left) and
+		// copy button (top-right) overlaid by CodeFence so the first line never
+		// renders underneath them. Kept in sync with the Shiki path in index.css
+		// (.code-fence .shiki-host pre.shiki).
+		padding: '2.75em 1em 1em',
 		background: 'transparent',
 		color: theme.colors.textMain,
 		overflowX: 'auto' as const,
@@ -148,13 +147,13 @@ export const CodeFence = memo(function CodeFence({
 
 	return (
 		<div
-			className="relative group/codeblock code-fence"
+			className="relative code-fence"
 			translate="no"
 			style={containerStyle}
 			data-testid="code-fence"
 			data-language={resolvedLang}
 		>
-			<div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+			<div className="absolute top-2 left-2 z-10 flex items-center gap-1">
 				<LanguagePicker theme={theme} language={resolvedLang} onChange={handlePickerChange} />
 			</div>
 			{html ? (
@@ -169,7 +168,7 @@ export const CodeFence = memo(function CodeFence({
 			)}
 			<button
 				onClick={() => onCopy(code)}
-				className="absolute bottom-2 right-2 p-1.5 rounded opacity-0 group-hover/codeblock:opacity-70 hover:!opacity-100 transition-opacity z-10"
+				className="absolute top-2 right-2 p-1.5 rounded opacity-70 hover:opacity-100 transition-opacity z-10"
 				style={{
 					backgroundColor: theme.colors.bgActivity,
 					color: theme.colors.textDim,

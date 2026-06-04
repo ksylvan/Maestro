@@ -348,6 +348,14 @@ function CuePipelineEditorInner({
 	const lastComputedPosRef = useRef<Map<string, { x: number; y: number }>>(
 		new Map(computedNodes.map((n) => [n.id, n.position]))
 	);
+	// One-shot flag: set by an EXPLICIT user-initiated re-layout (Tidy/Arrange).
+	// That is the single mutation allowed to move nodes while the pipeline is
+	// dirty - the user asked for it by name. Every other committed mutation while
+	// dirty (a second drag-stop, an auto-stack offset recompute when a sibling
+	// pipeline goes manual, a background poll swapping the pipelines reference)
+	// must NOT move anything the user has already arranged. The effect consumes
+	// and clears this on the next resync.
+	const forceAdoptComputedRef = useRef(false);
 	useEffect(() => {
 		const pipelinesChanged = lastSyncedPipelinesRef.current !== pipelineState.pipelines;
 		const selectionChanged = lastSyncedSelectedIdRef.current !== pipelineState.selectedPipelineId;
@@ -357,13 +365,22 @@ function CuePipelineEditorInner({
 		// the state updater (which runs during reconciliation, after this effect
 		// body) closes over the right snapshot.
 		const prevComputedPos = lastComputedPosRef.current;
+		// Consume the one-shot explicit-relayout flag. Tidy/Arrange is the only
+		// mutation permitted to reposition nodes while dirty.
+		const forceAdopt = forceAdoptComputedRef.current;
+		forceAdoptComputedRef.current = false;
 		setDisplayNodes((prev) => {
-			// Real mutation committed (drag-stop, Tidy/Arrange, add/delete, save,
-			// discard): adopt the fresh layout in full.
-			if (pipelinesChanged) return computedNodes;
+			// Explicit user-initiated re-layout (Tidy/Arrange): adopt the fresh
+			// layout in full, even while dirty - this is the user asking for it.
+			if (forceAdopt) return computedNodes;
 			// User navigation (selecting a different pipeline, or single vs All):
 			// adopt fresh geometry. Not a background refresh; the user asked for it.
 			if (selectionChanged) return computedNodes;
+			// A CLEAN committed mutation (drag-stop on an otherwise-unchanged
+			// pipeline, save, discard): adopt the fresh layout in full. When DIRTY
+			// we deliberately fall through to the per-node freeze below so that
+			// committing one move never disturbs anything else on the canvas.
+			if (pipelinesChanged && !isDirty) return computedNodes;
 			// A drag/rearrange is IN FLIGHT (ReactFlow stamps `dragging: true` on
 			// the nodes under the cursor). This is the FIRST move of a clean
 			// pipeline, before the drag-stop commit has flipped `isDirty`. A
@@ -380,13 +397,15 @@ function CuePipelineEditorInner({
 				if (!existing) return cn;
 				// UNSAVED EDITS: freeze every existing node's on-screen position.
 				// Once the user has moved something the pipeline is dirty, and NO
-				// background recompute (activeRuns poll, theme change, running-state
-				// Sets, a layout re-fit) may shift anything they've arranged until
-				// they Save or Discard. Non-positional data (isRunning, etc.) still
+				// recompute - background (activeRuns poll, theme change,
+				// running-state Sets, a layout re-fit) OR committed (a later
+				// drag-stop, an auto-stack offset shift when a sibling pipeline goes
+				// manual) - may move anything they've already arranged until they
+				// Save or Discard. Non-positional data (isRunning, etc.) still
 				// updates - only the position is pinned. This is the hard rule the
 				// user asked for: as soon as you move something, the view holds
-				// still until you commit or revert. The committed mutation (which
-				// flips `pipelinesChanged`) and Save/Discard are the only ways out.
+				// still until you commit or revert. Explicit Tidy/Arrange
+				// (`forceAdopt`) and Save/Discard are the only ways out.
 				if (isDirty) return { ...cn, position: existing.position };
 				// CLEAN state: adopt a genuine canonical position change (band/offset
 				// lag on a view switch); otherwise preserve to avoid needless churn.
@@ -449,6 +468,9 @@ function CuePipelineEditorInner({
 					// modes just pack the group cards into a tidy grid.
 					const offsets = arrangePipelineGroups(prev.pipelines, stableYOffsetsRef.current);
 					if (offsets.size === 0) return prev;
+					// Explicit re-layout that actually moves something: let the next
+					// resync adopt the freshly arranged positions despite dirty.
+					forceAdoptComputedRef.current = true;
 					return {
 						...prev,
 						pipelines: prev.pipelines.map((p) => {
@@ -465,6 +487,9 @@ function CuePipelineEditorInner({
 					rect && rect.width > 0 && rect.height > 0
 						? { width: rect.width, height: rect.height }
 						: undefined;
+				// Explicit re-layout: let the next resync adopt the arranged nodes
+				// despite this flipping the pipeline dirty.
+				forceAdoptComputedRef.current = true;
 				return {
 					...prev,
 					pipelines: prev.pipelines.map((p) =>

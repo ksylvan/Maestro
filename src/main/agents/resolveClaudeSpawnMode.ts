@@ -19,6 +19,7 @@
  */
 
 import * as fs from 'fs';
+import * as path from 'path';
 import type { AgentConfig } from './definitions';
 import { selectMode as defaultSelectMode } from './claude-mode-selector';
 import type { UsageSnapshot } from './claude-mode-selector';
@@ -240,13 +241,46 @@ export function applyClaudeSpawnDecision(input: ApplyClaudeSpawnInput): ApplyCla
 
 	if (decision.mode === 'interactive' && decision.maestroPBinPath) {
 		const realBin = decision.claudeRealBinPath ?? command;
+		const env: Record<string, string> = {
+			...(customEnvVars ?? {}),
+			MAESTRO_CLAUDE_BIN: realBin,
+			// `process.execPath` is the Electron binary. Running it against a `.js`
+			// script (maestro-p) without this flag does NOT execute the script as
+			// Node: in dev the Electron binary happens to load it as an app entry
+			// and it works, but a PACKAGED app ignores the script arg entirely and
+			// just launches a second Maestro GUI - so maestro-p never runs, emits no
+			// stream-json, and the caller (tab naming, synopsis, group chat) gets a
+			// null result. This is the dev-works / packaged-fails discrepancy. Every
+			// other execPath node-script spawn sets this (claude-usage-sampler.ts,
+			// cue-cli-executor.ts, maestro-cli-manager.ts). buildChildProcessEnv
+			// strips ELECTRON_RUN_AS_NODE from the inherited env, but applies
+			// customEnvVars AFTER the strip, so setting it here survives.
+			ELECTRON_RUN_AS_NODE: '1',
+		};
+		// Under ELECTRON_RUN_AS_NODE, maestro-p runs as pure Node and does
+		// `require('node-pty')`, which esbuild left external. In a packaged app
+		// maestro-p.js sits at the resources root, OUTSIDE the asar, so Node can't
+		// find node-pty without help. Point NODE_PATH at the IN-ASAR node_modules
+		// (`<resources>/app.asar/node_modules`), NOT the unpacked copy. node-pty's
+		// JS loads from the asar (Electron's patched fs reads it; the native
+		// `pty.node` is auto-redirected to app.asar.unpacked), and critically
+		// node-pty computes its `spawn-helper` path by doing
+		// `helperPath.replace('app.asar', 'app.asar.unpacked')`. If we hand it the
+		// already-unpacked path, that replace double-applies to
+		// `app.asar.unpacked.unpacked` and the helper exec fails with
+		// "posix_spawn failed: No such file or directory" - verified against the
+		// packaged build. Feeding the asar path lets node-pty rewrite it once,
+		// correctly. In dev `resourcesPath` is empty and node-pty resolves from the
+		// project tree, so this only fires when packaged.
+		if (typeof process.resourcesPath === 'string' && process.resourcesPath.length > 0) {
+			const asarModules = path.join(process.resourcesPath, 'app.asar', 'node_modules');
+			const existing = env.NODE_PATH ?? process.env.NODE_PATH;
+			env.NODE_PATH = existing ? `${asarModules}${path.delimiter}${existing}` : asarModules;
+		}
 		return {
 			command: input.execPath ?? process.execPath,
 			args: [decision.maestroPBinPath, ...(interactiveModeArgs ?? []), ...args],
-			customEnvVars: {
-				...(customEnvVars ?? {}),
-				MAESTRO_CLAUDE_BIN: realBin,
-			},
+			customEnvVars: env,
 		};
 	}
 

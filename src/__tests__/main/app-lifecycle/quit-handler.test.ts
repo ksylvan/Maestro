@@ -114,6 +114,10 @@ describe('app-lifecycle/quit-handler', () => {
 		beforeQuitHandler = null;
 		ipcHandlers.clear();
 
+		// Stub process.kill so the production hardExit() (SIGKILL to self) never
+		// actually terminates the test runner. Restored by vi.restoreAllMocks().
+		vi.spyOn(process, 'kill').mockReturnValue(true);
+
 		mockMainWindow = {
 			isDestroyed: vi.fn().mockReturnValue(false),
 			webContents: { send: vi.fn(), isDestroyed: vi.fn().mockReturnValue(false) },
@@ -193,6 +197,13 @@ describe('app-lifecycle/quit-handler', () => {
 			quitHandler.setup();
 
 			expect(ipcHandlers.has('app:quitCancelled')).toBe(true);
+		});
+
+		it('should register app:quitConfirmationPending IPC handler', async () => {
+			const { createQuitHandler } = await import('../../../main/app-lifecycle/quit-handler');
+			const quitHandler = createQuitHandler(deps as Parameters<typeof createQuitHandler>[0]);
+			quitHandler.setup();
+			expect(ipcHandlers.has('app:quitConfirmationPending')).toBe(true);
 		});
 
 		it('should register before-quit handler on app', async () => {
@@ -439,6 +450,30 @@ describe('app-lifecycle/quit-handler', () => {
 			vi.useRealTimers();
 		});
 
+		it('should disarm the safety timeout when the modal is pending without quitting', async () => {
+			vi.useFakeTimers();
+
+			const { createQuitHandler } = await import('../../../main/app-lifecycle/quit-handler');
+
+			const quitHandler = createQuitHandler(deps as Parameters<typeof createQuitHandler>[0]);
+			quitHandler.setup();
+
+			const mockEvent = { preventDefault: vi.fn() };
+			beforeQuitHandler!(mockEvent);
+
+			// Renderer signals the confirmation modal is now showing.
+			const pendingHandler = ipcHandlers.get('app:quitConfirmationPending')!;
+			pendingHandler();
+
+			// Advance well past the 5s timeout — the app must NOT force-quit while
+			// the user is deciding at the open modal.
+			vi.advanceTimersByTime(5000);
+			expect(mockQuit).not.toHaveBeenCalled();
+			expect(quitHandler.isQuitConfirmed()).toBe(false);
+
+			vi.useRealTimers();
+		});
+
 		it('should clear safety timeout when renderer cancels quit', async () => {
 			vi.useFakeTimers();
 
@@ -499,11 +534,15 @@ describe('app-lifecycle/quit-handler', () => {
 			expect(mockProcessManager.killAll).toHaveBeenCalled();
 			// ...the loop is held open so the watchdog timer can fire...
 			expect(mockEvent.preventDefault).toHaveBeenCalled();
-			expect(mockExit).not.toHaveBeenCalled();
+			expect(process.kill).not.toHaveBeenCalled();
 
-			// ...and after the grace window we hard-exit, bypassing native teardown.
+			// ...and after the grace window we hard-exit via SIGKILL to self,
+			// bypassing the native teardown that deadlocks on addon TSFN finalizers.
 			vi.advanceTimersByTime(750);
-			expect(mockExit).toHaveBeenCalledWith(0);
+			expect(process.kill).toHaveBeenCalledWith(process.pid, 'SIGKILL');
+			// app.exit() must NOT be used on this path — it runs FreeEnvironment and
+			// can deadlock; it is only the fallback if process.kill throws.
+			expect(mockExit).not.toHaveBeenCalled();
 
 			vi.useRealTimers();
 		});
@@ -525,7 +564,7 @@ describe('app-lifecycle/quit-handler', () => {
 
 			vi.advanceTimersByTime(750);
 			// Only one timer was armed despite two emits.
-			expect(mockExit).toHaveBeenCalledTimes(1);
+			expect(process.kill).toHaveBeenCalledTimes(1);
 
 			vi.useRealTimers();
 		});
