@@ -478,19 +478,18 @@ export function AgentConfigPanel({
 				<div className="flex gap-2">
 					<input
 						type="text"
-						value={customPath || (isSshEnabled ? agent.binaryName : agent.path) || ''}
+						// Over SSH the default is the remote binary name, shown as a placeholder so
+						// the field stays editable (an empty customPath means "use the default").
+						// Locally the field pre-fills with the detected path so it can be overridden.
+						value={customPath || (isSshEnabled ? '' : agent.path) || ''}
 						onChange={(e) => onCustomPathChange(e.target.value)}
 						onBlur={onCustomPathBlur}
 						onClick={(e) => e.stopPropagation()}
-						placeholder={`/path/to/${agent.binaryName}`}
-						// When showing default SSH binary name, make field read-only to prevent accidental modification
-						readOnly={isSshEnabled && !customPath}
+						placeholder={isSshEnabled ? agent.binaryName : `/path/to/${agent.binaryName}`}
 						className="flex-1 p-2 rounded border bg-transparent outline-none text-xs font-mono"
 						style={{
 							borderColor: theme.colors.border,
 							color: theme.colors.textMain,
-							// Slightly dim read-only fields to show they're not editable
-							opacity: isSshEnabled && !customPath ? 0.7 : 1,
 						}}
 					/>
 				</div>

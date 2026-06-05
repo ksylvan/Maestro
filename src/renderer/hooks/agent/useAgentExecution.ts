@@ -7,7 +7,7 @@ import type {
 	LogEntry,
 	ToolType,
 } from '../../types';
-import { getActiveTab } from '../../utils/tabHelpers';
+import { getActiveTab, resolveQueuedItemTarget } from '../../utils/tabHelpers';
 import { getStdinFlags, prepareMaestroSystemPrompt } from '../../utils/spawnHelpers';
 import { generateId } from '../../utils/ids';
 import {
@@ -372,10 +372,9 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 											s.executionQueue
 										);
 										if (nextItem) {
-											const targetTab =
-												s.aiTabs.find((tab) => tab.id === nextItem.tabId) || getActiveTab(s);
+											const target = resolveQueuedItemTarget(s, nextItem);
 
-											if (!targetTab) {
+											if (!target) {
 												// Fallback: no tabs exist
 												return {
 													...s,
@@ -389,27 +388,56 @@ export function useAgentExecution(deps: UseAgentExecutionDeps): UseAgentExecutio
 												};
 											}
 
-											// For message items, add a log entry to the target tab
-											let updatedAiTabs = s.aiTabs;
-											if (nextItem.type === 'message' && nextItem.text) {
-												const logEntry: LogEntry = {
-													id: generateId(),
-													timestamp: Date.now(),
-													source: 'user',
-													text: nextItem.text,
-													images: nextItem.images,
+											const logEntry: LogEntry | null =
+												nextItem.type === 'message' && nextItem.text
+													? {
+															id: generateId(),
+															timestamp: Date.now(),
+															source: 'user',
+															text: nextItem.text,
+															images: nextItem.images,
+														}
+													: null;
+
+											// Orphan target: the user closed this tab while the message was
+											// still queued. Route the user log to orphanedThinkingTabs and
+											// leave the active tab untouched - the send is fire-and-forget.
+											if (target.location === 'orphan') {
+												return {
+													...s,
+													state: 'busy' as SessionState,
+													busySource: 'ai',
+													...(logEntry &&
+														s.orphanedThinkingTabs && {
+															orphanedThinkingTabs: s.orphanedThinkingTabs.map((tab) =>
+																tab.id === target.tabId
+																	? { ...tab, logs: [...tab.logs, logEntry] }
+																	: tab
+															),
+														}),
+													executionQueue: remainingQueue,
+													thinkingStartTime: Date.now(),
+													currentCycleTokens: 0,
+													currentCycleBytes: 0,
+													pendingAICommandForSynopsis: undefined,
 												};
-												updatedAiTabs = s.aiTabs.map((tab) =>
-													tab.id === targetTab.id ? { ...tab, logs: [...tab.logs, logEntry] } : tab
-												);
 											}
+
+											// Foreground target: append the user log and bring the tab into view.
+											const updatedAiTabs = logEntry
+												? s.aiTabs.map((tab) =>
+														tab.id === target.tabId
+															? { ...tab, logs: [...tab.logs, logEntry] }
+															: tab
+													)
+												: s.aiTabs;
 
 											return {
 												...s,
 												state: 'busy' as SessionState,
 												busySource: 'ai',
 												aiTabs: updatedAiTabs,
-												activeTabId: targetTab.id,
+												activeTabId: target.tabId,
 												executionQueue: remainingQueue,
 												thinkingStartTime: Date.now(),
 												currentCycleTokens: 0,
