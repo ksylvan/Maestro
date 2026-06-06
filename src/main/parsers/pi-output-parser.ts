@@ -51,6 +51,7 @@ interface PiRawEvent {
 	isError?: boolean;
 	error?: unknown;
 	messageText?: string;
+	willRetry?: boolean;
 }
 
 export class PiOutputParser implements AgentOutputParser {
@@ -130,6 +131,9 @@ export class PiOutputParser implements AgentOutputParser {
 				return { type: 'system', sessionId, raw: event };
 
 			case 'agent_end': {
+				if (event.willRetry) {
+					return { type: 'system', sessionId, raw: event };
+				}
 				const finalMessage = this.findFinalAssistantMessage(event.messages);
 				if (finalMessage?.errorMessage) {
 					return {

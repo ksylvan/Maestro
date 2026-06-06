@@ -84,6 +84,22 @@ describe('PiOutputParser', () => {
 		expect(parser.isResultMessage(event!)).toBe(true);
 	});
 
+	it('does not treat an automatic retry cycle as the final result', () => {
+		const event = parser.parseJsonObject({
+			type: 'agent_end',
+			willRetry: true,
+			messages: [
+				{
+					role: 'assistant',
+					content: [{ type: 'text', text: 'Transient failure response' }],
+				},
+			],
+		});
+
+		expect(event).toMatchObject({ type: 'system' });
+		expect(parser.isResultMessage(event!)).toBe(false);
+	});
+
 	it('parses tool lifecycle events', () => {
 		const start = parser.parseJsonObject({
 			type: 'tool_execution_start',
