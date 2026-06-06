@@ -11,7 +11,8 @@
  */
 
 import { create } from 'zustand';
-import type { FocusArea, RightPanelTab } from '../types';
+import type { FocusArea, RightPanelTab, UsageDashboardViewMode } from '../types';
+import { notifyCenterFlash } from './centerFlashStore';
 
 export interface UIStoreState {
 	// Sidebar
@@ -24,23 +25,20 @@ export interface UIStoreState {
 
 	// Sidebar collapse/expand
 	bookmarksCollapsed: boolean;
-	groupChatsExpanded: boolean;
 
 	// Session list filter
 	showUnreadOnly: boolean;
+	showUnreadAgentsOnly: boolean;
 	preFilterActiveTabId: string | null;
 	preTerminalFileTabId: string | null;
 
 	// Session sidebar selection
 	selectedSidebarIndex: number;
 
-	// Flash notifications
-	flashNotification: string | null;
-	successFlashNotification: string | null;
-
 	// Output search
 	outputSearchOpen: boolean;
 	outputSearchQuery: string;
+	outputSearchRegex: boolean;
 
 	// Session filter (sidebar agent search)
 	sessionFilterOpen: boolean;
@@ -57,6 +55,27 @@ export interface UIStoreState {
 	// Editing (inline renaming in sidebar)
 	editingGroupId: string | null;
 	editingSessionId: string | null;
+
+	// Auto-follow active task during batch runs
+	autoFollowEnabled: boolean;
+
+	// Last-selected Usage Dashboard tab. In-memory only: survives closing and
+	// reopening the dashboard within a session, resets to 'overview' on restart.
+	usageDashboardViewMode: UsageDashboardViewMode;
+
+	// Accounts the user hid in the Usage Dashboard provider quota panels, keyed
+	// by provider id ('claude-code' | 'codex'); values are canonical account
+	// keys. Persisted via settings write-through (mirrors bookmarksCollapsed) and
+	// hydrated by loadAllSettings on startup.
+	hiddenQuotaAccounts: Record<string, string[]>;
+
+	// Auto-refresh cadence for the Usage Dashboard provider quota panels, keyed
+	// by provider id ('claude-code' | 'codex'); value is the interval in ms
+	// (0 = off). Persisted via settings write-through (same as hiddenQuotaAccounts)
+	// and hydrated by loadAllSettings on startup. The main-process background
+	// scheduler (usage-refresh-scheduler.ts) reads the same persisted map and is
+	// the sole driver of background sampling on this cadence.
+	usageRefreshIntervals: Record<string, number>;
 }
 
 export interface UIStoreActions {
@@ -73,20 +92,29 @@ export interface UIStoreActions {
 	// Sidebar collapse/expand
 	setBookmarksCollapsed: (collapsed: boolean | ((prev: boolean) => boolean)) => void;
 	toggleBookmarksCollapsed: () => void;
-	setGroupChatsExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => void;
-	toggleGroupChatsExpanded: () => void;
 
 	// Session list filter
 	setShowUnreadOnly: (show: boolean | ((prev: boolean) => boolean)) => void;
 	toggleShowUnreadOnly: () => void;
+	setShowUnreadAgentsOnly: (show: boolean | ((prev: boolean) => boolean)) => void;
+	toggleShowUnreadAgentsOnly: () => void;
 	setPreFilterActiveTabId: (id: string | null) => void;
 	setPreTerminalFileTabId: (id: string | null) => void;
 
 	// Session sidebar selection
 	setSelectedSidebarIndex: (index: number | ((prev: number) => number)) => void;
 
-	// Flash notifications
+	/**
+	 * Compatibility shim — fires a yellow center flash.
+	 * New code should call `notifyCenterFlash({ message, color: 'yellow' })` directly.
+	 * Passing `null` is a no-op (auto-dismiss handles clearing).
+	 */
 	setFlashNotification: (msg: string | null | ((prev: string | null) => string | null)) => void;
+	/**
+	 * Compatibility shim — fires a themed center flash.
+	 * New code should call `notifyCenterFlash({ message })` directly (defaults to `theme`).
+	 * Passing `null` is a no-op (auto-dismiss handles clearing).
+	 */
 	setSuccessFlashNotification: (
 		msg: string | null | ((prev: string | null) => string | null)
 	) => void;
@@ -94,6 +122,8 @@ export interface UIStoreActions {
 	// Output search
 	setOutputSearchOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
 	setOutputSearchQuery: (query: string | ((prev: string) => string)) => void;
+	setOutputSearchRegex: (regex: boolean | ((prev: boolean) => boolean)) => void;
+	toggleOutputSearchRegex: () => void;
 
 	// Session filter (sidebar agent search)
 	setSessionFilterOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
@@ -110,6 +140,20 @@ export interface UIStoreActions {
 	// Editing
 	setEditingGroupId: (id: string | null | ((prev: string | null) => string | null)) => void;
 	setEditingSessionId: (id: string | null | ((prev: string | null) => string | null)) => void;
+
+	// Auto-follow
+	setAutoFollowEnabled: (enabled: boolean | ((prev: boolean) => boolean)) => void;
+
+	// Usage Dashboard last-selected tab
+	setUsageDashboardViewMode: (
+		mode: UsageDashboardViewMode | ((prev: UsageDashboardViewMode) => UsageDashboardViewMode)
+	) => void;
+
+	// Toggle a provider quota account between hidden and visible.
+	toggleHiddenQuotaAccount: (providerId: string, accountKey: string) => void;
+
+	// Set the auto-refresh interval (ms; 0 = off) for a provider quota panel.
+	setUsageRefreshInterval: (providerId: string, ms: number) => void;
 }
 
 export type UIStore = UIStoreState & UIStoreActions;
@@ -121,6 +165,34 @@ function resolve<T>(valOrFn: T | ((prev: T) => T), prev: T): T {
 	return typeof valOrFn === 'function' ? (valOrFn as (prev: T) => T)(prev) : valOrFn;
 }
 
+/**
+ * Persist the Bookmarks section collapse state so it survives app restarts.
+ * The runtime value lives here (filter mode transiently toggles it), so this
+ * write-through is the single persistence point; the saved value is hydrated
+ * back into this store on startup by `loadAllSettings` in settingsStore.
+ */
+function persistBookmarksCollapsed(value: boolean): void {
+	window.maestro?.settings?.set('bookmarksCollapsed', value);
+}
+
+/**
+ * Persist the per-provider hidden quota accounts map so the user's hide choices
+ * survive app restarts. Hydrated back into this store on startup by
+ * `loadAllSettings` in settingsStore.
+ */
+function persistHiddenQuotaAccounts(value: Record<string, string[]>): void {
+	window.maestro?.settings?.set('hiddenQuotaAccounts', value);
+}
+
+/**
+ * Persist the per-provider quota auto-refresh intervals so the dropdown survives
+ * app restarts and the main-process background scheduler can read the cadence.
+ * Hydrated back into this store on startup by `loadAllSettings` in settingsStore.
+ */
+function persistUsageRefreshIntervals(value: Record<string, number>): void {
+	window.maestro?.settings?.set('usageRefreshIntervals', value);
+}
+
 export const useUIStore = create<UIStore>()((set) => ({
 	// --- State ---
 	leftSidebarOpen: true,
@@ -128,21 +200,24 @@ export const useUIStore = create<UIStore>()((set) => ({
 	activeFocus: 'main',
 	activeRightTab: 'files',
 	bookmarksCollapsed: false,
-	groupChatsExpanded: true,
 	showUnreadOnly: false,
+	showUnreadAgentsOnly: false,
 	preFilterActiveTabId: null,
 	preTerminalFileTabId: null,
 	selectedSidebarIndex: 0,
-	flashNotification: null,
-	successFlashNotification: null,
 	outputSearchOpen: false,
 	outputSearchQuery: '',
+	outputSearchRegex: false,
 	sessionFilterOpen: false,
 	historySearchFilterOpen: false,
 	groupChatHistorySearchFilterOpen: false,
 	draggingSessionId: null,
 	editingGroupId: null,
 	editingSessionId: null,
+	autoFollowEnabled: false,
+	usageDashboardViewMode: 'overview',
+	hiddenQuotaAccounts: {},
+	usageRefreshIntervals: {},
 
 	// --- Actions ---
 	setLeftSidebarOpen: (v) => set((s) => ({ leftSidebarOpen: resolve(v, s.leftSidebarOpen) })),
@@ -154,26 +229,44 @@ export const useUIStore = create<UIStore>()((set) => ({
 	setActiveRightTab: (v) => set((s) => ({ activeRightTab: resolve(v, s.activeRightTab) })),
 
 	setBookmarksCollapsed: (v) =>
-		set((s) => ({ bookmarksCollapsed: resolve(v, s.bookmarksCollapsed) })),
-	toggleBookmarksCollapsed: () => set((s) => ({ bookmarksCollapsed: !s.bookmarksCollapsed })),
-	setGroupChatsExpanded: (v) =>
-		set((s) => ({ groupChatsExpanded: resolve(v, s.groupChatsExpanded) })),
-	toggleGroupChatsExpanded: () => set((s) => ({ groupChatsExpanded: !s.groupChatsExpanded })),
+		set((s) => {
+			const next = resolve(v, s.bookmarksCollapsed);
+			persistBookmarksCollapsed(next);
+			return { bookmarksCollapsed: next };
+		}),
+	toggleBookmarksCollapsed: () =>
+		set((s) => {
+			const next = !s.bookmarksCollapsed;
+			persistBookmarksCollapsed(next);
+			return { bookmarksCollapsed: next };
+		}),
 
 	setShowUnreadOnly: (v) => set((s) => ({ showUnreadOnly: resolve(v, s.showUnreadOnly) })),
 	toggleShowUnreadOnly: () => set((s) => ({ showUnreadOnly: !s.showUnreadOnly })),
+	setShowUnreadAgentsOnly: (v) =>
+		set((s) => ({ showUnreadAgentsOnly: resolve(v, s.showUnreadAgentsOnly) })),
+	toggleShowUnreadAgentsOnly: () => set((s) => ({ showUnreadAgentsOnly: !s.showUnreadAgentsOnly })),
 	setPreFilterActiveTabId: (id) => set({ preFilterActiveTabId: id }),
 	setPreTerminalFileTabId: (id) => set({ preTerminalFileTabId: id }),
 
 	setSelectedSidebarIndex: (v) =>
 		set((s) => ({ selectedSidebarIndex: resolve(v, s.selectedSidebarIndex) })),
 
-	setFlashNotification: (v) => set((s) => ({ flashNotification: resolve(v, s.flashNotification) })),
-	setSuccessFlashNotification: (v) =>
-		set((s) => ({ successFlashNotification: resolve(v, s.successFlashNotification) })),
+	setFlashNotification: (v) => {
+		const value = typeof v === 'function' ? v(null) : v;
+		if (value === null) return;
+		notifyCenterFlash({ message: value, color: 'yellow' });
+	},
+	setSuccessFlashNotification: (v) => {
+		const value = typeof v === 'function' ? v(null) : v;
+		if (value === null) return;
+		notifyCenterFlash({ message: value, color: 'theme' });
+	},
 
 	setOutputSearchOpen: (v) => set((s) => ({ outputSearchOpen: resolve(v, s.outputSearchOpen) })),
 	setOutputSearchQuery: (v) => set((s) => ({ outputSearchQuery: resolve(v, s.outputSearchQuery) })),
+	setOutputSearchRegex: (v) => set((s) => ({ outputSearchRegex: resolve(v, s.outputSearchRegex) })),
+	toggleOutputSearchRegex: () => set((s) => ({ outputSearchRegex: !s.outputSearchRegex })),
 
 	setSessionFilterOpen: (v) => set((s) => ({ sessionFilterOpen: resolve(v, s.sessionFilterOpen) })),
 	setHistorySearchFilterOpen: (v) =>
@@ -187,4 +280,27 @@ export const useUIStore = create<UIStore>()((set) => ({
 
 	setEditingGroupId: (v) => set((s) => ({ editingGroupId: resolve(v, s.editingGroupId) })),
 	setEditingSessionId: (v) => set((s) => ({ editingSessionId: resolve(v, s.editingSessionId) })),
+
+	setAutoFollowEnabled: (v) => set((s) => ({ autoFollowEnabled: resolve(v, s.autoFollowEnabled) })),
+
+	setUsageDashboardViewMode: (v) =>
+		set((s) => ({ usageDashboardViewMode: resolve(v, s.usageDashboardViewMode) })),
+
+	toggleHiddenQuotaAccount: (providerId, accountKey) =>
+		set((s) => {
+			const current = s.hiddenQuotaAccounts[providerId] ?? [];
+			const next = current.includes(accountKey)
+				? current.filter((k) => k !== accountKey)
+				: [...current, accountKey];
+			const nextMap = { ...s.hiddenQuotaAccounts, [providerId]: next };
+			persistHiddenQuotaAccounts(nextMap);
+			return { hiddenQuotaAccounts: nextMap };
+		}),
+
+	setUsageRefreshInterval: (providerId, ms) =>
+		set((s) => {
+			const nextMap = { ...s.usageRefreshIntervals, [providerId]: ms };
+			persistUsageRefreshIntervals(nextMap);
+			return { usageRefreshIntervals: nextMap };
+		}),
 }));

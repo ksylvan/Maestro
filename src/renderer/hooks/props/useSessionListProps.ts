@@ -24,6 +24,7 @@ export interface UseSessionListPropsDeps {
 	webInterfaceUrl: string | null;
 	showSessionJumpNumbers: boolean;
 	visibleSessions: Session[];
+	navIndexMap: Map<string, number>;
 
 	// Ref
 	sidebarContainerRef: React.RefObject<HTMLDivElement>;
@@ -52,7 +53,16 @@ export interface UseSessionListPropsDeps {
 	handleOpenWorktreeConfigSession: (session: Session) => void;
 	handleDeleteWorktreeSession: (session: Session) => void;
 	handleToggleWorktreeExpanded: (sessionId: string) => void;
+	handleConfigureCue: (session: Session) => void;
+	handleJumpToStarredSession: (
+		agentId: string,
+		projectPath: string,
+		agentSessionId: string,
+		sessionName: string,
+		parentSessionId: string
+	) => Promise<boolean>;
 	openWizardModal: () => void;
+	handleOpenFeedbackModal: () => void;
 	handleStartTour: () => void;
 
 	// Group Chat handlers
@@ -62,6 +72,7 @@ export interface UseSessionListPropsDeps {
 	handleOpenRenameGroupChatModal: (id: string) => void;
 	handleOpenDeleteGroupChatModal: (id: string) => void;
 	handleArchiveGroupChat: (id: string, archived: boolean) => void;
+	handleDeleteAllArchivedGroupChats: () => void;
 }
 
 /**
@@ -76,6 +87,7 @@ export function useSessionListProps(deps: UseSessionListPropsDeps) {
 			// Theme & computed values
 			theme: deps.theme,
 			sortedSessions: deps.sortedSessions,
+			navIndexMap: deps.navIndexMap,
 			isLiveMode: deps.isLiveMode,
 			webInterfaceUrl: deps.webInterfaceUrl,
 			showSessionJumpNumbers: deps.showSessionJumpNumbers,
@@ -109,7 +121,10 @@ export function useSessionListProps(deps: UseSessionListPropsDeps) {
 			onQuickCreateWorktree: deps.handleQuickCreateWorktree,
 			onOpenWorktreeConfig: deps.handleOpenWorktreeConfigSession,
 			onDeleteWorktree: deps.handleDeleteWorktreeSession,
+			onConfigureCue: deps.handleConfigureCue,
+			onJumpToStarredSession: deps.handleJumpToStarredSession,
 			openWizard: deps.openWizardModal,
+			openFeedback: deps.handleOpenFeedbackModal,
 			startTour: deps.handleStartTour,
 
 			// Group Chat handlers
@@ -119,10 +134,12 @@ export function useSessionListProps(deps: UseSessionListPropsDeps) {
 			onRenameGroupChat: deps.handleOpenRenameGroupChatModal,
 			onDeleteGroupChat: deps.handleOpenDeleteGroupChatModal,
 			onArchiveGroupChat: deps.handleArchiveGroupChat,
+			onDeleteAllArchivedGroupChats: deps.handleDeleteAllArchivedGroupChats,
 		}),
 		[
 			deps.theme,
 			deps.sortedSessions,
+			deps.navIndexMap,
 			deps.isLiveMode,
 			deps.webInterfaceUrl,
 			deps.showSessionJumpNumbers,
@@ -151,8 +168,11 @@ export function useSessionListProps(deps: UseSessionListPropsDeps) {
 			deps.handleQuickCreateWorktree,
 			deps.handleOpenWorktreeConfigSession,
 			deps.handleDeleteWorktreeSession,
+			deps.handleConfigureCue,
+			deps.handleJumpToStarredSession,
 			deps.handleToggleWorktreeExpanded,
 			deps.openWizardModal,
+			deps.handleOpenFeedbackModal,
 			deps.handleStartTour,
 			deps.handleOpenGroupChat,
 			deps.handleNewGroupChat,
@@ -160,6 +180,7 @@ export function useSessionListProps(deps: UseSessionListPropsDeps) {
 			deps.handleOpenRenameGroupChatModal,
 			deps.handleOpenDeleteGroupChatModal,
 			deps.handleArchiveGroupChat,
+			deps.handleDeleteAllArchivedGroupChats,
 		]
 	);
 }

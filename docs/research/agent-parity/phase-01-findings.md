@@ -19,14 +19,13 @@ related:
 
 ## Scope of this review
 
-This note records the Phase 01 review pass against [[AGENT_SUPPORT.md]] after the Hermes/Pi shared-catalog work, detector coverage updates, launch-argument coverage, and renderer validation harness changes.
+This note records the Phase 01 review pass against [[AGENT_SUPPORT.md]] after the Hermes/Pi shared-catalog work, detector coverage updates, and launch-argument coverage.
 
 ## What shipped in Phase 01
 
 - Hermes and Pi are present in the shared agent catalog and main-process registries.
 - The detector coverage now follows the live catalog count instead of a stale hard-coded total, and it exercises Hermes/Pi detection expectations.
 - Launch-argument coverage now locks the documented Maestro batch invocation shape for Hermes and Pi.
-- A dev-only renderer harness exists for browser-side validation without depending on the Electron preload contract.
 
 ## AGENT_SUPPORT review
 
@@ -69,7 +68,7 @@ That means Hermes and Pi can:
 - appear in the catalog,
 - participate in detection,
 - use documented batch launch argument shapes,
-- and be validated through controlled harness coverage.
+- and be validated through focused launch-argument and registry coverage.
 
 It does **not** yet mean Maestro owns:
 
