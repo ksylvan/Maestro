@@ -1201,6 +1201,34 @@ describe('WizardContext', () => {
 					})
 				);
 			});
+
+			it('auto-saves SSH remote config when advancing past the first step', async () => {
+				const sshConfig = {
+					enabled: true,
+					remoteId: 'remote-1',
+					workingDirOverride: '/srv/project',
+				};
+				const { result } = renderHook(() => useWizard(), { wrapper });
+
+				act(() => {
+					result.current.setSelectedAgent('claude-code');
+					result.current.setAgentName('Remote Project');
+					result.current.setSessionSshRemoteConfig(sshConfig);
+					result.current.goToStep('directory-selection');
+				});
+
+				await waitFor(() => {
+					expect(window.maestro.settings.set).toHaveBeenCalledWith(
+						'wizardResumeState',
+						expect.objectContaining({
+							currentStep: 'directory-selection',
+							selectedAgent: 'claude-code',
+							agentName: 'Remote Project',
+							sessionSshRemoteConfig: sshConfig,
+						})
+					);
+				});
+			});
 		});
 
 		describe('restoreState', () => {
