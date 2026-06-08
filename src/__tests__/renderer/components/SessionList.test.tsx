@@ -991,7 +991,7 @@ describe('SessionList', () => {
 			expect(screen.queryByText('Remove Group and Agents')).not.toBeInTheDocument();
 		});
 
-		it('shows "Change Emoji..." in the group context menu', () => {
+		it('does not show "Change Emoji..." in the group context menu (emoji is changed via Rename)', () => {
 			const group = createMockGroup({ id: 'g1', name: 'My Group', emoji: '🚀' });
 			useSessionStore.setState({ sessions: [], groups: [group] });
 			useUIStore.setState({ leftSidebarOpen: true });
@@ -1000,7 +1000,7 @@ describe('SessionList', () => {
 
 			fireEvent.contextMenu(screen.getByText('My Group'), { clientX: 100, clientY: 100 });
 
-			expect(screen.getByText('Change Emoji...')).toBeInTheDocument();
+			expect(screen.queryByText('Change Emoji...')).not.toBeInTheDocument();
 		});
 
 		it('shows "Remove Group and Agents" for a non-empty worktree group', () => {
@@ -1175,6 +1175,26 @@ describe('SessionList', () => {
 				expect.stringContaining('Delete Me'),
 				expect.any(Function)
 			);
+		});
+
+		it('copies agent GUID to clipboard from context menu', async () => {
+			const mockClipboard = { writeText: vi.fn().mockResolvedValue(undefined) };
+			Object.assign(navigator, { clipboard: mockClipboard });
+
+			const sessions = [createMockSession({ id: 'agent-guid-1', name: 'Copy GUID Me' })];
+			useSessionStore.setState({ sessions: sessions });
+			useUIStore.setState({ leftSidebarOpen: true });
+			const props = createDefaultProps({
+				sortedSessions: sessions,
+			});
+			render(<SessionList {...props} />);
+
+			// Open context menu
+			fireEvent.contextMenu(screen.getByText('Copy GUID Me'), { clientX: 100, clientY: 100 });
+
+			fireEvent.click(screen.getByText('Copy Agent GUID to Clipboard'));
+
+			expect(mockClipboard.writeText).toHaveBeenCalledWith('agent-guid-1');
 		});
 
 		it('toggles bookmark from context menu', () => {
