@@ -32,6 +32,15 @@ import { VERSION } from './package-info';
 
 // Watchdog tick. Cheap; the real budget lives in args.maxWaitSeconds.
 const WATCHDOG_INTERVAL_MS = 1000;
+
+// Interval between Enter re-submits while waiting for the first transcript
+// byte. send()'s initial burst all lands within ~3s; on agents that load
+// MCP servers/plugins the editor can stay unable to accept a submit for
+// 10-40s under morning IO contention, so we keep re-pressing Enter (text
+// already typed) across the whole first-byte budget until the turn starts.
+// 8s is tight enough to recover within a few seconds of MCP settling, loose
+// enough that a healthy run (first byte in ~1s) never fires a stray tap.
+const RESUBMIT_INTERVAL_MS = 8000;
 // Grace window after an `end_turn` to let trailing tool-result rows flush.
 const END_TURN_GRACE_MS = 600;
 // `/usage` panel paints synchronously but trickles bytes for several hundred ms.
@@ -227,6 +236,10 @@ async function runMode(args: ParsedArgs): Promise<never> {
 	// pre-turn), failing fast instead of riding the full idle budget. Cleared
 	// the moment the first entry lands (see handleEntry).
 	let firstByteTimer: NodeJS.Timeout | null = null;
+	// Re-presses Enter on an interval until the first transcript byte lands, so
+	// a prompt parked behind slow MCP/plugin init still gets submitted. Cleared
+	// the instant the turn starts (markFirstEntrySeen) and on any finalize.
+	let resubmitTimer: NodeJS.Timeout | null = null;
 	let firstEntrySeen = false;
 	let limitHit = false;
 	let aggregatedText = '';
@@ -249,6 +262,10 @@ async function runMode(args: ParsedArgs): Promise<never> {
 			clearTimeout(firstByteTimer);
 			firstByteTimer = null;
 		}
+		if (resubmitTimer) {
+			clearInterval(resubmitTimer);
+			resubmitTimer = null;
+		}
 	};
 
 	// Cancel the first-byte timer as soon as claude writes anything to the
@@ -261,6 +278,27 @@ async function runMode(args: ParsedArgs): Promise<never> {
 			clearTimeout(firstByteTimer);
 			firstByteTimer = null;
 		}
+		if (resubmitTimer) {
+			clearInterval(resubmitTimer);
+			resubmitTimer = null;
+		}
+	};
+
+	// Spread Enter re-submits across the first-byte budget. Each tap is gated on
+	// the turn not having started (and not finalized), so it stops itself the
+	// moment any transcript byte arrives even before cleanupTimers runs.
+	const startResubmitLoop = (): void => {
+		if (resubmitTimer) return;
+		resubmitTimer = setInterval(() => {
+			if (finalized || firstEntrySeen) {
+				if (resubmitTimer) {
+					clearInterval(resubmitTimer);
+					resubmitTimer = null;
+				}
+				return;
+			}
+			driver.resubmit();
+		}, RESUBMIT_INTERVAL_MS);
 	};
 
 	const finalize = (options: { isError: boolean; error?: string; exitCode: number }): void => {
@@ -417,8 +455,13 @@ async function runMode(args: ParsedArgs): Promise<never> {
 	const firstByteTimeoutMs = args.firstByteTimeoutSeconds * 1000;
 	firstByteTimer = setTimeout(() => {
 		if (finalized || firstEntrySeen) return;
+		// Dump the last screenful so the failure is diagnosable from stderr
+		// alone: an MCP-connecting banner, a blocking modal, or un-submitted
+		// prompt text each point at a different remaining fix.
+		const screenTail = driver.getScreenTail();
 		process.stderr.write(
-			`maestro-p: no transcript output within ${args.firstByteTimeoutSeconds}s of sending the prompt — claude never started the turn (prompt may have been swallowed by a startup modal). Failing with first_byte_timeout.\n`
+			`maestro-p: no transcript output within ${args.firstByteTimeoutSeconds}s of sending the prompt — claude never started the turn (prompt may have been swallowed by a startup modal). Failing with first_byte_timeout.\n` +
+				`maestro-p: last screen at timeout (ANSI-stripped tail):\n${screenTail}\n`
 		);
 		finalize({ isError: true, error: 'first_byte_timeout', exitCode: 5 });
 	}, firstByteTimeoutMs);
@@ -442,6 +485,7 @@ async function runMode(args: ParsedArgs): Promise<never> {
 		initEmitted = true;
 		flushPending();
 		driver.send(prompt);
+		startResubmitLoop();
 	} else {
 		// Fresh-session path: we pre-assigned `freshSessionId` and passed it to
 		// the TUI via `--session-id`, so discovery polls for exactly that file
@@ -463,6 +507,7 @@ async function runMode(args: ParsedArgs): Promise<never> {
 			timeoutMs: Math.max(DISCOVERY_TIMEOUT_FLOOR_MS, firstByteTimeoutMs),
 		});
 		driver.send(prompt);
+		startResubmitLoop();
 		let discovered: { sessionId: string; jsonlPath: string };
 		try {
 			discovered = await discoveryPromise;
@@ -473,7 +518,8 @@ async function runMode(args: ParsedArgs): Promise<never> {
 			// bubble to main()'s catch (a bare exit 1 with no result envelope).
 			if (!finalized) {
 				process.stderr.write(
-					`maestro-p: session discovery failed: ${err instanceof Error ? err.message : String(err)}\n`
+					`maestro-p: session discovery failed: ${err instanceof Error ? err.message : String(err)}\n` +
+						`maestro-p: last screen at timeout (ANSI-stripped tail):\n${driver.getScreenTail()}\n`
 				);
 				finalize({ isError: true, error: 'first_byte_timeout', exitCode: 5 });
 			}

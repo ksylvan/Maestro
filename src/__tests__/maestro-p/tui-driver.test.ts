@@ -487,6 +487,56 @@ describe('TuiDriver', () => {
 		});
 	});
 
+	describe('resubmit()', () => {
+		it('writes a bare \\r so a parked prompt gets re-submitted', async () => {
+			const driver = await makeDriver();
+			feed('❯ \n');
+			mockPtyProcess.write.mockClear();
+			driver.resubmit();
+			expect(mockPtyProcess.write).toHaveBeenCalledTimes(1);
+			expect(mockPtyProcess.write).toHaveBeenCalledWith('\r');
+		});
+
+		it('never re-types the prompt body (avoids a double prompt)', async () => {
+			const driver = await makeDriver();
+			feed('❯ \n');
+			mockPtyProcess.write.mockClear();
+			driver.resubmit();
+			driver.resubmit();
+			// Every write is a bare carriage return, never any text.
+			for (const call of mockPtyProcess.write.mock.calls) {
+				expect(call[0]).toBe('\r');
+			}
+		});
+
+		it('is a no-op before start() and after exit', async () => {
+			const notStarted = new TuiDriver({ binPath: 'claude', args: [], cwd: '/tmp', env: {} });
+			expect(() => notStarted.resubmit()).not.toThrow();
+
+			const driver = await makeDriver();
+			triggerExit(0);
+			mockPtyProcess.write.mockClear();
+			driver.resubmit();
+			expect(mockPtyProcess.write).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('getScreenTail()', () => {
+		it('returns the ANSI-stripped rolling buffer, capped to maxBytes', async () => {
+			const driver = await makeDriver();
+			feed('\x1b[1mhello\x1b[0m world');
+			// ANSI escapes are stripped before buffering.
+			expect(driver.getScreenTail()).toBe('hello world');
+			// Cap keeps only the trailing bytes.
+			expect(driver.getScreenTail(5)).toBe('world');
+		});
+
+		it('returns empty string before any data', async () => {
+			const driver = await makeDriver();
+			expect(driver.getScreenTail()).toBe('');
+		});
+	});
+
 	describe("'exit' event", () => {
 		it('emits exit with the PTY exit code', async () => {
 			const driver = await makeDriver();

@@ -246,6 +246,32 @@ export class TuiDriver extends EventEmitter {
 		}
 	}
 
+	// Re-press Enter only (never re-type the prompt body). send()'s burst of
+	// taps all land within the first ~3s; if claude's editor was still settling
+	// MCP/plugin init then (morning cue contention can push that to 10-40s),
+	// the parked prompt is never submitted and no turn ever starts. The run-mode
+	// flow drives this on an interval until the first transcript byte lands,
+	// spreading submit attempts across the whole first-byte budget. Pressing
+	// Enter on an already-submitted (empty) input is a no-op, so a resubmit that
+	// races a successful turn is harmless. Re-typing the text is deliberately
+	// NOT done here: it would risk a double prompt if the original DID submit.
+	resubmit(): void {
+		if (!this.ptyProcess || this.exited) return;
+		try {
+			this.ptyProcess.write('\r');
+		} catch {
+			// PTY may already be tearing down; exit/quit path will surface it.
+		}
+	}
+
+	// Last `maxBytes` of the ANSI-stripped rolling screen buffer. Used by the
+	// run-mode flow to dump what was on screen at a first_byte_timeout (an
+	// MCP-connecting banner, a modal, or un-submitted prompt text) so the
+	// failure is diagnosable from stderr alone.
+	getScreenTail(maxBytes = 2048): string {
+		return this.rollingBuffer.slice(-maxBytes);
+	}
+
 	async quit(): Promise<void> {
 		if (!this.ptyProcess || this.exited) return;
 		try {
