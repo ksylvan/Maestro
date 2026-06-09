@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CreateWorktreeModal } from '../../../renderer/components/CreateWorktreeModal';
 import { createMockSession } from '../../helpers/mockSession';
 import { mockTheme } from '../../helpers/mockTheme';
@@ -15,6 +15,17 @@ vi.mock('../../../renderer/services/git', () => ({
 }));
 
 describe('CreateWorktreeModal', () => {
+	// These tests reassign window.maestro.git methods directly (not via vi.spyOn),
+	// so vi.restoreAllMocks() cannot revert them. Capture the originals and restore
+	// them in afterEach so the mocks do not leak into other tests in this file.
+	const originalCheckGhCli = window.maestro.git.checkGhCli;
+	const originalBranch = window.maestro.git.branch;
+
+	afterEach(() => {
+		window.maestro.git.checkGhCli = originalCheckGhCli;
+		window.maestro.git.branch = originalBranch;
+	});
+
 	it('wraps a long spaceless creation error without overflowing the modal', async () => {
 		const longError = 'failedtoaddworktreeoversshaborting'.repeat(20);
 		window.maestro.git.checkGhCli = vi
