@@ -754,7 +754,15 @@ function SessionListInner(props: SessionListProps) {
 					variant={effectiveVariant}
 					theme={theme}
 					navDomKey={globalIdx >= 0 ? `idx:${globalIdx}` : undefined}
-					isActive={activeSessionId === session.id && !activeGroupChatId}
+					isActive={
+						activeSessionId === session.id &&
+						!activeGroupChatId &&
+						// While the keyboard cursor is parked on a Starred row, suppress the
+						// parent agent's active highlight so the starred row is the sole
+						// highlighted item - otherwise the agent's (stronger) active styling
+						// steals visual focus from the row you actually navigated to.
+						sidebarExtraSelection?.kind !== 'starred'
+					}
 					isKeyboardSelected={isKeyboardSelected}
 					isDragging={draggingSessionId === session.id}
 					isEditing={editingSessionId === `${options.keyPrefix}-${session.id}`}
@@ -813,7 +821,11 @@ function SessionListInner(props: SessionListProps) {
 										variant="worktree"
 										theme={theme}
 										navDomKey={childGlobalIdx >= 0 ? `idx:${childGlobalIdx}` : undefined}
-										isActive={activeSessionId === child.id && !activeGroupChatId}
+										isActive={
+											activeSessionId === child.id &&
+											!activeGroupChatId &&
+											sidebarExtraSelection?.kind !== 'starred'
+										}
 										isKeyboardSelected={isChildKeyboardSelected}
 										isDragging={draggingSessionId === child.id}
 										isEditing={editingSessionId === `worktree-${session.id}-${child.id}`}

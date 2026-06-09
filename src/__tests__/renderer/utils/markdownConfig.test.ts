@@ -335,9 +335,9 @@ describe('generateProseStyles', () => {
 			expect(css).toContain(`color: ${mockTheme.colors.textDim}`);
 		});
 
-		it('should inject accent into link color', () => {
+		it('should inject accentText into link color', () => {
 			const css = generateProseStyles({ theme: mockTheme });
-			expect(css).toContain(`.prose a { color: ${mockTheme.colors.accent}`);
+			expect(css).toContain(`.prose a { color: ${mockTheme.colors.accentText}`);
 		});
 
 		it('should inject bgActivity into code background', () => {

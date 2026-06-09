@@ -1082,6 +1082,7 @@ describe('agent-detector', () => {
 
 			const models = await detector.discoverModels('claude-code');
 			// Should include aliases + [1m] variants + historical models
+			expect(models).toContain('fable');
 			expect(models).toContain('sonnet');
 			expect(models).toContain('opus');
 			expect(models).toContain('haiku');
@@ -1090,7 +1091,7 @@ describe('agent-detector', () => {
 			expect(models).toContain('claude-opus-4-6');
 			expect(models).toContain('claude-sonnet-4-6');
 			expect(logger.info).toHaveBeenCalledWith(
-				expect.stringContaining('Discovered 7 models'),
+				expect.stringContaining('Discovered 8 models'),
 				'AgentDetector',
 				expect.any(Object)
 			);
@@ -1116,7 +1117,7 @@ describe('agent-detector', () => {
 			await detector.detectAgents();
 
 			const models = await detector.discoverModels('claude-code');
-			expect(models).toEqual(['sonnet', 'opus', 'haiku', 'opus[1m]', 'sonnet[1m]']);
+			expect(models).toEqual(['fable', 'sonnet', 'opus', 'haiku', 'opus[1m]', 'sonnet[1m]']);
 		});
 
 		it('should discover models for Codex from models_cache.json', async () => {
