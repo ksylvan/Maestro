@@ -1659,6 +1659,7 @@ interface MaestroAPI {
 			lookbackHours?: number | null;
 			sharedContext?: { sshRemoteId: string; remoteCwd: string };
 			types?: HistoryEntryType[];
+			hostKey?: string | null;
 		}) => Promise<{
 			entries: Array<{
 				id: string;
