@@ -16,6 +16,7 @@ import { useUIStore } from '../../stores/uiStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useTabStore } from '../../stores/tabStore';
 import { useLayerStack } from '../../contexts/LayerStackContext';
+import { outputSearchKeyFor } from '../../utils/outputSearch';
 import type {
 	Session,
 	Theme,
@@ -420,9 +421,28 @@ export const MainPanelContent = React.memo(function MainPanelContent(props: Main
 	const maxOutputLines = useSettingsStore((s) => s.maxOutputLines);
 	// Self-sourced from uiStore
 	const activeFocus = useUIStore((s) => s.activeFocus);
-	const outputSearchOpen = useUIStore((s) => s.outputSearchOpen);
-	const outputSearchQuery = useUIStore((s) => s.outputSearchQuery);
-	const outputSearchRegex = useUIStore((s) => s.outputSearchRegex);
+	// Output ("Find") search is scoped per agent+AI-tab. Read this window's slot
+	// by its key so the Find bar doesn't follow the user to other agents/tabs.
+	const outputSearchKey = outputSearchKeyFor(activeSession.id, activeSession.activeTabId);
+	const outputSearchSlot = useUIStore((s) => s.outputSearchByKey?.[outputSearchKey]);
+	const outputSearchOpen = outputSearchSlot?.open ?? false;
+	const outputSearchQuery = outputSearchSlot?.query ?? '';
+	const outputSearchRegex = outputSearchSlot?.regex ?? false;
+	const setOutputSearchOpen = React.useCallback(
+		(v: boolean | ((prev: boolean) => boolean)) =>
+			useUIStore.getState().setOutputSearchOpen(outputSearchKey, v),
+		[outputSearchKey]
+	);
+	const setOutputSearchQuery = React.useCallback(
+		(v: string | ((prev: string) => string)) =>
+			useUIStore.getState().setOutputSearchQuery(outputSearchKey, v),
+		[outputSearchKey]
+	);
+	const setOutputSearchRegex = React.useCallback(
+		(v: boolean | ((prev: boolean) => boolean)) =>
+			useUIStore.getState().setOutputSearchRegex(outputSearchKey, v),
+		[outputSearchKey]
+	);
 
 	// Browser tab keep-alive: which of this agent's browser tabs stay mounted.
 	// Under the default 'off' policy this is just the active browser tab (mount-only-active,
@@ -614,9 +634,9 @@ export const MainPanelContent = React.memo(function MainPanelContent(props: Main
 								outputSearchOpen={outputSearchOpen}
 								outputSearchQuery={outputSearchQuery}
 								outputSearchRegex={outputSearchRegex}
-								setOutputSearchOpen={useUIStore.getState().setOutputSearchOpen}
-								setOutputSearchQuery={useUIStore.getState().setOutputSearchQuery}
-								setOutputSearchRegex={useUIStore.getState().setOutputSearchRegex}
+								setOutputSearchOpen={setOutputSearchOpen}
+								setOutputSearchQuery={setOutputSearchQuery}
+								setOutputSearchRegex={setOutputSearchRegex}
 								setActiveFocus={useUIStore.getState().setActiveFocus}
 								setLightboxImage={setLightboxImage}
 								inputRef={inputRef}

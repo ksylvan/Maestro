@@ -3,7 +3,7 @@ import type { Session, AITab, ThinkingMode } from '../../types';
 import { getInitialRenameValue } from '../../utils/tabHelpers';
 import { useModalStore } from '../../stores/modalStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { useUIStore } from '../../stores/uiStore';
+import { isActiveOutputSearchOpen } from '../../utils/outputSearch';
 import { editClipboardImage } from '../../components/ImageAnnotator/editClipboardImage';
 
 // Font size keyboard shortcut constants
@@ -321,7 +321,7 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				// traps the user: Cmd+O / Cmd+K go dead and there's no keyboard path
 				// back to the find input. Scoped to the find bar via uiStore so other
 				// overlays (file preview, log viewer) keep their stricter behavior.
-				const isOutputSearchOpen = useUIStore.getState().outputSearchOpen;
+				const isOutputSearchOpen = isActiveOutputSearchOpen();
 				const isOutputSearchGlobalShortcut =
 					isOutputSearchOpen &&
 					(ctx.isShortcut(e, 'agentSwitcher') ||
@@ -423,7 +423,7 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 			// handler only opens search when it's closed, so without this re-pressing
 			// the shortcut after focus moved away (e.g. to the AI input) does nothing.
 			if (
-				useUIStore.getState().outputSearchOpen &&
+				isActiveOutputSearchOpen() &&
 				(e.metaKey || e.ctrlKey) &&
 				!e.altKey &&
 				!e.shiftKey &&

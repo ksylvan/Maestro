@@ -176,6 +176,7 @@ import { useQuitWhenIdle } from './hooks/useQuitWhenIdle';
 import type { RightPanelTab, Session, QueuedItem, CustomAICommand, ThinkingItem } from './types';
 import { THEMES } from './constants/themes';
 import { generateId } from './utils/ids';
+import { getActiveOutputSearchKey } from './utils/outputSearch';
 import { reorderQueueItem } from './utils/executionQueue';
 import { getContextColor } from './utils/theme';
 // safeClipboardWrite moved to AppStandaloneModals (GistPublishModal handler)
@@ -2429,7 +2430,9 @@ function MaestroConsoleInner() {
 	);
 
 	const handleOpenOutputSearch = useCallback(() => {
-		useUIStore.getState().setOutputSearchOpen(true);
+		// Output search is scoped per agent+AI-tab; open the active window's slot.
+		const key = getActiveOutputSearchKey();
+		if (key) useUIStore.getState().setOutputSearchOpen(key, true);
 	}, []);
 
 	const mainPanelProps = useMainPanelProps({

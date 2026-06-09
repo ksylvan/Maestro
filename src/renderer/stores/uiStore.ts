@@ -27,6 +27,13 @@ export type SidebarExtraSelection =
 	| { kind: 'starred'; key: string }
 	| { kind: 'groupChat'; id: string };
 
+/** Per-window state for the AI chat "Find" bar (one slot per agent+AI-tab). */
+export interface OutputSearchSlot {
+	open: boolean;
+	query: string;
+	regex: boolean;
+}
+
 export interface UIStoreState {
 	// Sidebar
 	leftSidebarOpen: boolean;
@@ -51,10 +58,12 @@ export interface UIStoreState {
 	// null when the cursor is on a plain agent row (tracked by selectedSidebarIndex).
 	sidebarExtraSelection: SidebarExtraSelection | null;
 
-	// Output search
-	outputSearchOpen: boolean;
-	outputSearchQuery: string;
-	outputSearchRegex: boolean;
+	// Output search (the AI chat "Find" bar). Scoped per agent+AI-tab so a search
+	// opened in one chat window doesn't follow the user - state, open flag, and
+	// term - across other agents/tabs. Keyed by `${sessionId}::${tabId}` (see
+	// outputSearchKeyFor in utils/outputSearch). Slots are pruned when a search is
+	// closed with an empty term, so the map only holds windows with an active find.
+	outputSearchByKey: Record<string, OutputSearchSlot>;
 
 	// Session filter (sidebar agent search)
 	sessionFilterOpen: boolean;
@@ -137,10 +146,10 @@ export interface UIStoreActions {
 	) => void;
 
 	// Output search
-	setOutputSearchOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
-	setOutputSearchQuery: (query: string | ((prev: string) => string)) => void;
-	setOutputSearchRegex: (regex: boolean | ((prev: boolean) => boolean)) => void;
-	toggleOutputSearchRegex: () => void;
+	setOutputSearchOpen: (key: string, open: boolean | ((prev: boolean) => boolean)) => void;
+	setOutputSearchQuery: (key: string, query: string | ((prev: string) => string)) => void;
+	setOutputSearchRegex: (key: string, regex: boolean | ((prev: boolean) => boolean)) => void;
+	toggleOutputSearchRegex: (key: string) => void;
 
 	// Session filter (sidebar agent search)
 	setSessionFilterOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
@@ -180,6 +189,29 @@ export type UIStore = UIStoreState & UIStoreActions;
  */
 function resolve<T>(valOrFn: T | ((prev: T) => T), prev: T): T {
 	return typeof valOrFn === 'function' ? (valOrFn as (prev: T) => T)(prev) : valOrFn;
+}
+
+const DEFAULT_OUTPUT_SEARCH: OutputSearchSlot = { open: false, query: '', regex: false };
+
+/**
+ * Immutably patch one agent+tab's Find-bar slot. A closed search with an empty
+ * term carries no state worth keeping, so its slot is dropped - this keeps the
+ * map bounded to the handful of windows with a live find.
+ */
+function patchOutputSearchSlot(
+	map: Record<string, OutputSearchSlot>,
+	key: string,
+	patch: Partial<OutputSearchSlot>
+): Record<string, OutputSearchSlot> {
+	const cur = map[key] ?? DEFAULT_OUTPUT_SEARCH;
+	const slot: OutputSearchSlot = { ...cur, ...patch };
+	const next = { ...map };
+	if (!slot.open && slot.query === '') {
+		delete next[key];
+	} else {
+		next[key] = slot;
+	}
+	return next;
 }
 
 /**
@@ -223,9 +255,7 @@ export const useUIStore = create<UIStore>()((set) => ({
 	preTerminalFileTabId: null,
 	selectedSidebarIndex: 0,
 	sidebarExtraSelection: null,
-	outputSearchOpen: false,
-	outputSearchQuery: '',
-	outputSearchRegex: false,
+	outputSearchByKey: {},
 	sessionFilterOpen: false,
 	historySearchFilterOpen: false,
 	groupChatHistorySearchFilterOpen: false,
@@ -282,10 +312,30 @@ export const useUIStore = create<UIStore>()((set) => ({
 		notifyCenterFlash({ message: value, color: 'theme' });
 	},
 
-	setOutputSearchOpen: (v) => set((s) => ({ outputSearchOpen: resolve(v, s.outputSearchOpen) })),
-	setOutputSearchQuery: (v) => set((s) => ({ outputSearchQuery: resolve(v, s.outputSearchQuery) })),
-	setOutputSearchRegex: (v) => set((s) => ({ outputSearchRegex: resolve(v, s.outputSearchRegex) })),
-	toggleOutputSearchRegex: () => set((s) => ({ outputSearchRegex: !s.outputSearchRegex })),
+	setOutputSearchOpen: (key, v) =>
+		set((s) => ({
+			outputSearchByKey: patchOutputSearchSlot(s.outputSearchByKey, key, {
+				open: resolve(v, (s.outputSearchByKey[key] ?? DEFAULT_OUTPUT_SEARCH).open),
+			}),
+		})),
+	setOutputSearchQuery: (key, v) =>
+		set((s) => ({
+			outputSearchByKey: patchOutputSearchSlot(s.outputSearchByKey, key, {
+				query: resolve(v, (s.outputSearchByKey[key] ?? DEFAULT_OUTPUT_SEARCH).query),
+			}),
+		})),
+	setOutputSearchRegex: (key, v) =>
+		set((s) => ({
+			outputSearchByKey: patchOutputSearchSlot(s.outputSearchByKey, key, {
+				regex: resolve(v, (s.outputSearchByKey[key] ?? DEFAULT_OUTPUT_SEARCH).regex),
+			}),
+		})),
+	toggleOutputSearchRegex: (key) =>
+		set((s) => ({
+			outputSearchByKey: patchOutputSearchSlot(s.outputSearchByKey, key, {
+				regex: !(s.outputSearchByKey[key] ?? DEFAULT_OUTPUT_SEARCH).regex,
+			}),
+		})),
 
 	setSessionFilterOpen: (v) => set((s) => ({ sessionFilterOpen: resolve(v, s.sessionFilterOpen) })),
 	setHistorySearchFilterOpen: (v) =>

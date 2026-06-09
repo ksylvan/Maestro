@@ -4,6 +4,7 @@ import { useMainKeyboardHandler } from '../../../renderer/hooks';
 import { useSettingsStore } from '../../../renderer/stores/settingsStore';
 import { useModalStore } from '../../../renderer/stores/modalStore';
 import { useUIStore } from '../../../renderer/stores/uiStore';
+import { useSessionStore } from '../../../renderer/stores/sessionStore';
 
 /**
  * Creates a minimal mock context with all required handler functions.
@@ -3339,7 +3340,15 @@ describe('useMainKeyboardHandler', () => {
 	describe('output search find bar (Cmd+F refocus)', () => {
 		let searchInput: HTMLInputElement;
 
+		// Output search is scoped per agent+AI-tab; pin an active agent so the
+		// handler's isActiveOutputSearchOpen() resolves to this window's slot.
+		const SEARCH_KEY = 'kbd-sess::kbd-tab';
+
 		beforeEach(() => {
+			useSessionStore.setState({
+				sessions: [{ id: 'kbd-sess', activeTabId: 'kbd-tab' }],
+				activeSessionId: 'kbd-sess',
+			} as any);
 			// Mount a stand-in for the find bar's input so the handler's
 			// querySelector('.terminal-output input') focus target exists.
 			const container = document.createElement('div');
@@ -3351,12 +3360,12 @@ describe('useMainKeyboardHandler', () => {
 		});
 
 		afterEach(() => {
-			useUIStore.getState().setOutputSearchOpen(false);
+			useUIStore.getState().setOutputSearchOpen(SEARCH_KEY, false);
 			searchInput.parentElement?.remove();
 		});
 
 		it('refocuses the find input on Cmd+F while output search is open', () => {
-			useUIStore.getState().setOutputSearchOpen(true);
+			useUIStore.getState().setOutputSearchOpen(SEARCH_KEY, true);
 
 			const { result } = renderHook(() => useMainKeyboardHandler());
 			result.current.keyboardHandlerRef.current = createMockContext();
@@ -3377,7 +3386,7 @@ describe('useMainKeyboardHandler', () => {
 		});
 
 		it('does not steal Cmd+F focus when output search is closed', () => {
-			useUIStore.getState().setOutputSearchOpen(false);
+			useUIStore.getState().setOutputSearchOpen(SEARCH_KEY, false);
 
 			const { result } = renderHook(() => useMainKeyboardHandler());
 			result.current.keyboardHandlerRef.current = createMockContext();
@@ -3398,7 +3407,7 @@ describe('useMainKeyboardHandler', () => {
 		});
 
 		it('ignores Cmd+Shift+F so it does not hijack other shortcuts', () => {
-			useUIStore.getState().setOutputSearchOpen(true);
+			useUIStore.getState().setOutputSearchOpen(SEARCH_KEY, true);
 
 			const { result } = renderHook(() => useMainKeyboardHandler());
 			result.current.keyboardHandlerRef.current = createMockContext();
