@@ -1381,7 +1381,16 @@ describe('app-lifecycle/window-manager', () => {
 				shift: true,
 			});
 
+			// Cmd+Shift+V is not the plain paste chord, so the handler must NOT
+			// drive the privileged paste path. It is also not a text-editing
+			// passthrough, so it is consumed (preventDefault) and forwarded to the
+			// renderer as an app shortcut rather than reaching the page.
 			expect(mockGuestWebContents.paste).not.toHaveBeenCalled();
+			expect(shiftEvent.preventDefault).toHaveBeenCalled();
+			expect(mockWebContents.send).toHaveBeenCalledWith(
+				'browser-tab:shortcutKey',
+				expect.objectContaining({ key: 'v', shift: true })
+			);
 		});
 
 		// Electron 41 removed the legacy `'crashed'` event in favor of
