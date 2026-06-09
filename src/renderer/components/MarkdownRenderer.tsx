@@ -491,7 +491,10 @@ export const MarkdownRenderer = memo(
 										}
 									}}
 									style={{
-										color: theme.colors.accent,
+										// accentText, not accent: links must stay legible on accent-tinted
+										// surfaces (e.g. the user-message bubble). On InQuest accent equals
+										// the bubble's own red, so a raw-accent link disappears.
+										color: theme.colors.accentText,
 										textDecoration: 'underline',
 										cursor: 'pointer',
 									}}
