@@ -715,7 +715,7 @@ component map is `createMarkdownComponents()` in `utils/markdownConfig.ts`, whic
 `<Markdown preset="document">` uses internally. A few advanced surfaces (AutoRun's
 keystroke-memoized preview, FilePreview's tier selection + from-tree image
 resolution, the Wizard DocumentEditor) consume `createMarkdownComponents()`
-directly rather than the shell, but share the exact same leaf implementation.
+directly rather than the shell, but share the same leaf implementation.
 
 Separate engines, intentionally not part of `<Markdown>`: `MarkdownPreviewFast`
 (markdown-it, virtualized for 64KB+ files) and `MobileMarkdownRenderer` (web

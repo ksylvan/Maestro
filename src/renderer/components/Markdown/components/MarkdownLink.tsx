@@ -134,12 +134,11 @@ export function createMarkdownLink(config: MarkdownLinkConfig) {
 				} else if (/^https?:\/\//.test(href)) {
 					openUrl(href, { ctrlKey: e.metaKey || e.ctrlKey });
 				} else {
-					try {
-						const converted = gitToHttps(href);
-						if (/^https?:\/\//.test(converted))
-							openUrl(converted, { ctrlKey: e.metaKey || e.ctrlKey });
-					} catch {
-						// Silently ignore unparseable URLs
+					// gitToHttps is a pure string transform (no throw); convert and open
+					// only if it produced an http(s) URL.
+					const converted = gitToHttps(href);
+					if (/^https?:\/\//.test(converted)) {
+						openUrl(converted, { ctrlKey: e.metaKey || e.ctrlKey });
 					}
 				}
 				return;

@@ -91,6 +91,9 @@ export function preprocessMarkdown(
 	if (options.chatMath) {
 		processed = normalizeChatDisplayMath(processed);
 	}
+	// allowRawHtml means "accept raw HTML input, but sanitize it first": when a
+	// surface opts into raw HTML (rehype-raw), DOMPurify strips script tags,
+	// event handlers, and other XSS vectors before parsing (defense-in-depth).
 	if (options.allowRawHtml) {
 		processed = DOMPurify.sanitize(processed);
 	}

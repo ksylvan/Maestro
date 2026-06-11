@@ -13,8 +13,20 @@ import { ImageOff } from 'lucide-react';
 import { Spinner } from '../../ui/Spinner';
 import type { Theme } from '../../../types';
 
-// Module-level cache for local images to prevent flicker on re-render
+// Module-level cache for local images to prevent flicker on re-render.
+// Bounded with simple FIFO eviction so a long-lived session that scrolls
+// through many images doesn't grow the cache (and its data-URL strings)
+// without limit. Map preserves insertion order, so the first key is the oldest.
+const MAX_CACHED_IMAGES = 200;
 const localImageCache = new Map<string, string>();
+
+function cacheLocalImage(filePath: string, dataUrl: string): void {
+	if (localImageCache.size >= MAX_CACHED_IMAGES) {
+		const oldest = localImageCache.keys().next().value;
+		if (oldest !== undefined) localImageCache.delete(oldest);
+	}
+	localImageCache.set(filePath, dataUrl);
+}
 
 export interface LocalImageProps {
 	src?: string;
@@ -96,7 +108,7 @@ export const LocalImage = memo(({ src, alt, theme, width, sshRemoteId }: LocalIm
 			.then((result) => {
 				if (isStale) return;
 				if (result && result.startsWith('data:')) {
-					localImageCache.set(filePath, result);
+					cacheLocalImage(filePath, result);
 					setDataUrl(result);
 				} else {
 					setError('Invalid image data');

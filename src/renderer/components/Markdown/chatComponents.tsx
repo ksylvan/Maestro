@@ -92,31 +92,35 @@ export function createChatMarkdownComponents(
 				{children}
 			</InlineCode>
 		),
-		p: ({ node: _node, children, ...props }: any) => (
+		p: ({ node: _node, children, ...props }: JSX.IntrinsicElements['p'] & ExtraProps) => (
 			<p {...props}>{withReadableTransforms(children)}</p>
 		),
-		li: ({ node: _node, children, ...props }: any) => (
+		li: ({ node: _node, children, ...props }: JSX.IntrinsicElements['li'] & ExtraProps) => (
 			<li {...props}>{withReadableTransforms(children)}</li>
 		),
-		blockquote: ({ node: _node, children, ...props }: any) => (
+		blockquote: ({
+			node: _node,
+			children,
+			...props
+		}: JSX.IntrinsicElements['blockquote'] & ExtraProps) => (
 			<blockquote {...props}>{withReadableTransforms(children)}</blockquote>
 		),
-		h1: ({ node: _node, children, ...props }: any) => (
+		h1: ({ node: _node, children, ...props }: JSX.IntrinsicElements['h1'] & ExtraProps) => (
 			<h1 {...props}>{withReadableTransforms(children)}</h1>
 		),
-		h2: ({ node: _node, children, ...props }: any) => (
+		h2: ({ node: _node, children, ...props }: JSX.IntrinsicElements['h2'] & ExtraProps) => (
 			<h2 {...props}>{withReadableTransforms(children)}</h2>
 		),
-		h3: ({ node: _node, children, ...props }: any) => (
+		h3: ({ node: _node, children, ...props }: JSX.IntrinsicElements['h3'] & ExtraProps) => (
 			<h3 {...props}>{withReadableTransforms(children)}</h3>
 		),
-		h4: ({ node: _node, children, ...props }: any) => (
+		h4: ({ node: _node, children, ...props }: JSX.IntrinsicElements['h4'] & ExtraProps) => (
 			<h4 {...props}>{withReadableTransforms(children)}</h4>
 		),
-		h5: ({ node: _node, children, ...props }: any) => (
+		h5: ({ node: _node, children, ...props }: JSX.IntrinsicElements['h5'] & ExtraProps) => (
 			<h5 {...props}>{withReadableTransforms(children)}</h5>
 		),
-		h6: ({ node: _node, children, ...props }: any) => (
+		h6: ({ node: _node, children, ...props }: JSX.IntrinsicElements['h6'] & ExtraProps) => (
 			<h6 {...props}>{withReadableTransforms(children)}</h6>
 		),
 		img: ({ node: _node, src, alt, ...props }: JSX.IntrinsicElements['img'] & ExtraProps) => {

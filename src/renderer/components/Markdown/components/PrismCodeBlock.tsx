@@ -7,6 +7,7 @@
  */
 
 import React from 'react';
+import type { ExtraProps } from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import type { Theme } from '../../../types';
 import { getSyntaxStyle } from '../../../utils/syntaxTheme';
@@ -29,13 +30,17 @@ export interface PrismCodeBlockOptions {
 export function createPrismCodeBlock(options: PrismCodeBlockOptions) {
 	const { theme, customLanguageRenderers = {}, codeBlockStyle } = options;
 
-	return function PrismCodeBlock({ children }: any) {
+	return function PrismCodeBlock({ children }: JSX.IntrinsicElements['pre'] & ExtraProps) {
 		const codeElement = React.Children.toArray(children).find(
 			(child: any) => child?.type === 'code' || child?.props?.node?.tagName === 'code'
 		) as React.ReactElement<any> | undefined;
 
 		if (codeElement?.props) {
 			const { className, children: codeChildren } = codeElement.props;
+			// `\w+` (narrower than ShikiCodeBlock's `[\w+\-#]+`) is intentional: Prism's
+			// registered grammars are all word-chars (cpp, csharp, objectivec), so a
+			// `c++` fence matches `c` and still highlights, whereas capturing `c++`
+			// would pass an unknown language and lose highlighting.
 			const match = (className || '').match(/language-(\w+)/);
 			const language = match ? match[1] : 'text';
 			const codeContent = String(codeChildren).replace(/\n$/, '');
