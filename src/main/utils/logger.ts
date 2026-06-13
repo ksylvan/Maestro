@@ -96,6 +96,18 @@ class Logger extends EventEmitter {
 
 		stream.on('error', (error) => {
 			if (this.logFileStream === stream) {
+				const fileLogEnabled = this.fileLogEnabled;
+				const logFilePath = this.logFilePath;
+
+				void import('./sentry')
+					.then(({ captureException }) =>
+						captureException(error, {
+							fileLogEnabled,
+							logFilePath,
+						})
+					)
+					.catch(() => {});
+
 				this.logFileStream = null;
 				this.fileLogEnabled = false;
 				console.error('[Logger] File log stream error:', error);
