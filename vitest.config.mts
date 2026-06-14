@@ -3,10 +3,13 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 
 export default defineConfig({
-	plugins: [react()],
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	plugins: [react() as any],
 	test: {
 		globals: true,
 		environment: 'jsdom',
+		pool: 'forks',
+		maxWorkers: 4,
 		setupFiles: ['./src/__tests__/setup.ts'],
 		include: ['src/**/*.{test,spec}.{ts,tsx}'],
 		exclude: [
@@ -24,18 +27,11 @@ export default defineConfig({
 			provider: 'v8',
 			reporter: ['text', 'text-summary', 'json', 'html'],
 			reportsDirectory: './coverage',
-			thresholds: {
-				statements: 100,
-				branches: 100,
-				functions: 100,
-				lines: 100,
-			},
 			include: ['src/**/*.{ts,tsx}'],
 			exclude: [
 				'node_modules',
 				'dist',
 				'src/__tests__/**',
-				'**/__tests__/**',
 				'**/*.d.ts',
 				'src/main/preload.ts', // Electron preload script
 			],

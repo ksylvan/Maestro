@@ -138,7 +138,7 @@ export function useAutoRunUndo({
 			lastUndoSnapshotRef.current = snapshotContent;
 
 			// Clear redo stack on new edit action
-			redoHistoryRef.current.delete(selectedFile);
+			redoHistoryRef.current.set(selectedFile, []);
 		},
 		[selectedFile, localContent, textareaRef]
 	);
@@ -182,11 +182,7 @@ export function useAutoRunUndo({
 
 		// Pop and apply the undo state
 		const prevState = undoStack.pop()!;
-		if (undoStack.length > 0) {
-			undoHistoryRef.current.set(selectedFile, undoStack);
-		} else {
-			undoHistoryRef.current.delete(selectedFile);
-		}
+		undoHistoryRef.current.set(selectedFile, undoStack);
 
 		// Update content without pushing to undo stack
 		setLocalContent(prevState.content);

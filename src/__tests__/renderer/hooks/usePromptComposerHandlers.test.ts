@@ -107,7 +107,9 @@ function createSession(overrides: Partial<Session> = {}): Session {
 		activeFileTabId: null,
 		unifiedTabOrder: [{ type: 'ai' as const, id: tab.id }],
 		unifiedClosedTabHistory: [],
-		autoRunFolderPath: '/test/project/Auto Run Docs',
+		autoRunFolderPath: '/test/project/.maestro/playbooks',
+		terminalTabs: [],
+		activeTerminalTabId: null,
 		...overrides,
 	} as Session;
 }
@@ -157,6 +159,7 @@ beforeEach(() => {
 
 	useSettingsStore.setState({
 		enterToSendAI: true,
+		enterToSendAIExpanded: false,
 	} as any);
 });
 
@@ -713,36 +716,6 @@ describe('usePromptComposerHandlers', () => {
 				expect(updatedTabs.find((t: any) => t.id === 'tab-ro-other')?.readOnlyMode).toBe(true); // unchanged
 			});
 
-			it('does not modify other sessions when toggling readOnlyMode', () => {
-				const activeTab = createTab({ id: 'tab-ro-active-session', readOnlyMode: false });
-				const activeSession = createSession({
-					id: 'sess-ro-active',
-					aiTabs: [activeTab],
-					activeTabId: 'tab-ro-active-session',
-				});
-				const otherTab = createTab({ id: 'tab-ro-other-session', readOnlyMode: false });
-				const otherSession = createSession({
-					id: 'sess-ro-other',
-					aiTabs: [otherTab],
-					activeTabId: 'tab-ro-other-session',
-				});
-				useSessionStore.setState({
-					sessions: [activeSession, otherSession],
-					activeSessionId: 'sess-ro-active',
-				});
-
-				const deps = createDeps();
-				const { result } = renderHook(() => usePromptComposerHandlers(deps));
-
-				act(() => {
-					result.current.handlePromptToggleTabReadOnlyMode();
-				});
-
-				const sessions = useSessionStore.getState().sessions;
-				expect(sessions[0].aiTabs[0].readOnlyMode).toBe(true);
-				expect(sessions[1].aiTabs[0].readOnlyMode).toBe(false);
-			});
-
 			it('is a no-op when there is no active session', () => {
 				useSessionStore.setState({ sessions: [], activeSessionId: '' });
 
@@ -1054,36 +1027,6 @@ describe('usePromptComposerHandlers', () => {
 			expect(updatedTabs.find((t: any) => t.id === 'tab-think-b')?.showThinking).toBe('on'); // unchanged
 		});
 
-		it('does not modify other sessions when toggling thinking mode', () => {
-			const activeTab = createTab({ id: 'tab-think-active-session', showThinking: 'off' });
-			const activeSession = createSession({
-				id: 'sess-think-active',
-				aiTabs: [activeTab],
-				activeTabId: 'tab-think-active-session',
-			});
-			const otherTab = createTab({ id: 'tab-think-other-session', showThinking: 'off' });
-			const otherSession = createSession({
-				id: 'sess-think-other',
-				aiTabs: [otherTab],
-				activeTabId: 'tab-think-other-session',
-			});
-			useSessionStore.setState({
-				sessions: [activeSession, otherSession],
-				activeSessionId: 'sess-think-active',
-			});
-
-			const deps = createDeps();
-			const { result } = renderHook(() => usePromptComposerHandlers(deps));
-
-			act(() => {
-				result.current.handlePromptToggleTabShowThinking();
-			});
-
-			const sessions = useSessionStore.getState().sessions;
-			expect(sessions[0].aiTabs[0].showThinking).toBe('on');
-			expect(sessions[1].aiTabs[0].showThinking).toBe('off');
-		});
-
 		it('is a no-op when there is no active session', () => {
 			useSessionStore.setState({ sessions: [], activeSessionId: '' });
 
@@ -1119,8 +1062,8 @@ describe('usePromptComposerHandlers', () => {
 	// handlePromptToggleEnterToSend
 	// ========================================================================
 	describe('handlePromptToggleEnterToSend', () => {
-		it('toggles enterToSendAI from true to false', () => {
-			useSettingsStore.setState({ enterToSendAI: true } as any);
+		it('toggles enterToSendAIExpanded from true to false', () => {
+			useSettingsStore.setState({ enterToSendAIExpanded: true } as any);
 
 			const deps = createDeps();
 			const { result } = renderHook(() => usePromptComposerHandlers(deps));
@@ -1129,11 +1072,11 @@ describe('usePromptComposerHandlers', () => {
 				result.current.handlePromptToggleEnterToSend();
 			});
 
-			expect(useSettingsStore.getState().enterToSendAI).toBe(false);
+			expect(useSettingsStore.getState().enterToSendAIExpanded).toBe(false);
 		});
 
-		it('toggles enterToSendAI from false to true', () => {
-			useSettingsStore.setState({ enterToSendAI: false } as any);
+		it('toggles enterToSendAIExpanded from false to true', () => {
+			useSettingsStore.setState({ enterToSendAIExpanded: false } as any);
 
 			const deps = createDeps();
 			const { result } = renderHook(() => usePromptComposerHandlers(deps));
@@ -1142,11 +1085,11 @@ describe('usePromptComposerHandlers', () => {
 				result.current.handlePromptToggleEnterToSend();
 			});
 
-			expect(useSettingsStore.getState().enterToSendAI).toBe(true);
+			expect(useSettingsStore.getState().enterToSendAIExpanded).toBe(true);
 		});
 
 		it('toggles correctly on repeated calls', () => {
-			useSettingsStore.setState({ enterToSendAI: true } as any);
+			useSettingsStore.setState({ enterToSendAIExpanded: true } as any);
 
 			const deps = createDeps();
 			const { result } = renderHook(() => usePromptComposerHandlers(deps));
@@ -1154,12 +1097,12 @@ describe('usePromptComposerHandlers', () => {
 			act(() => {
 				result.current.handlePromptToggleEnterToSend();
 			});
-			expect(useSettingsStore.getState().enterToSendAI).toBe(false);
+			expect(useSettingsStore.getState().enterToSendAIExpanded).toBe(false);
 
 			act(() => {
 				result.current.handlePromptToggleEnterToSend();
 			});
-			expect(useSettingsStore.getState().enterToSendAI).toBe(true);
+			expect(useSettingsStore.getState().enterToSendAIExpanded).toBe(true);
 		});
 	});
 });

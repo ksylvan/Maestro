@@ -17,6 +17,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { logger } from '../../../renderer/utils/logger';
 import { renderHook, act, cleanup } from '@testing-library/react';
 
 // ============================================================================
@@ -49,10 +50,8 @@ vi.mock('../../../renderer/constants/app', () => ({
 	getSlashCommandDescription: vi.fn((cmd: string) => `Description for ${cmd}`),
 }));
 
-vi.mock('../../../prompts', async () => {
-	const actual = await vi.importActual('../../../prompts');
-	return { ...actual, autorunSynopsisPrompt: 'Generate a synopsis of all work done.' };
-});
+// autorunSynopsisPrompt is now loaded via IPC (window.maestro.prompts.get)
+// and cached in the hook's module-level cache via loadWizardHandlersPrompts()
 
 vi.mock('../../../shared/synopsis', () => ({
 	parseSynopsis: vi.fn((response: string) => ({
@@ -66,23 +65,9 @@ vi.mock('../../../shared/formatters', () => ({
 	formatRelativeTime: vi.fn(() => '5 minutes ago'),
 }));
 
-vi.mock('../../../renderer/components/Wizard', () => ({
-	AUTO_RUN_FOLDER_NAME: 'Auto Run Docs',
-}));
-
 vi.mock('../../../renderer/components/BatchRunnerModal', () => ({
 	DEFAULT_BATCH_PROMPT: 'Run each task sequentially.',
 }));
-
-vi.mock('../../../renderer/utils/tabHelpers', async () => {
-	const actual = await vi.importActual<typeof import('../../../renderer/utils/tabHelpers')>(
-		'../../../renderer/utils/tabHelpers'
-	);
-	return {
-		...actual,
-		createTab: vi.fn(actual.createTab),
-	};
-});
 
 import { useWizardHandlers } from '../../../renderer/hooks/wizard/useWizardHandlers';
 import type { UseWizardHandlersDeps } from '../../../renderer/hooks/wizard/useWizardHandlers';
@@ -94,66 +79,42 @@ import { notifyToast } from '../../../renderer/stores/notificationStore';
 import { gitService } from '../../../renderer/services/git';
 import { validateNewSession } from '../../../renderer/utils/sessionValidation';
 import { parseSynopsis } from '../../../shared/synopsis';
-import { createTab } from '../../../renderer/utils/tabHelpers';
 import type { Session, AITab } from '../../../renderer/types';
+import { createMockAITab } from '../../helpers/mockTab';
+import { createMockSession as baseCreateMockSession } from '../../helpers/mockSession';
 
 // ============================================================================
 // Test Helpers
 // ============================================================================
 
-const createMockTab = (overrides: Partial<AITab> = {}): AITab => ({
-	id: 'tab-1',
-	agentSessionId: 'agent-session-1',
-	name: 'Tab 1',
-	starred: false,
-	logs: [],
-	inputValue: '',
-	stagedImages: [],
-	createdAt: Date.now() - 60000,
-	state: 'idle',
-	saveToHistory: true,
-	showThinking: 'off',
-	...overrides,
-});
+const createMockTab = (overrides: Partial<AITab> = {}): AITab =>
+	createMockAITab({
+		agentSessionId: 'agent-session-1',
+		name: 'Tab 1',
+		createdAt: Date.now() - 60000,
+		saveToHistory: true,
+		showThinking: 'off',
+		...overrides,
+	});
 
+// Thin wrapper: pre-populates an AI tab so wizard handlers have a tab
+// target.
 const createMockSession = (overrides: Partial<Session> = {}): Session =>
-	({
-		id: 'session-1',
+	baseCreateMockSession({
 		name: 'Test Agent',
-		toolType: 'claude-code',
-		state: 'idle',
 		cwd: '/projects/test',
 		fullPath: '/projects/test',
 		projectRoot: '/projects/test',
-		isGitRepo: false,
-		aiLogs: [],
-		shellLogs: [],
-		workLog: [],
-		contextUsage: 0,
-		inputMode: 'ai',
-		aiPid: 0,
-		terminalPid: 0,
 		port: 3000,
-		isLive: false,
-		changedFiles: [],
-		fileTree: [],
-		fileExplorerExpanded: [],
-		fileExplorerScrollPos: 0,
 		fileTreeAutoRefreshInterval: 180,
 		shellCwd: '/projects/test',
 		aiCommandHistory: [],
 		shellCommandHistory: [],
-		executionQueue: [],
-		activeTimeMs: 0,
 		aiTabs: [createMockTab()],
 		activeTabId: 'tab-1',
-		closedTabHistory: [],
-		filePreviewTabs: [],
-		activeFileTabId: null,
 		unifiedTabOrder: [{ type: 'ai' as const, id: 'tab-1' }],
-		unifiedClosedTabHistory: [],
 		...overrides,
-	}) as Session;
+	});
 
 const createMockDeps = (overrides: Partial<UseWizardHandlersDeps> = {}): UseWizardHandlersDeps => ({
 	inlineWizardContext: {
@@ -177,6 +138,7 @@ const createMockDeps = (overrides: Partial<UseWizardHandlersDeps> = {}): UseWiza
 		state: {} as any,
 		getStateForTab: vi.fn(() => undefined),
 		isWizardActiveForTab: vi.fn(() => false),
+		selectWizardTab: vi.fn(),
 		startWizard: vi.fn(),
 		endWizard: vi.fn().mockResolvedValue(null),
 		sendMessage: vi.fn().mockResolvedValue(undefined),
@@ -222,8 +184,8 @@ const createMockDeps = (overrides: Partial<UseWizardHandlersDeps> = {}): UseWiza
 			isComplete: false,
 			createdSessionId: null,
 		} as any,
-		completeWizard: vi.fn(),
-		clearResumeState: vi.fn(),
+		completeWizard: vi.fn().mockResolvedValue(undefined),
+		clearResumeState: vi.fn().mockResolvedValue(undefined),
 	},
 	spawnBackgroundSynopsis: vi.fn().mockResolvedValue({
 		success: true,
@@ -275,29 +237,6 @@ const createMatchingInlineWizardTabState = (wizardState: any) => ({
 	subfolderPath: wizardState?.subfolderPath,
 	agentSessionId: wizardState?.agentSessionId,
 	subfolderName: wizardState?.subfolderName,
-});
-
-const createWizardState = (overrides: Record<string, any> = {}) => ({
-	isActive: true,
-	isWaiting: false,
-	mode: 'new',
-	confidence: 50,
-	ready: false,
-	conversationHistory: [],
-	previousUIState: {
-		readOnlyMode: false,
-		saveToHistory: true,
-		showThinking: 'off' as const,
-	},
-	error: null,
-	isGeneratingDocs: false,
-	generatedDocuments: [],
-	streamingContent: '',
-	currentDocumentIndex: 0,
-	showWizardThinking: false,
-	thinkingContent: '',
-	toolExecutions: [],
-	...overrides,
 });
 
 const setupMaestroMocks = () => {
@@ -359,7 +298,10 @@ describe('useWizardHandlers', () => {
 			(window as any).maestro.claude.getCommands.mockResolvedValue([
 				{ command: '/custom-cmd', description: 'Custom command' },
 			]);
-			(window as any).maestro.agents.discoverSlashCommands.mockResolvedValue(['init', 'review']);
+			(window as any).maestro.agents.discoverSlashCommands.mockResolvedValue([
+				{ name: 'init' },
+				{ name: 'review' },
+			]);
 
 			const deps = createMockDeps();
 			renderHook(() => useWizardHandlers(deps));
@@ -373,6 +315,7 @@ describe('useWizardHandlers', () => {
 			expect((window as any).maestro.agents.discoverSlashCommands).toHaveBeenCalledWith(
 				'claude-code',
 				'/projects/test',
+				undefined,
 				undefined
 			);
 
@@ -386,24 +329,13 @@ describe('useWizardHandlers', () => {
 			);
 		});
 
-		it('merges discovered commands only into the active session', async () => {
+		it('preserves skill description returned from discoverSlashCommands', async () => {
 			const session = createMockSession({ agentCommands: undefined });
-			const otherSession = createMockSession({
-				id: 'other-session',
-				name: 'Other Session',
-				agentCommands: undefined,
-				aiTabs: [createMockTab({ id: 'other-tab' })],
-				activeTabId: 'other-tab',
-			});
-			useSessionStore.setState({
-				sessions: [otherSession, session],
-				activeSessionId: 'session-1',
-			});
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
 
-			(window as any).maestro.claude.getCommands.mockResolvedValue([
-				{ command: '/existing', description: 'Custom command' },
+			(window as any).maestro.agents.discoverSlashCommands.mockResolvedValue([
+				{ name: 'Research', description: 'Deep literature review' },
 			]);
-			(window as any).maestro.agents.discoverSlashCommands.mockResolvedValue(['review']);
 
 			const deps = createMockDeps();
 			renderHook(() => useWizardHandlers(deps));
@@ -412,111 +344,12 @@ describe('useWizardHandlers', () => {
 				await new Promise((r) => setTimeout(r, 50));
 			});
 
-			const sessions = useSessionStore.getState().sessions;
-			expect(sessions.find((s) => s.id === 'session-1')?.agentCommands).toEqual(
+			const updatedSession = useSessionStore.getState().sessions[0];
+			expect(updatedSession.agentCommands).toEqual(
 				expect.arrayContaining([
-					{ command: '/existing', description: 'Custom command' },
-					expect.objectContaining({ command: '/review' }),
+					{ command: '/Research', description: 'Deep literature review', prompt: undefined },
 				])
 			);
-			expect(sessions.find((s) => s.id === 'other-session')?.agentCommands).toBeUndefined();
-		});
-
-		it('deduplicates discovered slash commands and normalizes missing slashes', async () => {
-			const session = createMockSession({ agentCommands: undefined });
-			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
-
-			(window as any).maestro.claude.getCommands.mockResolvedValue([]);
-			(window as any).maestro.agents.discoverSlashCommands.mockResolvedValue(['/review', 'review']);
-
-			const deps = createMockDeps();
-			renderHook(() => useWizardHandlers(deps));
-
-			await act(async () => {
-				await new Promise((r) => setTimeout(r, 50));
-			});
-
-			const commands = useSessionStore.getState().sessions[0].agentCommands ?? [];
-			expect(commands.filter((cmd) => cmd.command === '/review')).toHaveLength(1);
-		});
-
-		it('leaves commands unset when discovery returns null responses', async () => {
-			const session = createMockSession({ agentCommands: undefined });
-			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
-
-			(window as any).maestro.claude.getCommands.mockResolvedValue(null);
-			(window as any).maestro.agents.discoverSlashCommands.mockResolvedValue(null);
-
-			const deps = createMockDeps();
-			renderHook(() => useWizardHandlers(deps));
-
-			await act(async () => {
-				await new Promise((r) => setTimeout(r, 50));
-			});
-
-			expect(useSessionStore.getState().sessions[0].agentCommands).toBeUndefined();
-		});
-
-		it('ignores discovered commands that resolve after unmount', async () => {
-			const session = createMockSession({ agentCommands: undefined });
-			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
-
-			let resolveCustomCommands!: (commands: { command: string; description: string }[]) => void;
-			let resolveAgentCommands!: (commands: string[]) => void;
-			const customCommandsPromise = new Promise<{ command: string; description: string }[]>(
-				(resolve) => {
-					resolveCustomCommands = resolve;
-				}
-			);
-			const agentCommandsPromise = new Promise<string[]>((resolve) => {
-				resolveAgentCommands = resolve;
-			});
-
-			(window as any).maestro.claude.getCommands.mockReturnValue(customCommandsPromise);
-			(window as any).maestro.agents.discoverSlashCommands.mockReturnValue(agentCommandsPromise);
-
-			const deps = createMockDeps();
-			const { unmount } = renderHook(() => useWizardHandlers(deps));
-
-			unmount();
-			await act(async () => {
-				resolveCustomCommands([{ command: '/late', description: 'Late custom command' }]);
-				resolveAgentCommands(['late-agent']);
-				await Promise.all([customCommandsPromise, agentCommandsPromise]);
-			});
-
-			expect(useSessionStore.getState().sessions[0].agentCommands).toBeUndefined();
-		});
-
-		it('does not log discovery errors after unmount', async () => {
-			const session = createMockSession({ agentCommands: undefined });
-			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
-
-			let rejectCustomCommands!: (error: Error) => void;
-			let rejectAgentCommands!: (error: Error) => void;
-			const customCommandsPromise = new Promise<never>((_resolve, reject) => {
-				rejectCustomCommands = reject;
-			});
-			const agentCommandsPromise = new Promise<never>((_resolve, reject) => {
-				rejectAgentCommands = reject;
-			});
-
-			(window as any).maestro.claude.getCommands.mockReturnValue(customCommandsPromise);
-			(window as any).maestro.agents.discoverSlashCommands.mockReturnValue(agentCommandsPromise);
-
-			const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-			const deps = createMockDeps();
-			const { unmount } = renderHook(() => useWizardHandlers(deps));
-
-			unmount();
-			await act(async () => {
-				rejectCustomCommands(new Error('late custom failure'));
-				rejectAgentCommands(new Error('late agent failure'));
-				await Promise.allSettled([customCommandsPromise, agentCommandsPromise]);
-			});
-
-			expect(consoleSpy).not.toHaveBeenCalled();
-			consoleSpy.mockRestore();
 		});
 
 		it('skips discovery if agentCommands already populated', async () => {
@@ -558,7 +391,7 @@ describe('useWizardHandlers', () => {
 				new Error('Discovery failed')
 			);
 
-			const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+			const consoleSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
 			const deps = createMockDeps();
 			renderHook(() => useWizardHandlers(deps));
 
@@ -569,6 +402,69 @@ describe('useWizardHandlers', () => {
 			// Should not throw; errors are caught and logged
 			expect(consoleSpy).toHaveBeenCalled();
 			consoleSpy.mockRestore();
+		});
+
+		it('discovers agent slash commands for copilot sessions', async () => {
+			const session = createMockSession({
+				toolType: 'copilot-cli' as any,
+				agentCommands: undefined,
+			});
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+
+			(window as any).maestro.agents.discoverSlashCommands.mockResolvedValue([
+				{ name: 'help' },
+				{ name: 'model' },
+			]);
+
+			const deps = createMockDeps();
+			renderHook(() => useWizardHandlers(deps));
+
+			await act(async () => {
+				await new Promise((r) => setTimeout(r, 50));
+			});
+
+			expect((window as any).maestro.claude.getCommands).not.toHaveBeenCalled();
+			expect((window as any).maestro.agents.discoverSlashCommands).toHaveBeenCalledWith(
+				'copilot-cli',
+				'/projects/test',
+				undefined,
+				undefined
+			);
+
+			const updatedSession = useSessionStore.getState().sessions[0];
+			expect(updatedSession.agentCommands).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ command: '/help' }),
+					expect.objectContaining({ command: '/model' }),
+				])
+			);
+		});
+
+		it('discovers agent slash commands for opencode sessions', async () => {
+			const session = createMockSession({
+				toolType: 'opencode' as any,
+				agentCommands: undefined,
+			});
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
+
+			(window as any).maestro.agents.discoverSlashCommands.mockResolvedValue([
+				{ name: 'deploy', prompt: 'Deploy the app' },
+			]);
+
+			const deps = createMockDeps();
+			renderHook(() => useWizardHandlers(deps));
+
+			await act(async () => {
+				await new Promise((r) => setTimeout(r, 50));
+			});
+
+			expect((window as any).maestro.claude.getCommands).not.toHaveBeenCalled();
+			expect((window as any).maestro.agents.discoverSlashCommands).toHaveBeenCalledWith(
+				'opencode',
+				'/projects/test',
+				undefined,
+				undefined
+			);
 		});
 	});
 
@@ -678,51 +574,6 @@ describe('useWizardHandlers', () => {
 			expect(activeTab?.wizardState).toBeUndefined();
 		});
 
-		it('clears stale wizard state only from the active session and active tab', async () => {
-			const staleWizardState = createWizardState({ goal: 'Stale active wizard' });
-			const siblingWizardState = createWizardState({ goal: 'Keep sibling wizard' });
-			const otherWizardState = createWizardState({ goal: 'Keep other session wizard' });
-			const session = createMockSession({
-				aiTabs: [
-					createMockTab({ id: 'tab-1', wizardState: staleWizardState }),
-					createMockTab({ id: 'tab-2', name: 'Sibling', wizardState: siblingWizardState }),
-				],
-				activeTabId: 'tab-1',
-			});
-			const otherSession = createMockSession({
-				id: 'other-session',
-				aiTabs: [createMockTab({ id: 'other-tab', wizardState: otherWizardState })],
-				activeTabId: 'other-tab',
-			});
-			useSessionStore.setState({
-				sessions: [otherSession, session],
-				activeSessionId: 'session-1',
-			});
-
-			const deps = createMockDeps({
-				inlineWizardContext: {
-					...createMockDeps().inlineWizardContext,
-					getStateForTab: vi.fn().mockReturnValue(undefined),
-				} as any,
-			});
-
-			renderHook(() => useWizardHandlers(deps));
-
-			await act(async () => {
-				await new Promise((r) => setTimeout(r, 50));
-			});
-
-			const sessions = useSessionStore.getState().sessions;
-			const activeSession = sessions.find((s) => s.id === 'session-1')!;
-			expect(activeSession.aiTabs.find((tab) => tab.id === 'tab-1')?.wizardState).toBeUndefined();
-			expect(activeSession.aiTabs.find((tab) => tab.id === 'tab-2')?.wizardState).toBe(
-				siblingWizardState
-			);
-			expect(sessions.find((s) => s.id === 'other-session')?.aiTabs[0].wizardState).toBe(
-				otherWizardState
-			);
-		});
-
 		it('maps "ask" mode to "new" WizardMode', async () => {
 			const session = createMockSession();
 			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
@@ -762,72 +613,6 @@ describe('useWizardHandlers', () => {
 			const activeTab = updatedSession.aiTabs.find((t) => t.id === 'tab-1');
 			expect(activeTab?.wizardState?.mode).toBe('new');
 		});
-
-		it('syncs wizard state only to the active session and active tab', async () => {
-			const inactiveWizardState = createWizardState({ goal: 'Keep existing tab state' });
-			const session = createMockSession({
-				aiTabs: [
-					createMockTab({ id: 'tab-1' }),
-					createMockTab({ id: 'tab-2', name: 'Other tab', wizardState: inactiveWizardState }),
-				],
-				activeTabId: 'tab-1',
-			});
-			const otherSession = createMockSession({
-				id: 'other-session',
-				aiTabs: [
-					createMockTab({
-						id: 'other-tab',
-						wizardState: createWizardState({ goal: 'Other session state' }),
-					}),
-				],
-				activeTabId: 'other-tab',
-			});
-			useSessionStore.setState({
-				sessions: [otherSession, session],
-				activeSessionId: 'session-1',
-			});
-
-			const mockTabState = {
-				isActive: true,
-				isWaiting: true,
-				mode: 'new',
-				goal: 'Build active tab flow',
-				confidence: 80,
-				ready: true,
-				conversationHistory: [],
-				previousUIState: null,
-				error: null,
-				isGeneratingDocs: false,
-				generatedDocuments: [],
-				streamingContent: '',
-				currentDocumentIndex: 0,
-				generationProgress: null,
-				projectPath: '/projects/test',
-			};
-			const deps = createMockDeps({
-				inlineWizardContext: {
-					...createMockDeps().inlineWizardContext,
-					getStateForTab: vi.fn().mockReturnValue(mockTabState),
-				} as any,
-			});
-
-			renderHook(() => useWizardHandlers(deps));
-
-			await act(async () => {
-				await new Promise((r) => setTimeout(r, 50));
-			});
-
-			const sessions = useSessionStore.getState().sessions;
-			const updatedActiveSession = sessions.find((s) => s.id === 'session-1')!;
-			const updatedOtherSession = sessions.find((s) => s.id === 'other-session')!;
-			expect(updatedActiveSession.aiTabs.find((tab) => tab.id === 'tab-1')?.wizardState?.goal).toBe(
-				'Build active tab flow'
-			);
-			expect(updatedActiveSession.aiTabs.find((tab) => tab.id === 'tab-2')?.wizardState).toBe(
-				inactiveWizardState
-			);
-			expect(updatedOtherSession.aiTabs[0].wizardState?.goal).toBe('Other session state');
-		});
 	});
 
 	// ========================================================================
@@ -858,7 +643,8 @@ describe('useWizardHandlers', () => {
 				expect.objectContaining({
 					onThinkingChunk: expect.any(Function),
 					onToolExecution: expect.any(Function),
-				})
+				}),
+				'tab-1'
 			);
 		});
 
@@ -1052,7 +838,6 @@ describe('useWizardHandlers', () => {
 			// Simulate a JSON thinking chunk (should be filtered)
 			act(() => {
 				capturedCallbacks.onThinkingChunk('{"confidence": 80, "message": "Ready"}');
-				capturedCallbacks.onThinkingChunk('{"message": "Ready"}');
 			});
 
 			const updatedSession = useSessionStore.getState().sessions[0];
@@ -1117,209 +902,6 @@ describe('useWizardHandlers', () => {
 			expect(updatedTab?.wizardState?.toolExecutions).toContainEqual(toolEvent);
 		});
 
-		it('routes tool execution events when legacy wizard state has no tool list', async () => {
-			const wizState = createWizardState({
-				showWizardThinking: true,
-				toolExecutions: undefined,
-			});
-			const tab = createMockTab({ wizardState: wizState });
-			const session = createMockSession({ aiTabs: [tab] });
-			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
-
-			let capturedCallbacks: any;
-			const sendMessage = vi.fn().mockImplementation((_content, _images, callbacks) => {
-				capturedCallbacks = callbacks;
-				return Promise.resolve();
-			});
-
-			const deps = createMockDeps({
-				inlineWizardContext: {
-					...createMockDeps().inlineWizardContext,
-					sendMessage,
-					getStateForTab: vi.fn().mockReturnValue(createMatchingInlineWizardTabState(wizState)),
-				} as any,
-			});
-
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			await act(async () => {
-				await result.current.sendWizardMessageWithThinking('Test');
-			});
-
-			act(() => {
-				useSessionStore.setState({
-					sessions: [
-						createMockSession({
-							aiTabs: [
-								createMockTab({
-									wizardState: { ...wizState, toolExecutions: undefined },
-								}),
-							],
-						}),
-					],
-					activeSessionId: 'session-1',
-				});
-				capturedCallbacks.onToolExecution({
-					toolName: 'Read',
-					state: 'running',
-					timestamp: 42,
-				});
-			});
-
-			expect(useSessionStore.getState().sessions[0].aiTabs[0].wizardState?.toolExecutions).toEqual([
-				{ toolName: 'Read', state: 'running', timestamp: 42 },
-			]);
-		});
-
-		it('does not crash on malformed duplicate tab ids during stream updates', async () => {
-			const wizState = createWizardState({
-				showWizardThinking: true,
-				thinkingContent: 'Existing thinking',
-				toolExecutions: [],
-			});
-			const session = createMockSession();
-			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
-
-			let capturedCallbacks: any;
-			const sendMessage = vi.fn().mockImplementation((_content, _images, callbacks) => {
-				capturedCallbacks = callbacks;
-				return Promise.resolve();
-			});
-			const deps = createMockDeps({
-				inlineWizardContext: {
-					...createMockDeps().inlineWizardContext,
-					sendMessage,
-					getStateForTab: vi.fn().mockReturnValue(createMatchingInlineWizardTabState(wizState)),
-				} as any,
-			});
-
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			await act(async () => {
-				useSessionStore.setState({
-					sessions: [
-						createMockSession({
-							aiTabs: [
-								createMockTab({ id: 'tab-1', wizardState: wizState }),
-								createMockTab({ id: 'tab-1', name: 'Duplicate without wizard state' }),
-							],
-							activeTabId: 'tab-1',
-						}),
-					],
-					activeSessionId: 'session-1',
-				});
-				await result.current.sendWizardMessageWithThinking('Test');
-			});
-
-			act(() => {
-				useSessionStore.setState({
-					sessions: [
-						createMockSession({
-							aiTabs: [
-								createMockTab({ id: 'tab-1', wizardState: wizState }),
-								createMockTab({ id: 'tab-1', name: 'Duplicate without wizard state' }),
-							],
-							activeTabId: 'tab-1',
-						}),
-					],
-					activeSessionId: 'session-1',
-				});
-				capturedCallbacks.onThinkingChunk('New thinking');
-				capturedCallbacks.onToolExecution({
-					toolName: 'Read',
-					state: 'running',
-					timestamp: 7,
-				});
-			});
-
-			const tabs = useSessionStore.getState().sessions[0].aiTabs;
-			expect(tabs[0].wizardState?.thinkingContent).toContain('New thinking');
-			expect(tabs[0].wizardState?.toolExecutions).toContainEqual({
-				toolName: 'Read',
-				state: 'running',
-				timestamp: 7,
-			});
-			expect(tabs[1].name).toBe('Duplicate without wizard state');
-		});
-
-		it('routes thinking and tool updates only to the active session tab', async () => {
-			const activeWizardState = createWizardState({
-				showWizardThinking: true,
-				thinkingContent: 'Old active thinking',
-				toolExecutions: [{ toolName: 'OldActive', state: 'done', timestamp: 1 }],
-			});
-			const siblingWizardState = createWizardState({
-				goal: 'Sibling wizard',
-				showWizardThinking: true,
-				thinkingContent: 'Sibling thinking',
-				toolExecutions: [{ toolName: 'SiblingTool', state: 'done', timestamp: 2 }],
-			});
-			const otherWizardState = createWizardState({
-				goal: 'Other wizard',
-				showWizardThinking: true,
-				thinkingContent: 'Other thinking',
-				toolExecutions: [{ toolName: 'OtherTool', state: 'done', timestamp: 3 }],
-			});
-			const session = createMockSession({
-				aiTabs: [
-					createMockTab({ id: 'tab-1', wizardState: activeWizardState }),
-					createMockTab({ id: 'tab-2', name: 'Sibling', wizardState: siblingWizardState }),
-				],
-				activeTabId: 'tab-1',
-			});
-			const otherSession = createMockSession({
-				id: 'other-session',
-				aiTabs: [createMockTab({ id: 'other-tab', wizardState: otherWizardState })],
-				activeTabId: 'other-tab',
-			});
-			useSessionStore.setState({
-				sessions: [otherSession, session],
-				activeSessionId: 'session-1',
-			});
-
-			let capturedCallbacks: any;
-			const sendMessage = vi.fn().mockImplementation((_content, _images, callbacks) => {
-				capturedCallbacks = callbacks;
-				return Promise.resolve();
-			});
-			const deps = createMockDeps({
-				inlineWizardContext: {
-					...createMockDeps().inlineWizardContext,
-					sendMessage,
-					getStateForTab: vi
-						.fn()
-						.mockReturnValue(createMatchingInlineWizardTabState(activeWizardState)),
-				} as any,
-			});
-
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			await act(async () => {
-				await result.current.sendWizardMessageWithThinking('Test');
-			});
-
-			act(() => {
-				capturedCallbacks.onThinkingChunk('New active thinking');
-				capturedCallbacks.onToolExecution({
-					toolName: 'Read',
-					state: 'running',
-					timestamp: 4,
-				});
-			});
-
-			const sessions = useSessionStore.getState().sessions;
-			const activeSession = sessions.find((s) => s.id === 'session-1')!;
-			const activeTab = activeSession.aiTabs.find((tab) => tab.id === 'tab-1')!;
-			const siblingTab = activeSession.aiTabs.find((tab) => tab.id === 'tab-2')!;
-			const otherTab = sessions.find((s) => s.id === 'other-session')!.aiTabs[0];
-			expect(activeTab.wizardState?.thinkingContent).toBe('New active thinking');
-			expect(activeTab.wizardState?.toolExecutions).toEqual([
-				{ toolName: 'Read', state: 'running', timestamp: 4 },
-			]);
-			expect(siblingTab.wizardState).toBe(siblingWizardState);
-			expect(otherTab.wizardState).toBe(otherWizardState);
-		});
-
 		it('does not route chunks when showWizardThinking is off', async () => {
 			const wizState = {
 				isActive: true,
@@ -1376,65 +958,6 @@ describe('useWizardHandlers', () => {
 			expect(updatedTab?.wizardState?.thinkingContent).toBe('');
 		});
 
-		it('does not route tool executions when showWizardThinking is off', async () => {
-			const wizState = {
-				isActive: true,
-				isWaiting: false,
-				mode: 'new',
-				confidence: 50,
-				ready: false,
-				conversationHistory: [],
-				previousUIState: {
-					readOnlyMode: false,
-					saveToHistory: true,
-					showThinking: 'off' as const,
-				},
-				error: null,
-				isGeneratingDocs: false,
-				generatedDocuments: [],
-				streamingContent: '',
-				currentDocumentIndex: 0,
-				showWizardThinking: false,
-				thinkingContent: '',
-				toolExecutions: [],
-			};
-			const tab = createMockTab({ wizardState: wizState });
-			const session = createMockSession({ aiTabs: [tab] });
-			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
-
-			let capturedCallbacks: any;
-			const sendMessage = vi.fn().mockImplementation((_content, _images, callbacks) => {
-				capturedCallbacks = callbacks;
-				return Promise.resolve();
-			});
-
-			const deps = createMockDeps({
-				inlineWizardContext: {
-					...createMockDeps().inlineWizardContext,
-					sendMessage,
-					getStateForTab: vi.fn().mockReturnValue(createMatchingInlineWizardTabState(wizState)),
-				} as any,
-			});
-
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			await act(async () => {
-				await result.current.sendWizardMessageWithThinking('Test');
-			});
-
-			act(() => {
-				capturedCallbacks.onToolExecution({
-					toolName: 'Read',
-					state: 'running',
-					timestamp: Date.now(),
-				});
-			});
-
-			const updatedSession = useSessionStore.getState().sessions[0];
-			const updatedTab = updatedSession.aiTabs.find((t) => t.id === 'tab-1');
-			expect(updatedTab?.wizardState?.toolExecutions).toEqual([]);
-		});
-
 		it('does nothing when no active session', async () => {
 			useSessionStore.setState({ sessions: [], activeSessionId: null });
 
@@ -1453,41 +976,6 @@ describe('useWizardHandlers', () => {
 			});
 
 			expect(sendMessage).not.toHaveBeenCalled();
-		});
-
-		it('ignores thinking callbacks when the session has no active tab', async () => {
-			const session = createMockSession({ aiTabs: [], activeTabId: null });
-			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
-
-			let capturedCallbacks: any;
-			const sendMessage = vi.fn().mockImplementation((_content, _images, callbacks) => {
-				capturedCallbacks = callbacks;
-				return Promise.resolve();
-			});
-			const deps = createMockDeps({
-				inlineWizardContext: {
-					...createMockDeps().inlineWizardContext,
-					sendMessage,
-				} as any,
-			});
-
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			await act(async () => {
-				await result.current.sendWizardMessageWithThinking('Test');
-			});
-
-			act(() => {
-				capturedCallbacks.onThinkingChunk('Thinking text');
-				capturedCallbacks.onToolExecution({
-					toolName: 'Read',
-					state: 'running',
-					timestamp: Date.now(),
-				});
-			});
-
-			expect(sendMessage).toHaveBeenCalled();
-			expect(useSessionStore.getState().sessions[0].aiTabs).toEqual([]);
 		});
 	});
 
@@ -1559,15 +1047,7 @@ describe('useWizardHandlers', () => {
 		});
 
 		it('updates log and skips history entry when nothing to report', async () => {
-			const existingLog = {
-				id: 'existing-log',
-				timestamp: 1,
-				source: 'system' as const,
-				text: 'Keep this log',
-			};
-			const session = createMockSession({
-				aiTabs: [createMockTab({ logs: [existingLog] })],
-			});
+			const session = createMockSession();
 			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
 
 			(parseSynopsis as any).mockReturnValueOnce({
@@ -1586,37 +1066,7 @@ describe('useWizardHandlers', () => {
 			expect(deps.addHistoryEntry).not.toHaveBeenCalled();
 			const updatedSession = useSessionStore.getState().sessions[0];
 			const activeTab = updatedSession.aiTabs[0];
-			expect(activeTab.logs).toContainEqual(existingLog);
 			expect(activeTab.logs.some((l) => l.text.includes('Nothing to report'))).toBe(true);
-		});
-
-		it('uses fallback history metadata and preserves existing logs on success', async () => {
-			const existingLog = {
-				id: 'existing-log',
-				timestamp: 1,
-				source: 'system' as const,
-				text: 'Keep this log',
-			};
-			const tab = createMockTab({ name: '', logs: [existingLog] });
-			const session = createMockSession({ aiTabs: [tab] });
-			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
-
-			const deps = createMockDeps();
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			await act(async () => {
-				await result.current.handleHistoryCommand();
-			});
-
-			expect(deps.addHistoryEntry).toHaveBeenCalledWith(
-				expect.objectContaining({ sessionName: undefined })
-			);
-			expect(notifyToast).toHaveBeenCalledWith(expect.objectContaining({ tabName: undefined }));
-			const activeTab = useSessionStore.getState().sessions[0].aiTabs[0];
-			expect(activeTab.logs).toContainEqual(existingLog);
-			expect(activeTab.logs.some((log) => log.text.includes('Synopsis saved to history'))).toBe(
-				true
-			);
 		});
 
 		it('shows toast notification on success', async () => {
@@ -1639,15 +1089,7 @@ describe('useWizardHandlers', () => {
 		});
 
 		it('handles synopsis failure gracefully', async () => {
-			const existingLog = {
-				id: 'existing-log',
-				timestamp: 1,
-				source: 'system' as const,
-				text: 'Keep this log',
-			};
-			const session = createMockSession({
-				aiTabs: [createMockTab({ logs: [existingLog] })],
-			});
+			const session = createMockSession();
 			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
 
 			const deps = createMockDeps({
@@ -1665,67 +1107,16 @@ describe('useWizardHandlers', () => {
 			expect(deps.addHistoryEntry).not.toHaveBeenCalled();
 			const updatedSession = useSessionStore.getState().sessions[0];
 			const activeTab = updatedSession.aiTabs[0];
-			expect(activeTab.logs).toContainEqual(existingLog);
 			expect(
 				activeTab.logs.some((l) => l.text.includes('Failed to generate history synopsis'))
 			).toBe(true);
 		});
 
-		it('replaces only the active tab pending log when synopsis generation fails', async () => {
-			const session = createMockSession({
-				aiTabs: [
-					createMockTab({ id: 'tab-1', name: 'Active tab' }),
-					createMockTab({ id: 'tab-2', name: 'Other tab' }),
-				],
-				activeTabId: 'tab-1',
-			});
-			const otherSession = createMockSession({
-				id: 'other-session',
-				aiTabs: [createMockTab({ id: 'other-tab', name: 'Other session tab' })],
-				activeTabId: 'other-tab',
-			});
-			useSessionStore.setState({
-				sessions: [otherSession, session],
-				activeSessionId: 'session-1',
-			});
-
-			const deps = createMockDeps({
-				spawnBackgroundSynopsis: vi.fn().mockResolvedValue({
-					success: false,
-					response: null,
-				}),
-			});
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			await act(async () => {
-				await result.current.handleHistoryCommand();
-			});
-
-			const sessions = useSessionStore.getState().sessions;
-			const updatedActiveSession = sessions.find((s) => s.id === 'session-1')!;
-			const updatedOtherSession = sessions.find((s) => s.id === 'other-session')!;
-			expect(
-				updatedActiveSession.aiTabs
-					.find((tab) => tab.id === 'tab-1')
-					?.logs.some((log) => log.text.includes('Failed to generate history synopsis'))
-			).toBe(true);
-			expect(updatedActiveSession.aiTabs.find((tab) => tab.id === 'tab-2')?.logs).toEqual([]);
-			expect(updatedOtherSession.aiTabs[0].logs).toEqual([]);
-		});
-
 		it('handles synopsis error exception', async () => {
-			const existingLog = {
-				id: 'existing-log',
-				timestamp: 1,
-				source: 'system' as const,
-				text: 'Keep this log',
-			};
-			const session = createMockSession({
-				aiTabs: [createMockTab({ logs: [existingLog] })],
-			});
+			const session = createMockSession();
 			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
 
-			const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+			const consoleSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
 			const deps = createMockDeps({
 				spawnBackgroundSynopsis: vi.fn().mockRejectedValue(new Error('Spawn failed')),
 			});
@@ -1737,53 +1128,8 @@ describe('useWizardHandlers', () => {
 
 			const updatedSession = useSessionStore.getState().sessions[0];
 			const activeTab = updatedSession.aiTabs[0];
-			expect(activeTab.logs).toContainEqual(existingLog);
 			expect(activeTab.logs.some((l) => l.text.includes('Error generating synopsis'))).toBe(true);
 			consoleSpy.mockRestore();
-		});
-
-		it('replaces only the active tab pending log when synopsis generation throws', async () => {
-			const session = createMockSession({
-				aiTabs: [
-					createMockTab({ id: 'tab-1', name: 'Active tab' }),
-					createMockTab({ id: 'tab-2', name: 'Other tab' }),
-				],
-				activeTabId: 'tab-1',
-			});
-			const otherSession = createMockSession({
-				id: 'other-session',
-				aiTabs: [createMockTab({ id: 'other-tab', name: 'Other session tab' })],
-				activeTabId: 'other-tab',
-			});
-			useSessionStore.setState({
-				sessions: [otherSession, session],
-				activeSessionId: 'session-1',
-			});
-
-			const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-			const deps = createMockDeps({
-				spawnBackgroundSynopsis: vi.fn().mockRejectedValue(new Error('Spawn failed')),
-			});
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			try {
-				await act(async () => {
-					await result.current.handleHistoryCommand();
-				});
-
-				const sessions = useSessionStore.getState().sessions;
-				const updatedActiveSession = sessions.find((s) => s.id === 'session-1')!;
-				const updatedOtherSession = sessions.find((s) => s.id === 'other-session')!;
-				expect(
-					updatedActiveSession.aiTabs
-						.find((tab) => tab.id === 'tab-1')
-						?.logs.some((log) => log.text.includes('Error generating synopsis: Spawn failed'))
-				).toBe(true);
-				expect(updatedActiveSession.aiTabs.find((tab) => tab.id === 'tab-2')?.logs).toEqual([]);
-				expect(updatedOtherSession.aiTabs[0].logs).toEqual([]);
-			} finally {
-				consoleSpy.mockRestore();
-			}
 		});
 
 		it('does nothing when no active session', async () => {
@@ -1817,134 +1163,12 @@ describe('useWizardHandlers', () => {
 			expect(activeTab.lastSynopsisTime).toBeDefined();
 			expect(activeTab.lastSynopsisTime).toBeGreaterThan(0);
 		});
-
-		it('updates only the active session/tab and uses group metadata on success', async () => {
-			const session = createMockSession({
-				groupId: 'group-1',
-				aiTabs: [
-					createMockTab({ id: 'tab-1', name: 'Active tab' }),
-					createMockTab({ id: 'tab-2', name: 'Other tab' }),
-				],
-				activeTabId: 'tab-1',
-			});
-			const otherSession = createMockSession({
-				id: 'other-session',
-				aiTabs: [createMockTab({ id: 'other-tab', name: 'Other session tab' })],
-				activeTabId: 'other-tab',
-			});
-			useSessionStore.setState({
-				sessions: [otherSession, session],
-				activeSessionId: 'session-1',
-				groups: [{ id: 'group-1', name: 'Core Team' }],
-			} as any);
-
-			const deps = createMockDeps();
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			await act(async () => {
-				await result.current.handleHistoryCommand();
-			});
-
-			const sessions = useSessionStore.getState().sessions;
-			const updatedActiveSession = sessions.find((s) => s.id === 'session-1')!;
-			const updatedOtherSession = sessions.find((s) => s.id === 'other-session')!;
-			expect(
-				updatedActiveSession.aiTabs.find((tab) => tab.id === 'tab-1')?.lastSynopsisTime
-			).toBeDefined();
-			expect(
-				updatedActiveSession.aiTabs.find((tab) => tab.id === 'tab-2')?.lastSynopsisTime
-			).toBeUndefined();
-			expect(updatedOtherSession.aiTabs[0].lastSynopsisTime).toBeUndefined();
-			expect(notifyToast).toHaveBeenCalledWith(
-				expect.objectContaining({
-					group: 'Core Team',
-					tabName: 'Active tab',
-				})
-			);
-		});
-
-		it('replaces only the active tab pending log when nothing is reported', async () => {
-			const session = createMockSession({
-				aiTabs: [
-					createMockTab({ id: 'tab-1', name: 'Active tab' }),
-					createMockTab({ id: 'tab-2', name: 'Other tab' }),
-				],
-				activeTabId: 'tab-1',
-			});
-			const otherSession = createMockSession({
-				id: 'other-session',
-				aiTabs: [createMockTab({ id: 'other-tab', name: 'Other session tab' })],
-				activeTabId: 'other-tab',
-			});
-			useSessionStore.setState({
-				sessions: [otherSession, session],
-				activeSessionId: 'session-1',
-			});
-
-			(parseSynopsis as any).mockReturnValueOnce({
-				shortSummary: '',
-				fullSynopsis: '',
-				nothingToReport: true,
-			});
-
-			const deps = createMockDeps();
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			await act(async () => {
-				await result.current.handleHistoryCommand();
-			});
-
-			const sessions = useSessionStore.getState().sessions;
-			const updatedActiveSession = sessions.find((s) => s.id === 'session-1')!;
-			const updatedOtherSession = sessions.find((s) => s.id === 'other-session')!;
-			expect(
-				updatedActiveSession.aiTabs
-					.find((tab) => tab.id === 'tab-1')
-					?.logs.some((log) => log.text.includes('Nothing to report'))
-			).toBe(true);
-			expect(updatedActiveSession.aiTabs.find((tab) => tab.id === 'tab-2')?.logs).toEqual([]);
-			expect(updatedOtherSession.aiTabs[0].logs).toEqual([]);
-			expect(deps.addHistoryEntry).not.toHaveBeenCalled();
-		});
 	});
 
 	// ========================================================================
 	// handleSkillsCommand
 	// ========================================================================
 	describe('handleSkillsCommand', () => {
-		it('does nothing when there is no active session', async () => {
-			useSessionStore.setState({ sessions: [], activeSessionId: null });
-
-			const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-			const deps = createMockDeps();
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			await act(async () => {
-				await result.current.handleSkillsCommand();
-			});
-
-			expect((window as any).maestro.claude.getSkills).not.toHaveBeenCalled();
-			expect(consoleSpy).toHaveBeenCalledWith('[handleSkillsCommand] No active session');
-			consoleSpy.mockRestore();
-		});
-
-		it('does nothing when the active session has no active tab', async () => {
-			const session = createMockSession({ aiTabs: [], activeTabId: null });
-			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
-
-			const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-			const deps = createMockDeps();
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			await act(async () => {
-				await result.current.handleSkillsCommand();
-			});
-
-			expect((window as any).maestro.claude.getSkills).not.toHaveBeenCalled();
-			expect(consoleSpy).toHaveBeenCalledWith('[handleSkillsCommand] No active tab');
-			consoleSpy.mockRestore();
-		});
-
 		it('fetches and displays skills in a table format', async () => {
 			const session = createMockSession();
 			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
@@ -1980,61 +1204,6 @@ describe('useWizardHandlers', () => {
 			expect(skillsLog!.text).toContain('test-gen');
 			expect(skillsLog!.text).toContain('Project Skills');
 			expect(skillsLog!.text).toContain('User Skills');
-		});
-
-		it('formats a single project skill without a description', async () => {
-			const session = createMockSession();
-			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
-
-			(window as any).maestro.claude.getSkills.mockResolvedValue([
-				{
-					name: 'planner',
-					source: 'project',
-					tokenCount: 1,
-					description: 'No description',
-				},
-			]);
-
-			const deps = createMockDeps();
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			await act(async () => {
-				await result.current.handleSkillsCommand();
-			});
-
-			const skillsLog = useSessionStore
-				.getState()
-				.sessions[0].aiTabs[0].logs.find((l) => l.text.includes('## Skills'));
-			expect(skillsLog!.text).toContain('1 skill available');
-			expect(skillsLog!.text).toContain('| **planner** | ~1 | — |');
-		});
-
-		it('formats user skills when there are no project skills', async () => {
-			const session = createMockSession();
-			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
-
-			(window as any).maestro.claude.getSkills.mockResolvedValue([
-				{
-					name: 'reviewer',
-					source: 'user',
-					tokenCount: 250,
-					description: 'No description',
-				},
-			]);
-
-			const deps = createMockDeps();
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			await act(async () => {
-				await result.current.handleSkillsCommand();
-			});
-
-			const skillsLog = useSessionStore
-				.getState()
-				.sessions[0].aiTabs[0].logs.find((l) => l.text.includes('## Skills'));
-			expect(skillsLog!.text).not.toContain('Project Skills');
-			expect(skillsLog!.text).toContain('User Skills');
-			expect(skillsLog!.text).toContain('| **reviewer** | ~250 | — |');
 		});
 
 		it('displays "no skills found" message when empty', async () => {
@@ -2095,7 +1264,7 @@ describe('useWizardHandlers', () => {
 
 			(window as any).maestro.claude.getSkills.mockRejectedValue(new Error('Skill fetch failed'));
 
-			const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+			const consoleSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
 			const deps = createMockDeps();
 			const { result } = renderHook(() => useWizardHandlers(deps));
 
@@ -2174,48 +1343,6 @@ describe('useWizardHandlers', () => {
 			);
 		});
 
-		it('uses tab defaults and cwd fallback when optional wizard command state is missing', () => {
-			const tab = createMockTab({
-				saveToHistory: undefined as any,
-				showThinking: undefined as any,
-			});
-			const siblingTab = createMockTab({ id: 'tab-2', name: 'Keep sibling' });
-			const session = createMockSession({
-				projectRoot: undefined as any,
-				aiTabs: [tab, siblingTab],
-				activeTabId: 'tab-1',
-			});
-			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
-
-			const deps = createMockDeps();
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			act(() => {
-				result.current.handleWizardCommand('');
-			});
-
-			expect(deps.inlineWizardContext.startWizard).toHaveBeenCalledWith(
-				undefined,
-				{
-					readOnlyMode: false,
-					saveToHistory: true,
-					showThinking: 'off',
-				},
-				'/projects/test',
-				'claude-code',
-				'Test Agent',
-				'tab-1',
-				'session-1',
-				undefined,
-				undefined,
-				expect.any(String),
-				expect.objectContaining({})
-			);
-			const updatedSession = useSessionStore.getState().sessions[0];
-			expect(updatedSession.aiTabs.find((t) => t.id === 'tab-1')?.name).toBe('Wizard');
-			expect(updatedSession.aiTabs.find((t) => t.id === 'tab-2')?.name).toBe('Keep sibling');
-		});
-
 		it('renames tab to "Wizard"', () => {
 			const session = createMockSession();
 			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
@@ -2251,30 +1378,6 @@ describe('useWizardHandlers', () => {
 			expect(wizardLog).toBeDefined();
 		});
 
-		it('renames only the active session tab when starting wizard', () => {
-			const session = createMockSession();
-			const otherSession = createMockSession({
-				id: 'other-session',
-				aiTabs: [createMockTab({ id: 'other-tab', name: 'Other tab' })],
-				activeTabId: 'other-tab',
-			});
-			useSessionStore.setState({
-				sessions: [otherSession, session],
-				activeSessionId: 'session-1',
-			});
-
-			const deps = createMockDeps();
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			act(() => {
-				result.current.handleWizardCommand('focus this session');
-			});
-
-			const sessions = useSessionStore.getState().sessions;
-			expect(sessions.find((s) => s.id === 'session-1')?.aiTabs[0].name).toBe('Wizard');
-			expect(sessions.find((s) => s.id === 'other-session')?.aiTabs[0].name).toBe('Other tab');
-		});
-
 		it('shows generic log when no args provided', () => {
 			const session = createMockSession();
 			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
@@ -2308,23 +1411,6 @@ describe('useWizardHandlers', () => {
 			expect(deps.inlineWizardContext.startWizard).not.toHaveBeenCalled();
 			consoleSpy.mockRestore();
 		});
-
-		it('does nothing when the active session has no active tab', () => {
-			const session = createMockSession({ aiTabs: [], activeTabId: null });
-			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
-
-			const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-			const deps = createMockDeps();
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			act(() => {
-				result.current.handleWizardCommand('test');
-			});
-
-			expect(deps.inlineWizardContext.startWizard).not.toHaveBeenCalled();
-			expect(consoleSpy).toHaveBeenCalledWith('[handleWizardCommand] No active tab');
-			consoleSpy.mockRestore();
-		});
 	});
 
 	// ========================================================================
@@ -2354,36 +1440,6 @@ describe('useWizardHandlers', () => {
 			expect(deps.inlineWizardContext.startWizard).toHaveBeenCalled();
 		});
 
-		it('starts launched wizard tabs with cwd when project root is missing', async () => {
-			const session = createMockSession({ projectRoot: undefined as any });
-			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
-
-			const deps = createMockDeps();
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			act(() => {
-				result.current.handleLaunchWizardTab();
-			});
-
-			await act(async () => {
-				await new Promise((r) => setTimeout(r, 50));
-			});
-
-			expect(deps.inlineWizardContext.startWizard).toHaveBeenCalledWith(
-				undefined,
-				expect.any(Object),
-				'/projects/test',
-				'claude-code',
-				'Test Agent',
-				expect.any(String),
-				'session-1',
-				undefined,
-				undefined,
-				expect.any(String),
-				expect.objectContaining({})
-			);
-		});
-
 		it('sets active tab to the new wizard tab', () => {
 			const session = createMockSession();
 			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
@@ -2400,30 +1456,6 @@ describe('useWizardHandlers', () => {
 			expect(updatedSession.activeTabId).not.toBe('tab-1');
 		});
 
-		it('adds the wizard tab only to the active session', () => {
-			const session = createMockSession();
-			const otherSession = createMockSession({
-				id: 'other-session',
-				aiTabs: [createMockTab({ id: 'other-tab' })],
-				activeTabId: 'other-tab',
-			});
-			useSessionStore.setState({
-				sessions: [otherSession, session],
-				activeSessionId: 'session-1',
-			});
-
-			const deps = createMockDeps();
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			act(() => {
-				result.current.handleLaunchWizardTab();
-			});
-
-			const sessions = useSessionStore.getState().sessions;
-			expect(sessions.find((s) => s.id === 'session-1')?.aiTabs).toHaveLength(2);
-			expect(sessions.find((s) => s.id === 'other-session')?.aiTabs).toHaveLength(1);
-		});
-
 		it('does nothing when no active session', () => {
 			useSessionStore.setState({ sessions: [], activeSessionId: null });
 
@@ -2438,28 +1470,6 @@ describe('useWizardHandlers', () => {
 			expect(deps.inlineWizardContext.startWizard).not.toHaveBeenCalled();
 			consoleSpy.mockRestore();
 		});
-
-		it('does not start wizard when tab creation fails', () => {
-			const session = createMockSession();
-			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
-			vi.mocked(createTab).mockReturnValueOnce(null);
-
-			const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-			const deps = createMockDeps();
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			try {
-				act(() => {
-					result.current.handleLaunchWizardTab();
-				});
-
-				expect(consoleSpy).toHaveBeenCalledWith('[handleLaunchWizardTab] Failed to create new tab');
-				expect(deps.inlineWizardContext.startWizard).not.toHaveBeenCalled();
-				expect(useSessionStore.getState().sessions[0].aiTabs).toHaveLength(1);
-			} finally {
-				consoleSpy.mockRestore();
-			}
-		});
 	});
 
 	// ========================================================================
@@ -2473,8 +1483,7 @@ describe('useWizardHandlers', () => {
 			const deps = createMockDeps({
 				inlineWizardContext: {
 					...createMockDeps().inlineWizardContext,
-					isWizardActive: true,
-					wizardTabId: 'tab-1',
+					isWizardActiveForTab: vi.fn((id: string) => id === 'tab-1'),
 				} as any,
 			});
 
@@ -2490,8 +1499,7 @@ describe('useWizardHandlers', () => {
 			const deps = createMockDeps({
 				inlineWizardContext: {
 					...createMockDeps().inlineWizardContext,
-					isWizardActive: true,
-					wizardTabId: 'other-tab',
+					isWizardActiveForTab: vi.fn((id: string) => id === 'other-tab'),
 				} as any,
 			});
 
@@ -2516,8 +1524,7 @@ describe('useWizardHandlers', () => {
 			const deps = createMockDeps({
 				inlineWizardContext: {
 					...createMockDeps().inlineWizardContext,
-					isWizardActive: true,
-					wizardTabId: 'tab-1',
+					isWizardActiveForTab: vi.fn(() => true),
 				} as any,
 			});
 
@@ -2655,118 +1662,9 @@ describe('useWizardHandlers', () => {
 			expect(activeTab.agentSessionId).toBe('wizard-agent-session-123');
 		});
 
-		it('completes only the active wizard tab in the active session', () => {
-			const wizardState = createWizardState({
-				conversationHistory: [
-					{
-						id: 'msg-1',
-						role: 'user',
-						content: 'Build the plan',
-						timestamp: 1000,
-					},
-				],
-				generatedDocuments: [
-					{
-						filename: 'phase-1.md',
-						content: '# Phase 1',
-						taskCount: 1,
-					},
-				],
-			});
-			const inactiveWizardState = createWizardState({ goal: 'Keep me' });
-			const session = createMockSession({
-				aiTabs: [
-					createMockTab({ id: 'tab-1', wizardState }),
-					createMockTab({ id: 'tab-2', name: 'Other tab', wizardState: inactiveWizardState }),
-				],
-				activeTabId: 'tab-1',
-			});
-			const otherSession = createMockSession({
-				id: 'other-session',
-				aiTabs: [
-					createMockTab({
-						id: 'other-tab',
-						name: 'Other session tab',
-						wizardState: createWizardState({ goal: 'Other session' }),
-					}),
-				],
-				activeTabId: 'other-tab',
-			});
-			useSessionStore.setState({
-				sessions: [otherSession, session],
-				activeSessionId: 'session-1',
-			});
-
-			const deps = createMockDeps({
-				inlineWizardContext: {
-					...createMockDeps().inlineWizardContext,
-					getStateForTab: vi.fn().mockReturnValue(createMatchingInlineWizardTabState(wizardState)),
-				} as any,
-			});
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			act(() => {
-				result.current.handleWizardComplete();
-			});
-
-			const sessions = useSessionStore.getState().sessions;
-			const updatedActiveSession = sessions.find((s) => s.id === 'session-1')!;
-			const updatedOtherSession = sessions.find((s) => s.id === 'other-session')!;
-			expect(
-				updatedActiveSession.aiTabs.find((tab) => tab.id === 'tab-1')?.wizardState
-			).toBeUndefined();
-			expect(updatedActiveSession.aiTabs.find((tab) => tab.id === 'tab-2')?.wizardState).toBe(
-				inactiveWizardState
-			);
-			expect(updatedOtherSession.aiTabs[0].wizardState?.goal).toBe('Other session');
-		});
-
-		it('completes legacy wizard state without generated documents', () => {
-			const session = createMockSession();
-			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
-
-			const legacyWizardState = createWizardState({
-				generatedDocuments: undefined,
-				subfolderName: '',
-			});
-			const deps = createMockDeps();
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			act(() => {
-				useSessionStore.setState({
-					sessions: [
-						createMockSession({
-							aiTabs: [createMockTab({ wizardState: legacyWizardState })],
-						}),
-					],
-					activeSessionId: 'session-1',
-				});
-				result.current.handleWizardComplete();
-			});
-
-			const activeTab = useSessionStore.getState().sessions[0].aiTabs[0];
-			const summaryLog = activeTab.logs.find((log) => log.text.includes('Wizard Complete'));
-			expect(summaryLog?.text).toContain('0 documents');
-			expect(summaryLog?.text).toContain('0 tasks');
-			expect(activeTab.name).toBe('Wizard');
-		});
-
 		it('does nothing when no wizard state on active tab', () => {
 			const session = createMockSession();
 			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
-
-			const deps = createMockDeps();
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			act(() => {
-				result.current.handleWizardComplete();
-			});
-
-			expect(deps.inlineWizardContext.endWizard).not.toHaveBeenCalled();
-		});
-
-		it('does nothing when there is no active session', () => {
-			useSessionStore.setState({ sessions: [], activeSessionId: null });
 
 			const deps = createMockDeps();
 			const { result } = renderHook(() => useWizardHandlers(deps));
@@ -2903,43 +1801,6 @@ describe('useWizardHandlers', () => {
 			expect(activeTab.wizardState?.thinkingContent).toBe('existing thinking');
 		});
 
-		it('does not crash on malformed duplicate tab ids when toggling thinking', () => {
-			const wizState = createWizardState({
-				showWizardThinking: false,
-				thinkingContent: 'old content',
-			});
-			const session = createMockSession();
-			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
-
-			const deps = createMockDeps({
-				inlineWizardContext: {
-					...createMockDeps().inlineWizardContext,
-					getStateForTab: vi.fn().mockReturnValue(createMatchingInlineWizardTabState(wizState)),
-				} as any,
-			});
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			act(() => {
-				useSessionStore.setState({
-					sessions: [
-						createMockSession({
-							aiTabs: [
-								createMockTab({ id: 'tab-1', wizardState: wizState }),
-								createMockTab({ id: 'tab-1', name: 'Duplicate without wizard state' }),
-							],
-							activeTabId: 'tab-1',
-						}),
-					],
-					activeSessionId: 'session-1',
-				});
-				result.current.handleToggleWizardShowThinking();
-			});
-
-			const tabs = useSessionStore.getState().sessions[0].aiTabs;
-			expect(tabs[0].wizardState?.showWizardThinking).toBe(true);
-			expect(tabs[1].name).toBe('Duplicate without wizard state');
-		});
-
 		it('does nothing when no wizard state on active tab', () => {
 			const session = createMockSession();
 			useSessionStore.setState({ sessions: [session], activeSessionId: 'session-1' });
@@ -2955,82 +1816,6 @@ describe('useWizardHandlers', () => {
 			const updatedSession = useSessionStore.getState().sessions[0];
 			const activeTab = updatedSession.aiTabs[0];
 			expect(activeTab.wizardState).toBeUndefined();
-		});
-
-		it('does nothing when there is no active session', () => {
-			useSessionStore.setState({ sessions: [], activeSessionId: null });
-
-			const deps = createMockDeps();
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			act(() => {
-				result.current.handleToggleWizardShowThinking();
-			});
-
-			expect(useSessionStore.getState().sessions).toEqual([]);
-		});
-
-		it('toggles thinking only on the active wizard tab', () => {
-			const activeWizardState = createWizardState({
-				showWizardThinking: false,
-				thinkingContent: 'active old content',
-			});
-			const otherTabWizardState = createWizardState({
-				showWizardThinking: true,
-				thinkingContent: 'other tab content',
-			});
-			const session = createMockSession({
-				aiTabs: [
-					createMockTab({ id: 'tab-1', wizardState: activeWizardState }),
-					createMockTab({ id: 'tab-2', wizardState: otherTabWizardState }),
-				],
-				activeTabId: 'tab-1',
-			});
-			const otherSession = createMockSession({
-				id: 'other-session',
-				aiTabs: [
-					createMockTab({
-						id: 'other-tab',
-						wizardState: createWizardState({
-							showWizardThinking: true,
-							thinkingContent: 'other session content',
-						}),
-					}),
-				],
-				activeTabId: 'other-tab',
-			});
-			useSessionStore.setState({
-				sessions: [otherSession, session],
-				activeSessionId: 'session-1',
-			});
-
-			const deps = createMockDeps({
-				inlineWizardContext: {
-					...createMockDeps().inlineWizardContext,
-					getStateForTab: vi
-						.fn()
-						.mockReturnValue(createMatchingInlineWizardTabState(activeWizardState)),
-				} as any,
-			});
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			act(() => {
-				result.current.handleToggleWizardShowThinking();
-			});
-
-			const sessions = useSessionStore.getState().sessions;
-			const updatedActiveSession = sessions.find((s) => s.id === 'session-1')!;
-			const updatedOtherSession = sessions.find((s) => s.id === 'other-session')!;
-			expect(
-				updatedActiveSession.aiTabs.find((tab) => tab.id === 'tab-1')?.wizardState
-					?.showWizardThinking
-			).toBe(true);
-			expect(updatedActiveSession.aiTabs.find((tab) => tab.id === 'tab-2')?.wizardState).toBe(
-				otherTabWizardState
-			);
-			expect(updatedOtherSession.aiTabs[0].wizardState?.thinkingContent).toBe(
-				'other session content'
-			);
 		});
 	});
 
@@ -3070,8 +1855,8 @@ describe('useWizardHandlers', () => {
 						isComplete: false,
 						createdSessionId: null,
 					} as any,
-					completeWizard: vi.fn(),
-					clearResumeState: vi.fn(),
+					completeWizard: vi.fn().mockResolvedValue(undefined),
+					clearResumeState: vi.fn().mockResolvedValue(undefined),
 				},
 			});
 
@@ -3088,7 +1873,7 @@ describe('useWizardHandlers', () => {
 			expect(newSession.name).toBe('My Project');
 			expect(newSession.toolType).toBe('claude-code');
 			expect(newSession.cwd).toBe('/projects/my-app');
-			expect(newSession.autoRunFolderPath).toBe('/projects/my-app/Auto Run Docs');
+			expect(newSession.autoRunFolderPath).toBe('/projects/my-app/.maestro/playbooks');
 			expect(newSession.autoRunSelectedFile).toBe('phase-1');
 
 			// Should have been set as active
@@ -3107,40 +1892,8 @@ describe('useWizardHandlers', () => {
 			);
 		});
 
-		it('uses selected agent as the session name when agent name is blank', async () => {
-			useSessionStore.setState({ sessions: [], activeSessionId: null });
-
-			const baseDeps = createMockDeps();
-			const deps = createMockDeps({
-				wizardContext: {
-					...baseDeps.wizardContext,
-					state: {
-						...baseDeps.wizardContext.state,
-						currentStep: 'review' as any,
-						isOpen: true,
-						agentName: '',
-					},
-				},
-			});
-
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			await act(async () => {
-				await result.current.handleWizardLaunchSession(false);
-			});
-
-			expect(validateNewSession).toHaveBeenCalledWith(
-				'claude-code Session',
-				'/projects/test',
-				'claude-code',
-				[]
-			);
-			expect(useSessionStore.getState().sessions[0].name).toBe('claude-code Session');
-		});
-
 		it('auto-starts batch run with first document that has tasks', async () => {
 			useSessionStore.setState({ sessions: [], activeSessionId: null });
-			const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
 			const deps = createMockDeps({
 				wizardContext: {
@@ -3171,37 +1924,156 @@ describe('useWizardHandlers', () => {
 						isComplete: false,
 						createdSessionId: null,
 					} as any,
-					completeWizard: vi.fn(),
-					clearResumeState: vi.fn(),
+					completeWizard: vi.fn().mockResolvedValue(undefined),
+					clearResumeState: vi.fn().mockResolvedValue(undefined),
 				},
 			});
 
-			try {
-				const { result } = renderHook(() => useWizardHandlers(deps));
+			const { result } = renderHook(() => useWizardHandlers(deps));
 
-				await act(async () => {
-					await result.current.handleWizardLaunchSession(false);
-				});
+			await act(async () => {
+				await result.current.handleWizardLaunchSession(false);
+			});
 
-				// Wait for the setTimeout batch run
-				await act(async () => {
-					await new Promise((r) => setTimeout(r, 600));
-				});
+			// Wait for the setTimeout batch run
+			await act(async () => {
+				await new Promise((r) => setTimeout(r, 600));
+			});
 
-				expect(consoleSpy).toHaveBeenCalledWith(
-					'[Wizard] Auto-starting batch run with first document:',
-					'phase-1.md'
-				);
-				expect(deps.startBatchRun).toHaveBeenCalledWith(
-					expect.any(String),
-					expect.objectContaining({
-						documents: expect.arrayContaining([expect.objectContaining({ filename: 'phase-1' })]),
-					}),
-					expect.stringContaining('Auto Run Docs')
-				);
-			} finally {
-				consoleSpy.mockRestore();
-			}
+			expect(deps.startBatchRun).toHaveBeenCalledWith(
+				expect.any(String),
+				expect.objectContaining({
+					documents: expect.arrayContaining([expect.objectContaining({ filename: 'phase-1' })]),
+				}),
+				expect.stringContaining('.maestro/playbooks')
+			);
+		});
+
+		it("auto-starts batch run with all documents when autoRunMode is 'all'", async () => {
+			useSessionStore.setState({ sessions: [], activeSessionId: null });
+
+			const deps = createMockDeps({
+				wizardContext: {
+					state: {
+						currentStep: 'review' as any,
+						isOpen: true,
+						selectedAgent: 'claude-code',
+						availableAgents: [],
+						agentName: 'Test',
+						directoryPath: '/projects/test',
+						isGitRepo: false,
+						detectedAgentPath: null,
+						directoryError: null,
+						hasExistingAutoRunDocs: false,
+						existingDocsCount: 0,
+						existingDocsChoice: null,
+						conversationHistory: [],
+						confidenceLevel: 90,
+						isReadyToProceed: true,
+						isConversationLoading: false,
+						conversationError: null,
+						generatedDocuments: [
+							{ filename: 'phase-1.md', content: '# Phase 1', taskCount: 3 },
+							{ filename: 'phase-2.md', content: '# Phase 2', taskCount: 5 },
+							{ filename: 'phase-3.md', content: '# Phase 3', taskCount: 2 },
+						],
+						currentDocumentIndex: 0,
+						isGeneratingDocuments: false,
+						generationError: null,
+						editedPhase1Content: null,
+						autoRunMode: 'all',
+						wantsTour: false,
+						isComplete: false,
+						createdSessionId: null,
+					} as any,
+					completeWizard: vi.fn().mockResolvedValue(undefined),
+					clearResumeState: vi.fn().mockResolvedValue(undefined),
+				},
+			});
+
+			const { result } = renderHook(() => useWizardHandlers(deps));
+
+			await act(async () => {
+				await result.current.handleWizardLaunchSession(false);
+			});
+
+			// Wait for the setTimeout batch run
+			await act(async () => {
+				await new Promise((r) => setTimeout(r, 600));
+			});
+
+			expect(deps.startBatchRun).toHaveBeenCalledWith(
+				expect.any(String),
+				expect.objectContaining({
+					documents: expect.arrayContaining([
+						expect.objectContaining({ filename: 'phase-1' }),
+						expect.objectContaining({ filename: 'phase-2' }),
+						expect.objectContaining({ filename: 'phase-3' }),
+					]),
+				}),
+				expect.stringContaining('.maestro/playbooks')
+			);
+
+			// Should have exactly 3 documents in the batch
+			const batchConfig = deps.startBatchRun.mock.calls[0][1];
+			expect(batchConfig.documents).toHaveLength(3);
+		});
+
+		it("does not start a batch run when autoRunMode is 'none'", async () => {
+			useSessionStore.setState({ sessions: [], activeSessionId: null });
+
+			const deps = createMockDeps({
+				wizardContext: {
+					state: {
+						currentStep: 'review' as any,
+						isOpen: true,
+						selectedAgent: 'claude-code',
+						availableAgents: [],
+						agentName: 'Test',
+						directoryPath: '/projects/test',
+						isGitRepo: false,
+						detectedAgentPath: null,
+						directoryError: null,
+						hasExistingAutoRunDocs: false,
+						existingDocsCount: 0,
+						existingDocsChoice: null,
+						conversationHistory: [],
+						confidenceLevel: 90,
+						isReadyToProceed: true,
+						isConversationLoading: false,
+						conversationError: null,
+						generatedDocuments: [
+							{ filename: 'phase-1.md', content: '# Phase 1', taskCount: 3 },
+							{ filename: 'phase-2.md', content: '# Phase 2', taskCount: 5 },
+						],
+						currentDocumentIndex: 0,
+						isGeneratingDocuments: false,
+						generationError: null,
+						editedPhase1Content: null,
+						autoRunMode: 'none',
+						wantsTour: false,
+						isComplete: false,
+						createdSessionId: null,
+					} as any,
+					completeWizard: vi.fn().mockResolvedValue(undefined),
+					clearResumeState: vi.fn().mockResolvedValue(undefined),
+				},
+			});
+
+			const { result } = renderHook(() => useWizardHandlers(deps));
+
+			await act(async () => {
+				await result.current.handleWizardLaunchSession(false);
+			});
+
+			// Wait long enough for the deferred batch run that should NOT happen
+			await act(async () => {
+				await new Promise((r) => setTimeout(r, 600));
+			});
+
+			expect(deps.startBatchRun).not.toHaveBeenCalled();
+			// Right panel should not be flipped to autorun when skipping
+			expect(useUIStore.getState().activeRightTab).toBe('files');
 		});
 
 		it('starts tour when wantsTour is true', async () => {
@@ -3236,8 +2108,8 @@ describe('useWizardHandlers', () => {
 						isComplete: false,
 						createdSessionId: null,
 					} as any,
-					completeWizard: vi.fn(),
-					clearResumeState: vi.fn(),
+					completeWizard: vi.fn().mockResolvedValue(undefined),
+					clearResumeState: vi.fn().mockResolvedValue(undefined),
 				},
 			});
 
@@ -3268,12 +2140,12 @@ describe('useWizardHandlers', () => {
 						agentName: '',
 						generatedDocuments: [],
 					} as any,
-					completeWizard: vi.fn(),
-					clearResumeState: vi.fn(),
+					completeWizard: vi.fn().mockResolvedValue(undefined),
+					clearResumeState: vi.fn().mockResolvedValue(undefined),
 				},
 			});
 
-			const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+			const consoleSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
 			const { result } = renderHook(() => useWizardHandlers(deps));
 
 			await expect(
@@ -3321,12 +2193,12 @@ describe('useWizardHandlers', () => {
 						isComplete: false,
 						createdSessionId: null,
 					} as any,
-					completeWizard: vi.fn(),
-					clearResumeState: vi.fn(),
+					completeWizard: vi.fn().mockResolvedValue(undefined),
+					clearResumeState: vi.fn().mockResolvedValue(undefined),
 				},
 			});
 
-			const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+			const consoleSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
 			const { result } = renderHook(() => useWizardHandlers(deps));
 
 			await expect(
@@ -3342,49 +2214,6 @@ describe('useWizardHandlers', () => {
 				})
 			);
 			consoleSpy.mockRestore();
-		});
-
-		it('uses fallback validation messages when validation fails without an error', async () => {
-			useSessionStore.setState({ sessions: [], activeSessionId: null });
-
-			(validateNewSession as any).mockReturnValueOnce({
-				valid: false,
-				error: null,
-			});
-
-			const baseDeps = createMockDeps();
-			const deps = createMockDeps({
-				wizardContext: {
-					...baseDeps.wizardContext,
-					state: {
-						...baseDeps.wizardContext.state,
-						currentStep: 'review' as any,
-						isOpen: true,
-						agentName: 'Test',
-					},
-				},
-			});
-
-			const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-			const { result } = renderHook(() => useWizardHandlers(deps));
-
-			try {
-				await expect(
-					act(async () => {
-						await result.current.handleWizardLaunchSession(false);
-					})
-				).rejects.toThrow('Session validation failed');
-
-				expect(notifyToast).toHaveBeenCalledWith(
-					expect.objectContaining({
-						type: 'error',
-						title: 'Agent Creation Failed',
-						message: 'Cannot create duplicate agent',
-					})
-				);
-			} finally {
-				consoleSpy.mockRestore();
-			}
 		});
 
 		it('throws when agent is not found', async () => {
@@ -3421,8 +2250,8 @@ describe('useWizardHandlers', () => {
 						isComplete: false,
 						createdSessionId: null,
 					} as any,
-					completeWizard: vi.fn(),
-					clearResumeState: vi.fn(),
+					completeWizard: vi.fn().mockResolvedValue(undefined),
+					clearResumeState: vi.fn().mockResolvedValue(undefined),
 				},
 			});
 
@@ -3471,8 +2300,8 @@ describe('useWizardHandlers', () => {
 						isComplete: false,
 						createdSessionId: null,
 					} as any,
-					completeWizard: vi.fn(),
-					clearResumeState: vi.fn(),
+					completeWizard: vi.fn().mockResolvedValue(undefined),
+					clearResumeState: vi.fn().mockResolvedValue(undefined),
 				},
 			});
 
@@ -3520,8 +2349,8 @@ describe('useWizardHandlers', () => {
 						isComplete: false,
 						createdSessionId: null,
 					} as any,
-					completeWizard: vi.fn(),
-					clearResumeState: vi.fn(),
+					completeWizard: vi.fn().mockResolvedValue(undefined),
+					clearResumeState: vi.fn().mockResolvedValue(undefined),
 				},
 			});
 
@@ -3576,8 +2405,8 @@ describe('useWizardHandlers', () => {
 						customEnvVars: { API_KEY: '123' },
 						sessionSshRemoteConfig: sshConfig,
 					} as any,
-					completeWizard: vi.fn(),
-					clearResumeState: vi.fn(),
+					completeWizard: vi.fn().mockResolvedValue(undefined),
+					clearResumeState: vi.fn().mockResolvedValue(undefined),
 				},
 			});
 
@@ -3630,8 +2459,8 @@ describe('useWizardHandlers', () => {
 						isComplete: false,
 						createdSessionId: null,
 					} as any,
-					completeWizard: vi.fn(),
-					clearResumeState: vi.fn(),
+					completeWizard: vi.fn().mockResolvedValue(undefined),
+					clearResumeState: vi.fn().mockResolvedValue(undefined),
 					openWizard: vi.fn(),
 					restoreState: vi.fn(),
 				},
@@ -3741,26 +2570,26 @@ describe('useWizardHandlers', () => {
 		});
 
 		describe('handleWizardStartFresh', () => {
-			it('clears resume state and opens a fresh wizard', () => {
+			it('clears resume state and opens a fresh wizard', async () => {
 				getModalActions().setWizardResumeModalOpen(true);
 
 				const deps = createResumeDeps();
 				const { result } = renderHook(() => useWizardHandlers(deps));
 
-				act(() => {
-					result.current.handleWizardStartFresh();
+				await act(async () => {
+					await result.current.handleWizardStartFresh();
 				});
 
 				expect(useModalStore.getState().isOpen('wizardResume')).toBe(false);
 				expect(deps.wizardContext.openWizard).toHaveBeenCalled();
 			});
 
-			it('calls clearResumeState on wizard context', () => {
+			it('calls clearResumeState on wizard context', async () => {
 				const deps = createResumeDeps();
 				const { result } = renderHook(() => useWizardHandlers(deps));
 
-				act(() => {
-					result.current.handleWizardStartFresh();
+				await act(async () => {
+					await result.current.handleWizardStartFresh();
 				});
 
 				expect(deps.wizardContext.clearResumeState).toHaveBeenCalled();

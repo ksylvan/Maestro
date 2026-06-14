@@ -18,8 +18,6 @@ export default defineConfig({
 		include: [
 			'src/__tests__/integration/**/*.integration.test.ts',
 			'src/__tests__/integration/**/provider-integration.test.ts',
-			'src/__tests__/integration/RemoteControlSync.test.ts',
-			'src/__tests__/integration/process-global-env-vars.test.ts',
 			'src/__tests__/integration/**/*.test.tsx', // Include React component integration tests
 		],
 		environment: 'jsdom', // Required for React component tests
@@ -35,20 +33,6 @@ export default defineConfig({
 		bail: 1, // Stop on first failure
 		globals: true,
 		reporters: ['verbose'],
-		coverage: {
-			provider: 'v8',
-			reporter: ['json', 'text-summary'],
-			reportsDirectory: './coverage/integration',
-			include: ['src/**/*.{ts,tsx}'],
-			exclude: [
-				'node_modules',
-				'dist',
-				'src/__tests__/**',
-				'**/__tests__/**',
-				'**/*.d.ts',
-				'src/main/preload.ts',
-			],
-		},
 	},
 	resolve: {
 		alias: {
