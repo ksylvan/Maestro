@@ -418,6 +418,14 @@ Initial hypotheses are often wrong. Before implementing any fix:
 - Tooltip clipping: Attempted `overflow: visible` on element when parent container had `overflow: hidden`
 - Session validation: Fixed renderer calls when handler wasn't wired in main process
 
+### CDP / Browser-Automation Scripts Are Ephemeral
+
+When driving the running app over Chrome DevTools Protocol (e.g. one-off `scripts/cdp-*.js` harnesses for reproducing a bug, clicking through a flow, or capturing screenshots), treat those scripts as **throwaway**. They are debugging scaffolding, not shipped code:
+
+- Write them under `scripts/` if you like, but **delete them when the investigation is done** - do not leave them in the working tree and do not commit them.
+- If one gets committed by accident, remove it (a forward `git rm` commit is fine; avoid history surgery on `rc` unless asked).
+- Heads-up on this dev setup: the dev server often runs with `DISABLE_HMR=1`, so live edits will NOT hot-reload. A full page reload only picks up new code if the vite process was started **after** the edit hit disk. Verify the served module actually contains your change (`curl localhost:17173/<module>` and grep) before trusting any CDP screenshot.
+
 ### Focus Not Working
 
 1. Add `tabIndex={0}` or `tabIndex={-1}`
