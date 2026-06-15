@@ -75,6 +75,7 @@ const mockUnsubscribeAgentError = vi.fn();
 const mockUnsubscribeThinkingChunk = vi.fn();
 const mockUnsubscribeSshRemote = vi.fn();
 const mockUnsubscribeToolExecution = vi.fn();
+const mockUnsubscribeUserInput = vi.fn();
 
 const mockProcess = {
 	onData: vi.fn((handler: ListenerCallback) => {
@@ -121,6 +122,7 @@ const mockProcess = {
 		onToolExecutionHandler = handler;
 		return mockUnsubscribeToolExecution;
 	}),
+	onUserInput: vi.fn(() => mockUnsubscribeUserInput),
 	getActiveProcesses: vi.fn().mockResolvedValue([]),
 	spawn: vi.fn(),
 	kill: vi.fn(),

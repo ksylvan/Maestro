@@ -355,6 +355,7 @@ describe('process IPC handlers', () => {
 			const expectedChannels = [
 				'process:spawn',
 				'process:write',
+				'process:broadcast-user-input',
 				'process:interrupt',
 				'process:kill',
 				'process:resize',
