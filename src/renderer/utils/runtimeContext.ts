@@ -3,8 +3,9 @@
  *
  * The same renderer code runs in three places:
  *   1. The Electron desktop app (`isWebDesktop() === false`)
- *   2. The web-desktop bundle served at `/<token>/desktop/`
- *      (`isWebDesktop() === true`)
+ *   2. The web-desktop bundle served through the embedded web server - the
+ *      default browser interface at the token root `/<token>`, with a legacy
+ *      `/<token>/desktop` alias (`isWebDesktop() === true`)
  *   3. SSR/test environments where `window` may not exist
  *
  * Components use `isWebDesktop()` to hide destructive UI that assumes
@@ -37,11 +38,13 @@ export function isWebDesktop(): boolean {
 		cached = true;
 		return cached;
 	}
-	// Defensive secondary signal: serving path. Useful for any future code
-	// path that may run before bootstrap.ts wires __MAESTRO_CONFIG__.
+	// Defensive secondary signal: serving path. The server injects
+	// __MAESTRO_CONFIG__ inline before any module runs, so the primary signal
+	// above covers the token-root case; this only catches the legacy
+	// `/<token>/desktop` alias if config injection were ever absent.
 	if (typeof window.location !== 'undefined') {
 		try {
-			if (window.location.pathname.includes('/desktop/')) {
+			if (/\/desktop\/?$/.test(window.location.pathname)) {
 				cached = true;
 				return cached;
 			}

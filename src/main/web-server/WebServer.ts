@@ -162,6 +162,9 @@ export class WebServer {
 	// keep serving stale `<script src="assets/main-OLD.js">` references that
 	// 404 against the new bundle.
 	private webDesktopPathCache: string | null = null;
+	// Resolved web-desktop bundle root (or null if not built). Set once in the
+	// constructor; shared by StaticRoutes (index.html) and the asset mount.
+	private webDesktopPath: string | null = null;
 
 	// Security token - persistent or regenerated per startup
 	private securityToken: string;
@@ -184,18 +187,7 @@ export class WebServer {
 	private staticRoutes: StaticRoutes;
 	private wsRoute: WsRoute;
 
-	// Encore Feature gate — controls whether the optional Web-Desktop bundle
-	// (full renderer reachable over a bridge.invoke WS protocol) is exposed.
-	// Read on every call so a runtime toggle in Settings takes effect on
-	// next server restart without code changes here.
-	private getWebDesktopBundleEnabled: () => boolean;
-
-	constructor(
-		port: number = 0,
-		securityToken?: string,
-		getWebDesktopBundleEnabled: () => boolean = () => false
-	) {
-		this.getWebDesktopBundleEnabled = getWebDesktopBundleEnabled;
+	constructor(port: number = 0, securityToken?: string) {
 		// Use port 0 to let OS assign a random available port
 		this.port = port;
 		this.server = Fastify({
@@ -215,6 +207,10 @@ export class WebServer {
 
 		// Determine web assets path (production vs development)
 		this.webAssetsPath = this.resolveWebAssetsPath();
+		// Resolve the web-desktop bundle once. It is now the default interface
+		// served at the token root, so StaticRoutes needs the path to serve its
+		// index.html and the asset mount needs it to expose /<token>/desktop/assets/.
+		this.webDesktopPath = this.resolveWebDesktopAssetsPath();
 
 		// Initialize managers
 		this.liveSessionManager = new LiveSessionManager();
@@ -239,7 +235,11 @@ export class WebServer {
 
 		// Initialize route handlers
 		this.apiRoutes = new ApiRoutes(this.securityToken, this.rateLimitConfig);
-		this.staticRoutes = new StaticRoutes(this.securityToken, this.webAssetsPath);
+		this.staticRoutes = new StaticRoutes(
+			this.securityToken,
+			this.webAssetsPath,
+			this.webDesktopPath
+		);
 		this.wsRoute = new WsRoute(this.securityToken);
 
 		// Note: setupMiddleware and setupRoutes are called in start() to handle async properly
@@ -783,20 +783,18 @@ export class WebServer {
 			}
 		}
 
-		// Web-Desktop bundle assets — opt-in Encore Feature. Only mounted when
-		// the user has explicitly enabled `encoreFeatures.webDesktopBundle` AND
-		// the bundle has been built.
-		if (this.getWebDesktopBundleEnabled()) {
-			const webDesktopPath = this.resolveWebDesktopAssetsPath();
-			if (webDesktopPath) {
-				const wdAssets = path.join(webDesktopPath, 'assets');
-				if (existsSync(wdAssets)) {
-					await this.server.register(fastifyStatic, {
-						root: wdAssets,
-						prefix: `/${this.securityToken}/desktop/assets/`,
-						decorateReply: false,
-					});
-				}
+		// Web-Desktop bundle assets — the default interface. Served at
+		// /<token>/desktop/assets/ to match the absolute asset references the
+		// desktop index.html is rewritten to use, regardless of the URL the HTML
+		// itself was served from. Mounted whenever the bundle has been built.
+		if (this.webDesktopPath) {
+			const wdAssets = path.join(this.webDesktopPath, 'assets');
+			if (existsSync(wdAssets)) {
+				await this.server.register(fastifyStatic, {
+					root: wdAssets,
+					prefix: `/${this.securityToken}/desktop/assets/`,
+					decorateReply: false,
+				});
 			}
 		}
 	}
@@ -817,52 +815,10 @@ export class WebServer {
 		return null;
 	}
 
-	private serveWebDesktopIndex(reply: import('fastify').FastifyReply): void {
-		const wdPath = this.resolveWebDesktopAssetsPath();
-		if (!wdPath) {
-			reply.code(503).send({
-				error: 'Service Unavailable',
-				message: 'Web-Desktop bundle not built. Run "npm run build:web-desktop".',
-			});
-			return;
-		}
-		try {
-			let html = readFileSync(path.join(wdPath, 'index.html'), 'utf-8');
-			const token = this.securityToken;
-			html = html.replace(/\.\/assets\//g, `/${token}/desktop/assets/`);
-			html = html.replace(/="\/assets\//g, `="/${token}/desktop/assets/`);
-			const configScript = `<script>
-		window.__MAESTRO_CONFIG__ = {
-			securityToken: ${JSON.stringify(token)},
-			sessionId: null,
-			tabId: null,
-			apiBase: "/${token}/api",
-			wsUrl: "/${token}/ws"
-		};
-	</script>`;
-			html = html.replace('</head>', `${configScript}</head>`);
-			reply.type('text/html').send(html);
-		} catch (err) {
-			logger.error('Failed to serve web-desktop index.html', LOG_CONTEXT, err);
-			reply.code(500).send({ error: 'Internal Server Error' });
-		}
-	}
-
 	private setupRoutes(): void {
-		// Web-Desktop SPA — opt-in Encore Feature. Registered before the
-		// StaticRoutes catch-all `/:token` route so /<token>/desktop[/...]
-		// paths don't get hijacked by the dashboard fallback.
-		if (this.getWebDesktopBundleEnabled()) {
-			const token = this.securityToken;
-			this.server.get(`/${token}/desktop`, async (_req, reply) => {
-				this.serveWebDesktopIndex(reply);
-			});
-			this.server.get(`/${token}/desktop/`, async (_req, reply) => {
-				this.serveWebDesktopIndex(reply);
-			});
-		}
-
-		// Setup static routes (dashboard, PWA files, health check)
+		// Setup static routes (web-desktop SPA, PWA files, health check). The
+		// desktop bundle is served at the token root and at /<token>/desktop —
+		// see StaticRoutes.registerRoutes.
 		this.staticRoutes.registerRoutes(this.server);
 
 		// Setup API routes callbacks and register routes
@@ -929,7 +885,6 @@ export class WebServer {
 
 	private setupMessageHandlerCallbacks(): void {
 		this.messageHandler.setCallbacks({
-			getWebDesktopBundleEnabled: () => this.getWebDesktopBundleEnabled(),
 			getSessionDetail: (sessionId: string) => this.callbackRegistry.getSessionDetail(sessionId),
 			executeCommand: async (
 				sessionId: string,
@@ -1273,14 +1228,11 @@ export class WebServer {
 			this.setupMessageHandlerCallbacks();
 
 			// Install IPC-bridge fanout so every webContents.send is also
-			// broadcast to web clients as a bridge.event. Only installed when
-			// the user has explicitly enabled the Web-Desktop Bundle Encore
-			// Feature — otherwise the IPC surface stays scoped to the
-			// curated mobile message types in messageHandlers.ts.
-			if (this.getWebDesktopBundleEnabled()) {
-				const { installWebContentsBridgeHook } = await import('./handlers/bridgeHandlers');
-				installWebContentsBridgeHook(this.broadcastService);
-			}
+			// broadcast to web clients as a bridge.event. The web-desktop bundle
+			// is the default interface and relies on this fanout to mirror the
+			// desktop renderer 1:1.
+			const { installWebContentsBridgeHook } = await import('./handlers/bridgeHandlers');
+			installWebContentsBridgeHook(this.broadcastService);
 
 			await this.server.listen({ port: this.port, host: '0.0.0.0' });
 

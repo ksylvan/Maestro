@@ -2,8 +2,8 @@
  * Tests for the bridge.invoke dispatcher.
  *
  * The bridge is the entry point that exposes ipcMain.handle() registrations
- * to the optional Web-Desktop Bundle Encore Feature. These tests assert the
- * three failure modes plus the happy path:
+ * to the web-desktop bundle, the default browser interface. These tests assert
+ * the three failure modes plus the happy path:
  *
  *  1. Missing/empty channel → ok:false, never touches ipcMain.
  *  2. Unknown channel → ok:false with a clear message.
