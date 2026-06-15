@@ -1068,6 +1068,36 @@ describe('BatchRunnerModal', () => {
 			expect(screen.queryByPlaceholderText(GOAL_PLACEHOLDER)).not.toBeInTheDocument();
 		});
 
+		it('hides Spec-Driven-only chrome (Playbook actions + Follow active task) in Goal-Driven mode', async () => {
+			render(<BatchRunnerModal {...createDefaultProps()} />);
+
+			// Spec mode by default: the Playbook import action and the
+			// document-centric follow-active-task toggle + drag hint are present.
+			expect(screen.getByRole('button', { name: 'Import Playbook' })).toBeInTheDocument();
+			expect(screen.getByText('Follow active task')).toBeInTheDocument();
+			expect(screen.getByText('to copy document')).toBeInTheDocument();
+			expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
+
+			// Switch to Goal-Driven — none of these apply without checklist documents.
+			fireEvent.click(screen.getByRole('button', { name: 'Goal-Driven' }));
+
+			await waitFor(() => {
+				expect(screen.queryByRole('button', { name: 'Import Playbook' })).not.toBeInTheDocument();
+			});
+			expect(screen.queryByText('Follow active task')).not.toBeInTheDocument();
+			expect(screen.queryByText('to copy document')).not.toBeInTheDocument();
+			// Save persists the spec-mode prompt; it has no place in goal mode.
+			expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
+
+			// Switching back restores them.
+			fireEvent.click(screen.getByRole('button', { name: 'Spec-Driven' }));
+			await waitFor(() => {
+				expect(screen.getByRole('button', { name: 'Import Playbook' })).toBeInTheDocument();
+			});
+			expect(screen.getByText('Follow active task')).toBeInTheDocument();
+			expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
+		});
+
 		it('disables Go with an empty goal and enables it once a goal is typed', async () => {
 			render(<BatchRunnerModal {...createDefaultProps()} />);
 

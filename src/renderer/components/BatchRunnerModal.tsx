@@ -806,165 +806,8 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 
 				{/* Content */}
 				<div className="flex-1 overflow-y-auto p-6">
-					{/* Playbook Section */}
-					<div className="mb-6 flex items-center justify-between">
-						{/* Left side: Load Playbook and Playbook Exchange buttons */}
-						<div className="flex items-center gap-2">
-							{/* Load Playbook Dropdown - only show when playbooks exist or one is loaded */}
-							{(playbooks.length > 0 || loadedPlaybook) && (
-								<div className="relative" ref={playbackDropdownRef}>
-									<button
-										onClick={() => setShowPlaybookDropdown(!showPlaybookDropdown)}
-										className="flex items-center gap-2 px-3 py-1.5 rounded-lg border hover:bg-white/5 transition-colors"
-										style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
-										disabled={loadingPlaybooks}
-									>
-										<FolderOpen className="w-4 h-4" style={{ color: theme.colors.accent }} />
-										<span className="text-sm">
-											{loadedPlaybook ? loadedPlaybook.name : 'Load Playbook'}
-										</span>
-										<ChevronDown className="w-3.5 h-3.5" style={{ color: theme.colors.textDim }} />
-									</button>
-
-									{/* Dropdown Menu */}
-									{showPlaybookDropdown && (
-										<div
-											className="absolute top-full left-0 mt-1 min-w-64 max-w-[calc(700px-48px)] w-max rounded-lg border shadow-lg z-10 overflow-hidden"
-											style={{
-												backgroundColor: theme.colors.bgSidebar,
-												borderColor: theme.colors.border,
-											}}
-										>
-											<div className="max-h-48 overflow-y-auto">
-												{playbooks.map((pb) => (
-													<div
-														key={pb.id}
-														className={`flex items-center gap-2 px-3 py-2 hover:bg-white/5 cursor-pointer transition-colors ${
-															loadedPlaybook?.id === pb.id ? 'bg-white/10' : ''
-														}`}
-														onClick={() => handleLoadPlaybook(pb)}
-													>
-														<span
-															className="flex-1 text-sm"
-															style={{ color: theme.colors.textMain }}
-														>
-															{pb.name}
-														</span>
-														<span
-															className="text-[10px] shrink-0"
-															style={{ color: theme.colors.textDim }}
-														>
-															{pb.documents.length} doc{pb.documents.length !== 1 ? 's' : ''}
-														</span>
-														<button
-															onClick={(e) => {
-																e.stopPropagation();
-																handleExportPlaybook(pb);
-															}}
-															className="p-1 rounded hover:bg-white/10 transition-colors shrink-0"
-															style={{ color: theme.colors.textDim }}
-															title="Export playbook"
-														>
-															<Download className="w-3 h-3" />
-														</button>
-														<button
-															onClick={(e) => handleDeletePlaybook(pb, e)}
-															className="p-1 rounded hover:bg-white/10 transition-colors shrink-0"
-															style={{ color: theme.colors.textDim }}
-															title="Delete playbook"
-														>
-															<X className="w-3 h-3" />
-														</button>
-													</div>
-												))}
-											</div>
-										</div>
-									)}
-								</div>
-							)}
-
-							{/* Import Playbook — always visible so users with zero existing
-							    playbooks can still import a .maestro-playbook.zip. Previously
-							    lived inside the Load Playbook dropdown, which only renders when
-							    at least one playbook exists — making the entry point unreachable
-							    on fresh worktrees / first-time users. */}
-							<button
-								onClick={handleImportPlaybook}
-								className="flex items-center gap-2 px-3 py-1.5 rounded-lg border hover:bg-white/5 transition-colors"
-								style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
-								title="Import a playbook from a .maestro-playbook.zip file"
-							>
-								<Upload className="w-4 h-4" style={{ color: theme.colors.accent }} />
-								<span className="text-sm">Import Playbook</span>
-							</button>
-
-							{/* Playbook Exchange button */}
-							{onOpenMarketplace && (
-								<button
-									onClick={onOpenMarketplace}
-									className="flex items-center gap-2 px-3 py-1.5 rounded-lg border hover:bg-white/5 transition-colors"
-									style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
-									title="Browse Playbook Exchange"
-								>
-									<LayoutGrid className="w-4 h-4" style={{ color: theme.colors.accent }} />
-									<span className="text-sm">Playbook Exchange</span>
-								</button>
-							)}
-						</div>
-
-						{/* Right side: Save as Playbook OR Save Update/Discard buttons */}
-						<div className="flex items-center gap-2">
-							{/* Save as Playbook button - shown when >1 doc and no playbook loaded */}
-							{documents.length > 1 && !loadedPlaybook && (
-								<button
-									onClick={() => setShowSavePlaybookModal(true)}
-									className="flex items-center gap-2 px-3 py-1.5 rounded-lg border hover:bg-white/5 transition-colors"
-									style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
-								>
-									<Bookmark className="w-4 h-4" style={{ color: theme.colors.accent }} />
-									<span className="text-sm">Save as Playbook</span>
-								</button>
-							)}
-
-							{/* Save Update, Save as New, and Discard buttons - shown when playbook is loaded and modified */}
-							{loadedPlaybook && isPlaybookModified && (
-								<>
-									<button
-										onClick={handleDiscardChanges}
-										className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border hover:bg-white/5 transition-colors"
-										style={{ borderColor: theme.colors.border, color: theme.colors.textDim }}
-										title="Discard changes and reload original playbook configuration"
-									>
-										<RotateCcw className="w-3.5 h-3.5" />
-										<span className="text-sm">Discard</span>
-									</button>
-									<button
-										onClick={() => setShowSavePlaybookModal(true)}
-										disabled={savingPlaybook}
-										className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-										style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
-										title="Save as a new playbook with a different name"
-									>
-										<Bookmark className="w-3.5 h-3.5" />
-										<span className="text-sm">Save as New</span>
-									</button>
-									<button
-										onClick={handleSaveUpdate}
-										disabled={savingPlaybook}
-										className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-										style={{ borderColor: theme.colors.accent, color: theme.colors.accent }}
-										title="Save changes to the loaded playbook"
-									>
-										<Save className="w-3.5 h-3.5" />
-										<span className="text-sm">{savingPlaybook ? 'Saving...' : 'Save Update'}</span>
-									</button>
-								</>
-							)}
-						</div>
-					</div>
-
-					{/* Spec-Driven / Goal-Driven tabs — choose how this Auto Run is driven.
-					    Sits directly beneath the Playbook row, above the documents/goal body. */}
+					{/* Spec-Driven / Goal-Driven tabs — the top-level choice for how this
+					    Auto Run is driven. Everything below adapts to the selection. */}
 					<div className="mb-6">
 						<p className="text-xs mb-2" style={{ color: theme.colors.textDim }}>
 							Spec-Driven runs your checklist documents to completion. Goal-Driven pursues an
@@ -980,6 +823,171 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 							theme={theme}
 						/>
 					</div>
+
+					{/* Playbook Section — Spec-Driven only; playbooks are checklist
+					    documents, which have no meaning in Goal-Driven mode. */}
+					{!goalMode && (
+						<div className="mb-6 flex items-center justify-between">
+							{/* Left side: Load Playbook and Playbook Exchange buttons */}
+							<div className="flex items-center gap-2">
+								{/* Load Playbook Dropdown - only show when playbooks exist or one is loaded */}
+								{(playbooks.length > 0 || loadedPlaybook) && (
+									<div className="relative" ref={playbackDropdownRef}>
+										<button
+											onClick={() => setShowPlaybookDropdown(!showPlaybookDropdown)}
+											className="flex items-center gap-2 px-3 py-1.5 rounded-lg border hover:bg-white/5 transition-colors"
+											style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
+											disabled={loadingPlaybooks}
+										>
+											<FolderOpen className="w-4 h-4" style={{ color: theme.colors.accent }} />
+											<span className="text-sm">
+												{loadedPlaybook ? loadedPlaybook.name : 'Load Playbook'}
+											</span>
+											<ChevronDown
+												className="w-3.5 h-3.5"
+												style={{ color: theme.colors.textDim }}
+											/>
+										</button>
+
+										{/* Dropdown Menu */}
+										{showPlaybookDropdown && (
+											<div
+												className="absolute top-full left-0 mt-1 min-w-64 max-w-[calc(700px-48px)] w-max rounded-lg border shadow-lg z-10 overflow-hidden"
+												style={{
+													backgroundColor: theme.colors.bgSidebar,
+													borderColor: theme.colors.border,
+												}}
+											>
+												<div className="max-h-48 overflow-y-auto">
+													{playbooks.map((pb) => (
+														<div
+															key={pb.id}
+															className={`flex items-center gap-2 px-3 py-2 hover:bg-white/5 cursor-pointer transition-colors ${
+																loadedPlaybook?.id === pb.id ? 'bg-white/10' : ''
+															}`}
+															onClick={() => handleLoadPlaybook(pb)}
+														>
+															<span
+																className="flex-1 text-sm"
+																style={{ color: theme.colors.textMain }}
+															>
+																{pb.name}
+															</span>
+															<span
+																className="text-[10px] shrink-0"
+																style={{ color: theme.colors.textDim }}
+															>
+																{pb.documents.length} doc{pb.documents.length !== 1 ? 's' : ''}
+															</span>
+															<button
+																onClick={(e) => {
+																	e.stopPropagation();
+																	handleExportPlaybook(pb);
+																}}
+																className="p-1 rounded hover:bg-white/10 transition-colors shrink-0"
+																style={{ color: theme.colors.textDim }}
+																title="Export playbook"
+															>
+																<Download className="w-3 h-3" />
+															</button>
+															<button
+																onClick={(e) => handleDeletePlaybook(pb, e)}
+																className="p-1 rounded hover:bg-white/10 transition-colors shrink-0"
+																style={{ color: theme.colors.textDim }}
+																title="Delete playbook"
+															>
+																<X className="w-3 h-3" />
+															</button>
+														</div>
+													))}
+												</div>
+											</div>
+										)}
+									</div>
+								)}
+
+								{/* Import Playbook — always visible so users with zero existing
+							    playbooks can still import a .maestro-playbook.zip. Previously
+							    lived inside the Load Playbook dropdown, which only renders when
+							    at least one playbook exists — making the entry point unreachable
+							    on fresh worktrees / first-time users. */}
+								<button
+									onClick={handleImportPlaybook}
+									className="flex items-center gap-2 px-3 py-1.5 rounded-lg border hover:bg-white/5 transition-colors"
+									style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
+									title="Import a playbook from a .maestro-playbook.zip file"
+								>
+									<Upload className="w-4 h-4" style={{ color: theme.colors.accent }} />
+									<span className="text-sm">Import Playbook</span>
+								</button>
+
+								{/* Playbook Exchange button */}
+								{onOpenMarketplace && (
+									<button
+										onClick={onOpenMarketplace}
+										className="flex items-center gap-2 px-3 py-1.5 rounded-lg border hover:bg-white/5 transition-colors"
+										style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
+										title="Browse Playbook Exchange"
+									>
+										<LayoutGrid className="w-4 h-4" style={{ color: theme.colors.accent }} />
+										<span className="text-sm">Playbook Exchange</span>
+									</button>
+								)}
+							</div>
+
+							{/* Right side: Save as Playbook OR Save Update/Discard buttons */}
+							<div className="flex items-center gap-2">
+								{/* Save as Playbook button - shown when >1 doc and no playbook loaded */}
+								{documents.length > 1 && !loadedPlaybook && (
+									<button
+										onClick={() => setShowSavePlaybookModal(true)}
+										className="flex items-center gap-2 px-3 py-1.5 rounded-lg border hover:bg-white/5 transition-colors"
+										style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
+									>
+										<Bookmark className="w-4 h-4" style={{ color: theme.colors.accent }} />
+										<span className="text-sm">Save as Playbook</span>
+									</button>
+								)}
+
+								{/* Save Update, Save as New, and Discard buttons - shown when playbook is loaded and modified */}
+								{loadedPlaybook && isPlaybookModified && (
+									<>
+										<button
+											onClick={handleDiscardChanges}
+											className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border hover:bg-white/5 transition-colors"
+											style={{ borderColor: theme.colors.border, color: theme.colors.textDim }}
+											title="Discard changes and reload original playbook configuration"
+										>
+											<RotateCcw className="w-3.5 h-3.5" />
+											<span className="text-sm">Discard</span>
+										</button>
+										<button
+											onClick={() => setShowSavePlaybookModal(true)}
+											disabled={savingPlaybook}
+											className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+											style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
+											title="Save as a new playbook with a different name"
+										>
+											<Bookmark className="w-3.5 h-3.5" />
+											<span className="text-sm">Save as New</span>
+										</button>
+										<button
+											onClick={handleSaveUpdate}
+											disabled={savingPlaybook}
+											className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+											style={{ borderColor: theme.colors.accent, color: theme.colors.accent }}
+											title="Save changes to the loaded playbook"
+										>
+											<Save className="w-3.5 h-3.5" />
+											<span className="text-sm">
+												{savingPlaybook ? 'Saving...' : 'Save Update'}
+											</span>
+										</button>
+									</>
+								)}
+							</div>
+						</div>
+					)}
 
 					{/* Documents Section (Spec-Driven) or Goal config (Goal-Driven) */}
 					{goalMode ? (
@@ -1234,35 +1242,42 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 					className="p-4 border-t flex items-center justify-between shrink-0"
 					style={{ borderColor: theme.colors.border }}
 				>
-					{/* Left side: Auto-follow toggle + Hint */}
+					{/* Left side: Auto-follow toggle + Hint. Both are document-centric
+					    (following the active task, drag-to-copy a document) and have no
+					    meaning in Goal-Driven mode, so they hide there. The container
+					    stays mounted to preserve the footer's justify-between layout. */}
 					<div className="flex items-center gap-4">
-						<label className="flex items-center gap-1.5 cursor-pointer">
-							<input
-								type="checkbox"
-								checked={autoFollowEnabled}
-								onChange={(e) => setAutoFollowEnabled(e.target.checked)}
-								className="w-3 h-3 rounded cursor-pointer accent-current"
-								style={{ accentColor: theme.colors.accent }}
-							/>
-							<span className="text-xs" style={{ color: theme.colors.textDim }}>
-								Follow active task
-							</span>
-						</label>
-						<div
-							className="flex items-center gap-2 text-xs"
-							style={{ color: theme.colors.textDim }}
-						>
-							<span
-								className="px-1.5 py-0.5 rounded border text-[10px] font-mono"
-								style={{
-									borderColor: theme.colors.border,
-									backgroundColor: theme.colors.bgActivity,
-								}}
-							>
-								{formatMetaKey()} + Drag
-							</span>
-							<span>to copy document</span>
-						</div>
+						{!goalMode && (
+							<>
+								<label className="flex items-center gap-1.5 cursor-pointer">
+									<input
+										type="checkbox"
+										checked={autoFollowEnabled}
+										onChange={(e) => setAutoFollowEnabled(e.target.checked)}
+										className="w-3 h-3 rounded cursor-pointer accent-current"
+										style={{ accentColor: theme.colors.accent }}
+									/>
+									<span className="text-xs" style={{ color: theme.colors.textDim }}>
+										Follow active task
+									</span>
+								</label>
+								<div
+									className="flex items-center gap-2 text-xs"
+									style={{ color: theme.colors.textDim }}
+								>
+									<span
+										className="px-1.5 py-0.5 rounded border text-[10px] font-mono"
+										style={{
+											borderColor: theme.colors.border,
+											backgroundColor: theme.colors.bgActivity,
+										}}
+									>
+										{formatMetaKey()} + Drag
+									</span>
+									<span>to copy document</span>
+								</div>
+							</>
+						)}
 					</div>
 
 					{/* Right side: Buttons */}
@@ -1274,16 +1289,20 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 						>
 							Cancel
 						</button>
-						<button
-							onClick={handleSave}
-							disabled={!hasUnsavedChanges}
-							className="flex items-center gap-2 px-4 py-2 rounded border hover:bg-white/5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-							style={{ borderColor: theme.colors.border, color: theme.colors.success }}
-							title={hasUnsavedChanges ? 'Save prompt for this session' : 'No unsaved changes'}
-						>
-							<Save className="w-4 h-4" />
-							Save
-						</button>
+						{/* Save persists the Spec-Driven agent prompt for this session.
+						    Goal-Driven has no editable prompt to save, so it's hidden there. */}
+						{!goalMode && (
+							<button
+								onClick={handleSave}
+								disabled={!hasUnsavedChanges}
+								className="flex items-center gap-2 px-4 py-2 rounded border hover:bg-white/5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+								style={{ borderColor: theme.colors.border, color: theme.colors.success }}
+								title={hasUnsavedChanges ? 'Save prompt for this session' : 'No unsaved changes'}
+							>
+								<Save className="w-4 h-4" />
+								Save
+							</button>
+						)}
 						<button
 							onClick={handleGo}
 							disabled={isGoDisabled}

@@ -4,7 +4,12 @@ description: Process markdown checklists with AI agents using Auto Run documents
 icon: play
 ---
 
-Auto Run is a file-system-based document runner that lets you process tasks using AI agents. Select a folder containing markdown documents with task checkboxes, and Maestro will work through them one by one, spawning a fresh AI session for each task.
+Auto Run automates AI-driven work in one of two modes, chosen with the **Spec-Driven** / **Goal-Driven** toggle at the top of the Run dialog:
+
+- **Spec-Driven** runs markdown checklist documents to completion. You write the work as checkbox tasks in a folder of `.md` files, and Maestro works through them one by one, spawning a fresh AI session for each task (or each document). A reusable collection of these documents is a **Playbook**. Reach for this when you already know the steps.
+- **Goal-Driven** pursues a single free-text objective with no checklist. Each iteration spawns a fresh agent that makes one increment of progress, reports how far along it is, and exits, repeating until the goal is reached or the run stops. Reach for this for open-ended work where you can't list the steps up front.
+
+Most of this guide covers Spec-Driven documents and Playbooks. Jump to [Goal-Driven Mode](#goal-driven-mode) for that workflow.
 
 ![Auto Run](./screenshots/autorun-1.png)
 
@@ -116,6 +121,45 @@ The Inline Wizard creates documents in a unique subfolder under your Auto Run fo
 ### Playbook Exchange
 
 Looking for pre-built playbooks? The [Playbook Exchange](./playbook-exchange) offers community-contributed playbooks for common workflows like security audits, code reviews, and documentation generation. Open it via Quick Actions (`Cmd+K`) or click the Exchange button in the Auto Run panel.
+
+## Goal-Driven Mode
+
+Everything above describes **Spec-Driven** runs - documents of checkboxes worked to completion. **Goal-Driven** mode is the alternative: switch to the **Goal-Driven** tab in the Run dialog to chase a free-text objective instead of a document of checkboxes.
+
+Each iteration spawns a fresh agent that makes one increment of real progress toward the goal, reports how far along it is, and exits. The next iteration picks up where it left off, until the goal is reached or the run stops. Because there are no checklist documents, the playbook controls and the "Follow active task" option don't appear in this mode.
+
+![Goal-Driven Auto Run](./screenshots/autorun-goal.png)
+
+### Configuring a Goal Run
+
+Three inputs configure a run:
+
+- **Goal** - what you want accomplished, in plain language (e.g., "Migrate the settings store from Redux to Zustand and keep all tests green").
+- **Exit Criteria** - what "done" looks like and when the agent should declare a deadlock instead of spinning. This guides the agent; it is **not** matched automatically.
+- **Iteration Limit** - a cap on how many iterations may run, or **Infinite** to run until the goal is reached or a deadlock is detected.
+
+Like Spec-Driven runs, a goal run can be [dispatched into an isolated git worktree](#run-in-worktree) so your main working tree stays clean.
+
+### Progress Markers
+
+At the end of every iteration the agent reports an honest 0-100 self-assessment on its own line. The engine reads this to drive the progress bar and decide whether to run again:
+
+```html
+<!-- maestro:progress 45 | refactored auth, tests still pending -->
+```
+
+The `| rationale` note after the number is optional but shows up in the progress UI. A response with no progress marker is treated as zero progress and counts toward a stall.
+
+### How a Goal Run Stops
+
+A goal run ends on any of four conditions:
+
+- **Completed** - the agent reports `progress 100`, or emits the explicit marker `<!-- maestro:goal-complete -->`.
+- **Deadlock** - the agent hits a true blocker it cannot work around and declares it with `<!-- maestro:deadlock: brief reason you cannot proceed -->`.
+- **Max iterations** - a finite iteration limit is reached before the goal completes.
+- **Stalled** - progress doesn't move upward for three iterations in a row, so the run stops instead of spinning.
+
+The stop reason and final progress are recorded in the **History** panel.
 
 ## Progress Tracking
 

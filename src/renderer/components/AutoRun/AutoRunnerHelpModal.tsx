@@ -64,18 +64,55 @@ export function AutoRunnerHelpModal({ theme, onClose, zIndex = 50 }: AutoRunnerH
 			}
 		>
 			<div className="space-y-6" style={{ color: theme.colors.textMain }}>
-				{/* Introduction */}
+				{/* Introduction - the two modes, up front */}
 				<section>
-					<p className="text-sm leading-relaxed" style={{ color: theme.colors.textDim }}>
-						Auto Run is a file-system-based document runner that automates AI-driven task execution.
-						Create markdown documents with checkbox tasks, and let AI agents work through them one
-						by one, each with a fresh context window - per task or per document (see{' '}
-						<strong style={{ color: theme.colors.textMain }}>
-							Fresh Context: Task vs Document
-						</strong>{' '}
-						below). Run single documents or chain multiple documents together for complex workflows
-						- a collection of Auto Run documents is called a{' '}
-						<strong style={{ color: theme.colors.textMain }}>Playbook</strong>.
+					<p className="text-sm leading-relaxed mb-3" style={{ color: theme.colors.textDim }}>
+						Auto Run automates AI-driven work in one of two modes. Choose the one that fits your
+						task with the <strong style={{ color: theme.colors.textMain }}>Spec-Driven</strong> /{' '}
+						<strong style={{ color: theme.colors.textMain }}>Goal-Driven</strong> toggle at the top
+						of the Run dialog.
+					</p>
+					<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+						<div
+							className="rounded-lg border p-3"
+							style={{ backgroundColor: theme.colors.bgActivity, borderColor: theme.colors.border }}
+						>
+							<div className="flex items-center gap-2 mb-1.5">
+								<FileText className="w-4 h-4 shrink-0" style={{ color: theme.colors.accent }} />
+								<strong className="text-sm" style={{ color: theme.colors.textMain }}>
+									Spec-Driven
+								</strong>
+							</div>
+							<p className="text-xs leading-relaxed" style={{ color: theme.colors.textDim }}>
+								Run markdown checklist documents to completion. You spell out the work as checkbox
+								tasks; agents work through them one by one, each with a fresh context window - per
+								task or per document. A reusable collection of these documents is a{' '}
+								<strong style={{ color: theme.colors.textMain }}>Playbook</strong>. Best when you
+								know the steps up front.
+							</p>
+						</div>
+						<div
+							className="rounded-lg border p-3"
+							style={{ backgroundColor: theme.colors.bgActivity, borderColor: theme.colors.border }}
+						>
+							<div className="flex items-center gap-2 mb-1.5">
+								<Target className="w-4 h-4 shrink-0" style={{ color: theme.colors.accent }} />
+								<strong className="text-sm" style={{ color: theme.colors.textMain }}>
+									Goal-Driven
+								</strong>
+							</div>
+							<p className="text-xs leading-relaxed" style={{ color: theme.colors.textDim }}>
+								Pursue a single free-text objective with no checklist. Each iteration spawns a fresh
+								agent that makes one increment of progress, reports how far along it is, and exits -
+								repeating until the goal is reached or the run stops. Best for open-ended work where
+								you can't list the steps ahead of time.
+							</p>
+						</div>
+					</div>
+					<p className="text-sm leading-relaxed mt-3" style={{ color: theme.colors.textDim }}>
+						The sections below cover Spec-Driven documents and Playbooks in depth. Jump to{' '}
+						<strong style={{ color: theme.colors.textMain }}>Goal-Driven Mode</strong> for that
+						workflow.
 					</p>
 				</section>
 
@@ -395,7 +432,7 @@ export function AutoRunnerHelpModal({ theme, onClose, zIndex = 50 }: AutoRunnerH
 							Switch to the <strong style={{ color: theme.colors.textMain }}>Goal-Driven</strong>{' '}
 							tab in the Run dialog to chase a free-text objective instead of a document of
 							checkboxes. Each iteration spawns a fresh agent that makes one increment of real
-							progress toward the goal, reports how far along it is, and exits—the next iteration
+							progress toward the goal, reports how far along it is, and exits - the next iteration
 							picks up where it left off until the goal is reached or the run stops.
 						</p>
 						<p>
@@ -405,16 +442,16 @@ export function AutoRunnerHelpModal({ theme, onClose, zIndex = 50 }: AutoRunnerH
 						</p>
 						<ul className="list-disc ml-4 space-y-1">
 							<li>
-								<strong style={{ color: theme.colors.textMain }}>Goal</strong> — what you want
+								<strong style={{ color: theme.colors.textMain }}>Goal</strong> - what you want
 								accomplished, in plain language.
 							</li>
 							<li>
-								<strong style={{ color: theme.colors.textMain }}>Exit Criteria</strong> — what
+								<strong style={{ color: theme.colors.textMain }}>Exit Criteria</strong> - what
 								"done" looks like and when to declare a deadlock. This guides the agent; it isn't
 								matched automatically.
 							</li>
 							<li>
-								<strong style={{ color: theme.colors.textMain }}>Iteration Limit</strong> — a cap on
+								<strong style={{ color: theme.colors.textMain }}>Iteration Limit</strong> - a cap on
 								how many iterations may run, or{' '}
 								<strong style={{ color: theme.colors.textMain }}>Infinite</strong> to run until the
 								goal is reached or a deadlock is detected.
@@ -422,7 +459,7 @@ export function AutoRunnerHelpModal({ theme, onClose, zIndex = 50 }: AutoRunnerH
 						</ul>
 						<p>
 							<strong style={{ color: theme.colors.textMain }}>Progress marker.</strong> At the end
-							of every iteration the agent reports its honest 0–100 self-assessment on its own line.
+							of every iteration the agent reports its honest 0-100 self-assessment on its own line.
 							The engine reads this to drive the progress bar and decide whether to run again:
 						</p>
 						<div
@@ -446,7 +483,7 @@ export function AutoRunnerHelpModal({ theme, onClose, zIndex = 50 }: AutoRunnerH
 						</p>
 						<ul className="list-disc ml-4 space-y-1">
 							<li>
-								<strong style={{ color: theme.colors.textMain }}>Completed</strong> — the agent
+								<strong style={{ color: theme.colors.textMain }}>Completed</strong> - the agent
 								reports <code>progress 100</code>, or emits the explicit marker:
 								<div
 									className="font-mono text-xs p-2 mt-1.5 rounded border"
@@ -459,7 +496,7 @@ export function AutoRunnerHelpModal({ theme, onClose, zIndex = 50 }: AutoRunnerH
 								</div>
 							</li>
 							<li>
-								<strong style={{ color: theme.colors.textMain }}>Deadlock</strong> — the agent hits
+								<strong style={{ color: theme.colors.textMain }}>Deadlock</strong> - the agent hits
 								a true blocker it cannot work around and declares it:
 								<div
 									className="font-mono text-xs p-2 mt-1.5 rounded border"
@@ -472,11 +509,11 @@ export function AutoRunnerHelpModal({ theme, onClose, zIndex = 50 }: AutoRunnerH
 								</div>
 							</li>
 							<li>
-								<strong style={{ color: theme.colors.textMain }}>Max iterations</strong> — a finite
+								<strong style={{ color: theme.colors.textMain }}>Max iterations</strong> - a finite
 								iteration limit is reached.
 							</li>
 							<li>
-								<strong style={{ color: theme.colors.textMain }}>Stalled</strong> — progress doesn't
+								<strong style={{ color: theme.colors.textMain }}>Stalled</strong> - progress doesn't
 								move upward for three iterations in a row, so the run stops instead of spinning.
 							</li>
 						</ul>
