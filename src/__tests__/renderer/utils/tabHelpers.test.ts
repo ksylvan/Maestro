@@ -37,6 +37,7 @@ import {
 	closeFileTab,
 	addAiTabToUnifiedHistory,
 	reopenUnifiedClosedTab,
+	reopenClosedAiTabById,
 	setActiveTab,
 	aiTabFocusFields,
 	getWriteModeTab,
@@ -2663,6 +2664,84 @@ describe('tabHelpers', () => {
 			expect(result).not.toBeNull();
 			expect(result!.tabType).toBe('ai');
 			expect(result!.wasDuplicate).toBe(false);
+		});
+	});
+
+	describe('reopenClosedAiTabById', () => {
+		it('returns null when no closed AI tab matches the id', () => {
+			const session = createMockSession({
+				aiTabs: [createMockTab({ id: 'ai-1' })],
+				activeTabId: 'ai-1',
+				unifiedTabOrder: [{ type: 'ai', id: 'ai-1' }],
+				unifiedClosedTabHistory: [],
+				closedTabHistory: [],
+			});
+			expect(reopenClosedAiTabById(session, 'does-not-exist')).toBeNull();
+		});
+
+		it('restores a specific closed AI tab from unified history by id', () => {
+			const closedA = createMockTab({ id: 'closed-a', agentSessionId: 'session-a' });
+			const closedB = createMockTab({ id: 'closed-b', agentSessionId: 'session-b' });
+			const entryA = { type: 'ai' as const, tab: closedA, unifiedIndex: 0, closedAt: Date.now() };
+			const entryB = { type: 'ai' as const, tab: closedB, unifiedIndex: 1, closedAt: Date.now() };
+			const session = createMockSession({
+				aiTabs: [createMockTab({ id: 'ai-1' })],
+				activeTabId: 'ai-1',
+				unifiedTabOrder: [{ type: 'ai', id: 'ai-1' }],
+				// closedB is more recent (index 0) - target the older closedA by id
+				unifiedClosedTabHistory: [entryB, entryA],
+			});
+
+			const result = reopenClosedAiTabById(session, 'closed-a');
+
+			expect(result).not.toBeNull();
+			expect(result!.tabType).toBe('ai');
+			expect(result!.wasDuplicate).toBe(false);
+			expect(result!.session.aiTabs).toHaveLength(2);
+			expect(result!.session.activeTabId).toBe(result!.tabId);
+			// Only the targeted entry is removed; the more recent one stays.
+			expect(result!.session.unifiedClosedTabHistory).toHaveLength(1);
+			expect(result!.session.unifiedClosedTabHistory![0].tab.id).toBe('closed-b');
+		});
+
+		it('switches to an existing tab instead of duplicating when agentSessionId matches', () => {
+			const existing = createMockTab({ id: 'ai-existing', agentSessionId: 'session-dup' });
+			const closed = createMockTab({ id: 'closed-dup', agentSessionId: 'session-dup' });
+			const entry = { type: 'ai' as const, tab: closed, unifiedIndex: 0, closedAt: Date.now() };
+			const session = createMockSession({
+				aiTabs: [existing],
+				activeTabId: 'ai-existing',
+				unifiedTabOrder: [{ type: 'ai', id: 'ai-existing' }],
+				unifiedClosedTabHistory: [entry],
+			});
+
+			const result = reopenClosedAiTabById(session, 'closed-dup');
+
+			expect(result).not.toBeNull();
+			expect(result!.wasDuplicate).toBe(true);
+			expect(result!.tabId).toBe('ai-existing');
+			expect(result!.session.aiTabs).toHaveLength(1);
+			expect(result!.session.unifiedClosedTabHistory).toHaveLength(0);
+		});
+
+		it('falls back to legacy closedTabHistory by id', () => {
+			const closed = createMockTab({ id: 'legacy-closed', agentSessionId: 'legacy-session' });
+			const entry: ClosedTab = { tab: closed, index: 0, closedAt: Date.now() };
+			const session = createMockSession({
+				aiTabs: [createMockTab({ id: 'ai-1' })],
+				activeTabId: 'ai-1',
+				unifiedTabOrder: [{ type: 'ai', id: 'ai-1' }],
+				unifiedClosedTabHistory: [],
+				closedTabHistory: [entry],
+			});
+
+			const result = reopenClosedAiTabById(session, 'legacy-closed');
+
+			expect(result).not.toBeNull();
+			expect(result!.tabType).toBe('ai');
+			expect(result!.wasDuplicate).toBe(false);
+			expect(result!.session.aiTabs).toHaveLength(2);
+			expect(result!.session.closedTabHistory).toHaveLength(0);
 		});
 	});
 
