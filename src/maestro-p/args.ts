@@ -117,8 +117,40 @@ const KNOWN_CLAUDE_BOOLEAN_LONG_FLAGS = new Set([
 	'--dangerously-skip-permissions',
 ]);
 
+/** Blocking sleep with no event loop, used to back off on EAGAIN. */
+function sleepSync(ms: number): void {
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 function defaultReadStdin(): string {
-	return fs.readFileSync(0, 'utf-8');
+	// `fs.readFileSync(0)` throws EAGAIN when stdin is a NON-BLOCKING pipe that
+	// isn't fully buffered yet - which is exactly how Electron's `process.execPath`
+	// (ELECTRON_RUN_AS_NODE) hands us stdin. Small payloads fit the initial buffer
+	// and never hit it; a large stream-json image envelope (multiple MB) does, and
+	// the bare readFileSync crashed maestro-p with "EAGAIN ... read" - surfaced to
+	// the user as "Agent exited with code 1" on any TUI turn with an attached image.
+	// Read in a loop, backing off on EAGAIN until EOF.
+	const CHUNK = 65536;
+	const buf = Buffer.alloc(CHUNK);
+	const out: Buffer[] = [];
+	for (;;) {
+		let bytesRead: number;
+		try {
+			bytesRead = fs.readSync(0, buf, 0, CHUNK, null);
+		} catch (err) {
+			const code = (err as NodeJS.ErrnoException).code;
+			if (code === 'EAGAIN') {
+				sleepSync(5);
+				continue;
+			}
+			// Some platforms surface end-of-pipe as EOF rather than a 0-byte read.
+			if (code === 'EOF') break;
+			throw err;
+		}
+		if (bytesRead === 0) break;
+		out.push(Buffer.from(buf.subarray(0, bytesRead)));
+	}
+	return Buffer.concat(out).toString('utf-8');
 }
 
 function defaultWarn(message: string): void {
