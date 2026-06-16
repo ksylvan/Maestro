@@ -70,7 +70,8 @@ export function useDocumentSelection({
 		[selectedDocs]
 	);
 
-	const allSelected = selectedDocs.size === allDocuments.length && allDocuments.length > 0;
+	const allSelected =
+		allDocuments.length > 0 && allDocuments.every((document) => selectedDocs.has(document));
 	const totalTaskCount = useMemo(
 		() => getAllDocumentsTaskCount(allDocuments, taskCounts),
 		[allDocuments, taskCounts]

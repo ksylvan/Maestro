@@ -35,6 +35,13 @@ describe('LoopControls', () => {
 		expect(screen.queryByText('Loop')).not.toBeInTheDocument();
 	});
 
+	it('shows the loop hint for zero documents', () => {
+		renderControls({ documents: [] });
+
+		expect(screen.getByText('You can enable loops with two or more documents')).toBeInTheDocument();
+		expect(screen.queryByText('Loop')).not.toBeInTheDocument();
+	});
+
 	it('toggles loop and shows summary for available documents', () => {
 		const props = renderControls();
 

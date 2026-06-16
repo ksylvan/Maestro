@@ -40,8 +40,11 @@ function renderModal(overrides = {}) {
 describe('DocumentSelectorModal', () => {
 	it('renders flat documents, counts, and add footer', () => {
 		const props = renderModal();
+		const dialog = screen.getByRole('dialog');
 
 		expect(screen.getByText('Select Documents')).toBeInTheDocument();
+		expect(dialog).toHaveAttribute('aria-modal', 'true');
+		expect(dialog).toHaveClass('select-none');
 		expect(screen.getAllByText('2 tasks').length).toBeGreaterThan(0);
 		expect(screen.getByText('alpha.md')).toBeInTheDocument();
 		expect(screen.getByText('beta.md')).toBeInTheDocument();
@@ -58,7 +61,14 @@ describe('DocumentSelectorModal', () => {
 		expect(screen.getByText('folder')).toBeInTheDocument();
 		expect(screen.queryByText('nested.md')).not.toBeInTheDocument();
 
-		fireEvent.click(screen.getByText('folder').closest('div')!.querySelector('button')!);
+		const expandButton = screen.getByRole('button', { name: 'Expand folder folder' });
+		expect(expandButton).toHaveAttribute('aria-expanded', 'false');
+
+		fireEvent.click(expandButton);
+		expect(screen.getByRole('button', { name: 'Collapse folder folder' })).toHaveAttribute(
+			'aria-expanded',
+			'true'
+		);
 		expect(screen.getByText('nested.md')).toBeInTheDocument();
 		expect(screen.getAllByText('3 tasks').length).toBeGreaterThan(0);
 	});

@@ -68,6 +68,8 @@ export function DocumentSelectorTree({
 						<button
 							type="button"
 							onClick={() => onToggleFolder(node.path)}
+							aria-label={`${isExpanded ? 'Collapse' : 'Expand'} folder ${node.name}`}
+							aria-expanded={isExpanded}
 							className="p-0.5 rounded hover:bg-white/10 shrink-0"
 							style={{ color: theme.colors.textDim }}
 						>

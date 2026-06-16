@@ -30,7 +30,7 @@ export function LoopControls({
 
 	return (
 		<>
-			{documents.length === 1 && (
+			{documents.length < 2 && (
 				<p className="mt-1.5 text-xs text-center" style={{ color: theme.colors.textDim }}>
 					You can enable loops with two or more documents
 				</p>

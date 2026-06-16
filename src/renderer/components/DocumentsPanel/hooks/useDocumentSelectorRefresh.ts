@@ -17,11 +17,15 @@ export function useDocumentSelectorRefresh({
 		setRefreshing(true);
 		setRefreshMessage(null);
 
-		await onRefresh();
-
-		setTimeout(() => {
-			setRefreshing(false);
-		}, 500);
+		try {
+			await onRefresh();
+		} catch {
+			// The caller owns user-facing error handling; this hook must always release the spinner.
+		} finally {
+			setTimeout(() => {
+				setRefreshing(false);
+			}, 500);
+		}
 	}, [onRefresh]);
 
 	useEffect(() => {

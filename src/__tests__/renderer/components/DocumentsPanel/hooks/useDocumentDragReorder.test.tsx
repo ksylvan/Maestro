@@ -21,14 +21,25 @@ function dragEvent(
 		clientY?: number;
 		top?: number;
 		height?: number;
+		relatedTarget?: Node | null;
+		contains?: (node: Node) => boolean;
 	} = {}
 ): React.DragEvent {
-	const { ctrlKey = false, metaKey = false, clientY = 0, top = 0, height = 20 } = options;
+	const {
+		ctrlKey = false,
+		metaKey = false,
+		clientY = 0,
+		top = 0,
+		height = 20,
+		relatedTarget = null,
+		contains = () => false,
+	} = options;
 	return {
 		ctrlKey,
 		metaKey,
 		clientX: 10,
 		clientY,
+		relatedTarget,
 		preventDefault: vi.fn(),
 		stopPropagation: vi.fn(),
 		dataTransfer: {
@@ -37,6 +48,7 @@ function dragEvent(
 		},
 		currentTarget: {
 			getBoundingClientRect: () => ({ top, height }),
+			contains,
 		},
 	} as unknown as React.DragEvent;
 }
@@ -122,6 +134,20 @@ describe('useDocumentDragReorder', () => {
 		expect(drop.stopPropagation).toHaveBeenCalled();
 		expect(setDocuments).toHaveBeenCalledTimes(1);
 		expect(getDocs().map((doc) => doc.id)).toEqual(['2', '3', '1']);
+	});
+
+	it('clears a stale drop target when drag leaves before drag end', () => {
+		const { result, getDocs, setDocuments } = setup();
+
+		act(() => result.current.handleDragStart(dragEvent(), '1'));
+		act(() => result.current.handleDragOver(dragEvent({ clientY: 30 }), '3', 2));
+		expect(result.current.dropTargetIndex).toBe(3);
+
+		act(() => result.current.handleDragLeave(dragEvent()));
+		act(() => result.current.handleDragEnd());
+
+		expect(setDocuments).not.toHaveBeenCalled();
+		expect(getDocs().map((doc) => doc.id)).toEqual(['1', '2', '3']);
 	});
 
 	it('tracks cursor and copy-drag state', () => {

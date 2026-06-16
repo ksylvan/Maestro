@@ -39,7 +39,7 @@ export interface DragHandlers {
 	handleDragStart: (e: React.DragEvent, id: string) => void;
 	handleDrag: (e: React.DragEvent) => void;
 	handleDragOver: (e: React.DragEvent, id: string, index: number) => void;
-	handleDragLeave: () => void;
+	handleDragLeave: (e: React.DragEvent) => void;
 	handleDrop: (e: React.DragEvent) => void;
 	handleDragEnd: () => void;
 }

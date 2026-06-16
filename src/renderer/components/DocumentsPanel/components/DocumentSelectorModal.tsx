@@ -66,7 +66,9 @@ export function DocumentSelectorModal({
 				aria-label="Close document selector"
 			/>
 			<div
-				className="relative z-10 modal-w-xl max-h-[70vh] border rounded-lg shadow-2xl overflow-hidden flex flex-col"
+				role="dialog"
+				aria-modal="true"
+				className="relative z-10 modal-w-xl max-h-[70vh] border rounded-lg shadow-2xl overflow-hidden flex flex-col select-none"
 				style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.border }}
 				onClick={(e) => e.stopPropagation()}
 			>

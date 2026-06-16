@@ -18,6 +18,7 @@ export function useDocumentDragReorder({ documents, setDocuments }: UseDocumentD
 	const dropTargetIndexRef = useRef(dropTargetIndex);
 	const isCopyDragRef = useRef(isCopyDrag);
 	const dropPerformedRef = useRef(false);
+	const isOverDropTargetRef = useRef(false);
 	draggedIdRef.current = draggedId;
 	dropTargetIndexRef.current = dropTargetIndex;
 	isCopyDragRef.current = isCopyDrag;
@@ -41,6 +42,7 @@ export function useDocumentDragReorder({ documents, setDocuments }: UseDocumentD
 	const handleDragOver = useCallback(
 		(e: React.DragEvent, _id: string, index: number) => {
 			e.preventDefault();
+			isOverDropTargetRef.current = true;
 			const isCopy = e.ctrlKey || e.metaKey;
 			setIsCopyDrag(isCopy);
 			e.dataTransfer.dropEffect = isCopy ? 'copy' : 'move';
@@ -62,58 +64,73 @@ export function useDocumentDragReorder({ documents, setDocuments }: UseDocumentD
 		[documents]
 	);
 
-	const handleDragLeave = useCallback(() => {}, []);
+	const handleDragLeave = useCallback((e: React.DragEvent) => {
+		const nextTarget = e.relatedTarget;
+		if (nextTarget instanceof Node && e.currentTarget.contains(nextTarget)) return;
 
-	const performDropOperation = useCallback(() => {
-		const currentDraggedId = draggedIdRef.current;
-		const currentDropTargetIndex = dropTargetIndexRef.current;
-		const currentIsCopyDrag = isCopyDragRef.current;
+		isOverDropTargetRef.current = false;
+		setDropTargetIndex(null);
+	}, []);
 
-		if (currentDraggedId && currentDropTargetIndex !== null && !dropPerformedRef.current) {
-			dropPerformedRef.current = true;
-			setDocuments((prev) => {
-				const draggedIndex = prev.findIndex((doc) => doc.id === currentDraggedId);
-				if (draggedIndex === -1) return prev;
+	const performDropOperation = useCallback(
+		(force = false) => {
+			const currentDraggedId = draggedIdRef.current;
+			const currentDropTargetIndex = dropTargetIndexRef.current;
+			const currentIsCopyDrag = isCopyDragRef.current;
 
-				const items = [...prev];
-				if (currentIsCopyDrag) {
-					const original = items[draggedIndex];
-					for (let index = 0; index < items.length; index++) {
-						if (items[index].filename === original.filename) {
-							items[index] = { ...items[index], resetOnCompletion: true };
+			if (
+				currentDraggedId &&
+				currentDropTargetIndex !== null &&
+				!dropPerformedRef.current &&
+				(force || isOverDropTargetRef.current)
+			) {
+				dropPerformedRef.current = true;
+				setDocuments((prev) => {
+					const draggedIndex = prev.findIndex((doc) => doc.id === currentDraggedId);
+					if (draggedIndex === -1) return prev;
+
+					const items = [...prev];
+					if (currentIsCopyDrag) {
+						const original = items[draggedIndex];
+						for (let index = 0; index < items.length; index++) {
+							if (items[index].filename === original.filename) {
+								items[index] = { ...items[index], resetOnCompletion: true };
+							}
 						}
+						items.splice(currentDropTargetIndex, 0, {
+							id: generateId(),
+							filename: original.filename,
+							resetOnCompletion: true,
+							isDuplicate: true,
+						});
+					} else {
+						const [removed] = items.splice(draggedIndex, 1);
+						const adjustedIndex =
+							draggedIndex < currentDropTargetIndex
+								? currentDropTargetIndex - 1
+								: currentDropTargetIndex;
+						items.splice(adjustedIndex, 0, removed);
 					}
-					items.splice(currentDropTargetIndex, 0, {
-						id: generateId(),
-						filename: original.filename,
-						resetOnCompletion: true,
-						isDuplicate: true,
-					});
-				} else {
-					const [removed] = items.splice(draggedIndex, 1);
-					const adjustedIndex =
-						draggedIndex < currentDropTargetIndex
-							? currentDropTargetIndex - 1
-							: currentDropTargetIndex;
-					items.splice(adjustedIndex, 0, removed);
-				}
-				return items;
-			});
-		}
-	}, [setDocuments]);
+					return items;
+				});
+			}
+		},
+		[setDocuments]
+	);
 
 	const resetDragState = useCallback(() => {
 		setDraggedId(null);
 		setDropTargetIndex(null);
 		setIsCopyDrag(false);
 		setCursorPosition(null);
+		isOverDropTargetRef.current = false;
 	}, []);
 
 	const handleDrop = useCallback(
 		(e: React.DragEvent) => {
 			e.preventDefault();
 			e.stopPropagation();
-			performDropOperation();
+			performDropOperation(true);
 			resetDragState();
 		},
 		[performDropOperation, resetDragState]

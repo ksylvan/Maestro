@@ -87,4 +87,29 @@ describe('useDocumentSelectorRefresh', () => {
 
 		expect(result.current.refreshMessage).toBeNull();
 	});
+
+	it('releases refreshing state when refresh rejects', async () => {
+		vi.useFakeTimers();
+		const onRefresh = vi.fn().mockRejectedValue(new Error('refresh failed'));
+		const { result } = renderHook(() =>
+			useDocumentSelectorRefresh({
+				allDocumentsLength: 2,
+				onRefresh,
+			})
+		);
+
+		await act(async () => {
+			await result.current.handleRefresh();
+		});
+
+		expect(onRefresh).toHaveBeenCalledTimes(1);
+		expect(result.current.refreshing).toBe(true);
+
+		act(() => {
+			vi.advanceTimersByTime(500);
+		});
+
+		expect(result.current.refreshing).toBe(false);
+		expect(result.current.refreshMessage).toBeNull();
+	});
 });

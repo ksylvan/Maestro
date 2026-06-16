@@ -53,6 +53,21 @@ describe('useDocumentSelection', () => {
 		expect([...result.current.selectedDocs]).toEqual(['alpha', 'beta']);
 	});
 
+	it('keeps all-selected true when preselected docs include stale filenames', () => {
+		const { result } = renderHook(() =>
+			useDocumentSelection({
+				documents: [
+					{ id: '1', filename: 'alpha', resetOnCompletion: false },
+					{ id: 'stale', filename: 'stale', resetOnCompletion: false },
+				],
+				allDocuments: ['alpha'],
+				taskCounts: {},
+			})
+		);
+
+		expect(result.current.allSelected).toBe(true);
+	});
+
 	it('toggles folder expansion and folder selection', () => {
 		const { result } = renderHook(() =>
 			useDocumentSelection({
