@@ -744,6 +744,39 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 					};
 				}
 
+				// LOCAL interactive turns run maestro-p as pure Node (via
+				// `process.execPath` + ELECTRON_RUN_AS_NODE) and it does
+				// `require('node-pty')`, which esbuild left external. In a PACKAGED
+				// app maestro-p.js sits at the resources root, OUTSIDE the asar, so
+				// Node can't find node-pty without help and every TUI turn dies on
+				// startup with "Cannot find module 'node-pty'" - while API mode (no
+				// maestro-p) and `npm run dev` (node-pty in the project tree) work.
+				// Point NODE_PATH at the IN-ASAR node_modules (`<resources>/app.asar/
+				// node_modules`), NOT the unpacked copy: node-pty's JS loads from the
+				// asar (the native `pty.node` is auto-redirected to app.asar.unpacked),
+				// and it derives its `spawn-helper` path via
+				// `helperPath.replace('app.asar', 'app.asar.unpacked')` - handing it the
+				// already-unpacked path double-applies to `app.asar.unpacked.unpacked`
+				// and the helper exec fails. This mirrors the batch/cue path in
+				// applyClaudeSpawnDecision(); without it the desktop interactive spawn
+				// had no node-pty resolution at all. Dev has an empty resourcesPath, so
+				// this only fires when packaged.
+				if (
+					claudeResolvedMode === 'interactive' &&
+					resolvedMaestroPBinPath &&
+					typeof process.resourcesPath === 'string' &&
+					process.resourcesPath.length > 0
+				) {
+					const asarModules = path.join(process.resourcesPath, 'app.asar', 'node_modules');
+					const existingNodePath = customEnvVarsToPass?.NODE_PATH ?? process.env.NODE_PATH;
+					customEnvVarsToPass = {
+						...(customEnvVarsToPass ?? {}),
+						NODE_PATH: existingNodePath
+							? `${asarModules}${path.delimiter}${existingNodePath}`
+							: asarModules,
+					};
+				}
+
 				// Persist the resolved Claude headless-mode state back to the session
 				// record and notify the renderer. Fires when:
 				//   - Adaptive Mode's auto-resolver ran (toggle on), OR
