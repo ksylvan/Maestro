@@ -4,6 +4,7 @@ import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { FilePreview } from '../../../renderer/components/FilePreview';
 import { formatShortcutKeys } from '../../../renderer/utils/shortcutFormatter';
 import { useSettingsStore } from '../../../renderer/stores/settingsStore';
+import { useImageAnnotatorStore } from '../../../renderer/components/ImageAnnotator/imageAnnotatorStore';
 
 import { mockTheme } from '../../helpers/mockTheme';
 // Mock lucide-react icons
@@ -695,6 +696,36 @@ describe('FilePreview', () => {
 			// Images can be opened in the annotator ("Edit image"), but never get
 			// the text/markdown edit-mode toggle.
 			expect(screen.queryByTestId('edit-text-toggle')).not.toBeInTheDocument();
+		});
+
+		it('opens the image annotator on the toggleMarkdownMode shortcut (Cmd+E)', () => {
+			const openAnnotator = vi.fn();
+			useImageAnnotatorStore.setState({ openAnnotator });
+
+			const { container } = render(
+				<FilePreview
+					{...defaultProps}
+					file={{
+						name: 'image.png',
+						content: 'data:image/png;base64,abc',
+						path: '/test/image.png',
+					}}
+					shortcuts={{
+						toggleMarkdownMode: {
+							id: 'toggleMarkdownMode',
+							label: 'Toggle Edit/Preview',
+							keys: ['Meta', 'e'],
+						},
+					}}
+				/>
+			);
+
+			const previewContainer = container.querySelector('[tabindex="0"]');
+			expect(previewContainer).not.toBeNull();
+
+			fireEvent.keyDown(previewContainer!, { key: 'e', metaKey: true });
+
+			expect(openAnnotator).toHaveBeenCalledWith('data:image/png;base64,abc', expect.any(Function));
 		});
 
 		it('toggles to edit mode when edit button is clicked', () => {

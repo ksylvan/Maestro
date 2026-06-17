@@ -287,7 +287,11 @@ export const FilePreviewHeader = React.memo(function FilePreviewHeader({
 						)}
 						{/* Edit image - opens the image annotator. Images only. */}
 						{toolbarVisibility.editImage && isImage && onEditImage && (
-							<HoverTooltip theme={theme} label="Edit image">
+							<HoverTooltip
+								theme={theme}
+								label="Edit image"
+								shortcut={formatShortcut('toggleMarkdownMode')}
+							>
 								<button
 									onClick={onEditImage}
 									className={headerBtnClass}
