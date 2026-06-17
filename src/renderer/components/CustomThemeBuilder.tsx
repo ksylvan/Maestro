@@ -5,20 +5,7 @@ import { THEMES, DEFAULT_CUSTOM_THEME_COLORS } from '../constants/themes';
 import { ConfirmModal } from './ConfirmModal';
 import { useModalLayer } from '../hooks/ui/useModalLayer';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
-
-/**
- * Validates that a string is a valid CSS color value
- */
-function isValidColor(color: string): boolean {
-	// Handle empty strings
-	if (!color || typeof color !== 'string') return false;
-
-	// Use the DOM to validate - create an option element and try to set its color
-	const testElement = new Option().style;
-	testElement.color = color;
-	// If the browser accepts the color, it will be non-empty
-	return testElement.color !== '';
-}
+import { isValidCssColor } from '../../shared/cssColor';
 
 interface CustomThemeBuilderProps {
 	theme: Theme; // Current active theme for styling the builder
@@ -390,7 +377,7 @@ export function CustomThemeBuilder({
 						}
 
 						// Validate all color values are valid CSS colors
-						const invalidColors = requiredKeys.filter((key) => !isValidColor(data.colors[key]));
+						const invalidColors = requiredKeys.filter((key) => !isValidCssColor(data.colors[key]));
 						if (invalidColors.length > 0) {
 							const errorMsg = `Invalid theme file: invalid color values for ${invalidColors.slice(0, 3).join(', ')}${invalidColors.length > 3 ? '...' : ''}`;
 							onImportError?.(errorMsg);
