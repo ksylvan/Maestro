@@ -152,6 +152,20 @@ program
 		return runPlaybook(playbookId, options);
 	});
 
+// Goal-Driven Auto Run command (lazy-loaded)
+program
+	.command('goal-run <agent-id> <goal>')
+	.description('Launch a Goal-Driven Auto Run: pursue a free-text goal until done')
+	.option('--exit-criteria <text>', 'What "done" looks like and when to declare a deadlock')
+	.option('--max-iterations <n>', 'Cap iterations (default: infinite)')
+	.option('--no-history', 'Do not write history entries')
+	.option('--json', 'Output as JSON lines (for scripting)')
+	.option('--verbose', 'Show full prompt sent to agent on each iteration')
+	.action(async (agentId: string, goal: string, options: Record<string, unknown>) => {
+		const { goalRun } = await import('./commands/goal-run');
+		return goalRun(agentId, goal, options);
+	});
+
 // Clean command
 const clean = program.command('clean').description('Clean up orphaned resources');
 

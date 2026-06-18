@@ -144,6 +144,60 @@ describe('useGoalRunner (Goal-Driven Auto Run engine)', () => {
 		vi.clearAllMocks();
 	});
 
+	it('writes an immediate start marker recording the goal and exit criteria', async () => {
+		mockOnSpawnAgent.mockResolvedValue({
+			success: true,
+			agentSessionId: 'goal-agent',
+			response: progressResponse(100, 'done'),
+		});
+
+		const { result } = renderProcessor([createMockSession()], [createMockGroup()]);
+
+		await act(async () => {
+			await result.current.startBatchRun(
+				SESSION_ID,
+				goalConfig('Ship the feature', 'All tests pass', 10),
+				'/test/folder'
+			);
+		});
+
+		// The very first history entry is the start marker (before any iteration).
+		const firstEntry = mockOnAddHistoryEntry.mock.calls[0][0];
+		expect(firstEntry.type).toBe('AUTO');
+		expect(firstEntry.summary).toBe('Goal-Driven Auto Run started');
+		expect(firstEntry.sessionId).toBe(SESSION_ID);
+		// Documents both driving prompts.
+		expect(firstEntry.fullResponse).toContain('**Goal:** Ship the feature');
+		expect(firstEntry.fullResponse).toContain('**Exit Criteria:** All tests pass');
+		expect(firstEntry.fullResponse).toContain('**Iteration Limit:** 10');
+		// Start marker carries no pass/fail flag.
+		expect(firstEntry.success).toBeUndefined();
+		// Its timestamp matches the run start (also seeded into the batch state).
+		expect(typeof firstEntry.timestamp).toBe('number');
+	});
+
+	it('marks an empty exit criteria as "(none specified)" and an infinite limit', async () => {
+		mockOnSpawnAgent.mockResolvedValue({
+			success: true,
+			agentSessionId: 'goal-agent',
+			response: progressResponse(100, 'done'),
+		});
+
+		const { result } = renderProcessor([createMockSession()], [createMockGroup()]);
+
+		await act(async () => {
+			await result.current.startBatchRun(
+				SESSION_ID,
+				goalConfig('Just ship it', '   ', null),
+				'/test/folder'
+			);
+		});
+
+		const firstEntry = mockOnAddHistoryEntry.mock.calls[0][0];
+		expect(firstEntry.fullResponse).toContain('**Exit Criteria:** _(none specified)_');
+		expect(firstEntry.fullResponse).toContain('**Iteration Limit:** Infinite');
+	});
+
 	it('climbs to 100% across iterations and exits "completed"', async () => {
 		const responses = [
 			progressResponse(30, 'scaffolded'),

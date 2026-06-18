@@ -18,7 +18,7 @@ import { GOAL_RUN_HARD_ITERATION_CAP } from '../../../../shared/goalDriven/types
 import { parseGoalMarkers } from '../../../../shared/goalDriven/goalMarkers';
 import { evaluateGoalExit } from '../../../../shared/goalDriven/goalExitEvaluator';
 import { formatGoalRunDocumentPath } from '../../../../shared/goalDriven/goalRunLabel';
-import { formatElapsedTime } from '../../../../shared/formatters';
+import { formatElapsedTime, truncateCommand } from '../../../../shared/formatters';
 import {
 	substituteTemplateVariables,
 	type TemplateContext,
@@ -293,11 +293,40 @@ export function useGoalRunner({
 				maxIterations: goalConfig.maxIterations ?? 'unlimited',
 			});
 
+			// Keep the toast compact: goals / exit criteria can be many paragraphs,
+			// and the toast message has no line clamp, so the raw text would run
+			// off-screen. Show a short preview of each (newlines collapsed, capped) -
+			// the full prompts live in the start History entry written below.
+			const goalPreview = truncateCommand(goalConfig.goal, 140);
+			const exitPreview = goalConfig.exitCriteria.trim()
+				? truncateCommand(goalConfig.exitCriteria, 140)
+				: '';
 			notifyToast({
 				type: 'info',
 				title: 'Goal-Driven Auto Run Started',
-				message: goalConfig.goal,
+				message: exitPreview ? `Goal: ${goalPreview} · Exit: ${exitPreview}` : goalPreview,
 				project: session.name,
+				sessionId,
+			});
+
+			// Immediate "run started" marker in History: stamps the start time and
+			// records the two driving prompts (goal + exit criteria) up front, so the
+			// run's inputs are captured even if it's killed before the first iteration
+			// finishes. No success flag - this is a start marker, not a pass/fail.
+			const trimmedExitCriteria = goalConfig.exitCriteria.trim();
+			void onAddHistoryEntry({
+				type: 'AUTO',
+				timestamp: goalStartTime,
+				summary: 'Goal-Driven Auto Run started',
+				fullResponse: [
+					`**Goal-Driven Auto Run Started**`,
+					``,
+					`- **Goal:** ${goalConfig.goal}`,
+					`- **Exit Criteria:** ${trimmedExitCriteria || '_(none specified)_'}`,
+					`- **Iteration Limit:** ${goalConfig.maxIterations ?? 'Infinite'}`,
+					`- **Started:** ${new Date(goalStartTime).toLocaleString()}`,
+				].join('\n'),
+				projectPath: effectiveCwd,
 				sessionId,
 			});
 

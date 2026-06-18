@@ -1114,6 +1114,57 @@ describe('BatchRunnerModal', () => {
 			});
 		});
 
+		it('exposes an expand editor on both the goal and exit-criteria fields', async () => {
+			render(<BatchRunnerModal {...createDefaultProps()} />);
+			fireEvent.click(screen.getByRole('button', { name: 'Goal-Driven' }));
+
+			await waitFor(() => {
+				expect(screen.getByPlaceholderText(GOAL_PLACEHOLDER)).toBeInTheDocument();
+			});
+			// Goal + Exit Criteria each get an Expand editor button.
+			expect(screen.getAllByTitle('Expand editor')).toHaveLength(2);
+		});
+
+		it('opens the full-screen editor and writes back to the goal field', async () => {
+			render(<BatchRunnerModal {...createDefaultProps()} />);
+			fireEvent.click(screen.getByRole('button', { name: 'Goal-Driven' }));
+
+			await waitFor(() => {
+				expect(screen.getByPlaceholderText(GOAL_PLACEHOLDER)).toBeInTheDocument();
+			});
+
+			// First expand button = Goal field.
+			fireEvent.click(screen.getAllByTitle('Expand editor')[0]);
+			expect(screen.getByTestId('prompt-composer-modal')).toBeInTheDocument();
+
+			fireEvent.click(screen.getByText('Submit'));
+			await waitFor(() => {
+				expect(screen.getByPlaceholderText(GOAL_PLACEHOLDER)).toHaveValue(
+					'Updated prompt from composer'
+				);
+			});
+		});
+
+		it('opens the full-screen editor and writes back to the exit-criteria field', async () => {
+			render(<BatchRunnerModal {...createDefaultProps()} />);
+			fireEvent.click(screen.getByRole('button', { name: 'Goal-Driven' }));
+
+			await waitFor(() => {
+				expect(screen.getByPlaceholderText(EXIT_PLACEHOLDER)).toBeInTheDocument();
+			});
+
+			// Second expand button = Exit Criteria field.
+			fireEvent.click(screen.getAllByTitle('Expand editor')[1]);
+			expect(screen.getByTestId('prompt-composer-modal')).toBeInTheDocument();
+
+			fireEvent.click(screen.getByText('Submit'));
+			await waitFor(() => {
+				expect(screen.getByPlaceholderText(EXIT_PLACEHOLDER)).toHaveValue(
+					'Updated prompt from composer'
+				);
+			});
+		});
+
 		// One Auto Run per agent: an active run for this session must block Go in
 		// BOTH modes, even when the rest of the config is valid. Previously only
 		// the spec path was incidentally blocked (via "no documents"); a goal with

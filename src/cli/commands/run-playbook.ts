@@ -14,54 +14,7 @@ import {
 	formatWarning,
 	RunEvent,
 } from '../output/formatter';
-import { isSessionBusyWithCli, getCliActivityForSession } from '../../shared/cli-activity';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-
-/**
- * Check if desktop app has the session in busy state.
- *
- * NOTE: This function uses lowercase "maestro" config directory, which matches
- * the electron-store default (from package.json "name": "maestro"). This is
- * intentionally different from cli/services/storage.ts which uses "Maestro"
- * (capitalized) for CLI-specific storage. This function needs to read the
- * desktop app's session state, not CLI storage.
- *
- * @internal
- */
-function isSessionBusyInDesktop(sessionId: string): { busy: boolean; reason?: string } {
-	try {
-		const platform = os.platform();
-		const home = os.homedir();
-		let configDir: string;
-
-		if (platform === 'darwin') {
-			configDir = path.join(home, 'Library', 'Application Support', 'maestro');
-		} else if (platform === 'win32') {
-			configDir = path.join(
-				process.env.APPDATA || path.join(home, 'AppData', 'Roaming'),
-				'maestro'
-			);
-		} else {
-			configDir = path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'maestro');
-		}
-
-		const sessionsPath = path.join(configDir, 'maestro-sessions.json');
-		const content = fs.readFileSync(sessionsPath, 'utf-8');
-		const data = JSON.parse(content);
-		const sessions = data.sessions || [];
-
-		const session = sessions.find((s: { id: string }) => s.id === sessionId);
-		if (session && session.state === 'busy') {
-			return { busy: true, reason: 'Desktop app shows agent is busy' };
-		}
-		return { busy: false };
-	} catch {
-		// Can't read sessions file, assume not busy
-		return { busy: false };
-	}
-}
+import { checkAgentBusy } from '../services/agent-busy';
 
 interface RunPlaybookOptions {
 	dryRun?: boolean;
@@ -97,32 +50,6 @@ function formatWaitDuration(ms: number): string {
  */
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Check if agent is busy (either from another CLI instance or desktop app).
- * @internal
- */
-function checkAgentBusy(agentId: string, _agentName: string): { busy: boolean; reason?: string } {
-	// Check CLI activity first
-	const cliActivity = getCliActivityForSession(agentId);
-	if (cliActivity && isSessionBusyWithCli(agentId)) {
-		return {
-			busy: true,
-			reason: `Running playbook "${cliActivity.playbookName}" from CLI (PID: ${cliActivity.pid})`,
-		};
-	}
-
-	// Check desktop state
-	const desktopBusy = isSessionBusyInDesktop(agentId);
-	if (desktopBusy.busy) {
-		return {
-			busy: true,
-			reason: 'Busy in desktop app',
-		};
-	}
-
-	return { busy: false };
 }
 
 export async function runPlaybook(playbookId: string, options: RunPlaybookOptions): Promise<void> {
@@ -174,7 +101,7 @@ export async function runPlaybook(playbookId: string, options: RunPlaybookOption
 		}
 
 		// Check if agent is busy (either from desktop or another CLI instance)
-		let busyCheck = checkAgentBusy(agent.id, agent.name);
+		let busyCheck = checkAgentBusy(agent.id);
 
 		if (busyCheck.busy) {
 			if (options.wait) {
@@ -190,7 +117,7 @@ export async function runPlaybook(playbookId: string, options: RunPlaybookOption
 				let lastReason = busyCheck.reason;
 				while (busyCheck.busy) {
 					await sleep(pollIntervalMs);
-					busyCheck = checkAgentBusy(agent.id, agent.name);
+					busyCheck = checkAgentBusy(agent.id);
 
 					// Log if reason changed (e.g., different playbook now running)
 					if (busyCheck.busy && busyCheck.reason !== lastReason && !useJson) {
