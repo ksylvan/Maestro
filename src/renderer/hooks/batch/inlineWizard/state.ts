@@ -1,10 +1,11 @@
+import { generateId } from '../../../utils/ids';
 import type { InlineWizardState } from './types';
 
 /**
  * Generate a unique message ID.
  */
 export function generateMessageId(): string {
-	return `iwm-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+	return `iwm-${generateId()}`;
 }
 
 /**

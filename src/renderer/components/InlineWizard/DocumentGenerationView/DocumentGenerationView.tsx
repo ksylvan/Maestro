@@ -62,6 +62,7 @@ export function DocumentGenerationView({
 					<>
 						{onCancel && (
 							<button
+								type="button"
 								onClick={onCancel}
 								className="mt-4 px-4 py-2 text-sm rounded transition-colors hover:opacity-80"
 								style={{

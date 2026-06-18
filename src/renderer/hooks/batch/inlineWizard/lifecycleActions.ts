@@ -4,6 +4,7 @@ import {
 	type InlineWizardConversationSession,
 } from '../../../services/inlineWizardConversation';
 import { logger } from '../../../utils/logger';
+import { captureException } from '../../../utils/sentry';
 import type { InlineWizardState, PreviousUIState } from './types';
 
 interface UseInlineWizardLifecycleActionsParams {
@@ -45,6 +46,13 @@ export function useInlineWizardLifecycleActions({
 					});
 				} catch (error) {
 					logger.warn('[useInlineWizard] Failed to end conversation session:', undefined, error);
+					captureException(error, {
+						extra: {
+							context: 'inlineWizard.endWizard.cleanup',
+							tabId,
+							sessionId: session.sessionId,
+						},
+					});
 				}
 				conversationSessionsMap.current.delete(tabId);
 			}
@@ -59,8 +67,15 @@ export function useInlineWizardLifecycleActions({
 
 		const session = conversationSessionsMap.current.get(tabId);
 		if (session) {
-			endInlineWizardConversation(session).catch(() => {
-				// Ignore cleanup errors during reset.
+			endInlineWizardConversation(session).catch((error) => {
+				logger.warn('[useInlineWizard] Failed to reset conversation session:', undefined, error);
+				captureException(error, {
+					extra: {
+						context: 'inlineWizard.reset.cleanup',
+						tabId,
+						sessionId: session.sessionId,
+					},
+				});
 			});
 			conversationSessionsMap.current.delete(tabId);
 		}

@@ -14,6 +14,7 @@ export function EmptyGenerationState({ theme, onCancel }: EmptyGenerationStatePr
 			<p style={{ color: theme.colors.textDim }}>No documents generated yet.</p>
 			{onCancel && (
 				<button
+					type="button"
 					onClick={onCancel}
 					className="mt-4 px-4 py-2 text-sm rounded"
 					style={{

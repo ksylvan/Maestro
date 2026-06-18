@@ -53,7 +53,7 @@ export async function loadDocumentContents(
 	for (const doc of docs) {
 		try {
 			const result = await window.maestro.autorun.readDoc(autoRunFolderPath, doc.name);
-			if (result.success && result.content) {
+			if (result.success && result.content !== null && result.content !== undefined) {
 				docsWithContent.push({
 					...doc,
 					content: result.content,

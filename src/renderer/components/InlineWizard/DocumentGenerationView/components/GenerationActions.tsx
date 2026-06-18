@@ -16,6 +16,7 @@ export function GenerationActions({
 	return (
 		<div className="mt-8 flex items-center gap-3">
 			<button
+				type="button"
 				onClick={onComplete}
 				className="px-6 py-3 text-base font-semibold rounded-lg transition-all hover:opacity-90 hover:scale-105"
 				style={{
@@ -28,6 +29,7 @@ export function GenerationActions({
 			</button>
 			{onCompleteAndStartAutoRun && documentsLength > 0 && (
 				<button
+					type="button"
 					onClick={onCompleteAndStartAutoRun}
 					className="px-6 py-3 text-base font-semibold rounded-lg transition-all hover:opacity-90 hover:scale-105"
 					style={{

@@ -345,8 +345,6 @@ export function useInlineWizardConversationActions({
 						isWaiting: false,
 						error: errorMessage,
 					}));
-
-					callbacks?.onError?.(errorMessage);
 				}
 			} catch (error) {
 				const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';

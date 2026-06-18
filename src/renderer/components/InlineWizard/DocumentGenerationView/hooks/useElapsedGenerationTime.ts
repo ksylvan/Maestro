@@ -6,12 +6,19 @@ export function useElapsedGenerationTime(isGenerating: boolean, startedAt?: numb
 	const [elapsedMs, setElapsedMs] = useState(() => Math.max(0, Date.now() - startTime));
 
 	useEffect(() => {
-		if (!isGenerating) return;
+		const updateElapsedMs = () => {
+			setElapsedMs(Math.max(0, Date.now() - startTime));
+		};
 
-		setElapsedMs(Math.max(0, Date.now() - startTime));
+		if (!isGenerating) {
+			updateElapsedMs();
+			return;
+		}
+
+		updateElapsedMs();
 
 		const interval = setInterval(() => {
-			setElapsedMs(Math.max(0, Date.now() - startTime));
+			updateElapsedMs();
 		}, 1000);
 
 		return () => clearInterval(interval);
