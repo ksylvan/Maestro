@@ -1286,6 +1286,12 @@ export const FilePreview = React.memo(
 				e.preventDefault();
 				e.stopPropagation();
 				setMarkdownEditMode(!markdownEditMode);
+			} else if (isImage && isShortcut(e, 'toggleMarkdownMode')) {
+				// Cmd+E on an image jumps straight into the annotator (the image
+				// "editor"), mirroring how the same shortcut opens the text editor.
+				e.preventDefault();
+				e.stopPropagation();
+				handleEditImage();
 			} else if (
 				isShortcut(e, 'toggleFilePreviewToc') &&
 				isMarkdown &&

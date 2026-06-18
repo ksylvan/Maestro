@@ -729,9 +729,9 @@ export function UsageDashboardModal({
 					backgroundColor: theme.colors.bgActivity,
 					borderColor: theme.colors.border,
 					width: '80vw',
-					maxWidth: '1400px',
+					maxWidth: '2200px',
 					height: '85vh',
-					maxHeight: '900px',
+					maxHeight: '1400px',
 				}}
 			>
 				{/* Header */}

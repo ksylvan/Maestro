@@ -295,12 +295,12 @@ describe('UsageDashboard Responsive Layout', () => {
 			});
 		});
 
-		it('modal has max-width constraint (1400px)', async () => {
+		it('modal has max-width constraint (2200px)', async () => {
 			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
 
 			await waitFor(() => {
 				const dialog = screen.getByRole('dialog');
-				expect(dialog).toHaveStyle({ maxWidth: '1400px' });
+				expect(dialog).toHaveStyle({ maxWidth: '2200px' });
 			});
 		});
 
@@ -313,12 +313,12 @@ describe('UsageDashboard Responsive Layout', () => {
 			});
 		});
 
-		it('modal has max-height constraint (900px)', async () => {
+		it('modal has max-height constraint (1400px)', async () => {
 			render(<UsageDashboardModal isOpen={true} onClose={onClose} theme={theme} />);
 
 			await waitFor(() => {
 				const dialog = screen.getByRole('dialog');
-				expect(dialog).toHaveStyle({ maxHeight: '900px' });
+				expect(dialog).toHaveStyle({ maxHeight: '1400px' });
 			});
 		});
 	});

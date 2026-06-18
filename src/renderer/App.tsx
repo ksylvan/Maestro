@@ -3096,6 +3096,7 @@ function MaestroConsoleInner() {
 					onCopyTabContext={handleQuickActionsCopyTabContext}
 					onExportTabHtml={handleQuickActionsExportTabHtml}
 					onPublishTabGist={handleQuickActionsPublishTabGist}
+					mainPanelRef={mainPanelRef}
 					isFilePreviewOpen={!!activeSession?.activeFileTabId}
 					ghCliAvailable={ghCliAvailable}
 					onPublishGist={() => setGistPublishModalOpen(true)}
