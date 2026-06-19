@@ -167,6 +167,11 @@ export interface TemplateContext {
 	// Goal-Driven Auto Run context (only set for goal-driven runs)
 	goal?: string;
 	goalExitCriteria?: string;
+	/**
+	 * Pre-formatted handoff block from the previous goal iteration (see
+	 * src/shared/goalDriven/goalHandoff.ts). Empty on the first iteration.
+	 */
+	predecessorHandoff?: string;
 	// History file path for task recall
 	historyFilePath?: string;
 	// Conductor profile (user's About Me from settings)
@@ -367,6 +372,11 @@ export const TEMPLATE_VARIABLES = [
 		description: 'Goal-Driven Auto Run exit criteria',
 		autoRunOnly: true,
 	},
+	{
+		variable: '{{PREDECESSOR_HANDOFF}}',
+		description: "Goal-Driven Auto Run: previous iteration's handoff note (empty on the first)",
+		autoRunOnly: true,
+	},
 	{ variable: '{{GROUP_DEEP_LINK}}', description: 'Deep link to agent group (maestro://)' },
 	{ variable: '{{IS_GIT_REPO}}', description: 'Is git repo (true/false)' },
 	{ variable: '{{MAESTRO_CLI_PATH}}', description: 'Path to maestro-cli' },
@@ -412,6 +422,7 @@ export function substituteTemplateVariables(template: string, context: TemplateC
 		documentPath,
 		goal,
 		goalExitCriteria,
+		predecessorHandoff,
 		historyFilePath,
 		conductorProfile,
 	} = context;
@@ -456,6 +467,8 @@ export function substituteTemplateVariables(template: string, context: TemplateC
 		// Goal-Driven Auto Run variables
 		GOAL: goal || '',
 		GOAL_EXIT_CRITERIA: goalExitCriteria || '',
+		// Pre-formatted handoff from the prior iteration; empty when there is none.
+		PREDECESSOR_HANDOFF: predecessorHandoff || '',
 
 		// Loop tracking (1-indexed, defaults to 1 if not in loop mode, 5-digit padded)
 		LOOP_NUMBER: String(loopNumber ?? 1).padStart(5, '0'),
