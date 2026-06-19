@@ -31,6 +31,8 @@ The synopsis is displayed in the History panel and must describe the actual work
 
 {{GOAL_EXIT_CRITERIA}}
 
+{{PREDECESSOR_HANDOFF}}
+
 ---
 
 ## Structured Output Artifacts

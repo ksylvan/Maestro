@@ -793,41 +793,29 @@ export const RightPanel = memo(
 							</span>
 						</div>
 
-						{/* Controls row - right-aligned, its own row so the action links are
-						    never clipped by a long status line. */}
-						<div className="mt-1.5 flex items-center justify-end gap-2">
-							{/* Resume/Abort buttons when error-paused */}
-							{errorPaused && (
-								<div className="flex items-center gap-1.5 shrink-0">
-									{batchError?.recoverable && onResumeAfterError && (
-										<button
-											onClick={onResumeAfterError}
-											className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors hover:opacity-80"
-											style={{
-												backgroundColor: theme.colors.accent,
-												color: theme.colors.accentForeground,
-											}}
-											title="Resume Auto Run after re-authenticating"
-										>
-											<Play className="w-3 h-3" />
-											Resume
-										</button>
-									)}
-									{onAbortBatchOnError && (
-										<button
-											onClick={onAbortBatchOnError}
-											className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors hover:opacity-80"
-											style={{
-												backgroundColor: theme.colors.error,
-												color: 'white',
-											}}
-											title="Stop Auto Run completely"
-										>
-											<XCircle className="w-3 h-3" />
-											Abort
-										</button>
-									)}
-								</div>
+						{/* Action row - left: the (spec-only) follow-task toggle; right: the
+						    action links + Stop, all on one plane to keep the card compact.
+						    Kept off the status-line row so a long rationale can't clip it. */}
+						<div className="mt-1.5 flex items-center justify-between gap-2">
+							{/* "Follow active task" only applies to task-based runs that step
+							    through a document. Goal mode iterates a single goal with no
+							    discrete task list to follow, so hide the checkbox there (empty
+							    spacer keeps the controls right-aligned). */}
+							{currentSessionBatchState.goalMode ? (
+								<div />
+							) : (
+								<label className="flex items-center gap-1.5 cursor-pointer shrink-0">
+									<input
+										type="checkbox"
+										checked={autoFollowEnabled}
+										onChange={(e) => setAutoFollowEnabled(e.target.checked)}
+										className="w-3 h-3 rounded cursor-pointer accent-current"
+										style={{ accentColor: theme.colors.accent }}
+									/>
+									<span className="text-[10px]" style={{ color: theme.colors.textDim }}>
+										Follow active task
+									</span>
+								</label>
 							)}
 							<div className="flex items-center gap-2 shrink-0">
 								{/* Loop iteration indicator */}
@@ -877,44 +865,58 @@ export const RightPanel = memo(
 										View History
 									</button>
 								)}
+								{/* Resume/Abort when error-paused; otherwise the Stop button -
+								    all share this row with the action links. */}
+								{errorPaused ? (
+									<>
+										{batchError?.recoverable && onResumeAfterError && (
+											<button
+												onClick={onResumeAfterError}
+												className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors hover:opacity-80"
+												style={{
+													backgroundColor: theme.colors.accent,
+													color: theme.colors.accentForeground,
+												}}
+												title="Resume Auto Run after re-authenticating"
+											>
+												<Play className="w-3 h-3" />
+												Resume
+											</button>
+										)}
+										{onAbortBatchOnError && (
+											<button
+												onClick={onAbortBatchOnError}
+												className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors hover:opacity-80"
+												style={{
+													backgroundColor: theme.colors.error,
+													color: 'white',
+												}}
+												title="Stop Auto Run completely"
+											>
+												<XCircle className="w-3 h-3" />
+												Abort
+											</button>
+										)}
+									</>
+								) : (
+									!currentSessionBatchState.isStopping &&
+									onStopBatchRun && (
+										<button
+											onClick={() => onStopBatchRun(session.id)}
+											className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors hover:opacity-80"
+											style={{
+												backgroundColor: theme.colors.error,
+												color: 'white',
+												border: `1px solid ${theme.colors.error}`,
+											}}
+											title="Stop auto-run after the current task finishes"
+										>
+											<Square className="w-3 h-3" />
+											Stop
+										</button>
+									)
+								)}
 							</div>
-						</div>
-						<div className="mt-2 flex items-center justify-between gap-2">
-							{/* "Follow active task" only applies to task-based runs that step
-							    through a document. Goal mode iterates a single goal with no
-							    discrete task list to follow, so hide the checkbox there (empty
-							    spacer keeps the Stop button right-aligned). */}
-							{currentSessionBatchState.goalMode ? (
-								<div />
-							) : (
-								<label className="flex items-center gap-1.5 cursor-pointer">
-									<input
-										type="checkbox"
-										checked={autoFollowEnabled}
-										onChange={(e) => setAutoFollowEnabled(e.target.checked)}
-										className="w-3 h-3 rounded cursor-pointer accent-current"
-										style={{ accentColor: theme.colors.accent }}
-									/>
-									<span className="text-[10px]" style={{ color: theme.colors.textDim }}>
-										Follow active task
-									</span>
-								</label>
-							)}
-							{!errorPaused && !currentSessionBatchState.isStopping && onStopBatchRun && (
-								<button
-									onClick={() => onStopBatchRun(session.id)}
-									className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors hover:opacity-80"
-									style={{
-										backgroundColor: theme.colors.error,
-										color: 'white',
-										border: `1px solid ${theme.colors.error}`,
-									}}
-									title="Stop auto-run after the current task finishes"
-								>
-									<Square className="w-3 h-3" />
-									Stop
-								</button>
-							)}
 						</div>
 					</div>
 				)}

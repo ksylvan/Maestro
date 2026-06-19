@@ -20,6 +20,12 @@ import { GOAL_RUN_HARD_ITERATION_CAP } from '../../shared/goalDriven/types';
 import { parseGoalMarkers, stripMaestroMarkers } from '../../shared/goalDriven/goalMarkers';
 import { evaluateGoalExit } from '../../shared/goalDriven/goalExitEvaluator';
 import { formatGoalRunDocumentPath } from '../../shared/goalDriven/goalRunLabel';
+import {
+	GOAL_SYNOPSIS_REQUEST_PROMPT,
+	formatPredecessorHandoff,
+	sanitizeHandoffBlurb,
+} from '../../shared/goalDriven/goalHandoff';
+import { hasCapability } from '../../main/agents/capabilities';
 import { substituteTemplateVariables, TemplateContext } from '../../shared/templateVariables';
 import { spawnAgent } from './agent-spawner';
 import { addHistoryEntry, readGroups } from './storage';
@@ -63,6 +69,42 @@ function iterationSynopsis(response: string | undefined, iteration: number): str
 	const cleaned = stripMaestroMarkers(response ?? '').trim();
 	const firstLine = cleaned.split('\n').find((line) => line.trim().length > 0);
 	return firstLine?.trim() || `Iteration ${iteration}`;
+}
+
+/**
+ * Resume a just-finished iteration's session and ask it for a short handoff note
+ * for the next iteration (which starts with a fresh context window). Best-effort:
+ * any failure resolves to an empty blurb so the loop simply carries the previous
+ * note (or none) forward. Returns the note plus the resume call's usage so the
+ * run's cumulative token/cost accounting stays accurate.
+ */
+async function requestHandoffBlurb(
+	session: SessionInfo,
+	agentSessionId: string,
+	appendSystemPrompt: string | undefined
+): Promise<{ blurb: string; usageStats?: UsageStats }> {
+	try {
+		const result = await spawnAgent(
+			session.toolType,
+			session.cwd,
+			GOAL_SYNOPSIS_REQUEST_PROMPT,
+			agentSessionId,
+			{
+				customModel: session.customModel,
+				customEffort: session.customEffort,
+				customArgs: session.customArgs,
+				customEnvVars: session.customEnvVars,
+				sshRemoteConfig: session.sessionSshRemoteConfig,
+				appendSystemPrompt,
+			}
+		);
+		if (result.success) {
+			return { blurb: sanitizeHandoffBlurb(result.response), usageStats: result.usageStats };
+		}
+	} catch (err) {
+		logger.warn('[GoalRunner] Handoff synopsis request failed', undefined, err);
+	}
+	return { blurb: '' };
 }
 
 /**
@@ -132,6 +174,9 @@ export async function* runGoal(
 
 		const history: GoalIterationRecord[] = [];
 		let iteration = 0;
+		// Handoff note carried from the previous iteration's session into the next
+		// (fresh-context) iteration's prompt. Empty for the first iteration.
+		let predecessorBlurb = '';
 		let finalProgress = 0;
 		let totalInputTokens = 0;
 		let totalOutputTokens = 0;
@@ -158,6 +203,7 @@ export async function* runGoal(
 				loopNumber: iteration,
 				goal: goalConfig.goal,
 				goalExitCriteria: goalConfig.exitCriteria,
+				predecessorHandoff: formatPredecessorHandoff(predecessorBlurb),
 			};
 			const prompt = substituteTemplateVariables(goalPromptTemplate, templateContext);
 
@@ -248,6 +294,43 @@ export async function* runGoal(
 				exitReason = decision.reason;
 				exitDetail = decision.detail;
 				break;
+			}
+
+			// Continuing: resume this iteration's session to capture a handoff note
+			// for the next (fresh-context) iteration. Gated on the agent supporting
+			// resume - without it the resumed "session" has no context and the note
+			// would be worthless, so we'd rather carry nothing forward. A successful
+			// iteration with no session id (shouldn't happen for resumable agents)
+			// also skips it.
+			if (
+				result.success &&
+				result.agentSessionId &&
+				hasCapability(session.toolType, 'supportsResume')
+			) {
+				if (verbose) {
+					yield {
+						type: 'verbose',
+						timestamp: Date.now(),
+						category: 'handoff-prompt',
+						iteration,
+						prompt: GOAL_SYNOPSIS_REQUEST_PROMPT,
+					};
+				}
+				const handoff = await requestHandoffBlurb(
+					session,
+					result.agentSessionId,
+					appendSystemPrompt
+				);
+				if (handoff.usageStats) {
+					totalInputTokens += handoff.usageStats.inputTokens || 0;
+					totalOutputTokens += handoff.usageStats.outputTokens || 0;
+					totalCost += handoff.usageStats.totalCostUsd || 0;
+				}
+				// Only overwrite when we got something usable; otherwise keep the
+				// previous note rather than blanking the next iteration's handoff.
+				if (handoff.blurb) {
+					predecessorBlurb = handoff.blurb;
+				}
 			}
 		}
 

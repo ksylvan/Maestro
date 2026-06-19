@@ -25,7 +25,9 @@ vi.mock('../../../cli/services/system-prompt', () => ({
 vi.mock('../../../cli/services/prompt-loader', () => ({
 	getCliPrompt: vi
 		.fn()
-		.mockResolvedValue('Goal: {{GOAL}}\nExit: {{GOAL_EXIT_CRITERIA}}\nN: {{LOOP_NUMBER}}'),
+		.mockResolvedValue(
+			'Goal: {{GOAL}}\nExit: {{GOAL_EXIT_CRITERIA}}\nN: {{LOOP_NUMBER}}\n{{PREDECESSOR_HANDOFF}}'
+		),
 }));
 
 vi.mock('../../../cli/services/storage', () => ({
@@ -55,6 +57,7 @@ vi.mock('../../../main/utils/logger', () => ({
 }));
 
 import { runGoal } from '../../../cli/services/goal-runner';
+import { GOAL_SYNOPSIS_REQUEST_PROMPT } from '../../../shared/goalDriven/goalHandoff';
 import { spawnAgent } from '../../../cli/services/agent-spawner';
 import { prepareMaestroSystemPromptCli } from '../../../cli/services/system-prompt';
 import { addHistoryEntry, readGroups } from '../../../cli/services/storage';
@@ -151,21 +154,66 @@ describe('goal-runner (runGoal)', () => {
 			progressResponse(100, 'done'),
 		];
 		let call = 0;
-		vi.mocked(spawnAgent).mockImplementation(async () => ({
-			success: true,
-			response: responses[call++],
-			agentSessionId: `agent-${call}`,
-		}));
+		vi.mocked(spawnAgent).mockImplementation(async (_tool, _cwd, _prompt, agentSessionId) => {
+			// Handoff requests resume an existing session (agentSessionId set) - they
+			// are not iterations and must not consume an iteration response.
+			if (agentSessionId) {
+				return { success: true, response: 'handoff note', agentSessionId };
+			}
+			return { success: true, response: responses[call++], agentSessionId: `agent-${call}` };
+		});
 
 		const events = await collectEvents(runGoal(mockSession(), goalConfig()));
 
-		expect(spawnAgent).toHaveBeenCalledTimes(4);
+		// 4 iterations + a handoff resume after each of the 3 continuing iterations.
+		expect(spawnAgent).toHaveBeenCalledTimes(7);
 		const progresses = events
 			.filter((e) => e.type === 'goal_iteration_complete')
 			.map((e) => e.progress as number);
 		// Displayed percent never regresses despite the 55 -> 35 dip.
 		expect(progresses).toEqual([30, 55, 55, 100]);
 		expect(events.find((e) => e.type === 'goal_complete')?.exitReason).toBe('completed');
+	});
+
+	it('captures a predecessor handoff and threads it into the next iteration prompt', async () => {
+		const responses = [progressResponse(40, 'phase 1'), progressResponse(100, 'done')];
+		let iterCall = 0;
+		vi.mocked(spawnAgent).mockImplementation(async (_tool, _cwd, _prompt, agentSessionId) => {
+			// A resume call (agentSessionId set) is the handoff request.
+			if (agentSessionId) {
+				return {
+					success: true,
+					response: 'Migrated the data layer; UI still pending.',
+					agentSessionId,
+				};
+			}
+			return {
+				success: true,
+				response: responses[iterCall++],
+				agentSessionId: `agent-${iterCall}`,
+			};
+		});
+
+		await collectEvents(runGoal(mockSession(), goalConfig()));
+
+		// 2 iterations + 1 handoff resume after the first (continuing) iteration.
+		expect(spawnAgent).toHaveBeenCalledTimes(3);
+
+		// First iteration spawns fresh with no predecessor note in its prompt.
+		const firstPrompt = vi.mocked(spawnAgent).mock.calls[0][2];
+		expect(vi.mocked(spawnAgent).mock.calls[0][3]).toBeUndefined();
+		expect(firstPrompt).not.toContain('Handoff From Your Predecessor');
+
+		// The handoff request resumes the first iteration's session with the synopsis prompt.
+		const handoffCall = vi.mocked(spawnAgent).mock.calls[1];
+		expect(handoffCall[3]).toBe('agent-1');
+		expect(handoffCall[2]).toBe(GOAL_SYNOPSIS_REQUEST_PROMPT);
+
+		// The second iteration's prompt carries the predecessor's note.
+		const secondPrompt = vi.mocked(spawnAgent).mock.calls[2][2];
+		expect(vi.mocked(spawnAgent).mock.calls[2][3]).toBeUndefined();
+		expect(secondPrompt).toContain('Handoff From Your Predecessor');
+		expect(secondPrompt).toContain('Migrated the data layer; UI still pending.');
 	});
 
 	it('stops with "deadlock" when the agent declares one', async () => {
@@ -183,15 +231,19 @@ describe('goal-runner (runGoal)', () => {
 	});
 
 	it('stops at max-iterations when the goal is never reached', async () => {
-		vi.mocked(spawnAgent).mockResolvedValue({
-			success: true,
-			response: progressResponse(50, 'inching'),
-			agentSessionId: 'agent-1',
-		});
+		vi.mocked(spawnAgent).mockImplementation(async (_tool, _cwd, _prompt, agentSessionId) =>
+			agentSessionId
+				? { success: true, response: 'handoff note', agentSessionId }
+				: { success: true, response: progressResponse(50, 'inching'), agentSessionId: 'agent-1' }
+		);
 
 		const events = await collectEvents(runGoal(mockSession(), goalConfig({ maxIterations: 3 })));
 
-		expect(spawnAgent).toHaveBeenCalledTimes(3);
+		// 3 iterations + a handoff resume after the 2 continuing ones (none after the
+		// final iteration, which trips the max-iterations stop).
+		expect(spawnAgent).toHaveBeenCalledTimes(5);
+		const iterationCompletes = events.filter((e) => e.type === 'goal_iteration_complete');
+		expect(iterationCompletes).toHaveLength(3);
 		expect(events.find((e) => e.type === 'goal_complete')?.exitReason).toBe('max-iterations');
 	});
 
