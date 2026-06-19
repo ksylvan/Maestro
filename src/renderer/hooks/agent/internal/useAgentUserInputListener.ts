@@ -31,11 +31,21 @@ export function useAgentUserInputListener(): void {
 				prev.map((session) => {
 					if (session.id !== payload.sessionId) return session;
 
+					// A user-input broadcast means a turn is STARTING. Mark the
+					// session/tab busy so observer renderers (web-desktop peers, the
+					// sharing host) light up the thinking pill + tab/side-panel
+					// indicators. The log push is deduped independently: the entry can
+					// already be present from a session sync that raced the broadcast,
+					// and busy must still be set in that case. Coupling busy to the log
+					// append (the old `didChange` gate) dropped the busy state whenever
+					// the entry pre-existed, leaving thoughts streaming with no pill.
 					if (payload.inputMode !== 'ai') {
-						if (hasEntry(session.shellLogs, payload.entry.id)) return session;
+						const shellLogs = hasEntry(session.shellLogs, payload.entry.id)
+							? session.shellLogs
+							: [...session.shellLogs, payload.entry];
 						return {
 							...session,
-							shellLogs: [...session.shellLogs, payload.entry],
+							shellLogs,
 							state: 'busy' as SessionState,
 							busySource: 'terminal',
 						};
@@ -44,13 +54,16 @@ export function useAgentUserInputListener(): void {
 					const targetTabId = payload.tabId ?? getActiveTab(session)?.id;
 					if (!targetTabId) return session;
 
-					let didChange = false;
+					let tabFound = false;
 					const aiTabs = session.aiTabs.map((tab) => {
-						if (tab.id !== targetTabId || hasEntry(tab.logs, payload.entry.id)) return tab;
-						didChange = true;
+						if (tab.id !== targetTabId) return tab;
+						tabFound = true;
+						const logs = hasEntry(tab.logs, payload.entry.id)
+							? tab.logs
+							: [...tab.logs, payload.entry];
 						return {
 							...tab,
-							logs: [...tab.logs, payload.entry],
+							logs,
 							state: 'busy' as const,
 							thinkingStartTime: payload.entry.timestamp,
 							awaitingSessionId: tab.agentSessionId ? tab.awaitingSessionId : true,
@@ -58,7 +71,7 @@ export function useAgentUserInputListener(): void {
 						};
 					});
 
-					if (!didChange) return session;
+					if (!tabFound) return session;
 					return {
 						...session,
 						state: 'busy' as SessionState,
