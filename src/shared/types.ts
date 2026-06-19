@@ -507,6 +507,15 @@ export interface AgentError {
 	 * backoff and to enforce the give-up window after repeated limits.
 	 */
 	resumeAttemptCount?: number;
+
+	/**
+	 * Epoch ms marking when auto-resume first observed this limit pause. The
+	 * coordinator stamps it once (seeded from `timestamp`, the moment the limit
+	 * fired) and never overwrites it while the pause persists. Phase 4's give-up
+	 * decision is time-based off this stamp and the `autoResumeGiveUpDays`
+	 * setting, NOT a raw attempt count.
+	 */
+	limitPausedAt?: number;
 }
 
 /**
