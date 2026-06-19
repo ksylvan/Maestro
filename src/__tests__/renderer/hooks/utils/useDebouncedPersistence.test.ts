@@ -735,6 +735,100 @@ describe('useDebouncedPersistence', () => {
 			});
 		});
 
+		describe('limit-pause persistence (Auto-Resume On Limit)', () => {
+			// A limit pause is the one error state we deliberately KEEP so auto-resume
+			// can re-find the paused session after an app restart. Every other error
+			// stays stripped (covered by the tests above).
+			const makeLimitError = () => ({
+				type: 'rate_limited' as const,
+				message: 'Rate limited',
+				recoverable: true,
+				agentId: 'claude-code',
+				timestamp: 1000,
+				resumeAttemptCount: 1,
+				limitResetAt: 5000,
+				limitPausedAt: 1000,
+			});
+
+			it('persists session-level limit-pause state and keeps state error', () => {
+				const error = makeLimitError();
+				const tab = makeTab({ id: 'paused', agentError: error as any });
+				const session = makeSession({
+					state: 'error',
+					agentError: error as any,
+					agentErrorPaused: true,
+					agentErrorTabId: 'paused',
+					aiTabs: [tab],
+					activeTabId: 'paused',
+				});
+
+				const initialLoadRef = makeInitialLoadRef(true);
+				const { result } = renderHook(() => useDebouncedPersistence([session], initialLoadRef));
+
+				act(() => {
+					result.current.flushNow();
+				});
+
+				const persisted = vi.mocked(window.maestro.sessions.setAll).mock.calls[0][0] as Session[];
+				expect(persisted[0].state).toBe('error');
+				expect(persisted[0].agentErrorPaused).toBe(true);
+				expect(persisted[0].agentErrorTabId).toBe('paused');
+				// Give-up/backoff fields survive the round-trip.
+				expect(persisted[0].agentError).toEqual(error);
+			});
+
+			it('keeps the paused tab agentError so the coordinator can re-attach', () => {
+				const error = makeLimitError();
+				const tab = makeTab({ id: 'paused', agentError: error as any });
+				const session = makeSession({
+					state: 'error',
+					agentError: error as any,
+					agentErrorPaused: true,
+					agentErrorTabId: 'paused',
+					aiTabs: [tab],
+					activeTabId: 'paused',
+				});
+
+				const initialLoadRef = makeInitialLoadRef(true);
+				const { result } = renderHook(() => useDebouncedPersistence([session], initialLoadRef));
+
+				act(() => {
+					result.current.flushNow();
+				});
+
+				const persisted = vi.mocked(window.maestro.sessions.setAll).mock.calls[0][0] as Session[];
+				expect(persisted[0].aiTabs[0].agentError).toEqual(error);
+			});
+
+			it('still strips a non-limit error pause (auth/crash must not survive restart)', () => {
+				const session = makeSession({
+					state: 'error',
+					agentError: {
+						type: 'auth_expired',
+						message: 'Auth expired',
+						recoverable: true,
+						agentId: 'claude-code',
+						timestamp: 1000,
+					} as any,
+					agentErrorPaused: true,
+					agentErrorTabId: 'default-tab',
+				});
+
+				const initialLoadRef = makeInitialLoadRef(true);
+				const { result } = renderHook(() => useDebouncedPersistence([session], initialLoadRef));
+
+				act(() => {
+					result.current.flushNow();
+				});
+
+				const persisted = vi.mocked(window.maestro.sessions.setAll).mock.calls[0][0] as Session[];
+				expect(persisted[0].state).toBe('idle');
+				expect(persisted[0].agentError).toBeUndefined();
+				expect(persisted[0].agentErrorPaused).toBeUndefined();
+				expect(persisted[0].agentErrorTabId).toBeUndefined();
+			});
+		});
+
 		describe('session runtime state reset', () => {
 			it('should reset session state to idle', () => {
 				const session = makeSession({ state: 'busy' });

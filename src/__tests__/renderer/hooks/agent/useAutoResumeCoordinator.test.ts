@@ -8,6 +8,7 @@ import {
 	isEligibleToProbe,
 } from '../../../../renderer/hooks/agent/useAutoResumeCoordinator';
 import { useSessionStore } from '../../../../renderer/stores/sessionStore';
+import { useAgentStore } from '../../../../renderer/stores/agentStore';
 import { useBatchStore } from '../../../../renderer/stores/batchStore';
 import { useSettingsStore } from '../../../../renderer/stores/settingsStore';
 import { useNotificationStore } from '../../../../renderer/stores/notificationStore';
@@ -24,6 +25,8 @@ import type { AgentError, Session, BatchRunState, LogEntry } from '../../../../r
 // Test helpers
 // ---------------------------------------------------------------------------
 
+const DAY = 24 * 60 * 60 * 1000;
+
 /** Flush pending microtasks + the per-session fire-and-forget resume IIFEs. */
 async function flush(): Promise<void> {
 	await new Promise((resolve) => setTimeout(resolve, 0));
@@ -36,7 +39,9 @@ function makeLimitError(overrides: Partial<AgentError> = {}): AgentError {
 		message: 'Rate limited',
 		recoverable: true,
 		agentId: 'claude-code',
-		timestamp: 1000,
+		// Default to "just now" so the give-up window (default 7 days) is nowhere
+		// near elapsed - give-up tests pin their own timestamp + `now` explicitly.
+		timestamp: Date.now(),
 		resumeAttemptCount: 0,
 		...overrides,
 	};
@@ -94,7 +99,8 @@ beforeEach(() => {
 			clearError: vi.fn().mockResolvedValue(undefined),
 		},
 		logger: { toast: vi.fn(), log: vi.fn(), autorun: vi.fn() },
-		notification: { show: vi.fn(), speak: vi.fn() },
+		// `.show` must return a promise: notifyToast chains `.catch` on it.
+		notification: { show: vi.fn().mockResolvedValue(undefined), speak: vi.fn() },
 	};
 });
 
@@ -166,6 +172,25 @@ describe('probeAvailability', () => {
 		const snap = { ...makeSnapshot(10, 10), authState: 'unauthenticated' as const };
 		useClaudeUsageStore.getState().setSnapshots({ '/home/.claude': snap });
 		await expect(probeAvailability(makeLimitPausedSession())).resolves.toBe(false);
+	});
+
+	it('SSH-backed Claude session ignores the (local) snapshot and falls back to the interval attempt', async () => {
+		// The local snapshot says OVER the limit, but for an SSH session it's the
+		// wrong account/machine - the probe must treat availability as unknown and
+		// return true (resume-as-probe on the remote) rather than read local numbers.
+		useClaudeUsageStore.getState().setSnapshots({ '/home/.claude': makeSnapshot(100, 100) });
+		const s = makeLimitPausedSession({
+			sessionSshRemoteConfig: { enabled: true, remoteId: 'remote-1' },
+		});
+		await expect(probeAvailability(s)).resolves.toBe(true);
+	});
+
+	it('local (SSH-disabled) Claude session still uses the snapshot', async () => {
+		useClaudeUsageStore.getState().setSnapshots({ '/home/.claude': makeSnapshot(100, 100) });
+		const s = makeLimitPausedSession({
+			sessionSshRemoteConfig: { enabled: false, remoteId: null },
+		});
+		await expect(probeAvailability(s)).resolves.toBe(false);
 	});
 });
 
@@ -307,7 +332,8 @@ describe('runAutoResumeTick', () => {
 		claudeSnapshotMap = { '/home/.claude': makeSnapshot(100, 100) }; // probe=false → stays paused
 		setSessions([makeLimitPausedSession({ agentError: makeLimitError({ timestamp: 4242 }) })]);
 
-		await runAutoResumeTick(new Set(), vi.fn());
+		// now just after the pause so the give-up window is nowhere near elapsed.
+		await runAutoResumeTick(new Set(), vi.fn(), { now: 5242 });
 		await flush();
 
 		const after = useSessionStore.getState().sessions[0];
@@ -378,6 +404,207 @@ describe('runAutoResumeTick', () => {
 		});
 		// recoveryAction consumed so it fires only once.
 		expect(after.aiTabs[0].logs[0].recoveryAction).toBeUndefined();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Restart re-attachment (Phase 4): a persisted limit pause survives a cold
+// start (see useDebouncedPersistence + useSessionRestoration round-trip tests)
+// and the coordinator must pick it up on its first tick with no extra wiring.
+// ---------------------------------------------------------------------------
+
+describe('restart re-attachment', () => {
+	it('considers a restored limit-paused session on the first (kickoff) tick and resumes it via the standard queue-drain path', async () => {
+		vi.useFakeTimers();
+		// Post-restart conditions: batchStore is in-memory and is NOT
+		// reconstructed on a cold start, so a session that paused mid Auto Run
+		// has no batch state here. The session itself comes back shaped exactly
+		// like restoreSession leaves a limit pause (state 'error', paused, error
+		// intact). opencode = resume-as-probe so the tick is deterministic.
+		useBatchStore.setState({ batchRunStates: {}, customPrompts: {} });
+		setSessions([
+			makeLimitPausedSession({ id: 'sess-oc', toolType: 'opencode', name: 'OC Agent' }),
+		]);
+		const resumeAutoRun = vi.fn();
+
+		// The restored session matches the coordinator's selector with no extra wiring.
+		expect(isLimitPausedSession(useSessionStore.getState().sessions[0])).toBe(true);
+
+		renderHook(() => useAutoResumeCoordinator({ resumeAutoRunAfterError: resumeAutoRun }));
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(11_000); // past the 10s kickoff tick
+		});
+
+		const after = useSessionStore.getState().sessions[0];
+		// Standard path: error cleared, session idle, persisted queue drains and
+		// the agent resumes its own transcript via the native --resume.
+		expect(after.state).toBe('idle');
+		expect(after.agentError).toBeUndefined();
+		// The orchestration LOOP did NOT resume on a cold start - no batch state survived.
+		expect(resumeAutoRun).not.toHaveBeenCalled();
+		expect(useNotificationStore.getState().toasts).toHaveLength(1);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Respect manual user action
+// ---------------------------------------------------------------------------
+
+describe('respect manual user action', () => {
+	it('drops a session from consideration once the user clears the error (clearAgentError)', async () => {
+		setSessions([makeLimitPausedSession()]);
+		// Sanity: it WAS a candidate before the user acted.
+		expect(isLimitPausedSession(useSessionStore.getState().sessions[0])).toBe(true);
+
+		// A manual recovery action / retry / start-new / restart all funnel through
+		// clearAgentError, which resets the exact fields the coordinator selects on.
+		act(() => {
+			useAgentStore.getState().clearAgentError('sess-claude');
+		});
+
+		const cleared = useSessionStore.getState().sessions[0];
+		expect(cleared.agentError).toBeUndefined();
+		expect(cleared.agentErrorPaused).toBe(false);
+		expect(cleared.state).toBe('idle');
+		expect(isLimitPausedSession(cleared)).toBe(false);
+
+		// The coordinator no longer touches it: no probe, no resume, no toast.
+		const resumeAutoRun = vi.fn();
+		await runAutoResumeTick(new Set(), resumeAutoRun);
+		await flush();
+		expect(resumeAutoRun).not.toHaveBeenCalled();
+		expect(useNotificationStore.getState().toasts).toHaveLength(0);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Give up (time-based, off autoResumeGiveUpDays)
+// ---------------------------------------------------------------------------
+
+describe('give up (time-based)', () => {
+	it('parks the session, fires one distinct toast, and stops resuming after the cutoff', async () => {
+		const pausedAt = 1_000_000;
+		const now = pausedAt + 8 * DAY; // past the default 7-day window
+		setSessions([
+			makeLimitPausedSession({
+				id: 'sess-oc',
+				toolType: 'opencode',
+				name: 'OC Agent',
+				agentError: makeLimitError({ timestamp: pausedAt }),
+			}),
+		]);
+		const resumeAutoRun = vi.fn();
+
+		await runAutoResumeTick(new Set(), resumeAutoRun, { giveUp: new Map(), giveUpDays: 7, now });
+		await flush();
+
+		const after = useSessionStore.getState().sessions[0];
+		expect(after.state).toBe('error'); // left paused
+		expect(after.agentError).toBeDefined();
+		expect(resumeAutoRun).not.toHaveBeenCalled(); // NOT resumed
+
+		const toasts = useNotificationStore.getState().toasts;
+		expect(toasts).toHaveLength(1);
+		expect(toasts[0].title).toBe('Auto-resume stopped');
+		expect(toasts[0].color).toBe('orange');
+		expect(toasts[0].message).toContain('7 days');
+		expect(toasts[0].message).toContain('OC Agent');
+	});
+
+	it('keeps retrying (and resumes) inside the give-up window', async () => {
+		const pausedAt = 1_000_000;
+		const now = pausedAt + 3 * DAY; // well within 7 days
+		setSessions([
+			makeLimitPausedSession({
+				id: 'sess-oc',
+				toolType: 'opencode',
+				agentError: makeLimitError({ timestamp: pausedAt }),
+			}),
+		]);
+		const resumeAutoRun = vi.fn();
+
+		await runAutoResumeTick(new Set(), resumeAutoRun, { giveUp: new Map(), giveUpDays: 7, now });
+		await flush();
+
+		const after = useSessionStore.getState().sessions[0];
+		expect(after.state).toBe('idle'); // resumed via standard path
+		expect(after.agentError).toBeUndefined();
+		expect(useNotificationStore.getState().toasts[0]?.title).toBe('Resumed');
+	});
+
+	it('fires the give-up toast only once across repeated ticks', async () => {
+		const pausedAt = 1_000_000;
+		const now = pausedAt + 8 * DAY;
+		setSessions([
+			makeLimitPausedSession({
+				id: 'sess-oc',
+				toolType: 'opencode',
+				agentError: makeLimitError({ timestamp: pausedAt }),
+			}),
+		]);
+		const giveUp = new Map();
+
+		await runAutoResumeTick(new Set(), vi.fn(), { giveUp, giveUpDays: 7, now });
+		await runAutoResumeTick(new Set(), vi.fn(), { giveUp, giveUpDays: 7, now: now + DAY });
+		await flush();
+
+		expect(useNotificationStore.getState().toasts).toHaveLength(1);
+	});
+
+	it('measures the window from the original pause, surviving a resume-then-re-hit', async () => {
+		const original = 1_000_000;
+		const now = original + 8 * DAY;
+		// Pre-seeded as if an earlier tick anchored the window at the first pause.
+		const giveUp = new Map([['sess-oc', { anchor: original, toastFired: false }]]);
+		// The live error is a fresh RE-HIT - on its own timestamp it'd be deep
+		// inside the window, but the preserved anchor wins and we still give up.
+		setSessions([
+			makeLimitPausedSession({
+				id: 'sess-oc',
+				toolType: 'opencode',
+				agentError: makeLimitError({ timestamp: now - 60_000 }),
+			}),
+		]);
+		const resumeAutoRun = vi.fn();
+
+		await runAutoResumeTick(new Set(), resumeAutoRun, { giveUp, giveUpDays: 7, now });
+		await flush();
+
+		const after = useSessionStore.getState().sessions[0];
+		expect(after.state).toBe('error');
+		expect(resumeAutoRun).not.toHaveBeenCalled();
+		expect(useNotificationStore.getState().toasts[0]?.title).toBe('Auto-resume stopped');
+	});
+
+	it('forgets the window once the session is no longer limit-paused (fresh window later)', async () => {
+		const giveUp = new Map([['sess-oc', { anchor: 1_000_000, toastFired: true }]]);
+		// Session resumed successfully: idle, not limit-paused.
+		setSessions([createMockSession({ id: 'sess-oc', toolType: 'opencode', state: 'idle' })]);
+
+		await runAutoResumeTick(new Set(), vi.fn(), { giveUp, giveUpDays: 7, now: 2_000_000 });
+		await flush();
+
+		expect(giveUp.has('sess-oc')).toBe(false);
+	});
+
+	it('does not give up on attempt count alone within the window', async () => {
+		const pausedAt = 1_000_000;
+		const now = pausedAt + 2 * DAY; // within window
+		setSessions([
+			makeLimitPausedSession({
+				id: 'sess-oc',
+				toolType: 'opencode',
+				agentError: makeLimitError({ timestamp: pausedAt, resumeAttemptCount: 999 }),
+			}),
+		]);
+		const resumeAutoRun = vi.fn();
+
+		await runAutoResumeTick(new Set(), resumeAutoRun, { giveUp: new Map(), giveUpDays: 7, now });
+		await flush();
+
+		const after = useSessionStore.getState().sessions[0];
+		expect(after.state).toBe('idle'); // resumed despite 999 attempts - probing is cheap
+		expect(useNotificationStore.getState().toasts[0]?.title).toBe('Resumed');
 	});
 });
 
