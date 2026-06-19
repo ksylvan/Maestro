@@ -510,6 +510,17 @@ export interface AgentError {
 }
 
 /**
+ * True when an agent error is a provider "limit pause" - a token/API/credit or
+ * rate limit the agent can resume from once the window reopens. Both
+ * `rate_limited` and `token_exhaustion` count (some providers surface credit
+ * exhaustion as the latter). Single source of truth so every call site (error
+ * listener, goal runner, auto-resume coordinator) agrees on what to pause on.
+ */
+export function isLimitError(err: AgentError): boolean {
+	return err.type === 'rate_limited' || err.type === 'token_exhaustion';
+}
+
+/**
  * Recovery action for an agent error.
  * Provides both the action metadata and the action function.
  */

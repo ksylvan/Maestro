@@ -1130,6 +1130,7 @@ interface MaestroAPI {
 			>
 		>;
 		getClaudeUsageAccountKeys: () => Promise<string[]>;
+		getLimitResetAt: (agentId: string, claudeConfigDir?: string) => Promise<number | undefined>;
 		getCodexUsageSnapshots: () => Promise<
 			Record<
 				string,
