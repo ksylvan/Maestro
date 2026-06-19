@@ -754,6 +754,23 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 					};
 				}
 
+				// maestro-p is a Node script launched through `process.execPath` (the
+				// Electron binary). Without ELECTRON_RUN_AS_NODE a PACKAGED app ignores
+				// the script arg and launches a SECOND Maestro GUI instead of running
+				// maestro-p, so the turn emits no stream-json and dies with no thinking
+				// pill and no response - while `npm run dev` happens to load the script
+				// as an app entry and works, masking it. envBuilder strips
+				// ELECTRON_RUN_AS_NODE from the inherited env and applies customEnvVars
+				// AFTER the strip, so setting it here survives. The batch/cue surfaces
+				// set the same flag in applyClaudeSpawnDecision(); the desktop
+				// process:spawn path applies the decision inline and must mirror it.
+				if (claudeResolvedMode === 'interactive' && resolvedMaestroPBinPath) {
+					customEnvVarsToPass = {
+						...(customEnvVarsToPass ?? {}),
+						ELECTRON_RUN_AS_NODE: '1',
+					};
+				}
+
 				// LOCAL interactive turns run maestro-p as pure Node (via
 				// `process.execPath` + ELECTRON_RUN_AS_NODE) and it does
 				// `require('node-pty')`, which esbuild left external. In a PACKAGED
