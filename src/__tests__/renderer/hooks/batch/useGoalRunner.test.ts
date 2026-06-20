@@ -669,6 +669,30 @@ describe('useGoalRunner (Goal-Driven Auto Run engine)', () => {
 		expect(prompt).toContain('Iteration: 00001');
 	});
 
+	it('prefixes the agent New Session Message onto the per-iteration prompt', async () => {
+		mockOnSpawnAgent.mockResolvedValue({
+			success: true,
+			agentSessionId: 'a',
+			response: progressResponse(100, 'done'),
+		});
+
+		const { result } = renderProcessor(
+			[createMockSession({ newSessionMessage: 'Always check linting first.' })],
+			[createMockGroup()]
+		);
+
+		await act(async () => {
+			await result.current.startBatchRun(
+				SESSION_ID,
+				goalConfig('Refactor the parser', 'All parser tests green', null),
+				'/test/folder'
+			);
+		});
+
+		const prompt = mockOnSpawnAgent.mock.calls[0][1] as string;
+		expect(prompt.startsWith('Always check linting first.\n\n---\n\n')).toBe(true);
+	});
+
 	it('does not start when Auto Run is globally disabled', async () => {
 		useSettingsStore.setState({ autoRunDisabled: true });
 

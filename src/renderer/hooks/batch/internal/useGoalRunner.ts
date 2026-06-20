@@ -23,6 +23,7 @@ import {
 	substituteTemplateVariables,
 	type TemplateContext,
 } from '../../../utils/templateVariables';
+import { prependNewSessionMessage } from '../../../../shared/newSessionMessage';
 import { gitService } from '../../../services/git';
 import { logger } from '../../../utils/logger';
 import { notifyToast } from '../../../stores/notificationStore';
@@ -415,7 +416,12 @@ export function useGoalRunner({
 					goal: goalConfig.goal,
 					goalExitCriteria: goalConfig.exitCriteria,
 				};
-				const prompt = substituteTemplateVariables(goalPromptTemplate, templateContext);
+				// Each goal iteration spawns a fresh provider session, so prefix the
+				// agent's New Session Message onto every spawn (matches interactive behavior).
+				const prompt = prependNewSessionMessage(
+					substituteTemplateVariables(goalPromptTemplate, templateContext),
+					session.newSessionMessage
+				);
 
 				const iterationStart = Date.now();
 				let result: Awaited<ReturnType<SpawnAgentFn>>;
