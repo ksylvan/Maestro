@@ -204,6 +204,8 @@ export interface SessionInfo {
 	customEnvVars?: Record<string, string>;
 	/** Per-session SSH remote config — when enabled, CLI spawns via SSH. */
 	sessionSshRemoteConfig?: AgentSshRemoteConfig;
+	/** User-authored text prefixed onto the first turn of each fresh provider session. */
+	newSessionMessage?: string;
 }
 
 // Usage statistics from AI agent CLI (Claude Code, Codex, etc.)

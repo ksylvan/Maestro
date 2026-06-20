@@ -27,6 +27,7 @@ import {
 } from '../../shared/goalDriven/goalHandoff';
 import { hasCapability } from '../../main/agents/capabilities';
 import { substituteTemplateVariables, TemplateContext } from '../../shared/templateVariables';
+import { prependNewSessionMessage } from '../../shared/newSessionMessage';
 import { spawnAgent } from './agent-spawner';
 import { addHistoryEntry, readGroups } from './storage';
 import { getCliPrompt } from './prompt-loader';
@@ -205,7 +206,12 @@ export async function* runGoal(
 				goalExitCriteria: goalConfig.exitCriteria,
 				predecessorHandoff: formatPredecessorHandoff(predecessorBlurb),
 			};
-			const prompt = substituteTemplateVariables(goalPromptTemplate, templateContext);
+			// Each goal iteration spawns a fresh provider session, so prefix the
+			// agent's New Session Message onto every spawn (matches interactive behavior).
+			const prompt = prependNewSessionMessage(
+				substituteTemplateVariables(goalPromptTemplate, templateContext),
+				session.newSessionMessage
+			);
 
 			if (verbose) {
 				yield { type: 'verbose', timestamp: Date.now(), category: 'prompt', iteration, prompt };

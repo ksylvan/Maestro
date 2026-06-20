@@ -146,6 +146,33 @@ describe('goal-runner (runGoal)', () => {
 		expect(complete?.iterations).toBe(1);
 	});
 
+	it('prefixes the agent New Session Message onto every iteration prompt', async () => {
+		const responses = [progressResponse(40, 'phase 1'), progressResponse(100, 'done')];
+		let iterCall = 0;
+		vi.mocked(spawnAgent).mockImplementation(async (_tool, _cwd, _prompt, agentSessionId) => {
+			// Handoff resume requests must not receive the prefix; they reuse the session.
+			if (agentSessionId) {
+				return { success: true, response: 'handoff note', agentSessionId };
+			}
+			return {
+				success: true,
+				response: responses[iterCall++],
+				agentSessionId: `agent-${iterCall}`,
+			};
+		});
+
+		await collectEvents(
+			runGoal(mockSession({ newSessionMessage: 'Always check linting first.' }), goalConfig())
+		);
+
+		// Both fresh iteration spawns carry the message; the handoff resume (call 1) does not.
+		const firstPrompt = vi.mocked(spawnAgent).mock.calls[0][2];
+		const secondPrompt = vi.mocked(spawnAgent).mock.calls[2][2];
+		expect(firstPrompt.startsWith('Always check linting first.\n\n---\n\n')).toBe(true);
+		expect(secondPrompt.startsWith('Always check linting first.\n\n---\n\n')).toBe(true);
+		expect(vi.mocked(spawnAgent).mock.calls[1][2]).not.toContain('Always check linting first.');
+	});
+
 	it('loops across iterations and keeps displayed progress monotonic', async () => {
 		const responses = [
 			progressResponse(30, 'scaffolded'),

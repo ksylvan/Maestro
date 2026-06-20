@@ -11,6 +11,7 @@ import { getActiveTab, getBusyTabs, extractQuickTabName } from '../../utils/tabH
 import { getStdinFlags, prepareMaestroSystemPrompt } from '../../utils/spawnHelpers';
 import { generateId, getInputBroadcastOriginId } from '../../utils/ids';
 import { substituteTemplateVariables } from '../../utils/templateVariables';
+import { prependNewSessionMessage } from '../../../shared/newSessionMessage';
 import { filterYoloArgs } from '../../utils/agentArgs';
 import { hasCapabilityCached } from '../agent/useAgentCapabilities';
 import { gitService } from '../../services/git';
@@ -1083,9 +1084,11 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 							hasImages && hasNoText ? DEFAULT_IMAGE_ONLY_PROMPT : capturedInputValue;
 
 						// Prefix new session message if present (only for the first message in a new session)
-						const newSessionMsg = freshSession.newSessionMessage;
-						if (newSessionMsg && !tabAgentSessionId) {
-							effectivePrompt = `${newSessionMsg}\n\n---\n\n${effectivePrompt}`;
+						if (!tabAgentSessionId) {
+							effectivePrompt = prependNewSessionMessage(
+								effectivePrompt,
+								freshSession.newSessionMessage
+							);
 						}
 
 						// For read-only mode, append instruction to return plan in response instead of writing files
