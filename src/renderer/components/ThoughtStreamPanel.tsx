@@ -28,6 +28,8 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { useUIStore } from '../stores/uiStore';
 import { useModalLayer } from '../hooks/ui/useModalLayer';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
+import { Markdown } from './Markdown';
+import { generateTerminalProseStyles } from '../utils/markdownConfig';
 
 interface ThoughtStreamPanelProps {
 	theme: Theme;
@@ -40,26 +42,6 @@ function formatThoughtTime(ts: number): string {
 		minute: '2-digit',
 		second: '2-digit',
 	});
-}
-
-/** Split `text` into [before, match, after, before, match, ...] segments for highlighting. */
-function highlightSegments(text: string, query: string): { text: string; match: boolean }[] {
-	if (!query) return [{ text, match: false }];
-	const segments: { text: string; match: boolean }[] = [];
-	const lower = text.toLowerCase();
-	const q = query.toLowerCase();
-	let i = 0;
-	while (i < text.length) {
-		const found = lower.indexOf(q, i);
-		if (found === -1) {
-			segments.push({ text: text.slice(i), match: false });
-			break;
-		}
-		if (found > i) segments.push({ text: text.slice(i, found), match: false });
-		segments.push({ text: text.slice(found, found + q.length), match: true });
-		i = found + q.length;
-	}
-	return segments;
 }
 
 export function ThoughtStreamPanel({ theme }: ThoughtStreamPanelProps) {
@@ -99,6 +81,13 @@ export function ThoughtStreamPanel({ theme }: ThoughtStreamPanelProps) {
 	const blocks: ThoughtBlock[] = useMemo(() => groupThoughtsIntoBlocks(entries), [entries]);
 
 	const searching = query.trim().length > 0;
+
+	// Compact, theme-aware prose styling for the rendered thought markdown,
+	// scoped so it can't bleed into other prose containers (shared generator).
+	const proseStyles = useMemo(
+		() => generateTerminalProseStyles(theme, '.thought-stream-prose'),
+		[theme]
+	);
 
 	const visibleBlocks = useMemo(() => {
 		const q = query.trim().toLowerCase();
@@ -235,9 +224,10 @@ export function ThoughtStreamPanel({ theme }: ThoughtStreamPanelProps) {
 					const el = e.currentTarget;
 					stickToTopRef.current = el.scrollTop < 24;
 				}}
-				className="flex-1 overflow-y-auto px-3 py-2 scrollbar-thin select-text"
+				className="thought-stream-prose flex-1 overflow-y-auto px-3 py-2 scrollbar-thin select-text"
 				style={{ color: theme.colors.textMain }}
 			>
+				<style>{proseStyles}</style>
 				{visibleBlocks.length === 0 ? (
 					<p className="text-xs italic mt-2" style={{ color: theme.colors.textDim }}>
 						{searching
@@ -257,22 +247,19 @@ export function ThoughtStreamPanel({ theme }: ThoughtStreamPanelProps) {
 								>
 									{formatThoughtTime(block.startTimestamp)}
 								</div>
-								<div className="font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-words">
-									{highlightSegments(block.text, query.trim()).map((seg, i) =>
-										seg.match ? (
-											<mark
-												key={i}
-												style={{
-													backgroundColor: theme.colors.warning,
-													color: theme.colors.bgSidebar,
-												}}
-											>
-												{seg.text}
-											</mark>
-										) : (
-											<span key={i}>{seg.text}</span>
-										)
-									)}
+								<div
+									className="prose max-w-none break-words"
+									style={{ fontSize: '12px', color: theme.colors.textMain }}
+								>
+									<Markdown
+										preset="document"
+										content={block.text}
+										theme={theme}
+										frontmatter={false}
+										searchHighlight={
+											searching ? { query: query.trim(), currentMatchIndex: -1 } : undefined
+										}
+									/>
 								</div>
 							</div>
 						))}

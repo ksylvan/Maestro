@@ -179,6 +179,7 @@ It works the same for **Spec-Driven** and **Goal-Driven** runs, because both flo
 
 - **Newest on top** - the live thought sits at the top and grows; scroll down to read the history of the run.
 - **Timestamped blocks** - a continuous burst of thinking is grouped into one block with a time stamp; a pause (or a switch between parallel tabs) starts a new block.
+- **Formatted** - thoughts render as formatted markdown (headings, lists, bold, inline code, code fences), so structured reasoning stays readable.
 - **Search** - filter the captured thoughts with the search box; matches are highlighted.
 
 The button doubles as the live indicator: while capturing it pulses and reads **Capturing**.
