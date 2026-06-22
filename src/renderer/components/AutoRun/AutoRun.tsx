@@ -3,7 +3,6 @@ import {
 	useRef,
 	useEffect,
 	useCallback,
-	useMemo,
 	memo,
 	forwardRef,
 	useImperativeHandle,
@@ -549,26 +548,6 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 			bionifyAlgorithm,
 		});
 
-	// Goal-Driven progress slice for the bottom panel. Present only while a goal
-	// run is active; replaces the "X of Y tasks" readout with the agent's
-	// self-reported percent + iteration + rationale.
-	const goalInfo = useMemo(
-		() =>
-			batchRunState?.goalMode
-				? {
-						progress: batchRunState.goalProgress ?? 0,
-						iteration: batchRunState.goalIteration ?? 0,
-						rationale: batchRunState.goalRationale,
-					}
-				: null,
-		[
-			batchRunState?.goalMode,
-			batchRunState?.goalProgress,
-			batchRunState?.goalIteration,
-			batchRunState?.goalRationale,
-		]
-	);
-
 	// Keep the document selector badge in sync with the bottom-panel counter.
 	// The file watcher's refresh path can be stale (debounced/missed events, SSH poll lag),
 	// but savedContent for the selected doc is always authoritative — mirror it into the store.
@@ -873,17 +852,19 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 				</div>
 			)}
 
-			{/* Bottom Panel - shown when folder selected AND (there are tasks, an active
-			    goal run, unsaved changes, or content with token count) */}
+			{/* Bottom Panel - shown when folder selected AND (there are tasks, unsaved
+			    changes, or content with token count). Suppressed during goal runs:
+			    the active-run card in the Right Panel already shows goal % +
+			    rationale, so this footer would only restate it. */}
 			{folderPath &&
-				(taskCounts.total > 0 || goalInfo || (isDirty && !isLocked) || tokenCount !== null) && (
+				!batchRunState?.goalMode &&
+				(taskCounts.total > 0 || (isDirty && !isLocked) || tokenCount !== null) && (
 					<AutoRunBottomPanel
 						theme={theme}
 						taskCounts={taskCounts}
 						tokenCount={tokenCount}
 						isDirty={isDirty}
 						isLocked={isLocked}
-						goal={goalInfo}
 						onSave={handleSave}
 						onRevert={handleRevert}
 						onOpenResetTasksModal={() => setResetTasksModalOpen(true)}
