@@ -1316,6 +1316,10 @@ quitHandler = createQuitHandler({
 	powerManager,
 	stopSessionCleanup,
 	getPersistedSessions: () => sessionsStore.get('sessions', []) as Array<Record<string, unknown>>,
+	// Multi-window persistence: snapshot every window's layout to the window-state
+	// store on quit so the next launch can restore it (see window-state-persistence).
+	windowStateStore,
+	getWindowRegistry: () => windowRegistry,
 });
 quitHandler.setup();
 
