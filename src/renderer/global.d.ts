@@ -3803,6 +3803,9 @@ interface MaestroAPI {
 			leftPanelCollapsed: boolean;
 			rightPanelCollapsed: boolean;
 		} | null>;
+		// Claim a freshly-created agent for THIS window before its process starts,
+		// so it never momentarily surfaces in the primary's catch-all (spawn flicker).
+		registerSession: (sessionId: string) => Promise<{ registered: boolean }>;
 		// Persist the calling window's panel-collapse UI state (per-window).
 		setPanelState: (panel: {
 			leftPanelCollapsed?: boolean;
