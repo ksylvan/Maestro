@@ -4962,6 +4962,7 @@ export class WebSocketMessageHandler {
 			sessionId: result.sessionId,
 			agentId: result.agentId,
 			agentSessionId: result.agentSessionId,
+			projectPath: result.projectPath,
 			messages: result.messages,
 			requestId: message.requestId,
 		});
