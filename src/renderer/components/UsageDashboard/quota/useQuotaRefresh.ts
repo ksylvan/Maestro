@@ -57,6 +57,7 @@ export function useQuotaRefresh(opts: UseQuotaRefreshOptions): UseQuotaRefreshRe
 	const mountedRef = useRef(true);
 
 	useEffect(() => {
+		mountedRef.current = true;
 		return () => {
 			mountedRef.current = false;
 		};

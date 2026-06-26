@@ -1,4 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
+import { StrictMode, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useQuotaRefresh } from '../../../../renderer/components/UsageDashboard/quota/useQuotaRefresh';
 import { useUIStore } from '../../../../renderer/stores/uiStore';
@@ -35,6 +36,40 @@ describe('useQuotaRefresh', () => {
 
 		await vi.advanceTimersByTimeAsync(900);
 		await expect(refreshPromise).resolves.toBeUndefined();
+		expect(doRefresh).toHaveBeenCalledTimes(1);
+	});
+
+	it('recovers visual busy state after a StrictMode effect remount', async () => {
+		vi.useFakeTimers();
+		const doRefresh = vi.fn().mockResolvedValue(undefined);
+		const wrapper = ({ children }: { children: ReactNode }) => <StrictMode>{children}</StrictMode>;
+
+		const { result } = renderHook(
+			() =>
+				useQuotaRefresh({
+					providerId: 'claude-code',
+					refreshing: false,
+					autoRefresh: false,
+					accountCount: 0,
+					snapshotCount: 0,
+					doRefresh,
+				}),
+			{ wrapper }
+		);
+
+		let refreshPromise!: Promise<void>;
+		act(() => {
+			refreshPromise = result.current.handleRefresh();
+		});
+		expect(result.current.isBusy).toBe(true);
+
+		await Promise.resolve();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(900);
+			await refreshPromise;
+		});
+
+		expect(result.current.isBusy).toBe(false);
 		expect(doRefresh).toHaveBeenCalledTimes(1);
 	});
 });
