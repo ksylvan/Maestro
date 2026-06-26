@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
 	AccessibilitySection,
 	ContextWarningsSection,
+	DocumentGraphSection,
 	FileEditPreviewSection,
 	LeftSidePanelSection,
 	MainHeaderPanelSection,
@@ -250,24 +251,40 @@ describe('DisplayTab section components', () => {
 		);
 
 		fireEvent.click(
-			screen
-				.getByText('Show starred tabs when filtering by unread')
-				.closest('.flex.items-center.justify-between')!
-				.querySelector('[role="switch"]')!
+			screen.getByRole('switch', { name: 'Show starred tabs when filtering by unread' })
 		);
 		fireEvent.click(
-			screen
-				.getByText('Show file preview tabs when filtering by unread')
-				.closest('.flex.items-center.justify-between')!
-				.querySelector('[role="switch"]')!
+			screen.getByRole('switch', { name: 'Show file preview tabs when filtering by unread' })
 		);
-		fireEvent.click(screen.getByRole('switch', { name: 'Treat Command+0 as the last tab' }));
+		fireEvent.click(
+			screen.getByRole('switch', { name: /Treat (Command|Ctrl)\+0 as the last tab/ })
+		);
 		fireEvent.click(screen.getByRole('switch', { name: 'Show domain on browser tabs' }));
 
 		expect(setShowStarredInUnreadFilter).toHaveBeenCalledWith(true);
 		expect(setShowFilePreviewsInUnreadFilter).toHaveBeenCalledWith(true);
 		expect(setUseCmd0AsLastTab).toHaveBeenCalledWith(true);
 		expect(setShowBrowserTabDomain).toHaveBeenCalledWith(true);
+	});
+
+	it('labels the Document Graph max nodes slider', () => {
+		const setDocumentGraphShowExternalLinks = vi.fn();
+		const setDocumentGraphMaxNodes = vi.fn();
+
+		render(
+			<DocumentGraphSection
+				theme={mockTheme}
+				documentGraphShowExternalLinks={true}
+				setDocumentGraphShowExternalLinks={setDocumentGraphShowExternalLinks}
+				documentGraphMaxNodes={200}
+				setDocumentGraphMaxNodes={setDocumentGraphMaxNodes}
+			/>
+		);
+
+		const slider = screen.getByRole('slider', { name: 'Maximum nodes to display' });
+		fireEvent.change(slider, { target: { value: '500' } });
+
+		expect(setDocumentGraphMaxNodes).toHaveBeenCalledWith(500);
 	});
 
 	it('wires context warning row, keyboard toggle, and threshold sliders', () => {
@@ -301,6 +318,21 @@ describe('DisplayTab section components', () => {
 			contextWarningRedThreshold: 50,
 			contextWarningYellowThreshold: 40,
 		});
+	});
+
+	it('disables context threshold sliders when warnings are off', () => {
+		render(
+			<ContextWarningsSection
+				theme={mockTheme}
+				contextManagementSettings={{ ...contextSettings, contextWarningsEnabled: false }}
+				updateContextManagementSettings={vi.fn()}
+			/>
+		);
+
+		const section = document.querySelector('[data-setting-id="display-context-warnings"]')!;
+		const sliders = within(section as HTMLElement).getAllByRole('slider');
+		expect(sliders[0]).toBeDisabled();
+		expect(sliders[1]).toBeDisabled();
 	});
 
 	it('wires accessibility and Bionify controls', () => {
@@ -342,5 +374,25 @@ describe('DisplayTab section components', () => {
 		expect(state.setAlgorithmDraft).toHaveBeenCalledWith('+ 1 1 2 2 0.55');
 		expect(blurSpy).toHaveBeenCalled();
 		expect(screen.getByText(/Enter `\+\|-/)).toBeInTheDocument();
+	});
+
+	it('disables Bionify detail controls when Bionify is off', () => {
+		render(
+			<AccessibilitySection
+				theme={mockTheme}
+				colorBlindMode={false}
+				setColorBlindMode={vi.fn()}
+				bionifyReadingMode={false}
+				setBionifyReadingMode={vi.fn()}
+				bionifyIntensity={1}
+				setBionifyIntensity={vi.fn()}
+				bionifyAlgorithmState={bionifyState()}
+			/>
+		);
+
+		expect(screen.getByRole('button', { name: 'Soft' })).toBeDisabled();
+		expect(screen.getByRole('button', { name: 'Default' })).toBeDisabled();
+		expect(screen.getByRole('button', { name: 'Strong' })).toBeDisabled();
+		expect(screen.getByLabelText('Bionify algorithm')).toBeDisabled();
 	});
 });

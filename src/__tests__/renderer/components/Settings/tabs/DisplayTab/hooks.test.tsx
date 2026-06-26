@@ -120,6 +120,28 @@ describe('DisplayTab hooks', () => {
 			expect(fallback.result.current.algorithmDraft).toBe(DEFAULT_BIONIFY_ALGORITHM);
 		});
 
+		it('syncs the draft when the saved algorithm changes after mount', async () => {
+			const { result, rerender } = renderHook(
+				({ algorithm }: { algorithm: string | undefined }) =>
+					useBionifyAlgorithmState({
+						bionifyAlgorithm: algorithm,
+						setBionifyAlgorithm: vi.fn(),
+					}),
+				{ initialProps: { algorithm: '- 0 1 1 2 0.4' } }
+			);
+
+			act(() => {
+				result.current.setAlgorithmDraft('- 0 1 1');
+			});
+			expect(result.current.algorithmDraft).toBe('- 0 1 1');
+
+			rerender({ algorithm: '+ 1 1 2 2 0.55' });
+			await waitFor(() => expect(result.current.algorithmDraft).toBe('+ 1 1 2 2 0.55'));
+
+			rerender({ algorithm: undefined });
+			await waitFor(() => expect(result.current.algorithmDraft).toBe(DEFAULT_BIONIFY_ALGORITHM));
+		});
+
 		it('commits a trimmed valid draft and skips unchanged values', () => {
 			const setBionifyAlgorithm = vi.fn();
 			const { result } = renderHook(() =>

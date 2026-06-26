@@ -119,6 +119,7 @@ export function AccessibilitySection({
 								value={bionifyIntensity}
 								onChange={setBionifyIntensity}
 								theme={theme}
+								disabled={!bionifyReadingMode}
 							/>
 							<p className="text-xs opacity-50 mt-2">
 								Controls how hard the emphasis hits. Strong increases emphasis weight and fades the
@@ -153,6 +154,7 @@ export function AccessibilitySection({
 								}}
 								placeholder={DEFAULT_BIONIFY_ALGORITHM}
 								spellCheck={false}
+								disabled={!bionifyReadingMode}
 							/>
 							<p className="text-xs opacity-50 mt-2">
 								Format: sign, four fixed word-length rules, then a fallback fraction. Example: `- 0

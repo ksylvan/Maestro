@@ -33,9 +33,12 @@ export function DocumentGraphSection({
 					onChange={setDocumentGraphShowExternalLinks}
 				/>
 				<div>
-					<div className="block text-xs opacity-60 mb-2">Maximum nodes to display</div>
+					<label htmlFor="document-graph-max-nodes" className="block text-xs opacity-60 mb-2">
+						Maximum nodes to display
+					</label>
 					<div className="flex items-center gap-3">
 						<input
+							id="document-graph-max-nodes"
 							type="range"
 							min={50}
 							max={1000}

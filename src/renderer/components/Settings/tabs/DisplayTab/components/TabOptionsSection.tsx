@@ -1,6 +1,6 @@
 import { ListFilter } from 'lucide-react';
 import type { Theme } from '../../../../../types';
-import { isMacOSPlatform } from '../../../../../utils/platformUtils';
+import { isMacOS } from '../../../../../../shared/platformDetection';
 import { SettingsSectionHeading } from '../../../SettingsSectionHeading';
 import { SectionCard } from './SectionCard';
 import { ToggleSettingRow } from './ToggleSettingRow';
@@ -28,7 +28,7 @@ export function TabOptionsSection({
 	showBrowserTabDomain,
 	setShowBrowserTabDomain,
 }: TabOptionsSectionProps) {
-	const shortcutPrefix = isMacOSPlatform() ? 'Command' : 'Ctrl';
+	const shortcutPrefix = isMacOS() ? 'Command' : 'Ctrl';
 
 	return (
 		<div data-setting-id="display-tab-filtering">
@@ -40,6 +40,7 @@ export function TabOptionsSection({
 					description="When the unread filter is active, starred tabs remain visible even if they have no unread messages."
 					checked={showStarredInUnreadFilter}
 					onChange={setShowStarredInUnreadFilter}
+					ariaLabel="Show starred tabs when filtering by unread"
 				/>
 				<ToggleSettingRow
 					theme={theme}
@@ -47,6 +48,7 @@ export function TabOptionsSection({
 					description="When the unread filter is active, file preview tabs remain visible instead of being hidden."
 					checked={showFilePreviewsInUnreadFilter}
 					onChange={setShowFilePreviewsInUnreadFilter}
+					ariaLabel="Show file preview tabs when filtering by unread"
 					borderTop
 				/>
 				<ToggleSettingRow
@@ -61,7 +63,7 @@ export function TabOptionsSection({
 					}
 					checked={useCmd0AsLastTab}
 					onChange={setUseCmd0AsLastTab}
-					ariaLabel="Treat Command+0 as the last tab"
+					ariaLabel={`Treat ${shortcutPrefix}+0 as the last tab`}
 					borderTop
 				/>
 				<ToggleSettingRow

@@ -71,6 +71,7 @@ export function ContextWarningsSection({
 								)
 							}
 							className="w-full h-2 rounded-lg appearance-none cursor-pointer"
+							disabled={!contextManagementSettings.contextWarningsEnabled}
 							style={{
 								background: `linear-gradient(to right, #eab308 0%, #eab308 ${contextManagementSettings.contextWarningYellowThreshold}%, ${theme.colors.bgActivity} ${contextManagementSettings.contextWarningYellowThreshold}%, ${theme.colors.bgActivity} 100%)`,
 							}}
@@ -105,6 +106,7 @@ export function ContextWarningsSection({
 								)
 							}
 							className="w-full h-2 rounded-lg appearance-none cursor-pointer"
+							disabled={!contextManagementSettings.contextWarningsEnabled}
 							style={{
 								background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${contextManagementSettings.contextWarningRedThreshold}%, ${theme.colors.bgActivity} ${contextManagementSettings.contextWarningRedThreshold}%, ${theme.colors.bgActivity} 100%)`,
 							}}

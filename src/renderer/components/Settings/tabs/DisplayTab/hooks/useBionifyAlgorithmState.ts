@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { DEFAULT_BIONIFY_ALGORITHM } from '../../../../../utils/bionifyReadingMode';
 import type { BionifyAlgorithmState } from '../types';
 import { isValidBionifyAlgorithm, normalizeBionifyAlgorithm } from '../utils';
@@ -17,6 +17,10 @@ export function useBionifyAlgorithmState({
 	);
 	const [showInfoModal, setShowInfoModal] = useState(false);
 	const isAlgorithmValid = isValidBionifyAlgorithm(algorithmDraft);
+
+	useEffect(() => {
+		setAlgorithmDraft(bionifyAlgorithm ?? DEFAULT_BIONIFY_ALGORITHM);
+	}, [bionifyAlgorithm]);
 
 	const commitAlgorithmDraft = () => {
 		const normalizedDraft = normalizeBionifyAlgorithm(algorithmDraft);
