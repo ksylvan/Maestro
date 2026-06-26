@@ -25,6 +25,7 @@ import { MainPanel, type MainPanelHandle } from './components/MainPanel';
 import { useWizard, type SerializableWizardState, type WizardStep } from './components/Wizard';
 // CONDUCTOR_BADGES moved to useAutoRunAchievements hook
 import { EmptyStateView } from './components/EmptyStateView';
+import { AgentsLoadingView } from './components/AgentsLoadingView';
 // DeleteAgentConfirmModal, MarketplaceModal, SymphonyModal, DocumentGraphView,
 // DirectorNotesModal, CueModal, CueYamlEditor are now lazy-loaded inside AppStandaloneModals
 
@@ -510,7 +511,11 @@ function MaestroConsoleInner() {
 	);
 	const groups = useSessionStore((s) => s.groups);
 	const activeSessionId = useSessionStore((s) => s.activeSessionId);
-	// sessionsLoaded moved to useQueueProcessing hook
+	// Whether the initial agent list has finished loading. On desktop the splash
+	// covers startup until this flips true; on Web Desktop (no splash) we use it
+	// to show a loading spinner instead of flashing the empty "create your first
+	// agent" state while sessions stream in over the WebSocket bridge.
+	const sessionsLoaded = useSessionStore((s) => s.sessionsLoaded);
 	const activeSession = useActiveSession();
 
 	// Actions — stable references from store, never trigger re-renders
@@ -3315,8 +3320,13 @@ function MaestroConsoleInner() {
 					recordTourSkip={recordTourSkip}
 				/>
 
-				{/* --- EMPTY STATE VIEW (when no sessions) --- */}
-				{sessions.length === 0 && !isMobileLandscape ? (
+				{/* --- LOADING VIEW (agent list still streaming in, no splash) --- */}
+				{sessions.length === 0 && !sessionsLoaded && !isMobileLandscape ? (
+					<AgentsLoadingView theme={theme} />
+				) : null}
+
+				{/* --- EMPTY STATE VIEW (loaded, genuinely no sessions) --- */}
+				{sessions.length === 0 && sessionsLoaded && !isMobileLandscape ? (
 					<EmptyStateView
 						theme={theme}
 						shortcuts={shortcuts}
