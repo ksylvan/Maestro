@@ -76,15 +76,9 @@ import { setTheme } from './commands/set-theme';
 import { themeShow, themeExport, themeImport, themeSet } from './commands/theme';
 import { encoreList, encoreSet } from './commands/encore';
 import { setVerbosity } from './output/verbosity';
-import {
-	pianolaWatch,
-	pianolaRules,
-	pianolaAddRule,
-	pianolaLearn,
-	pianolaProfile,
-	pianolaSetProfile,
-	pianolaLog,
-} from './commands/pianola';
+import { pianolaWatch, pianolaRules, pianolaAddRule, pianolaLog } from './commands/pianola';
+import { pianolaLearn } from './commands/pianola-learn';
+import { pianolaProfile, pianolaSetProfile } from './commands/pianola-profile';
 import {
 	pianolaPlanSet,
 	pianolaPlanList,
