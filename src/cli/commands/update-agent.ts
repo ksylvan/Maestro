@@ -15,6 +15,7 @@ import * as path from 'path';
 import { withMaestroClient } from '../services/maestro-client';
 import { resolveAgentId, resolveGroupId } from '../services/storage';
 import { formatError, formatSuccess } from '../output/formatter';
+import { toClaudeTokenModeSource, type ClaudeTokenMode } from '../../shared/claudeTokenMode';
 
 interface UpdateAgentOptions {
 	group?: string;
@@ -22,6 +23,19 @@ interface UpdateAgentOptions {
 	sshRemote?: string;
 	sshCwd?: string;
 	syncHistoryToRemote?: string;
+	// Editable per-session config (the Edit Agent modal fields). Empty-string
+	// values clear the field; see buildConfigPatch.
+	nudge?: string;
+	newSessionMessage?: string;
+	customPath?: string;
+	customArgs?: string;
+	env?: string[];
+	clearEnv?: boolean;
+	model?: string;
+	effort?: string;
+	contextWindow?: string;
+	tokenSource?: string;
+	maestroPPath?: string;
 	json?: boolean;
 }
 
@@ -42,15 +56,99 @@ function emitError(message: string, options: UpdateAgentOptions): never {
 	return process.exit(1);
 }
 
+// Parse repeatable `--env KEY=VALUE` flags into a map. The provided set REPLACES
+// the agent's customEnvVars (matching create-agent semantics); use --clear-env to
+// empty it. Throws on a malformed entry.
+function parseEnvVars(entries: string[]): Record<string, string> {
+	const out: Record<string, string> = {};
+	for (const entry of entries) {
+		const eq = entry.indexOf('=');
+		if (eq <= 0) {
+			throw new Error(`Invalid --env "${entry}". Use KEY=VALUE (e.g. FOO=bar).`);
+		}
+		out[entry.slice(0, eq).trim()] = entry.slice(eq + 1);
+	}
+	return out;
+}
+
+// Build the per-session config patch from the editable flags. Only keys the
+// caller touched are included. A `null` value clears the field on the renderer
+// side; for string fields an empty value (e.g. `--nudge ""`) maps to null.
+function buildConfigPatch(options: UpdateAgentOptions): Record<string, unknown> | undefined {
+	const patch: Record<string, unknown> = {};
+	const strField = (value: string | undefined, key: string) => {
+		if (value === undefined) return;
+		patch[key] = value.trim() === '' ? null : value;
+	};
+
+	strField(options.nudge, 'nudgeMessage');
+	strField(options.newSessionMessage, 'newSessionMessage');
+	strField(options.customPath, 'customPath');
+	strField(options.customArgs, 'customArgs');
+	strField(options.model, 'customModel');
+	strField(options.effort, 'customEffort');
+	strField(options.maestroPPath, 'maestroPPath');
+
+	if (options.clearEnv) {
+		patch.customEnvVars = {};
+	} else if (options.env && options.env.length > 0) {
+		patch.customEnvVars = parseEnvVars(options.env);
+	}
+
+	if (options.contextWindow !== undefined) {
+		const raw = options.contextWindow.trim().toLowerCase();
+		if (raw === '' || raw === 'none' || raw === '0') {
+			patch.customContextWindow = null;
+		} else {
+			const n = Number(raw);
+			if (!Number.isFinite(n) || n < 0) {
+				throw new Error(
+					`--context-window expects a positive number, got "${options.contextWindow}"`
+				);
+			}
+			patch.customContextWindow = Math.floor(n);
+		}
+	}
+
+	if (options.tokenSource !== undefined) {
+		const mode = options.tokenSource.trim().toLowerCase();
+		if (mode !== 'api' && mode !== 'tui' && mode !== 'dynamic') {
+			throw new Error(`--token-source expects api, tui, or dynamic, got "${options.tokenSource}"`);
+		}
+		// Map the friendly tri-state to the stored (enableMaestroP, maestroPMode)
+		// pair so every spawn surface reads it consistently. tui -> interactive.
+		const canonical: ClaudeTokenMode = mode === 'tui' ? 'interactive' : mode;
+		const encoded = toClaudeTokenModeSource(canonical);
+		patch.enableMaestroP = encoded.enableMaestroP;
+		patch.maestroPMode = encoded.maestroPMode;
+	}
+
+	return Object.keys(patch).length > 0 ? patch : undefined;
+}
+
 export async function updateAgent(agentId: string, options: UpdateAgentOptions): Promise<void> {
 	const sshFlagsPresent =
 		options.sshRemote !== undefined ||
 		options.sshCwd !== undefined ||
 		options.syncHistoryToRemote !== undefined;
 
-	if (options.group === undefined && options.cwd === undefined && !sshFlagsPresent) {
+	// Build the editable config patch up front so a malformed flag fails before
+	// we touch the running app.
+	let configPatch: Record<string, unknown> | undefined;
+	try {
+		configPatch = buildConfigPatch(options);
+	} catch (error) {
+		emitError(error instanceof Error ? error.message : String(error), options);
+	}
+
+	if (
+		options.group === undefined &&
+		options.cwd === undefined &&
+		!sshFlagsPresent &&
+		configPatch === undefined
+	) {
 		emitError(
-			'Specify at least one of --group, --cwd, --ssh-remote, --ssh-cwd, or --sync-history-to-remote',
+			'Specify at least one field to update (e.g. --group, --cwd, --ssh-remote, --nudge, --model, --token-source, --env). Run "maestro-cli update-agent --help" for the full list.',
 			options
 		);
 	}
@@ -110,6 +208,7 @@ export async function updateAgent(agentId: string, options: UpdateAgentOptions):
 		group?: string | null;
 		cwd?: string;
 		ssh?: Record<string, unknown>;
+		config?: Record<string, unknown>;
 	} = {};
 
 	try {
@@ -170,6 +269,25 @@ export async function updateAgent(agentId: string, options: UpdateAgentOptions):
 				}
 				applied.ssh = sshPatch;
 			}
+
+			if (configPatch !== undefined) {
+				const result = await client.sendCommand<{
+					type: string;
+					success: boolean;
+					error?: string;
+				}>(
+					{
+						type: 'update_session_config',
+						sessionId,
+						configPatch,
+					},
+					'update_session_config_result'
+				);
+				if (!result.success) {
+					throw new Error(result.error || 'Failed to update agent config');
+				}
+				applied.config = configPatch;
+			}
 		});
 	} catch (error) {
 		emitError(error instanceof Error ? error.message : String(error), options);
@@ -204,6 +322,33 @@ export async function updateAgent(agentId: string, options: UpdateAgentOptions):
 		}
 		if ('syncHistory' in applied.ssh) {
 			console.log(`  Sync history to remote: ${applied.ssh.syncHistory}`);
+		}
+	}
+	if (applied.config !== undefined) {
+		// Friendly labels for the editable config keys; `null` means "cleared".
+		const labels: Record<string, string> = {
+			nudgeMessage: 'Nudge message',
+			newSessionMessage: 'New session message',
+			customPath: 'Binary path',
+			customArgs: 'Custom args',
+			customEnvVars: 'Env vars',
+			customModel: 'Model',
+			customEffort: 'Effort',
+			customContextWindow: 'Context window',
+			enableMaestroP: 'Claude token source',
+			maestroPMode: 'Token mode',
+			maestroPPath: 'maestro-p path',
+		};
+		for (const [key, value] of Object.entries(applied.config)) {
+			const label = labels[key] ?? key;
+			if (value === null) {
+				console.log(`  ${label}: (cleared)`);
+			} else if (key === 'customEnvVars' && value && typeof value === 'object') {
+				const pairs = Object.keys(value as Record<string, string>);
+				console.log(`  ${label}: ${pairs.length === 0 ? '(cleared)' : pairs.join(', ')}`);
+			} else {
+				console.log(`  ${label}: ${value}`);
+			}
 		}
 	}
 }

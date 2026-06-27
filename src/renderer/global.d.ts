@@ -517,6 +517,17 @@ interface MaestroAPI {
 			responseChannel: string,
 			result: { success: boolean; error?: string }
 		) => void;
+		onRemoteUpdateSessionConfig: (
+			callback: (
+				sessionId: string,
+				configPatch: Record<string, unknown>,
+				responseChannel: string
+			) => void
+		) => () => void;
+		sendRemoteUpdateSessionConfigResponse: (
+			responseChannel: string,
+			result: { success: boolean; error?: string }
+		) => void;
 		onRemoteCreateGroup: (
 			callback: (name: string, emoji: string | undefined, responseChannel: string) => void
 		) => () => void;

@@ -70,6 +70,7 @@ import { removePlaybook } from './commands/remove-playbook';
 import { focusAgent, switchMode } from './commands/agent-control';
 import { tabNew, tabClose, tabRename, tabStar } from './commands/tab';
 import { setTheme } from './commands/set-theme';
+import { themeShow, themeExport, themeImport, themeSet } from './commands/theme';
 import { encoreList, encoreSet } from './commands/encore';
 
 // Injected at build time by scripts/build-cli.mjs via esbuild `define`.
@@ -583,7 +584,7 @@ program
 // refused while the agent process is alive (PTY cwd is fixed at spawn time).
 program
 	.command('update-agent <agent-id>')
-	.description("Update an existing agent's group and/or working directory")
+	.description("Update an existing agent's group, working directory, and per-agent settings")
 	.option(
 		'-g, --group <id>',
 		'Move the agent to this group (use "none" to ungroup; supports partial IDs)'
@@ -601,6 +602,30 @@ program
 		'--sync-history-to-remote <bool>',
 		'Sync history entries to .maestro/history/ on the remote host (true/false)'
 	)
+	// Editable per-agent settings (the Edit Agent modal). Pass an empty string to
+	// clear a text field (e.g. --nudge "").
+	.option('--nudge <message>', 'Nudge message appended to every message (empty string clears)')
+	.option(
+		'--new-session-message <message>',
+		'Message prefixed to the first message of new sessions (empty string clears)'
+	)
+	.option('--custom-path <path>', 'Override the agent binary path (empty string clears)')
+	.option('--custom-args <args>', 'Custom CLI arguments for the agent (empty string clears)')
+	.option(
+		'--env <KEY=VALUE>',
+		'Set an environment variable (repeatable; replaces the env map)',
+		(value: string, prev: string[]) => [...(prev ?? []), value],
+		[] as string[]
+	)
+	.option('--clear-env', 'Clear all per-agent environment variables')
+	.option('--model <model>', 'Model override (e.g. sonnet, opus; empty string clears)')
+	.option('--effort <level>', 'Effort/reasoning level override (empty string clears)')
+	.option('--context-window <size>', 'Context window size in tokens (0 or "none" clears)')
+	.option(
+		'--token-source <mode>',
+		'Claude token source: api | tui | dynamic (Claude Code agents only)'
+	)
+	.option('--maestro-p-path <path>', 'Override the maestro-p binary path (empty string clears)')
 	.option('--json', 'Output as JSON (for scripting)')
 	.action(updateAgent);
 
@@ -765,6 +790,40 @@ program
 	.option('-l, --list', 'List available themes')
 	.option('--json', 'Output as JSON (for scripting)')
 	.action((nameOrId, options) => setTheme(nameOrId, options));
+
+// Theme commands - manage the user-configurable "Custom" theme palette
+// (the customThemeColors / customThemeBaseId settings). Mirrors the in-app
+// Custom Theme Builder; export files round-trip with the UI. Activate the
+// result with "set-theme custom" (or the --activate flag on import/set).
+const theme = program.command('theme').description('Manage the custom theme palette');
+
+theme
+	.command('show')
+	.description('Print the current custom theme palette and base (reads from disk)')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action((options) => themeShow(options));
+
+theme
+	.command('export')
+	.description('Export the custom theme as portable JSON (stdout, or --file <path>)')
+	.option('-f, --file <path>', 'Write the theme JSON to this file instead of stdout')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action((options) => themeExport(options));
+
+theme
+	.command('import <file>')
+	.description('Import a theme JSON file, apply it live, and activate it')
+	.option('--no-activate', 'Save the palette without switching to the Custom theme')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action((file, options) => themeImport(file, options));
+
+theme
+	.command('set [assignments...]')
+	.description('Set custom theme colors (key=value, e.g. accent=#ff0000) and/or re-base')
+	.option('-b, --base <id>', 'Initialize from a built-in theme before applying overrides')
+	.option('-a, --activate', 'Switch to the Custom theme after applying')
+	.option('--json', 'Output as JSON (for scripting)')
+	.action((assignments, options) => themeSet(assignments, options));
 
 // Encore commands - list and toggle experimental Encore features (applies live)
 const encore = program

@@ -1236,6 +1236,74 @@ export function useAppRemoteEventListeners(deps: UseAppRemoteEventListenersDeps)
 		window.maestro.process.sendRemoteUpdateSessionSshResponse(responseChannel, { success: true });
 	});
 
+	// Handle remote update of an agent's editable per-session config from the CLI
+	// (nudge / new-session message, custom path / args / env vars, model, effort,
+	// context window, Claude token-source tri-state). Only the keys present in the
+	// patch are applied; a key whose value is `null` clears that field to
+	// undefined. These are spawn-time settings (they take effect on the next
+	// launch), so unlike cwd/SSH they are applied even while the agent runs. The
+	// new config is flushed to disk before signaling success so a follow-up CLI
+	// read sees it rather than the 2s-debounced stale value.
+	useEventListener('maestro:remoteUpdateSessionConfig', async (e: Event) => {
+		const { sessionId, configPatch, responseChannel } = (e as CustomEvent).detail;
+		const session = sessionsRef.current.find((s) => s.id === sessionId);
+		if (!session) {
+			window.maestro.process.sendRemoteUpdateSessionConfigResponse(responseChannel, {
+				success: false,
+				error: 'Agent not found',
+			});
+			return;
+		}
+
+		// Allowlist of editable session config keys. Anything else in the patch is
+		// ignored so the CLI can't write arbitrary Session internals.
+		const EDITABLE_KEYS = new Set([
+			'nudgeMessage',
+			'newSessionMessage',
+			'customPath',
+			'customArgs',
+			'customEnvVars',
+			'customModel',
+			'customEffort',
+			'customContextWindow',
+			'enableMaestroP',
+			'maestroPMode',
+			'maestroPPath',
+		]);
+
+		// Build the field patch. A `null` value clears the field (sets undefined);
+		// any other provided value is written through as-is.
+		const patch = configPatch as Record<string, unknown>;
+		const updated: Partial<Session> = {};
+		for (const key of Object.keys(patch)) {
+			if (!EDITABLE_KEYS.has(key)) continue;
+			const value = patch[key];
+			(updated as Record<string, unknown>)[key] = value === null ? undefined : value;
+		}
+
+		if (Object.keys(updated).length === 0) {
+			window.maestro.process.sendRemoteUpdateSessionConfigResponse(responseChannel, {
+				success: false,
+				error: 'No editable config fields in patch',
+			});
+			return;
+		}
+
+		setSessions((prev: Session[]) =>
+			prev.map((s) => (s.id === sessionId ? { ...s, ...updated } : s))
+		);
+
+		try {
+			await window.maestro.sessions.setMany([{ ...session, ...updated } as any], []);
+		} catch (persistErr) {
+			logger.error('[Remote] Failed to persist session config:', undefined, persistErr);
+		}
+
+		window.maestro.process.sendRemoteUpdateSessionConfigResponse(responseChannel, {
+			success: true,
+		});
+	});
+
 	// Handle remote rename session from web interface
 	useEventListener('maestro:remoteRenameSession', async (e: Event) => {
 		const { sessionId, newName, responseChannel } = (e as CustomEvent).detail;

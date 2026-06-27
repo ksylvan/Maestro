@@ -39,7 +39,7 @@ describe('update-agent command', () => {
 		await updateAgent('agent-1', {});
 
 		expect(formatError).toHaveBeenCalledWith(
-			'Specify at least one of --group, --cwd, --ssh-remote, --ssh-cwd, or --sync-history-to-remote'
+			expect.stringContaining('Specify at least one field to update')
 		);
 		expect(processExitSpy).toHaveBeenCalledWith(1);
 	});
@@ -173,6 +173,92 @@ describe('update-agent command', () => {
 			}),
 			'update_session_ssh_result'
 		);
+	});
+
+	it('sends update_session_config for editable settings (nudge, model, env)', async () => {
+		vi.mocked(resolveAgentId).mockReturnValue('full-session-id');
+		const sendCommand = vi.fn().mockResolvedValue({
+			type: 'update_session_config_result',
+			success: true,
+		});
+		vi.mocked(withMaestroClient).mockImplementation(async (action) => {
+			return action({ sendCommand } as never);
+		});
+
+		await updateAgent('agent-1', {
+			nudge: 'stay focused',
+			model: 'opus',
+			env: ['FOO=bar', 'BAZ=qux'],
+		});
+
+		expect(sendCommand).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: 'update_session_config',
+				sessionId: 'full-session-id',
+				configPatch: {
+					nudgeMessage: 'stay focused',
+					customModel: 'opus',
+					customEnvVars: { FOO: 'bar', BAZ: 'qux' },
+				},
+			}),
+			'update_session_config_result'
+		);
+	});
+
+	it('maps an empty-string text field to a null clear in the config patch', async () => {
+		vi.mocked(resolveAgentId).mockReturnValue('full-session-id');
+		const sendCommand = vi.fn().mockResolvedValue({
+			type: 'update_session_config_result',
+			success: true,
+		});
+		vi.mocked(withMaestroClient).mockImplementation(async (action) => {
+			return action({ sendCommand } as never);
+		});
+
+		await updateAgent('agent-1', { nudge: '' });
+
+		expect(sendCommand).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: 'update_session_config',
+				configPatch: { nudgeMessage: null },
+			}),
+			'update_session_config_result'
+		);
+	});
+
+	it('encodes --token-source tui as the enableMaestroP/maestroPMode pair', async () => {
+		vi.mocked(resolveAgentId).mockReturnValue('full-session-id');
+		const sendCommand = vi.fn().mockResolvedValue({
+			type: 'update_session_config_result',
+			success: true,
+		});
+		vi.mocked(withMaestroClient).mockImplementation(async (action) => {
+			return action({ sendCommand } as never);
+		});
+
+		await updateAgent('agent-1', { tokenSource: 'tui' });
+
+		expect(sendCommand).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: 'update_session_config',
+				configPatch: { enableMaestroP: true, maestroPMode: 'interactive' },
+			}),
+			'update_session_config_result'
+		);
+	});
+
+	it('rejects an invalid --token-source value before contacting the app', async () => {
+		vi.mocked(resolveAgentId).mockReturnValue('full-session-id');
+		const sendCommand = vi.fn();
+		vi.mocked(withMaestroClient).mockImplementation(async (action) => {
+			return action({ sendCommand } as never);
+		});
+
+		await updateAgent('agent-1', { tokenSource: 'bogus' });
+
+		expect(formatError).toHaveBeenCalledWith(expect.stringContaining('--token-source expects'));
+		expect(processExitSpy).toHaveBeenCalledWith(1);
+		expect(sendCommand).not.toHaveBeenCalled();
 	});
 
 	it('rejects a non-boolean --sync-history-to-remote value', async () => {
