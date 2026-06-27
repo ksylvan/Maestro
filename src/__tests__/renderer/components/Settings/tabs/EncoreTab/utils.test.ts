@@ -55,6 +55,7 @@ describe('EncoreTab utils', () => {
 		it('normalizes timeout and concurrency inputs like the original controls', () => {
 			expect(parseTimeoutMinutesInput('120')).toBe(120);
 			expect(parseTimeoutMinutesInput('0')).toBe(30);
+			expect(parseTimeoutMinutesInput('2000')).toBe(1440);
 			expect(parseTimeoutMinutesInput('abc')).toBe(30);
 			expect(parseMaxConcurrentInput('7')).toBe(7);
 			expect(parseMaxConcurrentInput('99')).toBe(10);

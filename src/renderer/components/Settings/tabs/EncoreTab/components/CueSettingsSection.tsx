@@ -76,12 +76,14 @@ export function CueSettingsSection({
 					<>
 						<div>
 							<label
+								htmlFor="cue-timeout-minutes"
 								className="block text-[11px] font-medium mb-1"
 								style={{ color: theme.colors.textDim }}
 							>
 								Timeout (minutes)
 							</label>
 							<input
+								id="cue-timeout-minutes"
 								type="number"
 								min={1}
 								max={1440}
@@ -102,6 +104,7 @@ export function CueSettingsSection({
 
 						<div>
 							<label
+								htmlFor="cue-timeout-on-fail"
 								className="block text-[11px] font-medium mb-1"
 								style={{ color: theme.colors.textDim }}
 							>
@@ -109,6 +112,7 @@ export function CueSettingsSection({
 							</label>
 							<div className="relative">
 								<select
+									id="cue-timeout-on-fail"
 									value={cueState.cueSettings.timeout_on_fail}
 									onChange={(event) =>
 										cueState.handleTimeoutOnFailChange(event.target.value as 'break' | 'continue')
@@ -119,7 +123,6 @@ export function CueSettingsSection({
 										borderColor: theme.colors.border,
 										color: theme.colors.textMain,
 									}}
-									aria-label="On source failure behavior"
 								>
 									<option value="break">Break (stop chain)</option>
 									<option value="continue">Continue (skip failed)</option>
@@ -137,12 +140,14 @@ export function CueSettingsSection({
 
 						<div>
 							<label
+								htmlFor="cue-max-concurrent"
 								className="block text-[11px] font-medium mb-1"
 								style={{ color: theme.colors.textDim }}
 							>
 								Max Concurrent Runs
 							</label>
 							<input
+								id="cue-max-concurrent"
 								type="number"
 								min={1}
 								max={10}
@@ -163,12 +168,14 @@ export function CueSettingsSection({
 
 						<div>
 							<label
+								htmlFor="cue-queue-size"
 								className="block text-[11px] font-medium mb-1"
 								style={{ color: theme.colors.textDim }}
 							>
 								Event Queue Size
 							</label>
 							<input
+								id="cue-queue-size"
 								type="number"
 								min={0}
 								max={10000}

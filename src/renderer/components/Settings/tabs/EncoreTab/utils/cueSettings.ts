@@ -8,7 +8,7 @@ export function mergeCueSettings(settings: Partial<CueSettings> | null | undefin
 }
 
 export function parseTimeoutMinutesInput(value: string): number {
-	return Math.max(1, parseInt(value, 10) || 30);
+	return Math.min(1440, Math.max(1, parseInt(value, 10) || 30));
 }
 
 export function parseMaxConcurrentInput(value: string): number {

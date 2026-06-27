@@ -1,5 +1,5 @@
 import { Check, ChevronDown, Clapperboard, Settings } from 'lucide-react';
-import { isBetaAgent } from '../../../../../../shared/agentMetadata';
+import { getAgentDisplayName, isBetaAgent } from '../../../../../../shared/agentMetadata';
 import type { DirectorNotesSettings, Theme, ToolType } from '../../../../../types';
 import { AgentConfigPanel } from '../../../../shared/AgentConfigPanel';
 import type { DirectorNotesAgentState } from '../types';
@@ -94,7 +94,7 @@ export function DirectorNotesSection({
 										const isBeta = isBetaAgent(tile.id);
 										return (
 											<option key={tile.id} value={tile.id}>
-												{tile.name}
+												{getAgentDisplayName(tile.id)}
 												{isBeta ? ' (Beta)' : ''}
 											</option>
 										);
@@ -140,7 +140,7 @@ export function DirectorNotesSection({
 							>
 								<div className="flex items-center justify-between mb-3">
 									<span className="text-xs font-medium" style={{ color: theme.colors.textDim }}>
-										{directorNotesAgentState.selectedTile.name} Configuration
+										{getAgentDisplayName(directorNotesAgentState.selectedTile.id)} Configuration
 									</span>
 									{ac.hasCustomization && (
 										<div className="flex items-center gap-1">
@@ -188,10 +188,15 @@ export function DirectorNotesSection({
 				</div>
 
 				<div>
-					<div className="block text-xs font-bold mb-2" style={{ color: theme.colors.textMain }}>
+					<label
+						htmlFor="director-notes-default-lookback-days"
+						className="block text-xs font-bold mb-2"
+						style={{ color: theme.colors.textMain }}
+					>
 						Default Lookback Period: {directorNotesSettings.defaultLookbackDays} days
-					</div>
+					</label>
 					<input
+						id="director-notes-default-lookback-days"
 						type="range"
 						min={1}
 						max={90}

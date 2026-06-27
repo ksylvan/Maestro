@@ -154,7 +154,9 @@ describe('EncoreTab section components', () => {
 			/>
 		);
 
-		fireEvent.click(screen.getByText('Usage & Stats').closest('button')!);
+		const featureButton = screen.getByText('Usage & Stats').closest('button')!;
+		expect(featureButton).toHaveAttribute('aria-pressed', 'false');
+		fireEvent.click(featureButton);
 		expect(onToggle).toHaveBeenCalledTimes(1);
 		expect(screen.queryByText('Default lookback window')).not.toBeInTheDocument();
 
@@ -173,6 +175,9 @@ describe('EncoreTab section components', () => {
 				wakatimeState={wakatimeState()}
 			/>
 		);
+
+		const enabledFeatureButton = screen.getByText('Usage & Stats').closest('button')!;
+		expect(enabledFeatureButton).toHaveAttribute('aria-pressed', 'true');
 
 		const select = screen.getByLabelText('Select default lookback window') as HTMLSelectElement;
 		expect(select.value).toBe('month');
@@ -260,13 +265,13 @@ describe('EncoreTab section components', () => {
 		expect(screen.getByText('Global Cue Settings')).toBeInTheDocument();
 		expect(screen.getByText(/No cue.yaml yet/)).toBeInTheDocument();
 
-		fireEvent.change(screen.getByDisplayValue('30'), { target: { value: '45' } });
-		fireEvent.change(screen.getByLabelText('On source failure behavior'), {
+		fireEvent.change(screen.getByLabelText('Timeout (minutes)'), { target: { value: '45' } });
+		fireEvent.change(screen.getByLabelText('On Source Failure'), {
 			target: { value: 'continue' },
 		});
-		fireEvent.change(screen.getByDisplayValue('1'), { target: { value: '3' } });
-		fireEvent.change(screen.getByDisplayValue('512'), { target: { value: '0' } });
-		fireEvent.blur(screen.getByDisplayValue('512'));
+		fireEvent.change(screen.getByLabelText('Max Concurrent Runs'), { target: { value: '3' } });
+		fireEvent.change(screen.getByLabelText('Event Queue Size'), { target: { value: '0' } });
+		fireEvent.blur(screen.getByLabelText('Event Queue Size'));
 
 		expect(state.handleTimeoutMinutesChange).toHaveBeenCalledWith('45');
 		expect(state.handleTimeoutOnFailChange).toHaveBeenCalledWith('continue');
@@ -304,7 +309,9 @@ describe('EncoreTab section components', () => {
 		expect(within(select).getAllByRole('option')).toHaveLength(2);
 		fireEvent.change(select, { target: { value: 'codex' } });
 		fireEvent.click(screen.getByTitle('Customize provider settings'));
-		fireEvent.change(screen.getByRole('slider'), { target: { value: '30' } });
+		fireEvent.change(screen.getByLabelText('Default Lookback Period: 7 days'), {
+			target: { value: '30' },
+		});
 
 		expect(state.handleAgentChange).toHaveBeenCalledWith('codex');
 		expect(state.agentConfiguration.toggleConfigExpanded).toHaveBeenCalledTimes(1);

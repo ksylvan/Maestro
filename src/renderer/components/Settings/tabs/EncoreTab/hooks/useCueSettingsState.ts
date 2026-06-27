@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { DEFAULT_CUE_SETTINGS, type CueSettings } from '../../../../../../shared/cue';
 import { cueService } from '../../../../../services/cue';
 import { captureException } from '../../../../../utils/sentry';
@@ -25,6 +25,7 @@ export function useCueSettingsState({
 	const [cueSettingsSaveState, setCueSettingsSaveState] =
 		useState<CueSettingsState['cueSettingsSaveState']>('idle');
 	const [cueQueueSizeStr, setCueQueueSizeStr] = useState(String(DEFAULT_CUE_SETTINGS.queue_size));
+	const pendingCueSettingsRef = useRef<CueSettings | null>(null);
 
 	useEffect(() => {
 		if (!isOpen || !maestroCueEnabled) return;
@@ -36,11 +37,6 @@ export function useCueSettingsState({
 				const merged = mergeCueSettings(settings);
 				setCueSettings(merged);
 				setCueQueueSizeStr(String(merged.queue_size));
-			})
-			.catch((err: unknown) => {
-				captureException(err instanceof Error ? err : new Error(String(err)), {
-					extra: { context: 'EncoreTab.loadCueSettings' },
-				});
 			})
 			.finally(() => {
 				if (!cancelled) setCueSettingsLoaded(true);
@@ -64,15 +60,43 @@ export function useCueSettingsState({
 				});
 			});
 	}, []);
-	const { debouncedCallback: debouncedPersistCueSettings } = useDebouncedCallback(
-		persistCueSettings as (...args: unknown[]) => void,
-		400
+	const persistDebouncedCueSettings = useCallback(
+		(next: CueSettings) => {
+			if (pendingCueSettingsRef.current === next) {
+				pendingCueSettingsRef.current = null;
+			}
+			persistCueSettings(next);
+		},
+		[persistCueSettings]
 	);
+	const {
+		debouncedCallback: debouncedPersistCueSettings,
+		cancel: cancelDebouncedPersistCueSettings,
+	} = useDebouncedCallback(persistDebouncedCueSettings as (...args: unknown[]) => void, 400);
+	const flushPendingCueSettings = useCallback(() => {
+		const pendingCueSettings = pendingCueSettingsRef.current;
+		if (!pendingCueSettings) return;
+		pendingCueSettingsRef.current = null;
+		cancelDebouncedPersistCueSettings();
+		persistCueSettings(pendingCueSettings);
+	}, [cancelDebouncedPersistCueSettings, persistCueSettings]);
+
+	useEffect(() => {
+		if (isOpen && maestroCueEnabled) return;
+		flushPendingCueSettings();
+	}, [flushPendingCueSettings, isOpen, maestroCueEnabled]);
+
+	useEffect(() => {
+		return () => {
+			flushPendingCueSettings();
+		};
+	}, [flushPendingCueSettings]);
 
 	const updateCueSettings = useCallback(
 		(patch: Partial<CueSettings>) => {
 			setCueSettings((prev) => {
 				const next = { ...prev, ...patch };
+				pendingCueSettingsRef.current = next;
 				debouncedPersistCueSettings(next);
 				return next;
 			});

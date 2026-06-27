@@ -33,7 +33,11 @@ export function EncoreFeatureCard({
 				backgroundColor: enabled ? `${theme.colors.accent}08` : 'transparent',
 			}}
 		>
-			<button className="w-full flex items-center justify-between p-4 text-left" onClick={onToggle}>
+			<button
+				className="w-full flex items-center justify-between p-4 text-left"
+				onClick={onToggle}
+				aria-pressed={enabled}
+			>
 				<div className="flex items-center gap-3">
 					<Icon
 						className="w-5 h-5"
@@ -49,6 +53,7 @@ export function EncoreFeatureCard({
 					</div>
 				</div>
 				<div
+					aria-hidden="true"
 					className={`relative w-10 h-5 rounded-full transition-colors ${
 						enabled ? '' : 'opacity-50'
 					} ${toggleClassName}`}

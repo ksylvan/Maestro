@@ -81,7 +81,7 @@ export function useDirectorNotesAgentState({
 	const handleEnvVarAdd = () => {
 		let newKey = 'NEW_VAR';
 		let counter = 1;
-		while (agentConfiguration.customEnvVars[newKey]) {
+		while (Object.prototype.hasOwnProperty.call(agentConfiguration.customEnvVars, newKey)) {
 			newKey = `NEW_VAR_${counter}`;
 			counter++;
 		}

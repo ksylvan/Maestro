@@ -274,6 +274,34 @@ describe('EncoreTab hooks', () => {
 			});
 		});
 
+		it('flushes pending Cue saves when Settings closes before the debounce fires', async () => {
+			const { result, rerender } = renderHook(
+				({ isOpen, maestroCueEnabled }) => useCueSettingsState({ isOpen, maestroCueEnabled }),
+				{ initialProps: { isOpen: true, maestroCueEnabled: true } }
+			);
+			await flushPromises();
+			expect(result.current.cueSettingsLoaded).toBe(true);
+
+			act(() => {
+				result.current.handleMaxConcurrentChange('6');
+			});
+			expect(cueService.saveSettings).not.toHaveBeenCalled();
+
+			rerender({ isOpen: false, maestroCueEnabled: true });
+			await flushPromises();
+
+			expect(cueService.saveSettings).toHaveBeenCalledTimes(1);
+			expect(cueService.saveSettings).toHaveBeenCalledWith({
+				...DEFAULT_CUE_SETTINGS,
+				max_concurrent: 6,
+			});
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(400);
+			});
+			expect(cueService.saveSettings).toHaveBeenCalledTimes(1);
+		});
+
 		it('reports no-targets and error save states', async () => {
 			vi.mocked(cueService.saveSettings).mockResolvedValueOnce({ writtenRoots: [] });
 			const noTargets = renderHook(() =>
@@ -473,6 +501,30 @@ describe('EncoreTab hooks', () => {
 			expect(setAgentConfig).toHaveBeenCalledWith({ model: 'new-model' });
 			expect(agentConfigRef.current).toEqual({ model: 'new-model' });
 			expect(saveAgentConfig).toHaveBeenCalledWith('claude-code');
+		});
+
+		it('adds env vars with a unique key even when existing values are empty', () => {
+			const setCustomEnvVars = vi.fn();
+			vi.mocked(useAgentConfiguration).mockReturnValue(
+				makeAgentConfiguration({
+					customEnvVars: { NEW_VAR: '' },
+					setCustomEnvVars,
+				})
+			);
+			const { result } = renderHook(() =>
+				useDirectorNotesAgentState({
+					isOpen: true,
+					directorNotesEnabled: true,
+					directorNotesSettings,
+					setDirectorNotesSettings: vi.fn(),
+				})
+			);
+
+			act(() => {
+				result.current.handleEnvVarAdd();
+			});
+
+			expect(setCustomEnvVars).toHaveBeenCalledWith({ NEW_VAR: '', NEW_VAR_1: '' });
 		});
 	});
 });
