@@ -277,11 +277,16 @@ Both commands accept `--variant` (toast: `--type`) as a deprecated alias for cal
 
 Prefer toast for anything the user should be able to act on after the fact; prefer flash for fire-and-forget acknowledgement of an action they just took. Do not fire a flash from a long-running background task - by the time it appears the user is no longer looking at the screen. Reach for `--dismissible` only when the message is genuinely critical - every sticky toast is a tiny piece of homework you're handing the user.
 
-### Status
+### Status and Diagnostics
 
 ```bash
 {{MAESTRO_CLI_PATH}} status
+{{MAESTRO_CLI_PATH}} doctor [--json]          # checklist: reachability, version skew, handler support, SSH config
+{{MAESTRO_CLI_PATH}} completions <bash|zsh|fish>   # print a shell completion script
+{{MAESTRO_CLI_PATH}} reference [--format md|json]  # full command reference (introspected; never drifts)
 ```
+
+If a write command fails with "does not support the '...' command", the running desktop app is an older build than the CLI - tell the user to rebuild and restart the app. `doctor` surfaces this directly. Global flags `-q, --quiet` and `--verbose` work on every command; exit codes are standardized (0 ok, 2 invalid usage, 3 app not running, 4 unsupported command, 5 timeout).
 
 ### Usage Stats (introspect the Usage Dashboard)
 
@@ -330,7 +335,8 @@ Lifecycle management of Maestro agents and remote-execution targets.
     [--nudge <message>] [--new-session-message <message>] [--custom-path <path>] \
     [--custom-args <args>] [--env KEY=VALUE]... [--clear-env] [--model <model>] \
     [--effort <level>] [--context-window <size|none>] \
-    [--token-source <api|tui|dynamic>] [--maestro-p-path <path>] [--json]
+    [--token-source <api|tui|dynamic>] [--maestro-p-path <path>] \
+    [--provider <type> --force] [--json]   # --provider switches provider (destructive: resets tabs/config; needs --force, used alone)
 
 # Groups (use the returned group ID with create-agent -g / update-agent --group)
 {{MAESTRO_CLI_PATH}} create-group <name> [-e, --emoji <emoji>] [--json]

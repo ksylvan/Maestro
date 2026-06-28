@@ -13,9 +13,14 @@
 
 import * as path from 'path';
 import { withMaestroClient } from '../services/maestro-client';
-import { resolveAgentId, resolveGroupId } from '../services/storage';
+import { resolveAgentId, resolveGroupId, getSessionById } from '../services/storage';
 import { formatError, formatSuccess } from '../output/formatter';
 import { toClaudeTokenModeSource, type ClaudeTokenMode } from '../../shared/claudeTokenMode';
+import { AGENT_IDS } from '../../shared/agentIds';
+
+// Provider types a user can switch an agent to. Mirrors create-agent's set
+// (the internal `terminal` type is not user-selectable).
+const VALID_PROVIDER_TYPES: Set<string> = new Set(AGENT_IDS.filter((id) => id !== 'terminal'));
 
 interface UpdateAgentOptions {
 	group?: string;
@@ -23,6 +28,8 @@ interface UpdateAgentOptions {
 	sshRemote?: string;
 	sshCwd?: string;
 	syncHistoryToRemote?: string;
+	provider?: string;
+	force?: boolean;
 	// Editable per-session config (the Edit Agent modal fields). Empty-string
 	// values clear the field; see buildConfigPatch.
 	nudge?: string;
@@ -145,10 +152,11 @@ export async function updateAgent(agentId: string, options: UpdateAgentOptions):
 		options.group === undefined &&
 		options.cwd === undefined &&
 		!sshFlagsPresent &&
-		configPatch === undefined
+		configPatch === undefined &&
+		options.provider === undefined
 	) {
 		emitError(
-			'Specify at least one field to update (e.g. --group, --cwd, --ssh-remote, --nudge, --model, --token-source, --env). Run "maestro-cli update-agent --help" for the full list.',
+			'Specify at least one field to update (e.g. --group, --cwd, --ssh-remote, --nudge, --model, --token-source, --provider, --env). Run "maestro-cli update-agent --help" for the full list.',
 			options
 		);
 	}
@@ -158,6 +166,57 @@ export async function updateAgent(agentId: string, options: UpdateAgentOptions):
 		sessionId = resolveAgentId(agentId);
 	} catch (error) {
 		emitError(error instanceof Error ? error.message : String(error), options);
+	}
+
+	// Read the resolved agent so provider- and token-source-specific rules can
+	// see its current toolType.
+	const session = getSessionById(sessionId);
+	const currentToolType = session?.toolType;
+
+	// Guard: --token-source only carries meaning for Claude Code. Writing the
+	// maestro-p fields on another provider would be inert and misleading, so
+	// reject loudly rather than silently no-op.
+	if (
+		options.tokenSource !== undefined &&
+		currentToolType !== undefined &&
+		currentToolType !== 'claude-code'
+	) {
+		emitError(
+			`--token-source only applies to Claude Code agents; "${sessionId}" is a ${currentToolType} agent.`,
+			options
+		);
+	}
+
+	// Provider switch is destructive (resets tabs, clears provider config, kills
+	// the running process), so it is gated and handled exclusively from the
+	// settings patch.
+	let providerType: string | undefined;
+	if (options.provider !== undefined) {
+		const requested = options.provider.trim().toLowerCase();
+		if (!VALID_PROVIDER_TYPES.has(requested)) {
+			emitError(
+				`Invalid provider "${options.provider}". Must be one of: ${[...VALID_PROVIDER_TYPES].join(', ')}`,
+				options
+			);
+		}
+		if (currentToolType !== undefined && requested === currentToolType) {
+			emitError(`Agent "${sessionId}" is already a ${requested} agent.`, options);
+		}
+		if (!options.force) {
+			emitError(
+				'Switching provider resets the agent tabs, clears provider-specific config, and kills the running process. Re-run with --force to confirm.',
+				options
+			);
+		}
+		// A provider switch wipes provider-specific config anyway, so refuse to
+		// combine it with those edits in the same call to avoid confusing order.
+		if (configPatch !== undefined) {
+			emitError(
+				'--provider cannot be combined with other settings edits (it resets provider config). Run it on its own, then adjust settings.',
+				options
+			);
+		}
+		providerType = requested;
 	}
 
 	// Build the SSH patch from the SSH-related flags. Only keys the caller
@@ -209,6 +268,7 @@ export async function updateAgent(agentId: string, options: UpdateAgentOptions):
 		cwd?: string;
 		ssh?: Record<string, unknown>;
 		config?: Record<string, unknown>;
+		provider?: string;
 	} = {};
 
 	try {
@@ -288,6 +348,29 @@ export async function updateAgent(agentId: string, options: UpdateAgentOptions):
 				}
 				applied.config = configPatch;
 			}
+
+			// Provider switch routes through the same message but with a `toolType`
+			// key, which the renderer special-cases (reset tabs, clear config, kill
+			// process). Sent exclusively (guarded above), so it never mixes with a
+			// settings patch in the same call.
+			if (providerType !== undefined) {
+				const result = await client.sendCommand<{
+					type: string;
+					success: boolean;
+					error?: string;
+				}>(
+					{
+						type: 'update_session_config',
+						sessionId,
+						configPatch: { toolType: providerType },
+					},
+					'update_session_config_result'
+				);
+				if (!result.success) {
+					throw new Error(result.error || 'Failed to switch agent provider');
+				}
+				applied.provider = providerType;
+			}
 		});
 	} catch (error) {
 		emitError(error instanceof Error ? error.message : String(error), options);
@@ -305,6 +388,9 @@ export async function updateAgent(agentId: string, options: UpdateAgentOptions):
 	}
 
 	console.log(formatSuccess(`Updated agent ${sessionId}`));
+	if (applied.provider !== undefined) {
+		console.log(`  Provider: ${applied.provider} (tabs reset, provider config cleared)`);
+	}
 	if (applied.group !== undefined) {
 		console.log(`  Group: ${applied.group ?? '(ungrouped)'}`);
 	}

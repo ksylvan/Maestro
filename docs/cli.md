@@ -32,6 +32,26 @@ node "/Applications/Maestro.app/Contents/Resources/maestro-cli.js" list groups
 
 ## Usage
 
+### Global Flags and Exit Codes
+
+Two flags work on every command:
+
+| Flag          | Description                                                                    |
+| ------------- | ------------------------------------------------------------------------------ |
+| `-q, --quiet` | Suppress incidental success output (errors still print). Never gates `--json`. |
+| `--verbose`   | Print extra detail where available                                             |
+
+Commands exit with a standardized code so scripts and CI can branch on the failure class:
+
+| Code | Meaning                                                    |
+| ---- | ---------------------------------------------------------- |
+| `0`  | Success                                                    |
+| `1`  | Generic / uncategorized failure                            |
+| `2`  | Invalid usage (unknown flag, bad argument, nothing to do)  |
+| `3`  | The Maestro desktop app is not running or not reachable    |
+| `4`  | The running app does not support the command (older build) |
+| `5`  | The app was reachable but did not respond in time          |
+
 ### Sending Messages to Agents
 
 Send a message to an agent and receive a structured JSON response. Supports creating new sessions or resuming existing ones for multi-turn conversations.
@@ -378,25 +398,27 @@ The group update reuses the same write path as drag-and-drop in the Left Bar. Th
 
 For text fields, passing an empty string (for example `--nudge ""`) clears the field. `--env` replaces the environment map with the provided pairs; `--clear-env` empties it. `--context-window 0` (or `none`) clears the context-window override. `--token-source` only carries meaning for Claude Code agents: `api` uses `claude --print` (per-token API credit), `tui` drives the maestro-p TUI (Max-plan quota), and `dynamic` starts on the TUI and falls back to API when a usage window hits its limit.
 
-| Flag                              | Description                                                                           | Default |
-| --------------------------------- | ------------------------------------------------------------------------------------- | ------- |
-| `-g, --group <id>`                | Move the agent to this group; supports partial IDs. Use `none` (or `null`) to ungroup | -       |
-| `-d, --cwd <path>`                | New working directory (resolved to absolute). Agent must be stopped                   | -       |
-| `--ssh-remote <id>`               | SSH remote for remote execution. Use `none` to revert to local. Agent must be stopped | -       |
-| `--ssh-cwd <path>`                | Working directory override on the SSH remote                                          | -       |
-| `--sync-history-to-remote <bool>` | Sync history entries to `.maestro/history/` on the remote host                        | -       |
-| `--nudge <message>`               | Nudge message appended to every message. Empty string clears                          | -       |
-| `--new-session-message <message>` | Message prefixed to the first message of new sessions. Empty string clears            | -       |
-| `--custom-path <path>`            | Override the agent binary path. Empty string clears                                   | -       |
-| `--custom-args <args>`            | Custom CLI arguments. Empty string clears                                             | -       |
-| `--env <KEY=VALUE>`               | Set an environment variable (repeatable; replaces the env map)                        | -       |
-| `--clear-env`                     | Clear all per-agent environment variables                                             | -       |
-| `--model <model>`                 | Model override (e.g. sonnet, opus). Empty string clears                               | -       |
-| `--effort <level>`                | Effort/reasoning level override. Empty string clears                                  | -       |
-| `--context-window <size>`         | Context window size in tokens. `0` or `none` clears                                   | -       |
-| `--token-source <mode>`           | Claude Code token source: `api`, `tui`, or `dynamic`                                  | -       |
-| `--maestro-p-path <path>`         | Override the maestro-p binary path. Empty string clears                               | -       |
-| `--json`                          | Machine-readable JSON output                                                          | -       |
+| Flag                              | Description                                                                                                                                        | Default |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `-g, --group <id>`                | Move the agent to this group; supports partial IDs. Use `none` (or `null`) to ungroup                                                              | -       |
+| `-d, --cwd <path>`                | New working directory (resolved to absolute). Agent must be stopped                                                                                | -       |
+| `--ssh-remote <id>`               | SSH remote for remote execution. Use `none` to revert to local. Agent must be stopped                                                              | -       |
+| `--ssh-cwd <path>`                | Working directory override on the SSH remote                                                                                                       | -       |
+| `--sync-history-to-remote <bool>` | Sync history entries to `.maestro/history/` on the remote host                                                                                     | -       |
+| `--nudge <message>`               | Nudge message appended to every message. Empty string clears                                                                                       | -       |
+| `--new-session-message <message>` | Message prefixed to the first message of new sessions. Empty string clears                                                                         | -       |
+| `--custom-path <path>`            | Override the agent binary path. Empty string clears                                                                                                | -       |
+| `--custom-args <args>`            | Custom CLI arguments. Empty string clears                                                                                                          | -       |
+| `--env <KEY=VALUE>`               | Set an environment variable (repeatable; replaces the env map)                                                                                     | -       |
+| `--clear-env`                     | Clear all per-agent environment variables                                                                                                          | -       |
+| `--model <model>`                 | Model override (e.g. sonnet, opus). Empty string clears                                                                                            | -       |
+| `--effort <level>`                | Effort/reasoning level override. Empty string clears                                                                                               | -       |
+| `--context-window <size>`         | Context window size in tokens. `0` or `none` clears                                                                                                | -       |
+| `--token-source <mode>`           | Claude Code token source: `api`, `tui`, or `dynamic` (Claude Code agents only)                                                                     | -       |
+| `--maestro-p-path <path>`         | Override the maestro-p binary path. Empty string clears                                                                                            | -       |
+| `--provider <type>`               | Switch the agent's provider. Destructive: resets tabs and clears provider config. Requires `--force`. Cannot be combined with other settings edits | -       |
+| `--force`                         | Confirm a destructive change (required for `--provider`)                                                                                           | -       |
+| `--json`                          | Machine-readable JSON output                                                                                                                       | -       |
 
 The flag table below covers `create-agent`:
 
@@ -1163,6 +1185,44 @@ maestro-cli status
 ```
 
 Returns the app version, uptime, and connection status.
+
+### Diagnosing Problems (`doctor`)
+
+When a command isn't working, `doctor` runs a checklist covering the most common causes in one shot: the desktop app reachable, the running build's version vs. this CLI's, whether the running app understands newer commands, and whether configured SSH remotes are well-formed.
+
+```bash
+maestro-cli doctor
+maestro-cli doctor --json
+```
+
+```
+  ✓ Discovery file present - port 54748
+  ✓ App process alive - pid 10510
+  ⚠ Version match - App is 0.17.1 but CLI is 0.17.2. Rebuild/restart whichever is behind.
+  ✓ WebSocket reachable
+  ✓ App handles commands
+  ✓ SSH remotes - 2 configured, all well-formed
+```
+
+The version and "App handles commands" checks catch the most common gotcha: a freshly-built CLI talking to an older desktop app that's still running. When the app is behind, new commands fail because their handlers don't exist in the running build - rebuild and restart the desktop app. The CLI surfaces this directly: a command the running app doesn't recognize fails fast with "The running Maestro app does not support the '...' command" instead of a generic timeout.
+
+### Shell Completions
+
+Generate a completion script for your shell and source it:
+
+```bash
+# zsh - add to a directory on your fpath, or source from ~/.zshrc
+maestro-cli completions zsh > ~/.maestro-cli-completion.zsh
+echo 'source ~/.maestro-cli-completion.zsh' >> ~/.zshrc
+
+# bash
+maestro-cli completions bash >> ~/.bashrc
+
+# fish
+maestro-cli completions fish > ~/.config/fish/completions/maestro-cli.fish
+```
+
+The script is generated by introspecting the live command tree, so regenerating it after a CLI upgrade picks up new commands and flags automatically. The full command list is also available as `maestro-cli reference` (Markdown or `--format json`); [docs/cli-reference.md](cli-reference.md) is generated from it via `npm run gen:cli-reference`.
 
 ## Cue Automation
 

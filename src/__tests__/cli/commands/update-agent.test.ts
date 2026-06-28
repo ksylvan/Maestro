@@ -12,6 +12,7 @@ vi.mock('../../../cli/services/maestro-client', () => ({
 vi.mock('../../../cli/services/storage', () => ({
 	resolveAgentId: vi.fn(),
 	resolveGroupId: vi.fn(),
+	getSessionById: vi.fn(),
 }));
 
 vi.mock('../../../cli/output/formatter', () => ({
@@ -21,7 +22,7 @@ vi.mock('../../../cli/output/formatter', () => ({
 
 import { updateAgent } from '../../../cli/commands/update-agent';
 import { withMaestroClient } from '../../../cli/services/maestro-client';
-import { resolveAgentId, resolveGroupId } from '../../../cli/services/storage';
+import { resolveAgentId, resolveGroupId, getSessionById } from '../../../cli/services/storage';
 import { formatError, formatSuccess } from '../../../cli/output/formatter';
 
 describe('update-agent command', () => {
@@ -259,6 +260,70 @@ describe('update-agent command', () => {
 		expect(formatError).toHaveBeenCalledWith(expect.stringContaining('--token-source expects'));
 		expect(processExitSpy).toHaveBeenCalledWith(1);
 		expect(sendCommand).not.toHaveBeenCalled();
+	});
+
+	it('rejects --token-source on a non-Claude agent', async () => {
+		vi.mocked(resolveAgentId).mockReturnValue('full-session-id');
+		vi.mocked(getSessionById).mockReturnValue({
+			id: 'full-session-id',
+			toolType: 'codex',
+		} as never);
+		const sendCommand = vi.fn();
+		vi.mocked(withMaestroClient).mockImplementation(async (action) =>
+			action({ sendCommand } as never)
+		);
+
+		await updateAgent('agent-1', { tokenSource: 'tui' });
+
+		// The guard fires before any send (in production process.exit terminates;
+		// the test's exit mock is a no-op, so we assert the guard itself fired).
+		expect(formatError).toHaveBeenCalledWith(
+			expect.stringContaining('only applies to Claude Code agents')
+		);
+		expect(processExitSpy).toHaveBeenCalledWith(1);
+	});
+
+	it('refuses --provider without --force', async () => {
+		vi.mocked(resolveAgentId).mockReturnValue('full-session-id');
+		vi.mocked(getSessionById).mockReturnValue({
+			id: 'full-session-id',
+			toolType: 'claude-code',
+		} as never);
+		const sendCommand = vi.fn();
+		vi.mocked(withMaestroClient).mockImplementation(async (action) =>
+			action({ sendCommand } as never)
+		);
+
+		await updateAgent('agent-1', { provider: 'codex' });
+
+		expect(formatError).toHaveBeenCalledWith(expect.stringContaining('--force to confirm'));
+		expect(processExitSpy).toHaveBeenCalledWith(1);
+	});
+
+	it('sends a toolType patch for --provider with --force', async () => {
+		vi.mocked(resolveAgentId).mockReturnValue('full-session-id');
+		vi.mocked(getSessionById).mockReturnValue({
+			id: 'full-session-id',
+			toolType: 'claude-code',
+		} as never);
+		const sendCommand = vi.fn().mockResolvedValue({
+			type: 'update_session_config_result',
+			success: true,
+		});
+		vi.mocked(withMaestroClient).mockImplementation(async (action) =>
+			action({ sendCommand } as never)
+		);
+
+		await updateAgent('agent-1', { provider: 'codex', force: true });
+
+		expect(sendCommand).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: 'update_session_config',
+				sessionId: 'full-session-id',
+				configPatch: { toolType: 'codex' },
+			}),
+			'update_session_config_result'
+		);
 	});
 
 	it('rejects a non-boolean --sync-history-to-remote value', async () => {

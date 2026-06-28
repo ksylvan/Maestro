@@ -1255,6 +1255,72 @@ export function useAppRemoteEventListeners(deps: UseAppRemoteEventListenersDeps)
 			return;
 		}
 
+		const patchObj = configPatch as Record<string, unknown>;
+
+		// Provider switch (toolType change) is destructive and handled separately
+		// from plain settings edits: it resets tabs, clears provider-specific
+		// config, and kills the running agent process - mirroring the Edit Agent
+		// modal's toolType-change branch. The CLI gates this behind --force. When a
+		// toolType is present and actually differs, do the switch and ignore any
+		// other keys in the same patch (the CLI sends it exclusively).
+		const requestedToolType =
+			typeof patchObj.toolType === 'string' ? (patchObj.toolType as ToolType) : undefined;
+		if (requestedToolType && requestedToolType !== session.toolType) {
+			const newTabId = generateId();
+			const freshTab: AITab = {
+				id: newTabId,
+				agentSessionId: null,
+				name: null,
+				starred: false,
+				logs: [],
+				inputValue: '',
+				stagedImages: [],
+				createdAt: Date.now(),
+				state: 'idle',
+				saveToHistory: true,
+			};
+			const providerSwitch: Partial<Session> = {
+				toolType: requestedToolType,
+				aiTabs: [freshTab],
+				activeTabId: newTabId,
+				closedTabHistory: [],
+				// Clear provider-specific overrides - they don't carry across providers.
+				customPath: undefined,
+				customArgs: undefined,
+				customEnvVars: undefined,
+				customModel: undefined,
+				customContextWindow: undefined,
+				enableMaestroP: undefined,
+				maestroPPath: undefined,
+				maestroPMode: undefined,
+				// Reset file preview tabs and unified tab order to just the new AI tab.
+				filePreviewTabs: [],
+				activeFileTabId: null,
+				unifiedTabOrder: [{ type: 'ai' as const, id: newTabId }],
+				unifiedClosedTabHistory: [],
+				// Reset runtime state.
+				state: 'idle' as const,
+				aiPid: 0,
+				executionQueue: [],
+			};
+
+			// Kill the existing AI process for the old provider (no-op if none).
+			window.maestro.process.kill(`${sessionId}-ai`).catch(() => {});
+
+			setSessions((prev: Session[]) =>
+				prev.map((s) => (s.id === sessionId ? { ...s, ...providerSwitch } : s))
+			);
+			try {
+				await window.maestro.sessions.setMany([{ ...session, ...providerSwitch } as any], []);
+			} catch (persistErr) {
+				logger.error('[Remote] Failed to persist provider switch:', undefined, persistErr);
+			}
+			window.maestro.process.sendRemoteUpdateSessionConfigResponse(responseChannel, {
+				success: true,
+			});
+			return;
+		}
+
 		// Allowlist of editable session config keys. Anything else in the patch is
 		// ignored so the CLI can't write arbitrary Session internals.
 		const EDITABLE_KEYS = new Set([
@@ -1273,7 +1339,7 @@ export function useAppRemoteEventListeners(deps: UseAppRemoteEventListenersDeps)
 
 		// Build the field patch. A `null` value clears the field (sets undefined);
 		// any other provided value is written through as-is.
-		const patch = configPatch as Record<string, unknown>;
+		const patch = patchObj;
 		const updated: Partial<Session> = {};
 		for (const key of Object.keys(patch)) {
 			if (!EDITABLE_KEYS.has(key)) continue;
