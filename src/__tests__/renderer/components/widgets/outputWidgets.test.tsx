@@ -1,17 +1,23 @@
 /**
  * Tests for the shared output-widget library (src/renderer/components/widgets).
  *
- * Verifies the presentational widgets render their prop data deterministically:
+ * Verifies the presentational widgets render their prop data deterministically,
+ * stay alive on empty/zero data, and derive every color from the theme:
  * - StatCard: label, formatted value, displayValue override, caption, sparkline
+ *   (incl. the all-zeros collapsed baseline)
  * - StatCardGrid: lays out one card per datum, nothing when empty
  * - SectionCard: title, icon, action slot, body children
  * - ActivityTimeline: stacked bars per bucket, empty state, legend
  * - TypeBreakdown: center total, per-slice counts + percentages, zero-total
  * - AgentActivityBars: sort desc, top-N cap, overflow row, empty state
+ * - SuccessFailureWidget: success-rate headline, per-outcome legend, empty state
+ * - theme color application: each widget pulls its surface/accent colors from
+ *   `theme.colors.*` rather than a hardcoded palette
+ * - ChartErrorBoundary: catches a throwing child and shows the retry UI
  */
 
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { Activity } from 'lucide-react';
 import {
 	StatCard,
@@ -21,9 +27,20 @@ import {
 	TypeBreakdown,
 	AgentActivityBars,
 	SuccessFailureWidget,
+	ChartErrorBoundary,
 } from '../../../../renderer/components/widgets';
 import type { TimelineBucket, DonutSlice, BarDatum } from '../../../../renderer/components/widgets';
-import { mockTheme } from '../../../helpers/mockTheme';
+import { mockTheme, createMockTheme } from '../../../helpers/mockTheme';
+
+// ChartErrorBoundary reports caught errors through the structured logger and
+// Sentry; stub both so the expected-failure specs don't emit real telemetry.
+vi.mock('../../../../renderer/utils/logger', () => ({
+	logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
+}));
+vi.mock('../../../../renderer/utils/sentry', () => ({
+	captureException: vi.fn(),
+	captureMessage: vi.fn(),
+}));
 
 describe('StatCard', () => {
 	it('renders label and a formatted value', () => {
@@ -57,6 +74,14 @@ describe('StatCard', () => {
 		render(<StatCard theme={mockTheme} label="No Trend" value={3} />);
 		expect(screen.queryByTestId('sparkline')).not.toBeInTheDocument();
 		expect(screen.queryByTestId('sparkline-empty')).not.toBeInTheDocument();
+	});
+
+	it('collapses the sparkline to a dashed baseline when the trend is all zeros', () => {
+		render(<StatCard theme={mockTheme} label="Flat" value={0} trend={[0, 0, 0]} />);
+		// A non-empty but all-zero trend keeps the layout stable by drawing the
+		// collapsed baseline rather than a real (and crash-prone) trend line.
+		expect(screen.getByTestId('sparkline-empty')).toBeInTheDocument();
+		expect(screen.queryByTestId('sparkline')).not.toBeInTheDocument();
 	});
 });
 
@@ -209,5 +234,150 @@ describe('SuccessFailureWidget', () => {
 	it('shows an empty state when there are no recorded outcomes', () => {
 		render(<SuccessFailureWidget theme={mockTheme} successCount={0} failureCount={0} />);
 		expect(screen.getByText('No success/failure outcomes in this window')).toBeInTheDocument();
+	});
+});
+
+describe('theme color application', () => {
+	// Each widget should pull its surface/accent colors from `theme.colors.*`
+	// rather than a hardcoded palette. We render with sentinel colors and assert
+	// they reach the DOM, so a regression that bakes in a literal hex (and breaks
+	// under other themes) fails here.
+
+	it('StatCard derives card surface and value colors from the theme', () => {
+		const theme = createMockTheme({
+			colors: { bgActivity: '#101010', border: '#202020', textMain: '#303030' },
+		});
+		const { container } = render(<StatCard theme={theme} label="Themed" value={42} />);
+		expect(container.firstChild as HTMLElement).toHaveStyle({
+			backgroundColor: '#101010',
+			borderColor: '#202020',
+		});
+		expect(screen.getByText('42')).toHaveStyle({ color: '#303030' });
+	});
+
+	it('SectionCard derives surface, border, and title colors from the theme', () => {
+		const theme = createMockTheme({
+			colors: { bgMain: '#111111', border: '#222222', textMain: '#333333' },
+		});
+		const { container } = render(
+			<SectionCard theme={theme} title="Themed Section">
+				<div>body</div>
+			</SectionCard>
+		);
+		expect(container.firstChild as HTMLElement).toHaveStyle({
+			backgroundColor: '#111111',
+			borderColor: '#222222',
+		});
+		expect(screen.getByText('Themed Section')).toHaveStyle({ color: '#333333' });
+	});
+
+	it('ActivityTimeline maps the legend dots to theme accent (user) and warning (auto)', () => {
+		const theme = createMockTheme({ colors: { accent: '#aa00ff', warning: '#ffaa00' } });
+		render(<ActivityTimeline theme={theme} buckets={[{ auto: 1, user: 1, cue: 0 }]} />);
+		expect(screen.getByText('User').querySelector('span') as HTMLElement).toHaveStyle({
+			backgroundColor: '#aa00ff',
+		});
+		expect(screen.getByText('Auto').querySelector('span') as HTMLElement).toHaveStyle({
+			backgroundColor: '#ffaa00',
+		});
+	});
+
+	it('TypeBreakdown draws the track ring and center total from the theme', () => {
+		const theme = createMockTheme({ colors: { border: '#abcabc', textMain: '#defdef' } });
+		const { container } = render(
+			<TypeBreakdown
+				theme={theme}
+				slices={[
+					{ label: 'A', value: 2, color: '#111111' },
+					{ label: 'B', value: 3, color: '#999999' },
+				]}
+			/>
+		);
+		// First circle is the track ring; its stroke is the theme border.
+		expect(container.querySelector('circle')).toHaveAttribute('stroke', '#abcabc');
+		// Center total is 5 (unique vs the per-slice counts 2 and 3).
+		expect(screen.getByText('5')).toHaveStyle({ color: '#defdef' });
+	});
+
+	it('AgentActivityBars derives label, track, and default bar colors from the theme', () => {
+		const theme = createMockTheme({
+			colors: { textMain: '#dddddd', border: '#bbbbbb', accent: '#cccccc' },
+		});
+		render(<AgentActivityBars theme={theme} data={[{ label: 'solo', value: 5 }]} />);
+		const label = screen.getByText('solo');
+		expect(label).toHaveStyle({ color: '#dddddd' });
+		const track = label.parentElement?.querySelector('div') as HTMLElement;
+		expect(track).toHaveStyle({ backgroundColor: '#bbbbbb' });
+		// No per-bar color supplied, so the fill falls back to the theme accent.
+		expect(track.querySelector('div') as HTMLElement).toHaveStyle({ backgroundColor: '#cccccc' });
+	});
+
+	it('SuccessFailureWidget draws the split bar from the theme success/error/border colors', () => {
+		const theme = createMockTheme({
+			colors: { success: '#00aa00', error: '#aa0000', border: '#0000aa' },
+		});
+		render(<SuccessFailureWidget theme={theme} successCount={3} failureCount={1} />);
+		const bar = screen.getByRole('img');
+		expect(bar).toHaveStyle({ backgroundColor: '#0000aa' });
+		const [successSeg, failureSeg] = Array.from(bar.children) as HTMLElement[];
+		expect(successSeg).toHaveStyle({ backgroundColor: '#00aa00' });
+		expect(failureSeg).toHaveStyle({ backgroundColor: '#aa0000' });
+	});
+});
+
+describe('ChartErrorBoundary', () => {
+	// React logs every caught render error to console.error; silence it so the
+	// expected-failure specs don't spam the reporter.
+	const originalConsoleError = console.error;
+	beforeEach(() => {
+		console.error = vi.fn();
+	});
+	afterEach(() => {
+		console.error = originalConsoleError;
+	});
+
+	function Boom(): never {
+		throw new Error('widget exploded');
+	}
+
+	it('renders its children unchanged when they do not throw', () => {
+		render(
+			<ChartErrorBoundary theme={mockTheme}>
+				<div data-testid="healthy-child">ok</div>
+			</ChartErrorBoundary>
+		);
+		expect(screen.getByTestId('healthy-child')).toBeInTheDocument();
+		expect(screen.queryByTestId('chart-error-boundary')).not.toBeInTheDocument();
+	});
+
+	it('catches a throwing child and shows the retry UI', () => {
+		render(
+			<ChartErrorBoundary theme={mockTheme} chartName="Activity Timeline">
+				<Boom />
+			</ChartErrorBoundary>
+		);
+		expect(screen.getByTestId('chart-error-boundary')).toBeInTheDocument();
+		expect(screen.getByText('Failed to render Activity Timeline')).toBeInTheDocument();
+		expect(screen.getByTestId('chart-retry-button')).toBeInTheDocument();
+	});
+
+	it('re-renders the child when Retry is clicked after the fault clears', () => {
+		let shouldThrow = true;
+		function Flaky() {
+			if (shouldThrow) throw new Error('transient');
+			return <div data-testid="recovered">recovered</div>;
+		}
+		render(
+			<ChartErrorBoundary theme={mockTheme}>
+				<Flaky />
+			</ChartErrorBoundary>
+		);
+		expect(screen.getByTestId('chart-error-boundary')).toBeInTheDocument();
+
+		shouldThrow = false;
+		fireEvent.click(screen.getByTestId('chart-retry-button'));
+
+		expect(screen.getByTestId('recovered')).toBeInTheDocument();
+		expect(screen.queryByTestId('chart-error-boundary')).not.toBeInTheDocument();
 	});
 });
