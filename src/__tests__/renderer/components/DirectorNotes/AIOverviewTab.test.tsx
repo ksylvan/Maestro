@@ -58,10 +58,11 @@ vi.mock('../../../../renderer/components/DirectorNotes/RichOverview', () => ({
 	),
 }));
 
-// Mock SaveMarkdownModal
+// Mock SaveMarkdownModal — surface the `content` prop so tests can assert Save
+// always operates on the raw synopsis markdown (in both Rich and Plain modes).
 vi.mock('../../../../renderer/components/SaveMarkdownModal', () => ({
-	SaveMarkdownModal: ({ onClose }: { onClose: () => void }) => (
-		<div data-testid="save-markdown-modal">
+	SaveMarkdownModal: ({ content, onClose }: { content: string; onClose: () => void }) => (
+		<div data-testid="save-markdown-modal" data-content={content}>
 			<button onClick={onClose} data-testid="save-modal-close">
 				Close
 			</button>
@@ -667,6 +668,53 @@ describe('AIOverviewTab', () => {
 			await waitFor(() => {
 				expect(mockWriteText).toHaveBeenCalledWith('# Synopsis\n\nbody text');
 			});
+		});
+
+		it('Copy operates on the raw synopsis markdown in Plain mode too', async () => {
+			render(<AIOverviewTab theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(screen.getByTestId('rich-overview')).toBeInTheDocument();
+			});
+
+			// Switch to Plain, then copy — same raw markdown, unaffected by mode.
+			fireEvent.click(screen.getByRole('button', { name: /^plain$/i }));
+			fireEvent.click(screen.getByText('Copy'));
+
+			await waitFor(() => {
+				expect(mockWriteText).toHaveBeenCalledWith('# Synopsis\n\nbody text');
+			});
+		});
+
+		it('Save hands the raw synopsis markdown to the modal in Rich mode', async () => {
+			render(<AIOverviewTab theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(screen.getByTestId('rich-overview')).toBeInTheDocument();
+			});
+
+			fireEvent.click(screen.getByText('Save'));
+
+			expect(screen.getByTestId('save-markdown-modal')).toHaveAttribute(
+				'data-content',
+				'# Synopsis\n\nbody text'
+			);
+		});
+
+		it('Save hands the raw synopsis markdown to the modal in Plain mode too', async () => {
+			render(<AIOverviewTab theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(screen.getByTestId('rich-overview')).toBeInTheDocument();
+			});
+
+			fireEvent.click(screen.getByRole('button', { name: /^plain$/i }));
+			fireEvent.click(screen.getByText('Save'));
+
+			expect(screen.getByTestId('save-markdown-modal')).toHaveAttribute(
+				'data-content',
+				'# Synopsis\n\nbody text'
+			);
 		});
 	});
 });
