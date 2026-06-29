@@ -8,6 +8,7 @@
 
 import { ipcRenderer } from 'electron';
 import type { ToolType, HistoryEntry } from '../../shared/types';
+import type { DirectorNotesNarrative } from '../../shared/directorNotesNarrative';
 
 /** Aggregate stats returned alongside unified history */
 export interface UnifiedHistoryStats {
@@ -105,6 +106,10 @@ export interface SynopsisResult {
 	generatedAt?: number; // Unix ms timestamp of when the synopsis was generated
 	stats?: SynopsisStats;
 	error?: string;
+	/** Parsed structured narrative for Rich Mode (present only on clean parse). */
+	narrative?: DirectorNotesNarrative;
+	/** Set when the raw synopsis could not be parsed into a structured narrative. */
+	narrativeError?: string;
 }
 
 /**

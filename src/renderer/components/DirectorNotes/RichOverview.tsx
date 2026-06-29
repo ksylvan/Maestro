@@ -37,6 +37,9 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { COLORBLIND_STATUS_COLORS } from '../../constants/colorblindPalettes';
 import { logger } from '../../utils/logger';
 import { daysToLookbackHours, bucketCountForLookback } from './lookback';
+import { NarrativeSections } from './NarrativeSections';
+import { NarrativeParseError } from './NarrativeParseError';
+import type { DirectorNotesNarrative } from '../../../shared/directorNotesNarrative';
 import {
 	StatCardGrid,
 	SectionCard,
@@ -59,8 +62,12 @@ interface RichOverviewProps {
 	theme: Theme;
 	/** Deterministic generation stats from the synopsis call (for the generation-time card). */
 	stats: SynopsisStats | null;
-	/** AI narrative markdown to render below the widgets. */
+	/** Raw AI narrative markdown - used for the legacy/markdown fallback path. */
 	synopsis: string;
+	/** Parsed structured narrative; when present it renders as styled section cards. */
+	narrative?: DirectorNotesNarrative | null;
+	/** Set when the structured output failed to parse; renders the overt error banner. */
+	narrativeError?: string | null;
 	/** Lookback window in days; drives the IPC query. */
 	lookbackDays: number;
 	/** Forwarded to the narrative MarkdownRenderer (matches Plain-mode behavior). */
@@ -71,6 +78,8 @@ export function RichOverview({
 	theme,
 	stats,
 	synopsis,
+	narrative,
+	narrativeError,
 	lookbackDays,
 	enableBionifyReadingMode = false,
 }: RichOverviewProps) {
@@ -227,19 +236,28 @@ export function RichOverview({
 				</ChartErrorBoundary>
 			</SectionCard>
 
-			{/* AI narrative — unchanged markdown, framed in a card for now */}
-			{synopsis && (
-				<SectionCard theme={theme} title="AI Narrative" icon={FileText}>
-					<div className="director-notes-content">
-						<style>{proseStyles}</style>
-						<MarkdownRenderer
-							content={synopsis}
-							theme={theme}
-							onCopy={(text) => safeClipboardWrite(text)}
-							enableBionifyReadingMode={enableBionifyReadingMode}
-						/>
-					</div>
-				</SectionCard>
+			{/* AI narrative slot. Priority: structured narrative -> overt parse
+			    failure -> legacy markdown fallback (e.g. a cached result that only
+			    has markdown). A parse failure surfaces loudly here while the
+			    deterministic widgets above keep rendering normally. */}
+			{narrative ? (
+				<NarrativeSections theme={theme} narrative={narrative} />
+			) : narrativeError ? (
+				<NarrativeParseError theme={theme} error={narrativeError} rawOutput={synopsis} />
+			) : (
+				synopsis && (
+					<SectionCard theme={theme} title="AI Narrative" icon={FileText}>
+						<div className="director-notes-content">
+							<style>{proseStyles}</style>
+							<MarkdownRenderer
+								content={synopsis}
+								theme={theme}
+								onCopy={(text) => safeClipboardWrite(text)}
+								enableBionifyReadingMode={enableBionifyReadingMode}
+							/>
+						</div>
+					</SectionCard>
+				)
 			)}
 		</div>
 	);

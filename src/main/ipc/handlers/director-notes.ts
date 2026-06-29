@@ -24,6 +24,10 @@ import {
 } from '../../utils/ipcHandler';
 import { groomContext } from '../../utils/context-groomer';
 import { buildDirectorNotesSynopsisPrompt } from '../../utils/director-notes-prompt';
+import {
+	parseDirectorNotesNarrative,
+	type DirectorNotesNarrative,
+} from '../../../shared/directorNotesNarrative';
 import { getPrompt } from '../../prompt-manager';
 import type { ProcessManager } from '../../process-manager';
 import type { AgentDetector } from '../../agents';
@@ -213,6 +217,19 @@ export interface SynopsisResult {
 	generatedAt?: number; // Unix ms timestamp of when the synopsis was generated
 	stats?: SynopsisStats;
 	error?: string;
+	/**
+	 * Parsed structured narrative for Rich Mode. Present only when the raw
+	 * `synopsis` parsed cleanly. Plain Mode and copy/save never read this - they
+	 * use `synopsis` verbatim.
+	 */
+	narrative?: DirectorNotesNarrative;
+	/**
+	 * Set when the raw `synopsis` could NOT be parsed into a structured
+	 * narrative. The synopsis call still succeeds (raw output is preserved) so
+	 * the renderer can show an overt failure banner while keeping the raw text
+	 * reachable. Never a reason to fail the whole call.
+	 */
+	narrativeError?: string;
 }
 
 /**
@@ -745,6 +762,19 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 						completionReason: result.completionReason,
 					});
 
+					// Parse the raw output into the structured narrative for Rich Mode.
+					// `synopsis` stays the verbatim raw string (Plain Mode + copy/save
+					// depend on that). A parse failure is NOT a synopsis failure: we
+					// still return success with the raw text and a populated
+					// `narrativeError` so the renderer can show an overt error while
+					// keeping the raw output reachable.
+					const parsed = parseDirectorNotesNarrative(synopsis);
+					if (!parsed.ok) {
+						logger.warn('Synopsis narrative parse failed', LOG_CONTEXT, {
+							narrativeError: parsed.error,
+						});
+					}
+
 					return {
 						success: true,
 						synopsis,
@@ -754,6 +784,7 @@ export function registerDirectorNotesHandlers(deps: DirectorNotesHandlerDependen
 							entryCount,
 							durationMs: result.durationMs,
 						},
+						...(parsed.ok ? { narrative: parsed.narrative } : { narrativeError: parsed.error }),
 					};
 				} catch (err) {
 					const errorMsg = err instanceof Error ? err.message : String(err);

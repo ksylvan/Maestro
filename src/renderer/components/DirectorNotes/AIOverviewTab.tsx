@@ -21,6 +21,7 @@ import { generateTerminalProseStyles } from '../../utils/markdownConfig';
 import { safeClipboardWrite } from '../../utils/clipboard';
 import { notifyToast } from '../../stores/notificationStore';
 import { useModalStore } from '../../stores/modalStore';
+import type { DirectorNotesNarrative } from '../../../shared/directorNotesNarrative';
 
 type SynopsisStats = NonNullable<
 	Awaited<ReturnType<typeof window.maestro.directorNotes.generateSynopsis>>['stats']
@@ -76,6 +77,8 @@ let cachedSynopsis: {
 	generatedAt: number;
 	lookbackDays: number;
 	stats?: SynopsisStats;
+	narrative?: DirectorNotesNarrative | null;
+	narrativeError?: string | null;
 } | null = null;
 
 // Exported for testing only – allows resetting the module-level cache between test runs
@@ -112,6 +115,15 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 	const { directorNotesSettings, bionifyReadingMode } = useSettings();
 	const [lookbackDays, setLookbackDays] = useState(directorNotesSettings.defaultLookbackDays);
 	const [synopsis, setSynopsis] = useState<string>(cachedSynopsis?.content ?? '');
+	// Structured narrative (Rich Mode) and its overt parse-failure detail, both
+	// derived from the synopsis result. Plain Mode ignores these and renders the
+	// raw `synopsis` markdown.
+	const [narrative, setNarrative] = useState<DirectorNotesNarrative | null>(
+		cachedSynopsis?.narrative ?? null
+	);
+	const [narrativeError, setNarrativeError] = useState<string | null>(
+		cachedSynopsis?.narrativeError ?? null
+	);
 	const [generatedAt, setGeneratedAt] = useState<number | null>(
 		cachedSynopsis?.generatedAt ?? null
 	);
@@ -215,6 +227,8 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 					generatedAt: ts,
 					lookbackDays,
 					stats: result.stats,
+					narrative: result.narrative ?? null,
+					narrativeError: result.narrativeError ?? null,
 				};
 			}
 
@@ -229,6 +243,8 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 			if (result.success) {
 				const ts = result.generatedAt ?? Date.now();
 				setSynopsis(result.synopsis);
+				setNarrative(result.narrative ?? null);
+				setNarrativeError(result.narrativeError ?? null);
 				setGeneratedAt(ts);
 				setStats(result.stats ?? null);
 				onSynopsisReady?.();
@@ -255,6 +271,8 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 		mountedRef.current = true;
 		if (cachedSynopsis) {
 			setSynopsis(cachedSynopsis.content);
+			setNarrative(cachedSynopsis.narrative ?? null);
+			setNarrativeError(cachedSynopsis.narrativeError ?? null);
 			setGeneratedAt(cachedSynopsis.generatedAt);
 			setStats(cachedSynopsis.stats ?? null);
 			setLookbackDays(cachedSynopsis.lookbackDays);
@@ -272,6 +290,8 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 					if (result.success) {
 						const ts = result.generatedAt ?? Date.now();
 						setSynopsis(result.synopsis);
+						setNarrative(result.narrative ?? null);
+						setNarrativeError(result.narrativeError ?? null);
 						setGeneratedAt(ts);
 						setStats(result.stats ?? null);
 						if (cachedSynopsis) setLookbackDays(cachedSynopsis.lookbackDays);
@@ -502,6 +522,8 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 							theme={theme}
 							stats={stats}
 							synopsis={synopsis}
+							narrative={narrative}
+							narrativeError={narrativeError}
 							lookbackDays={lookbackDays}
 							enableBionifyReadingMode={bionifyReadingMode}
 						/>
