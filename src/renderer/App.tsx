@@ -2724,6 +2724,7 @@ function MaestroConsoleInner() {
 		handleDeleteWorktreeSession,
 		handleToggleWorktreeExpanded,
 		handleConfigureCue,
+		maestroCueEnabled: encoreFeatures.maestroCue,
 		handleJumpToStarredSession,
 		openWizardModal,
 		handleOpenFeedbackModal,
