@@ -673,6 +673,114 @@ interface MaestroAPI {
 			issueNumber: number,
 			comment?: string
 		) => Promise<{ success: boolean; error?: string }>;
+		drafts: {
+			list: () => Promise<{
+				drafts: Array<{
+					id: string;
+					suggestedName: string;
+					category: 'bug_report' | 'feature_request' | 'improvement' | 'general_feedback';
+					summary: string;
+					confidence: number;
+					agentType: string;
+					messages: Array<{
+						role: 'user' | 'assistant' | 'system';
+						content: string;
+						timestamp: number;
+						confidence?: number;
+						category?: 'bug_report' | 'feature_request' | 'improvement' | 'general_feedback';
+						summary?: string;
+					}>;
+					attachments: Array<{ id: string; name: string; dataUrl: string; sizeBytes: number }>;
+					inputDraft: string;
+					includeDebugPackage: boolean;
+					createdAt: number;
+					updatedAt: number;
+					lastResponse?: {
+						confidence: number;
+						ready: boolean;
+						message: string;
+						category: 'bug_report' | 'feature_request' | 'improvement' | 'general_feedback';
+						summary: string;
+						structured: {
+							expectedBehavior: string;
+							actualBehavior: string;
+							reproductionSteps: string;
+							additionalContext: string;
+						};
+					} | null;
+				}>;
+			}>;
+			save: (draft: {
+				id: string;
+				suggestedName: string;
+				category: 'bug_report' | 'feature_request' | 'improvement' | 'general_feedback';
+				summary: string;
+				confidence: number;
+				agentType: string;
+				messages: Array<{
+					role: 'user' | 'assistant' | 'system';
+					content: string;
+					timestamp: number;
+					confidence?: number;
+					category?: 'bug_report' | 'feature_request' | 'improvement' | 'general_feedback';
+					summary?: string;
+				}>;
+				attachments: Array<{ id: string; name: string; dataUrl: string; sizeBytes: number }>;
+				inputDraft: string;
+				includeDebugPackage: boolean;
+				createdAt: number;
+				updatedAt: number;
+				lastResponse?: {
+					confidence: number;
+					ready: boolean;
+					message: string;
+					category: 'bug_report' | 'feature_request' | 'improvement' | 'general_feedback';
+					summary: string;
+					structured: {
+						expectedBehavior: string;
+						actualBehavior: string;
+						reproductionSteps: string;
+						additionalContext: string;
+					};
+				} | null;
+			}) => Promise<{
+				draft: {
+					id: string;
+					suggestedName: string;
+					category: 'bug_report' | 'feature_request' | 'improvement' | 'general_feedback';
+					summary: string;
+					confidence: number;
+					agentType: string;
+					messages: Array<{
+						role: 'user' | 'assistant' | 'system';
+						content: string;
+						timestamp: number;
+						confidence?: number;
+						category?: 'bug_report' | 'feature_request' | 'improvement' | 'general_feedback';
+						summary?: string;
+					}>;
+					attachments: Array<{ id: string; name: string; dataUrl: string; sizeBytes: number }>;
+					inputDraft: string;
+					includeDebugPackage: boolean;
+					createdAt: number;
+					updatedAt: number;
+					lastResponse?: {
+						confidence: number;
+						ready: boolean;
+						message: string;
+						category: 'bug_report' | 'feature_request' | 'improvement' | 'general_feedback';
+						summary: string;
+						structured: {
+							expectedBehavior: string;
+							actualBehavior: string;
+							reproductionSteps: string;
+							additionalContext: string;
+						};
+					} | null;
+				};
+			}>;
+			delete: (id: string) => Promise<Record<string, never>>;
+		};
 	};
 	agentError: {
 		clearError: (sessionId: string) => Promise<{ success: boolean }>;
