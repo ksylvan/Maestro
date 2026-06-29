@@ -14,6 +14,10 @@ interface BuildDebugCommandsArgs {
 	setDebugApplicationStatsOpen?: (open: boolean) => void;
 	setDebugAgentProbeOpen?: (open: boolean) => void;
 	onDebugReleaseQueuedItem?: () => void;
+	/** Whether a performance-profiling recording is currently in flight. */
+	profilingActive: boolean;
+	onStartProfiling: () => void;
+	onStopProfiling: () => void;
 	getInstallationId: () => Promise<string | null | undefined>;
 	safeClipboardWrite: (text: string) => Promise<boolean>;
 	flashCopiedToClipboard: (value: string, message?: string) => void;
@@ -51,6 +55,9 @@ export function buildDebugCommands({
 	setDebugApplicationStatsOpen,
 	setDebugAgentProbeOpen,
 	onDebugReleaseQueuedItem,
+	profilingActive,
+	onStartProfiling,
+	onStopProfiling,
 	getInstallationId,
 	safeClipboardWrite,
 	flashCopiedToClipboard,
@@ -194,6 +201,30 @@ export function buildDebugCommands({
 			subtext: `Process next item from queue (${activeSession.executionQueue.length} queued)`,
 			action: () => {
 				onDebugReleaseQueuedItem();
+				setQuickActionOpen(false);
+			},
+		});
+	}
+
+	// Performance profiling: a Start/End toggle. "End" only surfaces while a
+	// recording is in flight (main process is the source of truth for `active`).
+	if (profilingActive) {
+		commands.push({
+			id: 'debugEndProfiling',
+			label: 'Debug: End Performance Profiling',
+			subtext: 'Stop, analyze, and save the trace bundle',
+			action: () => {
+				onStopProfiling();
+				setQuickActionOpen(false);
+			},
+		});
+	} else {
+		commands.push({
+			id: 'debugStartProfiling',
+			label: 'Debug: Start Performance Profiling',
+			subtext: 'Capture a Chromium trace to diagnose UI lag',
+			action: () => {
+				onStartProfiling();
 				setQuickActionOpen(false);
 			},
 		});

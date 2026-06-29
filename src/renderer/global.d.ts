@@ -2167,6 +2167,32 @@ interface MaestroAPI {
 				rssBytes?: number;
 			}>;
 		}>;
+		// Performance profiling (Chromium contentTracing)
+		getProfilingStatus: () => Promise<{
+			success: boolean;
+			active: boolean;
+			startedAt: number;
+			elapsedMs: number;
+			categories: string[];
+			error?: string;
+		}>;
+		startProfiling: () => Promise<{
+			success: boolean;
+			active: boolean;
+			startedAt: number;
+			elapsedMs: number;
+			categories: string[];
+			error?: string;
+		}>;
+		stopProfiling: () => Promise<{
+			success: boolean;
+			path: string | null;
+			cancelled: boolean;
+			bundleSizeBytes: number;
+			traceSizeBytes: number;
+			durationMs: number;
+			error?: string;
+		}>;
 	};
 	// Sync API (custom storage location)
 	sync: {

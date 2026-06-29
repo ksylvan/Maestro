@@ -689,6 +689,7 @@ export const UnifiedHistoryTab = forwardRef<TabFocusHandle, UnifiedHistoryTabPro
 						viewportRange={graphViewportRange}
 						alwaysShowViewportLabel
 						onBarClick={handleGraphBarClick}
+						activeFilters={activeFilters}
 					/>
 					{/* Entry count badge — shows window position when jumped, total otherwise */}
 					{!isLoading && totalEntries > 0 && (
