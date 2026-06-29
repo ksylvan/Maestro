@@ -402,12 +402,17 @@ export function FeedbackChatView({
 					summary: response.summary,
 				},
 			]);
-		} catch {
+		} catch (error) {
+			captureException(error, { extra: { source: 'FeedbackChatView.sendMessage' } });
+			const detail =
+				error instanceof Error && error.message
+					? error.message
+					: 'Something went wrong. Please try again.';
 			setMessages((prev) => [
 				...prev,
 				{
 					role: 'assistant',
-					content: 'Something went wrong. Please try again.',
+					content: detail,
 					timestamp: Date.now(),
 				},
 			]);
