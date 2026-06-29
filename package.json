@@ -31,6 +31,7 @@
 		"build:main": "tsc -p tsconfig.main.json",
 		"build:preload": "node scripts/build-preload.mjs",
 		"build:cli": "node scripts/build-cli.mjs",
+		"gen:cli-reference": "node scripts/gen-cli-reference.mjs",
 		"build:maestro-p": "node scripts/build-maestro-p.mjs",
 		"build:renderer": "vite build",
 		"build:web": "vite build --config vite.config.web.mts",
