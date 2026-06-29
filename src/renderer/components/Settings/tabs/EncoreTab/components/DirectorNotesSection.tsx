@@ -224,6 +224,46 @@ export function DirectorNotesSection({
 						How far back to look when generating notes (can be adjusted per-report)
 					</p>
 				</div>
+
+				{/* Default Reading Mode (Rich widget dashboard vs Plain markdown) */}
+				<div data-setting-id="encore-director-notes-default-mode">
+					<div className="block text-xs font-bold mb-2" style={{ color: theme.colors.textMain }}>
+						Default Reading Mode
+					</div>
+					<div
+						className="flex items-center rounded overflow-hidden w-fit"
+						style={{ border: `1px solid ${theme.colors.border}` }}
+						role="group"
+						aria-label="Default reading mode"
+					>
+						{(['rich', 'plain'] as const).map((mode) => {
+							const active = (directorNotesSettings.defaultMode ?? 'rich') === mode;
+							return (
+								<button
+									key={mode}
+									onClick={() =>
+										setDirectorNotesSettings({
+											...directorNotesSettings,
+											defaultMode: mode,
+										})
+									}
+									aria-pressed={active}
+									className="px-3 py-1.5 text-xs font-medium capitalize transition-colors"
+									style={{
+										backgroundColor: active ? theme.colors.accent : 'transparent',
+										color: active ? theme.colors.accentForeground : theme.colors.textDim,
+									}}
+								>
+									{mode}
+								</button>
+							);
+						})}
+					</div>
+					<p className="text-xs mt-2" style={{ color: theme.colors.textDim }}>
+						Which view the AI Overview opens in: Rich shows the widget dashboard, Plain shows the
+						markdown notes (can be toggled per-report)
+					</p>
+				</div>
 			</EncoreFeatureCard>
 		</div>
 	);

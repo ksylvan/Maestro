@@ -1193,6 +1193,26 @@ export const ENCORE_SETTINGS: SearchableSetting[] = [
 			'unified',
 		],
 	},
+	{
+		id: 'encore-director-notes-default-mode',
+		tab: 'encore',
+		tabLabel: 'Encore Features',
+		label: "Director's Notes Default Reading Mode",
+		description:
+			'Whether the AI Overview opens in Rich (widget dashboard) or Plain (markdown) mode',
+		keywords: [
+			'director',
+			'notes',
+			'rich',
+			'plain',
+			'mode',
+			'reading',
+			'default',
+			'dashboard',
+			'widgets',
+			'markdown',
+		],
+	},
 ];
 
 // ---------------------------------------------------------------------------
