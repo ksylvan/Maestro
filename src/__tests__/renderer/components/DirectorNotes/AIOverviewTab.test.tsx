@@ -33,6 +33,26 @@ vi.mock('../../../../renderer/components/MarkdownRenderer', () => ({
 	),
 }));
 
+// Mock RichOverview — the Rich-mode dashboard is exercised in its own test
+// file. Here we only need a lightweight stub that proves Rich mode rendered and
+// still surfaces the narrative (via the shared markdown-renderer testid) so the
+// existing synopsis assertions hold under the new Rich default.
+vi.mock('../../../../renderer/components/DirectorNotes/RichOverview', () => ({
+	RichOverview: ({
+		synopsis,
+		enableBionifyReadingMode,
+	}: {
+		synopsis: string;
+		enableBionifyReadingMode?: boolean;
+	}) => (
+		<div data-testid="rich-overview">
+			<div data-testid="markdown-renderer" data-bionify={enableBionifyReadingMode ? 'on' : 'off'}>
+				{synopsis}
+			</div>
+		</div>
+	),
+}));
+
 // Mock SaveMarkdownModal
 vi.mock('../../../../renderer/components/SaveMarkdownModal', () => ({
 	SaveMarkdownModal: ({ onClose }: { onClose: () => void }) => (
@@ -515,5 +535,97 @@ describe('AIOverviewTab', () => {
 		// Close save modal
 		fireEvent.click(screen.getByTestId('save-modal-close'));
 		expect(screen.queryByTestId('save-markdown-modal')).not.toBeInTheDocument();
+	});
+
+	describe('Rich/Plain view mode toggle', () => {
+		const VIEW_MODE_STORAGE_KEY = 'directorNotes.viewMode';
+
+		beforeEach(() => {
+			mockGenerateSynopsis.mockResolvedValue({
+				success: true,
+				synopsis: '# Synopsis\n\nbody text',
+				stats: { agentCount: 3, entryCount: 42, durationMs: 5000 },
+			});
+		});
+
+		it('renders the Rich and Plain segmented control', async () => {
+			render(<AIOverviewTab theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(screen.getByRole('button', { name: /^rich$/i })).toBeInTheDocument();
+			});
+			expect(screen.getByRole('button', { name: /^plain$/i })).toBeInTheDocument();
+		});
+
+		it('defaults to Rich mode and renders the RichOverview dashboard', async () => {
+			render(<AIOverviewTab theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(screen.getByTestId('rich-overview')).toBeInTheDocument();
+			});
+			expect(screen.getByRole('button', { name: /^rich$/i })).toHaveAttribute(
+				'aria-pressed',
+				'true'
+			);
+		});
+
+		it('switches to Plain (raw markdown) and persists the choice', async () => {
+			render(<AIOverviewTab theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(screen.getByTestId('rich-overview')).toBeInTheDocument();
+			});
+
+			fireEvent.click(screen.getByRole('button', { name: /^plain$/i }));
+
+			// Rich dashboard gone; the Plain markdown block remains reachable.
+			expect(screen.queryByTestId('rich-overview')).not.toBeInTheDocument();
+			expect(screen.getByTestId('markdown-renderer')).toBeInTheDocument();
+			expect(window.localStorage.getItem(VIEW_MODE_STORAGE_KEY)).toBe('plain');
+		});
+
+		it('switches back to Rich and restores the dashboard', async () => {
+			render(<AIOverviewTab theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(screen.getByTestId('rich-overview')).toBeInTheDocument();
+			});
+
+			fireEvent.click(screen.getByRole('button', { name: /^plain$/i }));
+			expect(screen.queryByTestId('rich-overview')).not.toBeInTheDocument();
+
+			fireEvent.click(screen.getByRole('button', { name: /^rich$/i }));
+			expect(screen.getByTestId('rich-overview')).toBeInTheDocument();
+			expect(window.localStorage.getItem(VIEW_MODE_STORAGE_KEY)).toBe('rich');
+		});
+
+		it('loads the persisted Plain mode from localStorage on mount', async () => {
+			window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, 'plain');
+
+			render(<AIOverviewTab theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(screen.getByTestId('markdown-renderer')).toBeInTheDocument();
+			});
+			expect(screen.queryByTestId('rich-overview')).not.toBeInTheDocument();
+			expect(screen.getByRole('button', { name: /^plain$/i })).toHaveAttribute(
+				'aria-pressed',
+				'true'
+			);
+		});
+
+		it('Copy operates on the raw synopsis markdown in Rich mode', async () => {
+			render(<AIOverviewTab theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(screen.getByTestId('rich-overview')).toBeInTheDocument();
+			});
+
+			fireEvent.click(screen.getByText('Copy'));
+
+			await waitFor(() => {
+				expect(mockWriteText).toHaveBeenCalledWith('# Synopsis\n\nbody text');
+			});
+		});
 	});
 });

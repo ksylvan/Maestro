@@ -14,6 +14,7 @@ import {
 import { Spinner } from '../ui/Spinner';
 import type { Theme } from '../../types';
 import { MarkdownRenderer } from '../MarkdownRenderer';
+import { RichOverview } from './RichOverview';
 import { SaveMarkdownModal } from '../SaveMarkdownModal';
 import { useSettings } from '../../hooks';
 import { generateTerminalProseStyles } from '../../utils/markdownConfig';
@@ -48,6 +49,21 @@ function loadFontScale(): number {
 	const raw = localStorage.getItem(FONT_SCALE_STORAGE_KEY);
 	if (raw === null) return FONT_SCALE_DEFAULT;
 	return clampFontScale(Number(raw));
+}
+
+// Rich vs Plain reading mode for the AI Overview. Rich is the default - a
+// widget dashboard (stat cards, timeline, breakdowns) rendered from
+// deterministic data. Plain reproduces today's exact markdown wall-of-text so
+// the copy/save/JSON output path stays byte-for-byte identical. Persisted to
+// localStorage so the chosen mode is remembered across opens, mirroring the
+// FONT_SCALE persistence pattern above.
+const VIEW_MODE_STORAGE_KEY = 'directorNotes.viewMode';
+type ViewMode = 'rich' | 'plain';
+const VIEW_MODE_DEFAULT: ViewMode = 'rich';
+
+function loadViewMode(): ViewMode {
+	const raw = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+	return raw === 'rich' || raw === 'plain' ? raw : VIEW_MODE_DEFAULT;
 }
 
 // Module-level cache so synopsis survives tab switches (unmount/remount)
@@ -101,6 +117,7 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 	const [error, setError] = useState<string | null>(null);
 	const [stats, setStats] = useState<SynopsisStats | null>(cachedSynopsis?.stats ?? null);
 	const [fontScale, setFontScale] = useState<number>(loadFontScale);
+	const [viewMode, setViewMode] = useState<ViewMode>(loadViewMode);
 	const mountedRef = useRef(true);
 
 	// Adjust the synopsis font size and persist the new scale.
@@ -111,16 +128,26 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 			return next;
 		});
 	}, []);
+
+	// Switch reading mode and persist the choice.
+	const changeViewMode = useCallback((mode: ViewMode) => {
+		setViewMode(mode);
+		localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
+	}, []);
 	const isGeneratingRef = useRef(false);
 
-	// Generate prose styles for markdown rendering. MarkdownRenderer's root
-	// `.prose` carries Tailwind's `text-sm` (0.875rem, an absolute rem unit),
-	// which would otherwise pin the base font size and ignore the zoom control.
-	// Override it with a scaled size (same selector → higher specificity than the
-	// utility class) so the em-based prose children scale proportionally.
-	const proseStyles =
-		generateTerminalProseStyles(theme, '.director-notes-content') +
-		`\n.director-notes-content .prose { font-size: calc(0.875rem * ${fontScale}) !important; }`;
+	// Base prose styling for the Plain-mode markdown block. (Rich mode frames the
+	// narrative inside RichOverview, which injects its own base prose styles.)
+	const proseStyles = generateTerminalProseStyles(theme, '.director-notes-content');
+
+	// Font-scale override. MarkdownRenderer's root `.prose` carries Tailwind's
+	// `text-sm` (0.875rem, an absolute rem unit), which would otherwise pin the
+	// base font size and ignore the zoom control. Override it with a scaled size
+	// (same selector → higher specificity than the utility class) so the em-based
+	// prose children scale proportionally. Injected at the content-container
+	// level so it applies to both the Plain block and the Rich narrative, which
+	// share the `.director-notes-content` class.
+	const proseScaleRule = `.director-notes-content .prose { font-size: calc(0.875rem * ${fontScale}) !important; }`;
 
 	// Format generation duration for display
 	const formatDurationMs = (ms: number): string => {
@@ -296,6 +323,33 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 					</div>
 				)}
 
+				{/* Rich/Plain mode toggle — segmented control. Rich is the default
+				    widget dashboard; Plain is today's exact markdown view. */}
+				<div
+					className="flex items-center rounded overflow-hidden"
+					style={{ border: `1px solid ${theme.colors.border}` }}
+					role="group"
+					aria-label="Reading mode"
+				>
+					{(['rich', 'plain'] as ViewMode[]).map((mode) => {
+						const active = viewMode === mode;
+						return (
+							<button
+								key={mode}
+								onClick={() => changeViewMode(mode)}
+								aria-pressed={active}
+								className="px-3 py-1.5 text-xs font-medium capitalize transition-colors"
+								style={{
+									backgroundColor: active ? theme.colors.accent : 'transparent',
+									color: active ? theme.colors.accentForeground : theme.colors.textDim,
+								}}
+							>
+								{mode}
+							</button>
+						);
+					})}
+				</div>
+
 				{/* Regenerate button — only this disables during generation */}
 				<button
 					onClick={generateSynopsis}
@@ -419,6 +473,8 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 
 			{/* Content — old notes stay visible and scrollable during regeneration */}
 			<div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
+				{/* Font-scale override — applies to both Plain and Rich narratives. */}
+				<style>{proseScaleRule}</style>
 				{/* Error banner — shown above content so old notes remain readable */}
 				{error && (
 					<div
@@ -433,15 +489,25 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 					</div>
 				)}
 				{synopsis ? (
-					<div className="director-notes-content">
-						<style>{proseStyles}</style>
-						<MarkdownRenderer
-							content={synopsis}
+					viewMode === 'rich' ? (
+						<RichOverview
 							theme={theme}
-							onCopy={(text) => safeClipboardWrite(text)}
+							stats={stats}
+							synopsis={synopsis}
+							lookbackDays={lookbackDays}
 							enableBionifyReadingMode={bionifyReadingMode}
 						/>
-					</div>
+					) : (
+						<div className="director-notes-content">
+							<style>{proseStyles}</style>
+							<MarkdownRenderer
+								content={synopsis}
+								theme={theme}
+								onCopy={(text) => safeClipboardWrite(text)}
+								enableBionifyReadingMode={bionifyReadingMode}
+							/>
+						</div>
+					)
 				) : isGenerating ? (
 					<div className="flex items-center justify-center h-full">
 						<div className="flex items-center gap-3">
