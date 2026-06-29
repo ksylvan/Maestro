@@ -2,17 +2,28 @@
  * RichOverview
  *
  * The Director's Notes "Rich Mode" dashboard. Composes the shared
- * presentational widget library (`components/widgets`) from real, deterministic
- * data: headline stat cards, an activity timeline, a source/type breakdown, and
- * per-agent bars. Every number comes from the existing IPC bridges
- * (`getGraphData` for activity buckets, `getUnifiedHistory` for AUTO/USER/CUE +
- * agent counts) - never from the LLM. The AI narrative markdown is rendered
- * below the widgets via the existing MarkdownRenderer. Each chart is wrapped in
- * ChartErrorBoundary so a single widget failure never blanks the tab.
+ * presentational widget library (`components/widgets`) from a single,
+ * deterministic source of truth: `getRichOverviewStats`, which the main process
+ * computes over the raw history entries. Every number the widgets render -
+ * totals, success/failure ratios, per-agent activity, time-spent, and the
+ * timeline - comes from that typed IPC, never from the LLM. The AI narrative
+ * markdown is rendered below the widgets via the existing MarkdownRenderer. Each
+ * chart is wrapped in ChartErrorBoundary so a single widget failure never blanks
+ * the tab.
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { History, Bot, Zap, Timer, Activity, PieChart, Users, FileText } from 'lucide-react';
+import {
+	History,
+	Bot,
+	Timer,
+	Activity,
+	PieChart,
+	Users,
+	FileText,
+	CheckCircle2,
+	Hourglass,
+} from 'lucide-react';
 import type { Theme } from '../../types';
 import { MarkdownRenderer } from '../MarkdownRenderer';
 import { ChartErrorBoundary } from '../UsageDashboard/ChartErrorBoundary';
@@ -32,18 +43,17 @@ import {
 	ActivityTimeline,
 	TypeBreakdown,
 	AgentActivityBars,
+	SuccessFailureWidget,
 	type StatCardDatum,
 	type BarDatum,
 	type DonutSlice,
-	type TimelineBucket,
 } from '../widgets';
 
 /** Derived from the IPC contract so this stays in sync with the bridge. */
 type SynopsisStats = NonNullable<
 	Awaited<ReturnType<typeof window.maestro.directorNotes.generateSynopsis>>['stats']
 >;
-type GraphData = Awaited<ReturnType<typeof window.maestro.directorNotes.getGraphData>>;
-type UnifiedHistory = Awaited<ReturnType<typeof window.maestro.directorNotes.getUnifiedHistory>>;
+type RichStats = Awaited<ReturnType<typeof window.maestro.directorNotes.getRichOverviewStats>>;
 
 interface RichOverviewProps {
 	theme: Theme;
@@ -51,19 +61,11 @@ interface RichOverviewProps {
 	stats: SynopsisStats | null;
 	/** AI narrative markdown to render below the widgets. */
 	synopsis: string;
-	/** Lookback window in days; drives the IPC queries. */
+	/** Lookback window in days; drives the IPC query. */
 	lookbackDays: number;
 	/** Forwarded to the narrative MarkdownRenderer (matches Plain-mode behavior). */
 	enableBionifyReadingMode?: boolean;
 }
-
-/**
- * How many recent entries to sample for the per-agent breakdown. Headline
- * totals (entries, agents, AUTO/USER/CUE) come from the window-wide `stats`
- * aggregate, but the per-agent distribution is computed from the returned
- * entries, so cap the page at a sensible size for the prototype.
- */
-const AGENT_SAMPLE_LIMIT = 1000;
 
 export function RichOverview({
 	theme,
@@ -73,60 +75,56 @@ export function RichOverview({
 	enableBionifyReadingMode = false,
 }: RichOverviewProps) {
 	const colorBlindMode = useSettingsStore((s) => s.colorBlindMode);
-	const [graphData, setGraphData] = useState<GraphData | null>(null);
-	const [history, setHistory] = useState<UnifiedHistory | null>(null);
+	const [richStats, setRichStats] = useState<RichStats | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
 	const requestIdRef = useRef(0);
 
-	// Fetch deterministic activity + history aggregates on mount and whenever
-	// the lookback window changes. A monotonic request id guards against a
-	// slow earlier response clobbering a newer one after rapid changes.
+	// Fetch the deterministic stats on mount and whenever the lookback window
+	// changes. A monotonic request id guards against a slow earlier response
+	// clobbering a newer one after rapid changes.
 	useEffect(() => {
 		const requestId = ++requestIdRef.current;
-		const lookbackHours = daysToLookbackHours(lookbackDays);
-		const bucketCount = bucketCountForLookback(lookbackHours);
+		const bucketCount = bucketCountForLookback(daysToLookbackHours(lookbackDays));
 		setIsLoading(true);
 
 		(async () => {
 			try {
-				const [graph, unified] = await Promise.all([
-					window.maestro.directorNotes.getGraphData(bucketCount, lookbackHours),
-					window.maestro.directorNotes.getUnifiedHistory({
-						lookbackDays,
-						limit: AGENT_SAMPLE_LIMIT,
-					}),
-				]);
+				const next = await window.maestro.directorNotes.getRichOverviewStats({
+					lookbackDays,
+					bucketCount,
+				});
 				if (requestId !== requestIdRef.current) return;
-				setGraphData(graph);
-				setHistory(unified);
+				setRichStats(next);
 			} catch (err) {
 				if (requestId !== requestIdRef.current) return;
-				logger.error('Failed to load Rich Overview data:', undefined, err);
-				setGraphData(null);
-				setHistory(null);
+				logger.error('Failed to load Rich Overview stats:', undefined, err);
+				setRichStats(null);
 			} finally {
 				if (requestId === requestIdRef.current) setIsLoading(false);
 			}
 		})();
 	}, [lookbackDays]);
 
-	// --- Derive widget data from the deterministic aggregates ---
+	// --- Derive widget data from the deterministic stats ---
 	const autoColor = colorBlindMode ? COLORBLIND_STATUS_COLORS.warning : theme.colors.warning;
 	const userColor = theme.colors.accent;
+	const successColor = colorBlindMode ? COLORBLIND_STATUS_COLORS.success : theme.colors.success;
+	const failureColor = colorBlindMode ? COLORBLIND_STATUS_COLORS.error : theme.colors.error;
 
-	const buckets: TimelineBucket[] = graphData?.buckets ?? [];
-	const totalsTrend = buckets.map((b) => b.auto + b.user + b.cue);
+	const timelineBuckets = richStats?.timelineBuckets ?? [];
+	const totalsTrend = timelineBuckets.map((b) => b.auto + b.user + b.cue);
 
-	const histStats = history?.stats;
-	const totalEntries = histStats?.totalCount ?? graphData?.totalCount ?? 0;
-	const agentCount = histStats?.agentCount ?? 0;
-	const autoCount = histStats?.autoCount ?? graphData?.autoCount ?? 0;
-	const userCount = histStats?.userCount ?? graphData?.userCount ?? 0;
-	const cueCount = histStats?.cueCount ?? graphData?.cueCount ?? 0;
+	const totalEntries = richStats?.totalEntries ?? 0;
+	const agentCount = richStats?.agentCount ?? 0;
+	const autoCount = richStats?.autoCount ?? 0;
+	const userCount = richStats?.userCount ?? 0;
+	const cueCount = richStats?.cueCount ?? 0;
+	const successCount = richStats?.successCount ?? 0;
+	const failureCount = richStats?.failureCount ?? 0;
+	const successRate = richStats?.successRate ?? 0;
+	const totalElapsedMs = richStats?.totalElapsedMs ?? 0;
 
-	const autoUserTotal = autoCount + userCount;
-	const autoPct = autoUserTotal > 0 ? Math.round((autoCount / autoUserTotal) * 100) : 0;
-	const userPct = autoUserTotal > 0 ? 100 - autoPct : 0;
+	const successPct = Math.round(successRate * 100);
 
 	const cards: StatCardDatum[] = [
 		{
@@ -138,20 +136,29 @@ export function RichOverview({
 		},
 		{ label: 'Agents', value: agentCount, icon: Bot, color: userColor },
 		{
-			label: 'Auto vs User',
-			value: autoCount,
-			displayValue: `${formatNumber(autoCount)} / ${formatNumber(userCount)}`,
-			caption: `${autoPct}% auto · ${userPct}% user`,
-			icon: Zap,
-			color: autoColor,
+			label: 'Success Rate',
+			value: successCount,
+			displayValue: `${successPct}%`,
+			caption: `${formatNumber(successCount)} ok · ${formatNumber(failureCount)} failed`,
+			icon: CheckCircle2,
+			color: successColor,
+		},
+		{
+			label: 'Time Spent',
+			value: totalElapsedMs,
+			displayValue: formatDuration(totalElapsedMs),
+			icon: Timer,
+			color: theme.colors.accent,
 		},
 	];
+	// Generation time is deterministic too (from the synopsis call). Keep it as
+	// an extra card when available.
 	if (stats && stats.durationMs > 0) {
 		cards.push({
 			label: 'Generation Time',
 			value: stats.durationMs,
 			displayValue: formatDuration(stats.durationMs),
-			icon: Timer,
+			icon: Hourglass,
 			color: theme.colors.success,
 		});
 	}
@@ -162,22 +169,17 @@ export function RichOverview({
 		{ label: 'Cue', value: cueCount, color: CUE_COLOR },
 	];
 
-	// Per-agent entry counts from the sampled entries page.
-	const agentBars: BarDatum[] = (() => {
-		const counts = new Map<string, number>();
-		for (const entry of history?.entries ?? []) {
-			const name = entry.agentName || entry.sessionName || 'Unknown agent';
-			counts.set(name, (counts.get(name) ?? 0) + 1);
-		}
-		return Array.from(counts.entries()).map(([label, value]) => ({ label, value }));
-	})();
+	const agentBars: BarDatum[] = (richStats?.perAgent ?? []).map((a) => ({
+		label: a.agentName,
+		value: a.entryCount,
+	}));
 
 	const proseStyles = generateTerminalProseStyles(theme, '.director-notes-content');
 
 	return (
 		<div className="flex flex-col gap-4">
 			{/* Headline stat cards */}
-			{isLoading && !history ? (
+			{isLoading && !richStats ? (
 				<div className="flex items-center gap-3 py-6 px-1">
 					<Spinner size={18} color={theme.colors.accent} />
 					<span className="text-sm" style={{ color: theme.colors.textDim }}>
@@ -193,8 +195,20 @@ export function RichOverview({
 				<ChartErrorBoundary theme={theme} chartName="Activity Timeline">
 					<ActivityTimeline
 						theme={theme}
-						buckets={buckets}
+						buckets={timelineBuckets}
 						colors={{ auto: autoColor, user: userColor, cue: CUE_COLOR }}
+					/>
+				</ChartErrorBoundary>
+			</SectionCard>
+
+			{/* Success vs failure */}
+			<SectionCard theme={theme} title="Success vs Failure" icon={CheckCircle2}>
+				<ChartErrorBoundary theme={theme} chartName="Success vs Failure">
+					<SuccessFailureWidget
+						theme={theme}
+						successCount={successCount}
+						failureCount={failureCount}
+						colors={{ success: successColor, failure: failureColor }}
 					/>
 				</ChartErrorBoundary>
 			</SectionCard>

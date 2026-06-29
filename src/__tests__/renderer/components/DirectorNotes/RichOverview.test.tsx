@@ -33,83 +33,43 @@ vi.mock('../../../../renderer/stores/settingsStore', () => ({
 		selector({ colorBlindMode: false }),
 }));
 
-const mockGetGraphData = vi.fn();
-const mockGetUnifiedHistory = vi.fn();
+const mockGetRichOverviewStats = vi.fn();
 
 const SYNOPSIS = '# Director Notes\n\nNarrative body.';
 const STATS = { agentCount: 9, entryCount: 99, durationMs: 5000 };
 
+// Deterministic stats object returned by the single IPC the Rich dashboard now
+// reads from. Every widget number is mapped from here.
+const RICH_STATS = {
+	totalEntries: 100,
+	agentCount: 4,
+	sessionCount: 4,
+	autoCount: 30,
+	userCount: 60,
+	cueCount: 10,
+	successCount: 80,
+	failureCount: 20,
+	successRate: 0.8,
+	totalElapsedMs: 12000, // formatDuration -> "12.00s"
+	avgElapsedMs: 1200,
+	timelineBuckets: [
+		{ startTime: 1, auto: 2, user: 1, cue: 0 },
+		{ startTime: 2, auto: 0, user: 3, cue: 1 },
+	],
+	perAgent: [
+		{ sessionId: 's1', agentName: 'alpha', entryCount: 2, successCount: 2, failureCount: 0 },
+		{ sessionId: 's2', agentName: 'beta', entryCount: 1, successCount: 1, failureCount: 0 },
+	],
+	lookbackDays: 7,
+	generatedAt: 123,
+};
+
 beforeEach(() => {
-	mockGetGraphData.mockResolvedValue({
-		buckets: [
-			{ auto: 2, user: 1, cue: 0 },
-			{ auto: 0, user: 3, cue: 1 },
-		],
-		bucketCount: 28,
-		earliestTimestamp: 0,
-		latestTimestamp: 0,
-		totalCount: 7,
-		autoCount: 2,
-		userCount: 4,
-		cueCount: 1,
-		cached: false,
-		stats: {
-			agentCount: 2,
-			sessionCount: 2,
-			autoCount: 30,
-			userCount: 60,
-			cueCount: 10,
-			totalCount: 100,
-		},
-	});
-	mockGetUnifiedHistory.mockResolvedValue({
-		entries: [
-			{
-				id: '1',
-				type: 'USER',
-				timestamp: 0,
-				summary: '',
-				projectPath: '',
-				sourceSessionId: 's1',
-				agentName: 'alpha',
-			},
-			{
-				id: '2',
-				type: 'AUTO',
-				timestamp: 0,
-				summary: '',
-				projectPath: '',
-				sourceSessionId: 's1',
-				agentName: 'alpha',
-			},
-			{
-				id: '3',
-				type: 'USER',
-				timestamp: 0,
-				summary: '',
-				projectPath: '',
-				sourceSessionId: 's2',
-				agentName: 'beta',
-			},
-		],
-		total: 3,
-		limit: 1000,
-		offset: 0,
-		hasMore: false,
-		stats: {
-			agentCount: 2,
-			sessionCount: 2,
-			autoCount: 30,
-			userCount: 60,
-			cueCount: 10,
-			totalCount: 100,
-		},
-	});
+	mockGetRichOverviewStats.mockResolvedValue(RICH_STATS);
 
 	(window as unknown as { maestro: unknown }).maestro = {
 		directorNotes: {
-			getGraphData: mockGetGraphData,
-			getUnifiedHistory: mockGetUnifiedHistory,
+			getRichOverviewStats: mockGetRichOverviewStats,
 		},
 	};
 });
@@ -119,32 +79,46 @@ afterEach(() => {
 });
 
 describe('RichOverview', () => {
-	it('queries getGraphData and getUnifiedHistory with derived args on mount', async () => {
+	it('queries getRichOverviewStats with derived args on mount', async () => {
 		render(<RichOverview theme={mockTheme} stats={STATS} synopsis={SYNOPSIS} lookbackDays={7} />);
 
 		await waitFor(() => {
-			expect(mockGetGraphData).toHaveBeenCalledWith(28, 168);
+			expect(mockGetRichOverviewStats).toHaveBeenCalledWith({ lookbackDays: 7, bucketCount: 28 });
 		});
-		expect(mockGetUnifiedHistory).toHaveBeenCalledWith({ lookbackDays: 7, limit: 1000 });
 	});
 
-	it('renders headline stat cards from the deterministic aggregates', async () => {
+	it('renders headline stat cards from the deterministic stats', async () => {
 		render(<RichOverview theme={mockTheme} stats={STATS} synopsis={SYNOPSIS} lookbackDays={7} />);
 
 		await waitFor(() => {
 			expect(screen.getByText('Total Entries')).toBeInTheDocument();
 		});
 		expect(screen.getByText('Agents')).toBeInTheDocument();
-		expect(screen.getByText('Auto vs User')).toBeInTheDocument();
-		// AUTO/USER split: 30 / 60, with auto% = round(30/90) = 33.
-		expect(screen.getByText('30 / 60')).toBeInTheDocument();
-		expect(screen.getByText('33% auto · 67% user')).toBeInTheDocument();
+		expect(screen.getByText('Success Rate')).toBeInTheDocument();
+		expect(screen.getByText('Time Spent')).toBeInTheDocument();
+		// Success rate as a percentage (also appears in the success/failure widget).
+		expect(screen.getAllByText('80%').length).toBeGreaterThanOrEqual(1);
+		// Total time spent, formatted from totalElapsedMs.
+		expect(screen.getByText('12.00s')).toBeInTheDocument();
 		// Generation-time card from the synopsis stats prop.
 		expect(screen.getByText('Generation Time')).toBeInTheDocument();
 		expect(screen.getByText('5.00s')).toBeInTheDocument();
 	});
 
-	it('renders the source breakdown percentages over the full AUTO/USER/CUE total', async () => {
+	it('renders the success/failure widget from successCount vs failureCount', async () => {
+		render(<RichOverview theme={mockTheme} stats={STATS} synopsis={SYNOPSIS} lookbackDays={7} />);
+
+		await waitFor(() => {
+			expect(screen.getByText('Success vs Failure')).toBeInTheDocument();
+		});
+		expect(screen.getByText('Success')).toBeInTheDocument();
+		expect(screen.getByText('Failure')).toBeInTheDocument();
+		// 80 success / 20 failure -> 80% / 20%.
+		expect(screen.getAllByText('80%').length).toBeGreaterThanOrEqual(1);
+		expect(screen.getByText('20%')).toBeInTheDocument();
+	});
+
+	it('renders the source breakdown percentages over the AUTO/USER/CUE total', async () => {
 		render(<RichOverview theme={mockTheme} stats={STATS} synopsis={SYNOPSIS} lookbackDays={7} />);
 
 		await waitFor(() => {
@@ -155,7 +129,7 @@ describe('RichOverview', () => {
 		expect(screen.getByText('10%')).toBeInTheDocument();
 	});
 
-	it('renders per-agent bars derived from the entries sample', async () => {
+	it('renders per-agent bars from the perAgent rollup', async () => {
 		render(<RichOverview theme={mockTheme} stats={STATS} synopsis={SYNOPSIS} lookbackDays={7} />);
 
 		await waitFor(() => {
@@ -187,15 +161,18 @@ describe('RichOverview', () => {
 			<RichOverview theme={mockTheme} stats={STATS} synopsis={SYNOPSIS} lookbackDays={7} />
 		);
 		await waitFor(() => {
-			expect(mockGetUnifiedHistory).toHaveBeenCalledTimes(1);
+			expect(mockGetRichOverviewStats).toHaveBeenCalledTimes(1);
 		});
 
 		rerender(
 			<RichOverview theme={mockTheme} stats={STATS} synopsis={SYNOPSIS} lookbackDays={30} />
 		);
 		await waitFor(() => {
-			expect(mockGetUnifiedHistory).toHaveBeenCalledTimes(2);
+			expect(mockGetRichOverviewStats).toHaveBeenCalledTimes(2);
 		});
-		expect(mockGetUnifiedHistory).toHaveBeenLastCalledWith({ lookbackDays: 30, limit: 1000 });
+		expect(mockGetRichOverviewStats).toHaveBeenLastCalledWith({
+			lookbackDays: 30,
+			bucketCount: 28,
+		});
 	});
 });

@@ -7,15 +7,20 @@ import {
 } from '../../../../renderer/components/DirectorNotes/AIOverviewTab';
 
 import { mockTheme } from '../../../helpers/mockTheme';
-// Mock useSettings hook
-vi.mock('../../../../renderer/hooks/settings/useSettings', () => ({
-	useSettings: () => ({
+// Mock useSettings hook. Mutable (via vi.hoisted) so tests can flip the
+// persisted Director's Notes defaultMode and assert the initial view mode.
+const settingsMock = vi.hoisted(() => ({
+	value: {
 		directorNotesSettings: {
 			provider: 'claude-code',
 			defaultLookbackDays: 7,
+			defaultMode: undefined as 'rich' | 'plain' | undefined,
 		},
 		bionifyReadingMode: false,
-	}),
+	},
+}));
+vi.mock('../../../../renderer/hooks/settings/useSettings', () => ({
+	useSettings: () => settingsMock.value,
 }));
 
 // Mock MarkdownRenderer
@@ -96,6 +101,9 @@ const mockGenerateSynopsis = vi.fn();
 beforeEach(() => {
 	// Reset module-level synopsis cache so each test starts fresh
 	_resetCacheForTesting();
+
+	// Reset the persisted default mode so each test starts from "unset".
+	settingsMock.value.directorNotesSettings.defaultMode = undefined;
 
 	// jsdom in this environment doesn't provide a working Storage on
 	// window.localStorage, so install a minimal in-memory mock that satisfies
@@ -609,6 +617,39 @@ describe('AIOverviewTab', () => {
 			});
 			expect(screen.queryByTestId('rich-overview')).not.toBeInTheDocument();
 			expect(screen.getByRole('button', { name: /^plain$/i })).toHaveAttribute(
+				'aria-pressed',
+				'true'
+			);
+		});
+
+		it('opens in the persisted defaultMode when no localStorage override exists', async () => {
+			// Persisted setting says Plain; no per-session override in localStorage.
+			settingsMock.value.directorNotesSettings.defaultMode = 'plain';
+
+			render(<AIOverviewTab theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(screen.getByTestId('markdown-renderer')).toBeInTheDocument();
+			});
+			expect(screen.queryByTestId('rich-overview')).not.toBeInTheDocument();
+			expect(screen.getByRole('button', { name: /^plain$/i })).toHaveAttribute(
+				'aria-pressed',
+				'true'
+			);
+		});
+
+		it('lets a localStorage override win over the persisted defaultMode', async () => {
+			// Persisted default is Plain, but the session override (the in-tab
+			// toggle) chose Rich — the override wins.
+			settingsMock.value.directorNotesSettings.defaultMode = 'plain';
+			window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, 'rich');
+
+			render(<AIOverviewTab theme={mockTheme} />);
+
+			await waitFor(() => {
+				expect(screen.getByTestId('rich-overview')).toBeInTheDocument();
+			});
+			expect(screen.getByRole('button', { name: /^rich$/i })).toHaveAttribute(
 				'aria-pressed',
 				'true'
 			);

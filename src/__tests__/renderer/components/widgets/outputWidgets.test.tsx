@@ -20,6 +20,7 @@ import {
 	ActivityTimeline,
 	TypeBreakdown,
 	AgentActivityBars,
+	SuccessFailureWidget,
 } from '../../../../renderer/components/widgets';
 import type { TimelineBucket, DonutSlice, BarDatum } from '../../../../renderer/components/widgets';
 import { mockTheme } from '../../../helpers/mockTheme';
@@ -182,5 +183,30 @@ describe('AgentActivityBars', () => {
 	it('shows an empty state when there is no agent activity', () => {
 		render(<AgentActivityBars theme={mockTheme} data={[]} />);
 		expect(screen.getByText('No agent activity in this window')).toBeInTheDocument();
+	});
+});
+
+describe('SuccessFailureWidget', () => {
+	it('renders the success-rate headline and per-outcome counts/percentages', () => {
+		render(<SuccessFailureWidget theme={mockTheme} successCount={80} failureCount={20} />);
+		// 80 / (80 + 20) = 80% success, 20% failure.
+		expect(screen.getAllByText('80%').length).toBeGreaterThanOrEqual(1);
+		expect(screen.getByText('20%')).toBeInTheDocument();
+		expect(screen.getByText('Success')).toBeInTheDocument();
+		expect(screen.getByText('Failure')).toBeInTheDocument();
+		expect(screen.getByText('80')).toBeInTheDocument(); // success count
+		expect(screen.getByText('20')).toBeInTheDocument(); // failure count
+	});
+
+	it('rounds the success rate to a whole percentage', () => {
+		render(<SuccessFailureWidget theme={mockTheme} successCount={1} failureCount={2} />);
+		// 1 / 3 = 33.33% -> 33%, failure 67%.
+		expect(screen.getByText('33%')).toBeInTheDocument();
+		expect(screen.getByText('67%')).toBeInTheDocument();
+	});
+
+	it('shows an empty state when there are no recorded outcomes', () => {
+		render(<SuccessFailureWidget theme={mockTheme} successCount={0} failureCount={0} />);
+		expect(screen.getByText('No success/failure outcomes in this window')).toBeInTheDocument();
 	});
 });

@@ -51,19 +51,23 @@ function loadFontScale(): number {
 	return clampFontScale(Number(raw));
 }
 
-// Rich vs Plain reading mode for the AI Overview. Rich is the default - a
-// widget dashboard (stat cards, timeline, breakdowns) rendered from
-// deterministic data. Plain reproduces today's exact markdown wall-of-text so
-// the copy/save/JSON output path stays byte-for-byte identical. Persisted to
-// localStorage so the chosen mode is remembered across opens, mirroring the
-// FONT_SCALE persistence pattern above.
+// Rich vs Plain reading mode for the AI Overview. Rich is a widget dashboard
+// (stat cards, timeline, breakdowns) rendered from deterministic data. Plain
+// reproduces today's exact markdown wall-of-text so the copy/save/JSON output
+// path stays byte-for-byte identical.
+//
+// Mode resolution layers two sources: the persisted `directorNotesSettings.
+// defaultMode` is the baseline default (a real product setting), and the
+// localStorage key below is a transient per-session override that the in-tab
+// toggle writes. The override wins when present; otherwise we fall back to the
+// persisted default, then to 'rich'.
 const VIEW_MODE_STORAGE_KEY = 'directorNotes.viewMode';
 type ViewMode = 'rich' | 'plain';
 const VIEW_MODE_DEFAULT: ViewMode = 'rich';
 
-function loadViewMode(): ViewMode {
+function loadViewMode(persistedDefault: ViewMode): ViewMode {
 	const raw = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
-	return raw === 'rich' || raw === 'plain' ? raw : VIEW_MODE_DEFAULT;
+	return raw === 'rich' || raw === 'plain' ? raw : persistedDefault;
 }
 
 // Module-level cache so synopsis survives tab switches (unmount/remount)
@@ -117,7 +121,11 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 	const [error, setError] = useState<string | null>(null);
 	const [stats, setStats] = useState<SynopsisStats | null>(cachedSynopsis?.stats ?? null);
 	const [fontScale, setFontScale] = useState<number>(loadFontScale);
-	const [viewMode, setViewMode] = useState<ViewMode>(loadViewMode);
+	// Baseline default from the persisted setting; the localStorage override
+	// (written by the in-tab toggle) layers on top of it.
+	const [viewMode, setViewMode] = useState<ViewMode>(() =>
+		loadViewMode(directorNotesSettings.defaultMode ?? VIEW_MODE_DEFAULT)
+	);
 	const mountedRef = useRef(true);
 
 	// Adjust the synopsis font size and persist the new scale.

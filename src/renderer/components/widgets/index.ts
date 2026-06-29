@@ -16,3 +16,4 @@ export { SectionCard } from './output/SectionCard';
 export { ActivityTimeline } from './output/ActivityTimeline';
 export { TypeBreakdown } from './output/TypeBreakdown';
 export { AgentActivityBars } from './output/AgentActivityBars';
+export { SuccessFailureWidget } from './output/SuccessFailureWidget';

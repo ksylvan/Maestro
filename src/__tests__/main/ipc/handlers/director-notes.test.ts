@@ -133,6 +133,7 @@ describe('director-notes IPC handlers', () => {
 		it('should register all director-notes handlers', () => {
 			const expectedChannels = [
 				'director-notes:getUnifiedHistory',
+				'director-notes:getRichOverviewStats',
 				'director-notes:generateSynopsis',
 			];
 
@@ -899,6 +900,245 @@ describe('director-notes IPC handlers', () => {
 			const promptArg = vi.mocked(groomContext).mock.calls[0][0].prompt;
 			expect(promptArg).toContain('/data/history/recent-session.json');
 			expect(promptArg).not.toContain('stale-session');
+		});
+	});
+
+	describe('director-notes:getRichOverviewStats', () => {
+		it('computes totals, agent/session counts from entries in the window', async () => {
+			const now = Date.now();
+			vi.mocked(mockHistoryManager.listSessionsWithHistory).mockReturnValue([
+				'session-1',
+				'session-2',
+			]);
+			vi.mocked(mockHistoryManager.getEntries)
+				.mockReturnValueOnce([
+					createMockEntry({
+						id: 'e1',
+						type: 'AUTO',
+						timestamp: now - 1000,
+						agentSessionId: 'as-1',
+					}),
+					createMockEntry({
+						id: 'e2',
+						type: 'USER',
+						timestamp: now - 2000,
+						agentSessionId: 'as-1',
+					}),
+					createMockEntry({ id: 'e3', type: 'CUE', timestamp: now - 3000, agentSessionId: 'as-2' }),
+				])
+				.mockReturnValueOnce([
+					createMockEntry({
+						id: 'e4',
+						type: 'USER',
+						timestamp: now - 4000,
+						agentSessionId: 'as-3',
+					}),
+				]);
+
+			const handler = handlers.get('director-notes:getRichOverviewStats');
+			const result = await handler!({} as any, { lookbackDays: 7 });
+
+			expect(result.totalEntries).toBe(4);
+			expect(result.agentCount).toBe(2); // session-1, session-2
+			expect(result.sessionCount).toBe(3); // as-1, as-2, as-3
+			expect(result.autoCount).toBe(1);
+			expect(result.userCount).toBe(2);
+			expect(result.cueCount).toBe(1);
+			expect(result.lookbackDays).toBe(7);
+			expect(result.generatedAt).toBeTypeOf('number');
+			expect(result.generatedAt).toBeLessThanOrEqual(Date.now());
+		});
+
+		it('counts success/failure and guards divide-by-zero in successRate', async () => {
+			const now = Date.now();
+			vi.mocked(mockHistoryManager.listSessionsWithHistory).mockReturnValue(['session-1']);
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+				createMockEntry({ id: 'e1', timestamp: now - 1000, success: true }),
+				createMockEntry({ id: 'e2', timestamp: now - 2000, success: true }),
+				createMockEntry({ id: 'e3', timestamp: now - 3000, success: true }),
+				createMockEntry({ id: 'e4', timestamp: now - 4000, success: false }),
+				// Missing success is neither success nor failure.
+				createMockEntry({ id: 'e5', timestamp: now - 5000 }),
+			]);
+
+			const handler = handlers.get('director-notes:getRichOverviewStats');
+			const result = await handler!({} as any, { lookbackDays: 7 });
+
+			expect(result.successCount).toBe(3);
+			expect(result.failureCount).toBe(1);
+			// 3 / (3 + 1) = 0.75
+			expect(result.successRate).toBeCloseTo(0.75);
+			expect(result.totalEntries).toBe(5);
+		});
+
+		it('returns successRate 0 when there are no success/failure outcomes', async () => {
+			const now = Date.now();
+			vi.mocked(mockHistoryManager.listSessionsWithHistory).mockReturnValue(['session-1']);
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+				createMockEntry({ id: 'e1', timestamp: now - 1000 }),
+				createMockEntry({ id: 'e2', timestamp: now - 2000 }),
+			]);
+
+			const handler = handlers.get('director-notes:getRichOverviewStats');
+			const result = await handler!({} as any, { lookbackDays: 7 });
+
+			expect(result.successCount).toBe(0);
+			expect(result.failureCount).toBe(0);
+			expect(result.successRate).toBe(0);
+		});
+
+		it('sums elapsed time and averages only over entries with timing', async () => {
+			const now = Date.now();
+			vi.mocked(mockHistoryManager.listSessionsWithHistory).mockReturnValue(['session-1']);
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+				createMockEntry({ id: 'e1', timestamp: now - 1000, elapsedTimeMs: 1000 }),
+				createMockEntry({ id: 'e2', timestamp: now - 2000, elapsedTimeMs: 3000 }),
+				// No elapsedTimeMs — excluded from the average divisor.
+				createMockEntry({ id: 'e3', timestamp: now - 3000 }),
+			]);
+
+			const handler = handlers.get('director-notes:getRichOverviewStats');
+			const result = await handler!({} as any, { lookbackDays: 7 });
+
+			expect(result.totalElapsedMs).toBe(4000);
+			// 4000 / 2 entries with timing = 2000
+			expect(result.avgElapsedMs).toBe(2000);
+		});
+
+		it('returns avgElapsedMs 0 when no entries have timing', async () => {
+			const now = Date.now();
+			vi.mocked(mockHistoryManager.listSessionsWithHistory).mockReturnValue(['session-1']);
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+				createMockEntry({ id: 'e1', timestamp: now - 1000 }),
+			]);
+
+			const handler = handlers.get('director-notes:getRichOverviewStats');
+			const result = await handler!({} as any, { lookbackDays: 7 });
+
+			expect(result.totalElapsedMs).toBe(0);
+			expect(result.avgElapsedMs).toBe(0);
+		});
+
+		it('builds perAgent rollups sorted by entryCount desc with names resolved', async () => {
+			const now = Date.now();
+			vi.mocked(mockHistoryManager.listSessionsWithHistory).mockReturnValue([
+				'session-1',
+				'session-2',
+			]);
+			vi.mocked(mockHistoryManager.getEntries)
+				.mockReturnValueOnce([createMockEntry({ id: 'e1', timestamp: now - 1000, success: true })])
+				.mockReturnValueOnce([
+					createMockEntry({ id: 'e2', timestamp: now - 2000, success: true }),
+					createMockEntry({ id: 'e3', timestamp: now - 3000, success: false }),
+				]);
+
+			mockGetSessionsStore.mockReturnValue({
+				get: vi.fn().mockReturnValue([
+					{ id: 'session-1', name: 'alpha', toolType: 'claude-code', cwd: '/t', projectRoot: '/t' },
+					{ id: 'session-2', name: 'beta', toolType: 'claude-code', cwd: '/t', projectRoot: '/t' },
+				]),
+			});
+
+			const handler = handlers.get('director-notes:getRichOverviewStats');
+			const result = await handler!({} as any, { lookbackDays: 7 });
+
+			expect(result.perAgent).toHaveLength(2);
+			// session-2 has 2 entries, session-1 has 1 → session-2 first.
+			expect(result.perAgent[0].sessionId).toBe('session-2');
+			expect(result.perAgent[0].agentName).toBe('beta');
+			expect(result.perAgent[0].entryCount).toBe(2);
+			expect(result.perAgent[0].successCount).toBe(1);
+			expect(result.perAgent[0].failureCount).toBe(1);
+			expect(result.perAgent[1].sessionId).toBe('session-1');
+			expect(result.perAgent[1].agentName).toBe('alpha');
+			expect(result.perAgent[1].entryCount).toBe(1);
+		});
+
+		it('falls back to the session id when no Maestro name is available', async () => {
+			const now = Date.now();
+			vi.mocked(mockHistoryManager.listSessionsWithHistory).mockReturnValue(['unnamed-session']);
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+				createMockEntry({ id: 'e1', timestamp: now - 1000 }),
+			]);
+
+			const handler = handlers.get('director-notes:getRichOverviewStats');
+			const result = await handler!({} as any, { lookbackDays: 7 });
+
+			expect(result.perAgent[0].agentName).toBe('unnamed-session');
+		});
+
+		it('produces bucketCount timeline buckets that sum to totalEntries, each with a startTime', async () => {
+			const now = Date.now();
+			const oneHourAgo = now - 60 * 60 * 1000;
+			const twoHoursAgo = now - 2 * 60 * 60 * 1000;
+			vi.mocked(mockHistoryManager.listSessionsWithHistory).mockReturnValue(['session-1']);
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+				createMockEntry({ id: 'e1', type: 'AUTO', timestamp: oneHourAgo }),
+				createMockEntry({ id: 'e2', type: 'USER', timestamp: oneHourAgo }),
+				createMockEntry({ id: 'e3', type: 'CUE', timestamp: twoHoursAgo }),
+			]);
+
+			const handler = handlers.get('director-notes:getRichOverviewStats');
+			const result = await handler!({} as any, { lookbackDays: 1, bucketCount: 12 });
+
+			expect(result.timelineBuckets).toHaveLength(12);
+			const totalInBuckets = result.timelineBuckets.reduce(
+				(sum: number, b: { auto: number; user: number; cue: number }) =>
+					sum + b.auto + b.user + b.cue,
+				0
+			);
+			expect(totalInBuckets).toBe(3);
+			// Buckets are ordered oldest -> newest with ascending startTimes.
+			for (let i = 1; i < result.timelineBuckets.length; i++) {
+				expect(result.timelineBuckets[i].startTime).toBeGreaterThanOrEqual(
+					result.timelineBuckets[i - 1].startTime
+				);
+			}
+		});
+
+		it('respects the lookback cutoff (drops out-of-window entries)', async () => {
+			const now = Date.now();
+			const twoDaysAgo = now - 2 * 24 * 60 * 60 * 1000;
+			const tenDaysAgo = now - 10 * 24 * 60 * 60 * 1000;
+			vi.mocked(mockHistoryManager.listSessionsWithHistory).mockReturnValue(['session-1']);
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+				createMockEntry({ id: 'recent', timestamp: twoDaysAgo }),
+				createMockEntry({ id: 'old', timestamp: tenDaysAgo }),
+			]);
+
+			const handler = handlers.get('director-notes:getRichOverviewStats');
+			const result = await handler!({} as any, { lookbackDays: 7 });
+
+			expect(result.totalEntries).toBe(1);
+		});
+
+		it('includes all entries for all-time mode (lookbackDays=0)', async () => {
+			const now = Date.now();
+			const twoDaysAgo = now - 2 * 24 * 60 * 60 * 1000;
+			const yearAgo = now - 365 * 24 * 60 * 60 * 1000;
+			vi.mocked(mockHistoryManager.listSessionsWithHistory).mockReturnValue(['session-1']);
+			vi.mocked(mockHistoryManager.getEntries).mockReturnValue([
+				createMockEntry({ id: 'recent', timestamp: twoDaysAgo }),
+				createMockEntry({ id: 'ancient', timestamp: yearAgo }),
+			]);
+
+			const handler = handlers.get('director-notes:getRichOverviewStats');
+			const result = await handler!({} as any, { lookbackDays: 0 });
+
+			expect(result.totalEntries).toBe(2);
+		});
+
+		it('returns zeroed stats when no sessions have history', async () => {
+			vi.mocked(mockHistoryManager.listSessionsWithHistory).mockReturnValue([]);
+
+			const handler = handlers.get('director-notes:getRichOverviewStats');
+			const result = await handler!({} as any, { lookbackDays: 7 });
+
+			expect(result.totalEntries).toBe(0);
+			expect(result.agentCount).toBe(0);
+			expect(result.sessionCount).toBe(0);
+			expect(result.perAgent).toEqual([]);
+			expect(result.successRate).toBe(0);
 		});
 	});
 });
