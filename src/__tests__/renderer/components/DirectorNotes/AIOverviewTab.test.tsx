@@ -244,6 +244,10 @@ describe('AIOverviewTab', () => {
 
 		const slider = screen.getByRole('slider');
 		expect(slider).toHaveValue('7');
+		// Cross-theme guard: the lookback range used to be hardcoded
+		// `accent-indigo-500`; it must derive its accent from the active theme.
+		expect(slider).toHaveStyle({ accentColor: mockTheme.colors.accent });
+		expect(slider).not.toHaveClass('accent-indigo-500');
 	});
 
 	it('renders Regenerate button', async () => {

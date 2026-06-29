@@ -155,11 +155,12 @@ export class ChartErrorBoundary extends Component<Props, State> {
 
 					{/* Retry Button */}
 					<button
+						type="button"
 						onClick={this.handleRetry}
-						className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+						className="focus-ring flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
 						style={{
 							backgroundColor: theme.colors.accent,
-							color: '#ffffff',
+							color: theme.colors.accentForeground,
 						}}
 						onMouseEnter={(e) => {
 							e.currentTarget.style.opacity = '0.9';
@@ -188,8 +189,9 @@ export class ChartErrorBoundary extends Component<Props, State> {
 					{error && (
 						<div className="mt-4 w-full max-w-md">
 							<button
+								type="button"
 								onClick={this.toggleDetails}
-								className="flex items-center gap-1 text-xs w-full justify-center"
+								className="focus-ring rounded flex items-center gap-1 text-xs w-full justify-center"
 								style={{ color: theme.colors.textDim }}
 								data-testid="toggle-error-details"
 							>

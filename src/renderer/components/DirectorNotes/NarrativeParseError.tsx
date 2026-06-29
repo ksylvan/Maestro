@@ -68,8 +68,9 @@ export function NarrativeParseError({ theme, error, rawOutput }: NarrativeParseE
 
 					{/* Raw-output disclosure — the unparsed text stays reachable. */}
 					<button
+						type="button"
 						onClick={() => setShowRaw((v) => !v)}
-						className="flex items-center gap-1.5 mt-3 text-xs font-medium transition-colors"
+						className="focus-ring rounded flex items-center gap-1.5 mt-3 text-xs font-medium transition-colors"
 						style={{ color: theme.colors.textDim }}
 						aria-expanded={showRaw}
 					>
@@ -85,8 +86,9 @@ export function NarrativeParseError({ theme, error, rawOutput }: NarrativeParseE
 						<div className="mt-2">
 							<div className="flex justify-end mb-1">
 								<button
+									type="button"
 									onClick={copyRaw}
-									className="flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors"
+									className="focus-ring flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors"
 									style={{
 										backgroundColor: theme.colors.bgActivity,
 										color: copied ? theme.colors.accent : theme.colors.textMain,

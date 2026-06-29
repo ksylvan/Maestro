@@ -242,7 +242,7 @@ export const WidgetGallery = memo(function WidgetGallery({ theme }: WidgetGaller
 								<button
 									type="button"
 									onClick={() => setBoom((b) => !b)}
-									className="text-[11px] px-2 py-1 rounded border"
+									className="focus-ring text-[11px] px-2 py-1 rounded border"
 									style={{ borderColor: theme.colors.border, color: theme.colors.textDim }}
 								>
 									{boom ? 'Reset' : 'Simulate error'}

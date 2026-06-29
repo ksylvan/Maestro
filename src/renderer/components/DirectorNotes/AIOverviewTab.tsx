@@ -328,18 +328,22 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 				{/* Lookback slider */}
 				<div className="flex items-center gap-3 flex-1 min-w-[200px]">
 					<label
+						htmlFor="director-notes-lookback"
 						className="text-xs font-bold whitespace-nowrap"
 						style={{ color: theme.colors.textMain }}
 					>
 						Lookback: {lookbackDays} days
 					</label>
 					<input
+						id="director-notes-lookback"
 						type="range"
 						min={1}
 						max={90}
 						value={lookbackDays}
 						onChange={(e) => setLookbackDays(Number(e.target.value))}
-						className="flex-1 accent-indigo-500"
+						className="focus-ring rounded flex-1"
+						style={{ accentColor: theme.colors.accent }}
+						aria-label={`Lookback window: ${lookbackDays} days`}
 					/>
 				</div>
 
@@ -364,12 +368,19 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 						return (
 							<button
 								key={mode}
+								type="button"
 								onClick={() => changeViewMode(mode)}
 								aria-pressed={active}
-								className="px-3 py-1.5 text-xs font-medium capitalize transition-colors"
+								// Inset ring (the wrapper is rounded + overflow-hidden, so an
+								// outset ring would be clipped). On the active segment the ring
+								// rides an accent fill, so use the contrasting accentForeground.
+								className="focus-ring-inset px-3 py-1.5 text-xs font-medium capitalize transition-colors"
 								style={{
 									backgroundColor: active ? theme.colors.accent : 'transparent',
 									color: active ? theme.colors.accentForeground : theme.colors.textDim,
+									['--focus-ring-color' as any]: active
+										? theme.colors.accentForeground
+										: theme.colors.accent,
 								}}
 							>
 								{mode}
@@ -380,9 +391,10 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 
 				{/* Regenerate button — only this disables during generation */}
 				<button
+					type="button"
 					onClick={generateSynopsis}
 					disabled={isGenerating}
-					className="flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-colors"
+					className="focus-ring flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-colors"
 					style={{
 						backgroundColor: theme.colors.accent,
 						color: theme.colors.accentForeground,
@@ -395,9 +407,10 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 
 				{/* Save button — enabled whenever we have content */}
 				<button
+					type="button"
 					onClick={() => setShowSaveModal(true)}
 					disabled={!synopsis}
-					className="flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-colors"
+					className="focus-ring flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-colors"
 					style={{
 						backgroundColor: theme.colors.bgActivity,
 						color: theme.colors.textMain,
@@ -411,9 +424,10 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 
 				{/* Copy to clipboard button — enabled whenever we have content */}
 				<button
+					type="button"
 					onClick={copyToClipboard}
 					disabled={!synopsis}
-					className="flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-colors"
+					className="focus-ring flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-colors"
 					style={{
 						backgroundColor: theme.colors.bgActivity,
 						color: copied ? theme.colors.accent : theme.colors.textMain,
@@ -466,11 +480,12 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 					{/* Font-size controls — right-justified, scale only the synopsis text */}
 					<div className="ml-auto flex items-center gap-1">
 						<button
+							type="button"
 							onClick={() => adjustFontScale(-1)}
 							disabled={fontScale <= FONT_SCALE_MIN}
 							aria-label="Decrease font size"
 							title="Decrease font size"
-							className="flex items-center justify-center w-7 h-7 rounded transition-colors hover:opacity-100"
+							className="focus-ring flex items-center justify-center w-7 h-7 rounded transition-colors hover:opacity-100"
 							style={{
 								color: theme.colors.textDim,
 								border: `1px solid ${theme.colors.border}`,
@@ -481,11 +496,12 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 							<AArrowDown className="w-4 h-4" />
 						</button>
 						<button
+							type="button"
 							onClick={() => adjustFontScale(1)}
 							disabled={fontScale >= FONT_SCALE_MAX}
 							aria-label="Increase font size"
 							title="Increase font size"
-							className="flex items-center justify-center w-7 h-7 rounded transition-colors hover:opacity-100"
+							className="focus-ring flex items-center justify-center w-7 h-7 rounded transition-colors hover:opacity-100"
 							style={{
 								color: theme.colors.textDim,
 								border: `1px solid ${theme.colors.border}`,
@@ -528,7 +544,9 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 							enableBionifyReadingMode={bionifyReadingMode}
 						/>
 					) : (
-						<div className="director-notes-content">
+						// Content-driven AI output: opt back into text selection under
+						// the modal's select-none (see CLAUDE.md modal text rules).
+						<div className="director-notes-content select-text">
 							<style>{proseStyles}</style>
 							<MarkdownRenderer
 								content={synopsis}

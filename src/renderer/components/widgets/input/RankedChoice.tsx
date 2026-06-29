@@ -99,7 +99,7 @@ export const RankedChoice = memo(function RankedChoice({
 								type="button"
 								onClick={() => move(index, -1)}
 								disabled={disabled || index === 0}
-								className="p-1 rounded transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
+								className="focus-ring p-1 rounded transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
 								style={{ color: theme.colors.textDim }}
 								aria-label={`Move ${labelById.get(id) ?? id} up`}
 							>
@@ -109,7 +109,7 @@ export const RankedChoice = memo(function RankedChoice({
 								type="button"
 								onClick={() => move(index, 1)}
 								disabled={disabled || index === orderedIds.length - 1}
-								className="p-1 rounded transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
+								className="focus-ring p-1 rounded transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
 								style={{ color: theme.colors.textDim }}
 								aria-label={`Move ${labelById.get(id) ?? id} down`}
 							>

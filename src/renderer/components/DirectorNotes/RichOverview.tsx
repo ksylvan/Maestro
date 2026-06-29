@@ -247,7 +247,9 @@ export function RichOverview({
 			) : (
 				synopsis && (
 					<SectionCard theme={theme} title="AI Narrative" icon={FileText}>
-						<div className="director-notes-content">
+						{/* Content-driven AI output: opt back into text selection under
+						    the modal's select-none (see CLAUDE.md modal text rules). */}
+						<div className="director-notes-content select-text">
 							<style>{proseStyles}</style>
 							<MarkdownRenderer
 								content={synopsis}

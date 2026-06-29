@@ -361,6 +361,21 @@ describe('ChartErrorBoundary', () => {
 		expect(screen.getByTestId('chart-retry-button')).toBeInTheDocument();
 	});
 
+	it('derives the retry button text color from the theme (no hardcoded white)', () => {
+		// Guards the cross-theme fix: the retry button text used to be a baked-in
+		// `#ffffff`, invisible on a light accent. It must read accentForeground.
+		const themed = createMockTheme({
+			colors: { accent: '#123456', accentForeground: '#fedcba' },
+		});
+		render(
+			<ChartErrorBoundary theme={themed}>
+				<Boom />
+			</ChartErrorBoundary>
+		);
+		const retry = screen.getByTestId('chart-retry-button');
+		expect(retry).toHaveStyle({ backgroundColor: '#123456', color: '#fedcba' });
+	});
+
 	it('re-renders the child when Retry is clicked after the fault clears', () => {
 		let shouldThrow = true;
 		function Flaky() {

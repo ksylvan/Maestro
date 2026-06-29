@@ -68,7 +68,7 @@ export const Slider = memo(function Slider({
 				value={value}
 				disabled={disabled}
 				onChange={(e) => onChange(Number(e.target.value))}
-				className="w-full cursor-pointer disabled:cursor-not-allowed"
+				className="focus-ring rounded w-full cursor-pointer disabled:cursor-not-allowed"
 				style={{ accentColor: theme.colors.accent }}
 				aria-label={label}
 				aria-valuetext={display}
