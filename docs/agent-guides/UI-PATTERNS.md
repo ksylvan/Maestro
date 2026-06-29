@@ -773,6 +773,11 @@ First consumer: Director's Notes Rich Mode (`DirectorNotes/RichOverview.tsx`),
 which composes the widgets from deterministic IPC data (`getGraphData` /
 `getUnifiedHistory`) and wraps each chart in `ChartErrorBoundary`.
 
+Full reference (all output + input widget props, the input-family contract, the
+presentational-only/Encore-flag-independent rules, and the Widget Gallery dev
+command): [WIDGET-LIBRARY.md](WIDGET-LIBRARY.md). Reuse a widget from there
+before hand-rolling a stat card, chart, sparkline, or input control.
+
 ---
 
 ## Menu / Popover Sizing - Use rem, Not px
