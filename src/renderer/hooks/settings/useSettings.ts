@@ -380,6 +380,10 @@ export interface UseSettingsReturn {
 	setCoworkingBrowserInteraction: (value: string[]) => void;
 	coworkingBrowserInteractionConfirm: Record<string, BrowserConfirmPolicy>;
 	setCoworkingBrowserInteractionConfirm: (value: Record<string, BrowserConfirmPolicy>) => void;
+	coworkingBackgroundBrowsers: boolean;
+	setCoworkingBackgroundBrowsers: (value: boolean) => void;
+	coworkingBackgroundBrowsersLimit: number;
+	setCoworkingBackgroundBrowsersLimit: (value: number) => void;
 
 	// Forced Parallel Execution
 	forcedParallelExecution: boolean;

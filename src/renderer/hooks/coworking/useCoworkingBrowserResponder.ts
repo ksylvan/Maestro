@@ -23,10 +23,14 @@ import {
 	browserOpNeedsConfirm,
 	DEFAULT_BROWSER_CONFIRM_POLICY,
 } from '../../../shared/coworkingBrowser';
-import { useSessionStore, selectActiveSession } from '../../stores/sessionStore';
+import { useSessionStore, selectActiveSession, selectSessionById } from '../../stores/sessionStore';
 import { captureException } from '../../utils/sentry';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { requestCoworkingApproval } from '../../stores/coworkingApprovalStore';
+import {
+	useCoworkingBackgroundBrowserStore,
+	backgroundBrowserKey,
+} from '../../stores/coworkingBackgroundBrowserStore';
 
 /** Promise-based delay (ES2024 Promise.withResolvers, ambient-typed for the
  *  project's ES2020 lib). Used to poll for the activated tab's handle. */
@@ -150,6 +154,17 @@ export async function applyBrowserOp(
 		}
 		case 'screenshot': {
 			const dataUrl = await handle.capturePage();
+			// capturePage on a hidden/off-screen webview returns nothing (Electron
+			// captures the visible compositor surface). Surface that clearly rather
+			// than handing the agent an empty image.
+			if (!dataUrl || dataUrl.length < 64) {
+				return {
+					ok: false,
+					content:
+						'Screenshot unavailable: this browser tab is not visible (background tabs capture nothing). ' +
+						'Focus this agent to screenshot its browser tab.',
+				};
+			}
 			return { ok: true, dataUrl, content: 'captured screenshot' };
 		}
 		default:
@@ -163,61 +178,112 @@ export async function resolveAndRun(
 	tabUuid: string,
 	sessionId: string,
 	op: BrowserOp,
-	requestApproval: BrowserApprovalRequester
+	requestApproval: BrowserApprovalRequester,
+	resolveBackgroundHandle?: (
+		sessionId: string,
+		tabUuid: string
+	) => Promise<BrowserTabViewHandle | null>
 ): Promise<BrowserOpResult> {
-	const active = selectActiveSession(useSessionStore.getState());
-	if (!active || active.id !== sessionId) {
+	const state = useSessionStore.getState();
+	const active = selectActiveSession(state);
+	const isFocused = !!active && active.id === sessionId;
+	const requesting = isFocused ? active : selectSessionById(sessionId)(state);
+	if (!requesting) {
 		return {
 			ok: false,
-			content:
-				'Browser tab is not live: its Maestro agent is not currently focused. ' +
-				'list_browsers and get_browser_url still work; focus this agent to read or drive its browser tabs.',
+			content: 'Browser tab is not live: its Maestro agent session was not found.',
 		};
 	}
 
-	// Per-call approval for state-changing ops, BEFORE any focus change or side
-	// effect. read ops are never gated.
+	// Per-call approval for state-changing ops, BEFORE any focus change, mount,
+	// or side effect. read ops are never gated. Uses the REQUESTING agent's
+	// policy, not the focused one.
 	if (op.kind !== 'read') {
-		const approved = await requestApproval(op, { agentId: active.toolType, sessionId });
+		const approved = await requestApproval(op, { agentId: requesting.toolType, sessionId });
 		if (!approved) {
 			return { ok: false, content: 'Browser action declined by the user.' };
 		}
 	}
 
-	// Fast path: the tab is already mounted (visible or kept-alive hidden) - use
-	// its handle directly so we never steal focus.
-	const mounted = browserViewRefs.current.get(tabUuid);
-	if (mounted && mounted.getTabId() === tabUuid) {
-		return applyBrowserOp(mounted, op);
+	// Focused agent: operate on the live (visible or kept-alive hidden) webview.
+	if (isFocused) {
+		// Fast path: the tab is already mounted - use its handle directly so we
+		// never steal focus.
+		const mounted = browserViewRefs.current.get(tabUuid);
+		if (mounted && mounted.getTabId() === tabUuid) {
+			return applyBrowserOp(mounted, op);
+		}
+
+		// Fallback: activate the tab so it mounts, run the op, then restore the
+		// previously active browser tab. The focus guard guarantees the tab
+		// belongs to the focused agent, so activating within that agent is correct.
+		const prevActiveBrowserTabId = active.activeBrowserTabId;
+		selectBrowserTab(sessionId, tabUuid);
+		let handle: BrowserTabViewHandle | undefined;
+		for (let i = 0; i < 40; i++) {
+			await delay(50);
+			const candidate = browserViewRefs.current.get(tabUuid);
+			if (candidate && candidate.getTabId() === tabUuid) {
+				handle = candidate;
+				break;
+			}
+		}
+		try {
+			if (!handle) {
+				return {
+					ok: false,
+					content: 'Browser tab could not be mounted (it may have been closed).',
+				};
+			}
+			return await applyBrowserOp(handle, op);
+		} finally {
+			if (prevActiveBrowserTabId && prevActiveBrowserTabId !== tabUuid) {
+				selectBrowserTab(sessionId, prevActiveBrowserTabId);
+			}
+		}
 	}
 
-	// Fallback: activate the tab so it mounts, run the op, then restore the
-	// previously active browser tab. The session guard above guarantees the tab
-	// belongs to the focused agent, so activating within that agent is correct.
-	const prevActiveBrowserTabId = active.activeBrowserTabId;
-	selectBrowserTab(sessionId, tabUuid);
-	let handle: BrowserTabViewHandle | undefined;
-	for (let i = 0; i < 40; i++) {
+	// Cross-session: the requesting agent is not focused, so there is no live
+	// webview in the active UI. If the opt-in background host is available, mount
+	// the tab off-screen and operate on it without disturbing the user.
+	if (resolveBackgroundHandle) {
+		const bgHandle = await resolveBackgroundHandle(sessionId, tabUuid);
+		if (bgHandle && bgHandle.getTabId() === tabUuid) {
+			return applyBrowserOp(bgHandle, op);
+		}
+	}
+
+	return {
+		ok: false,
+		content:
+			'Browser tab is not live: its Maestro agent is not focused and background browsing is off. ' +
+			'list_browsers and get_browser_url still work; focus this agent (or enable background ' +
+			'Coworking browsers in Settings) to read or drive its browser tabs.',
+	};
+}
+
+/** Resolves a non-focused agent's tab to a live handle via the opt-in,
+ *  capped background webview host. Mounts the tab off-screen on demand and
+ *  polls for its handle. Returns null when the feature is off or the tab
+ *  cannot be mounted (then the caller surfaces a clear ok:false). */
+async function defaultResolveBackgroundHandle(
+	sessionId: string,
+	tabUuid: string
+): Promise<BrowserTabViewHandle | null> {
+	const settings = useSettingsStore.getState();
+	if (!settings.coworkingBackgroundBrowsers) return null;
+	const store = useCoworkingBackgroundBrowserStore.getState();
+	store.requestMount(sessionId, tabUuid, settings.coworkingBackgroundBrowsersLimit);
+	const key = backgroundBrowserKey(sessionId, tabUuid);
+	for (let i = 0; i < 60; i++) {
 		await delay(50);
-		const candidate = browserViewRefs.current.get(tabUuid);
-		if (candidate && candidate.getTabId() === tabUuid) {
-			handle = candidate;
-			break;
+		const handle = useCoworkingBackgroundBrowserStore.getState().handles.get(key);
+		if (handle && handle.getTabId() === tabUuid) {
+			useCoworkingBackgroundBrowserStore.getState().touch(key);
+			return handle;
 		}
 	}
-	try {
-		if (!handle) {
-			return {
-				ok: false,
-				content: 'Browser tab could not be mounted (it may have been closed).',
-			};
-		}
-		return await applyBrowserOp(handle, op);
-	} finally {
-		if (prevActiveBrowserTabId && prevActiveBrowserTabId !== tabUuid) {
-			selectBrowserTab(sessionId, prevActiveBrowserTabId);
-		}
-	}
+	return null;
 }
 
 export function useCoworkingBrowserResponder(
@@ -237,7 +303,8 @@ export function useCoworkingBrowserResponder(
 						tabUuid,
 						sessionId,
 						op,
-						defaultRequestApproval
+						defaultRequestApproval,
+						defaultResolveBackgroundHandle
 					);
 				} catch (err) {
 					// Unexpected failures degrade to a clear ok:false for the agent, but

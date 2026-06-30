@@ -56,6 +56,10 @@ export function CoworkingSetup({ theme }: CoworkingSetupProps) {
 		},
 		[browserConfirm, setBrowserConfirm]
 	);
+	const backgroundBrowsers = useSettingsStore((s) => s.coworkingBackgroundBrowsers);
+	const setBackgroundBrowsers = useSettingsStore((s) => s.setCoworkingBackgroundBrowsers);
+	const backgroundLimit = useSettingsStore((s) => s.coworkingBackgroundBrowsersLimit);
+	const setBackgroundLimit = useSettingsStore((s) => s.setCoworkingBackgroundBrowsersLimit);
 
 	const refresh = useCallback(async () => {
 		// Defensive: in test harnesses (or older preload bundles) the namespace
@@ -196,6 +200,59 @@ export function CoworkingSetup({ theme }: CoworkingSetupProps) {
 				>
 					<RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
 				</button>
+			</div>
+
+			<div
+				className="flex items-center justify-between px-3 py-2 rounded"
+				style={{
+					backgroundColor: theme.colors.bgActivity,
+					border: `1px solid ${theme.colors.border}`,
+				}}
+			>
+				<div className="min-w-0 flex-1 pr-2">
+					<div className="text-sm font-medium" style={{ color: theme.colors.textMain }}>
+						Background browsing
+					</div>
+					<div className="text-xs mt-0.5" style={{ color: theme.colors.textDim }}>
+						Let agents read and drive their own browser tabs while you are focused on a different
+						agent. Keeps hidden webviews alive (one renderer process each, LRU-capped).
+					</div>
+				</div>
+				<div className="flex items-center gap-2 shrink-0">
+					{backgroundBrowsers && (
+						<label
+							className="text-xs flex items-center gap-1"
+							style={{ color: theme.colors.textDim }}
+							title="Maximum background webviews kept alive (LRU-evicted, 1-10)"
+						>
+							Limit
+							<input
+								type="number"
+								min={1}
+								max={10}
+								value={backgroundLimit}
+								onChange={(e) => setBackgroundLimit(Number(e.target.value))}
+								className="w-12 px-1 py-0.5 rounded text-xs"
+								style={{
+									backgroundColor: theme.colors.bgMain,
+									border: `1px solid ${theme.colors.border}`,
+									color: theme.colors.textMain,
+								}}
+							/>
+						</label>
+					)}
+					<button
+						onClick={() => setBackgroundBrowsers(!backgroundBrowsers)}
+						className="text-xs px-2.5 py-1 rounded transition-colors"
+						style={{
+							backgroundColor: backgroundBrowsers ? theme.colors.accent : 'transparent',
+							border: `1px solid ${backgroundBrowsers ? theme.colors.accent : theme.colors.border}`,
+							color: backgroundBrowsers ? theme.colors.bgMain : theme.colors.textDim,
+						}}
+					>
+						{backgroundBrowsers ? 'On' : 'Off'}
+					</button>
+				</div>
 			</div>
 
 			<div className="space-y-1.5">

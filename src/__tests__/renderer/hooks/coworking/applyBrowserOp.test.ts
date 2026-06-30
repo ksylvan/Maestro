@@ -11,6 +11,11 @@ import type { Session } from '../../../../renderer/types';
 vi.mock('../../../../renderer/stores/sessionStore', () => ({
 	useSessionStore: { getState: vi.fn(() => ({})) },
 	selectActiveSession: vi.fn(),
+	selectSessionById: vi.fn(() => () => ({
+		id: 'sess-A',
+		toolType: 'claude-code',
+		activeBrowserTabId: null,
+	})),
 }));
 
 function fakeActive(id: string, activeBrowserTabId: string | null): Session {
@@ -116,10 +121,18 @@ describe('applyBrowserOp', () => {
 	});
 
 	it('screenshot returns the captured data url', async () => {
-		const capturePage = vi.fn(async () => 'data:image/png;base64,XYZ');
+		const pngUrl = 'data:image/png;base64,' + 'A'.repeat(120);
+		const capturePage = vi.fn(async () => pngUrl);
 		const res = await applyBrowserOp(makeHandle({ capturePage }), { kind: 'screenshot' });
 		expect(res.ok).toBe(true);
-		expect(res.dataUrl).toBe('data:image/png;base64,XYZ');
+		expect(res.dataUrl).toBe(pngUrl);
+	});
+
+	it('screenshot returns ok:false when the capture is blank (hidden webview)', async () => {
+		const capturePage = vi.fn(async () => '');
+		const res = await applyBrowserOp(makeHandle({ capturePage }), { kind: 'screenshot' });
+		expect(res.ok).toBe(false);
+		expect(String(res.content)).toMatch(/not visible|unavailable/i);
 	});
 });
 
@@ -234,5 +247,59 @@ describe('resolveAndRun', () => {
 			requestApproval
 		);
 		expect(requestApproval).not.toHaveBeenCalled();
+	});
+
+	it('reads a non-focused tab via the background host when provided', async () => {
+		vi.mocked(selectActiveSession).mockReturnValue(fakeActive('other', null));
+		const handle = makeHandle({ getTabId: () => 'u-1', extract: vi.fn(async () => 'BG') });
+		const resolveBackground = vi.fn(async () => handle);
+		const selectBrowserTab = vi.fn();
+		const res = await resolveAndRun(
+			{ current: new Map() },
+			selectBrowserTab,
+			'u-1',
+			'sess-A',
+			{ kind: 'read', format: 'text' },
+			allow,
+			resolveBackground
+		);
+		expect(res).toEqual({ ok: true, content: 'BG', url: 'https://e', title: 'E' });
+		expect(resolveBackground).toHaveBeenCalledWith('sess-A', 'u-1');
+		expect(selectBrowserTab).not.toHaveBeenCalled();
+	});
+
+	it('drives a non-focused tab via the background host (interaction)', async () => {
+		vi.mocked(selectActiveSession).mockReturnValue(fakeActive('other', null));
+		const reload = vi.fn();
+		const handle = makeHandle({ getTabId: () => 'u-1', reload });
+		const resolveBackground = vi.fn(async () => handle);
+		const res = await resolveAndRun(
+			{ current: new Map() },
+			vi.fn(),
+			'u-1',
+			'sess-A',
+			{ kind: 'reload' },
+			allow,
+			resolveBackground
+		);
+		expect(res.ok).toBe(true);
+		expect(reload).toHaveBeenCalled();
+	});
+
+	it('returns ok:false when the background host cannot mount the tab', async () => {
+		vi.mocked(selectActiveSession).mockReturnValue(fakeActive('other', null));
+		const resolveBackground = vi.fn(async () => null);
+		const res = await resolveAndRun(
+			{ current: new Map() },
+			vi.fn(),
+			'u-1',
+			'sess-A',
+			{ kind: 'read', format: 'text' },
+			allow,
+			resolveBackground
+		);
+		expect(res.ok).toBe(false);
+		expect(String(res.content)).toMatch(/not live/i);
+		expect(resolveBackground).toHaveBeenCalled();
 	});
 });

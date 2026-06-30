@@ -1046,6 +1046,20 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		default: {},
 		category: 'advanced',
 	},
+	coworkingBackgroundBrowsers: {
+		description:
+			'Opt-in: keep hidden background <webview>s alive so a Coworking agent can read and drive its own browser tabs while you are focused on a different agent. Each is a full renderer process.',
+		type: 'boolean',
+		default: false,
+		category: 'advanced',
+	},
+	coworkingBackgroundBrowsersLimit: {
+		description:
+			'Maximum number of background Coworking webviews kept alive at once (LRU-evicted, clamped 1-10).',
+		type: 'number',
+		default: 2,
+		category: 'advanced',
+	},
 
 	// --- System ---
 	installationId: {

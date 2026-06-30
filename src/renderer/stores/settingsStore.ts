@@ -411,6 +411,8 @@ export interface SettingsStoreState {
 	symphonyRegistryUrls: string[];
 	coworkingBrowserInteraction: string[];
 	coworkingBrowserInteractionConfirm: Record<string, BrowserConfirmPolicy>;
+	coworkingBackgroundBrowsers: boolean;
+	coworkingBackgroundBrowsersLimit: number;
 	directorNotesSettings: DirectorNotesSettings;
 	wakatimeApiKey: string;
 	wakatimeEnabled: boolean;
@@ -558,6 +560,8 @@ export interface SettingsStoreActions {
 	setSymphonyRegistryUrls: (value: string[]) => void;
 	setCoworkingBrowserInteraction: (value: string[]) => void;
 	setCoworkingBrowserInteractionConfirm: (value: Record<string, BrowserConfirmPolicy>) => void;
+	setCoworkingBackgroundBrowsers: (value: boolean) => void;
+	setCoworkingBackgroundBrowsersLimit: (value: number) => void;
 	setDirectorNotesSettings: (value: DirectorNotesSettings) => void;
 	setWakatimeApiKey: (value: string) => void;
 	setWakatimeEnabled: (value: boolean) => void;
@@ -784,6 +788,8 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		symphonyRegistryUrls: [],
 		coworkingBrowserInteraction: [],
 		coworkingBrowserInteractionConfirm: {},
+		coworkingBackgroundBrowsers: false,
+		coworkingBackgroundBrowsersLimit: 2,
 		directorNotesSettings: DEFAULT_DIRECTOR_NOTES_SETTINGS,
 		wakatimeApiKey: '',
 		wakatimeEnabled: false,
@@ -1428,6 +1434,16 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		setCoworkingBrowserInteractionConfirm: (value) => {
 			set({ coworkingBrowserInteractionConfirm: value });
 			window.maestro.settings.set('coworkingBrowserInteractionConfirm', value);
+		},
+
+		setCoworkingBackgroundBrowsers: (value) => {
+			set({ coworkingBackgroundBrowsers: value });
+			window.maestro.settings.set('coworkingBackgroundBrowsers', value);
+		},
+		setCoworkingBackgroundBrowsersLimit: (value) => {
+			const clamped = Math.min(10, Math.max(1, Math.floor(value) || 1));
+			set({ coworkingBackgroundBrowsersLimit: clamped });
+			window.maestro.settings.set('coworkingBackgroundBrowsersLimit', clamped);
 		},
 
 		setDirectorNotesSettings: (value) => {
@@ -2802,6 +2818,19 @@ export async function loadAllSettings(): Promise<void> {
 				}
 			}
 			patch.coworkingBrowserInteractionConfirm = out;
+		}
+
+		if (typeof allSettings['coworkingBackgroundBrowsers'] === 'boolean') {
+			patch.coworkingBackgroundBrowsers = allSettings['coworkingBackgroundBrowsers'];
+		}
+		if (
+			typeof allSettings['coworkingBackgroundBrowsersLimit'] === 'number' &&
+			Number.isFinite(allSettings['coworkingBackgroundBrowsersLimit'])
+		) {
+			patch.coworkingBackgroundBrowsersLimit = Math.min(
+				10,
+				Math.max(1, Math.floor(allSettings['coworkingBackgroundBrowsersLimit']) || 1)
+			);
 		}
 
 		// Director's Notes settings (merge with defaults to preserve new fields)
