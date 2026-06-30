@@ -38,6 +38,8 @@ class CoworkingRegistry {
 	// `coworkingBrowserInteraction` setting. Gates the state-changing browser
 	// tools in the bridge; read tools are always allowed.
 	private browserInteraction = new Map<string, boolean>();
+	// Per-session agent type (ToolType), mirrored from the renderer for audit logging.
+	private sessionAgentType = new Map<string, string>();
 
 	/** Replace the full set of terminals for a given session. Used on initial sync from renderer. */
 	syncSessionTerminals(sessionId: string, records: CoworkingTerminalRecord[]): void {
@@ -83,6 +85,7 @@ class CoworkingRegistry {
 		this.browserIdByTabUuid.delete(sessionId);
 		this.nextBrowserId.delete(sessionId);
 		this.browserInteraction.delete(sessionId);
+		this.sessionAgentType.delete(sessionId);
 		if (mutated) this.notify();
 	}
 
@@ -118,9 +121,11 @@ class CoworkingRegistry {
 	syncSessionBrowsers(
 		sessionId: string,
 		inputs: CoworkingBrowserInput[],
-		interactionEnabled: boolean
+		interactionEnabled: boolean,
+		agentType?: string
 	): void {
 		this.browserInteraction.set(sessionId, interactionEnabled);
+		if (agentType !== undefined) this.sessionAgentType.set(sessionId, agentType);
 		let idMap = this.browserIdByTabUuid.get(sessionId);
 		if (!idMap) {
 			idMap = new Map();
@@ -151,6 +156,11 @@ class CoworkingRegistry {
 			});
 		}
 		this.notify();
+	}
+
+	/** Agent type (ToolType) for a session, mirrored from the renderer (audit). */
+	getAgentType(sessionId: string): string | undefined {
+		return this.sessionAgentType.get(sessionId);
 	}
 
 	/** List the public-facing browser entries for a session, sorted by id. */
@@ -199,6 +209,7 @@ class CoworkingRegistry {
 		this.browserIdByTabUuid.clear();
 		this.nextBrowserId.clear();
 		this.browserInteraction.clear();
+		this.sessionAgentType.clear();
 		this.listeners.clear();
 	}
 

@@ -8,7 +8,7 @@
  * interaction-permission gate exercises the actual registry state.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 vi.mock('electron', () => ({
 	app: { getPath: () => '/tmp/coworking-test-userdata' },
@@ -59,6 +59,10 @@ import { __testing } from '../../../main/coworking/coworking-bridge';
 import * as tools from '../../../main/coworking/coworking-tools';
 import { coworkingRegistry } from '../../../main/coworking/coworking-registry';
 import type { Socket } from 'net';
+import {
+	setBrowserAuditSink,
+	type BrowserAuditEntry,
+} from '../../../main/coworking/coworking-audit';
 
 function newConn(): Socket {
 	return {} as unknown as Socket;
@@ -200,5 +204,81 @@ describe('coworking-bridge browser dispatch', () => {
 			params: { id: 'browser:1', op: { kind: 'navigate' } },
 		});
 		expect(bad.error?.code).toBe(-32602);
+	});
+});
+
+describe('coworking-bridge browser audit', () => {
+	let entries: BrowserAuditEntry[];
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		__testing.setResolveSessionFromPid(null);
+		coworkingRegistry.reset();
+		entries = [];
+		setBrowserAuditSink((e) => entries.push(e));
+	});
+
+	afterEach(() => {
+		setBrowserAuditSink(null);
+	});
+
+	it('records an ok entry with agentType for a read tool', async () => {
+		const conn = newConn();
+		__testing.connections.set(conn, { sessionId: null });
+		await helloAs(conn, 'sess-A');
+		coworkingRegistry.syncSessionBrowsers('sess-A', [], false, 'claude-code');
+		await __testing.dispatch(conn, { id: 2, method: 'listBrowsers' });
+		expect(entries).toHaveLength(1);
+		expect(entries[0]).toMatchObject({
+			sessionId: 'sess-A',
+			agentType: 'claude-code',
+			tool: 'list_browsers',
+			status: 'ok',
+		});
+		expect(typeof entries[0].ts).toBe('number');
+	});
+
+	it('records a denied entry when interaction is not enabled', async () => {
+		const conn = newConn();
+		__testing.connections.set(conn, { sessionId: null });
+		await helloAs(conn, 'sess-A');
+		const resp = await __testing.dispatch(conn, {
+			id: 2,
+			method: 'browserInteract',
+			params: { id: 'browser:1', op: { kind: 'reload' } },
+		});
+		expect(resp.error?.code).toBe(-32002);
+		expect(entries).toHaveLength(1);
+		expect(entries[0]).toMatchObject({ tool: 'browser_interact', status: 'denied' });
+	});
+
+	it('records ok with opKind + redacted detail for an allowed interaction op', async () => {
+		const conn = newConn();
+		__testing.connections.set(conn, { sessionId: null });
+		await helloAs(conn, 'sess-A');
+		coworkingRegistry.syncSessionBrowsers('sess-A', [], true, 'codex');
+		await __testing.dispatch(conn, {
+			id: 2,
+			method: 'browserInteract',
+			params: { id: 'browser:1', op: { kind: 'navigate', url: 'https://x.com' } },
+		});
+		expect(entries).toHaveLength(1);
+		expect(entries[0]).toMatchObject({
+			tool: 'browser_interact',
+			opKind: 'navigate',
+			status: 'ok',
+			agentType: 'codex',
+		});
+		expect(entries[0].detail).toContain('https://x.com');
+	});
+
+	it('records an error entry when the tool throws', async () => {
+		const conn = newConn();
+		__testing.connections.set(conn, { sessionId: null });
+		await helloAs(conn, 'sess-A');
+		vi.mocked(tools.readBrowser).mockRejectedValueOnce(new Error('boom'));
+		await __testing.dispatch(conn, { id: 2, method: 'readBrowser', params: { id: 'browser:1' } });
+		expect(entries).toHaveLength(1);
+		expect(entries[0]).toMatchObject({ tool: 'read_browser', status: 'error' });
 	});
 });

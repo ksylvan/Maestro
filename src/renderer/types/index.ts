@@ -610,6 +610,9 @@ export interface BrowserTab {
 	canGoForward: boolean; // Navigation state for toolbar forward button
 	isLoading: boolean; // Current loading state for toolbar and restore UX
 	favicon?: string | null; // Optional site icon URL/data for tab chrome
+	// When true, this tab is hidden from coworking agents: excluded from the
+	// registry so list_browsers / read_browser / interaction never see it. Persisted.
+	hiddenFromAgent?: boolean;
 	// Runtime-only: populated by the embedded Electron browser surface, never persisted
 	webContentsId?: number;
 }

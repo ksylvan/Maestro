@@ -15,6 +15,10 @@ import {
 	installForAll,
 	uninstallFor,
 } from '../../coworking/coworking-installer';
+import {
+	createDefaultBrowserAuditSink,
+	setBrowserAuditSink,
+} from '../../coworking/coworking-audit';
 import type {
 	BrowserOp,
 	BrowserOpResult,
@@ -35,6 +39,9 @@ export interface CoworkingHandlerDependencies {
 }
 
 export function registerCoworkingHandlers(deps: CoworkingHandlerDependencies): void {
+	// Wire the browser-tool audit sink (system log line + JSONL under userData).
+	setBrowserAuditSink(createDefaultBrowserAuditSink());
+
 	// ---- Settings panel ----
 
 	ipcMain.handle(
@@ -111,9 +118,10 @@ export function registerCoworkingHandlers(deps: CoworkingHandlerDependencies): v
 			async (
 				sessionId: string,
 				inputs: CoworkingBrowserInput[],
-				interactionEnabled: boolean
+				interactionEnabled: boolean,
+				agentType?: string
 			): Promise<void> => {
-				coworkingRegistry.syncSessionBrowsers(sessionId, inputs, interactionEnabled);
+				coworkingRegistry.syncSessionBrowsers(sessionId, inputs, interactionEnabled, agentType);
 			}
 		)
 	);

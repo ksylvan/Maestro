@@ -12,6 +12,8 @@ import {
 	ChevronDown,
 	ChevronUp,
 	ExternalLink,
+	Eye,
+	EyeOff,
 	Globe,
 	RotateCw,
 	X,
@@ -721,6 +723,10 @@ export const BrowserTabView = React.memo(
 			void window.maestro.shell.openExternal(tab.url);
 		}, [tab.url]);
 
+		const handleToggleHiddenFromAgent = useCallback(() => {
+			onUpdateTab(tab.id, { hiddenFromAgent: !tab.hiddenFromAgent });
+		}, [onUpdateTab, tab.id, tab.hiddenFromAgent]);
+
 		return (
 			<div className="flex-1 min-h-0 flex flex-col" data-testid="browser-tab-view">
 				<div
@@ -829,6 +835,22 @@ export const BrowserTabView = React.memo(
 							title="Open in External Browser"
 						>
 							<ExternalLink className="w-4 h-4" />
+						</button>
+						<button
+							type="button"
+							onClick={handleToggleHiddenFromAgent}
+							className="flex items-center justify-center w-8 h-8 rounded transition-colors"
+							style={{
+								color: tab.hiddenFromAgent ? theme.colors.warning : theme.colors.textDim,
+							}}
+							title={
+								tab.hiddenFromAgent
+									? 'Hidden from agents - click to expose this tab to coworking agents'
+									: 'Visible to agents - click to hide this tab from coworking agents'
+							}
+							aria-pressed={tab.hiddenFromAgent === true}
+						>
+							{tab.hiddenFromAgent ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
 						</button>
 					</div>
 				</div>

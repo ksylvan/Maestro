@@ -50,10 +50,31 @@ import {
 	readBrowser,
 	readTerminal,
 } from './coworking-tools';
+import {
+	recordBrowserAudit,
+	redactBrowserOpDetail,
+	type BrowserAuditEntry,
+} from './coworking-audit';
 
 const LOG_CTX = '[Coworking][Bridge]';
 
 let server: net.Server | null = null;
+
+/** Run a browser tool call and emit one audit record with its outcome (ok or
+ *  error). Denied calls are audited separately by the caller. */
+async function auditedBrowserCall<T>(
+	base: Omit<BrowserAuditEntry, 'ts' | 'status'>,
+	run: () => Promise<T> | T
+): Promise<T> {
+	try {
+		const result = await run();
+		recordBrowserAudit({ ...base, ts: Date.now(), status: 'ok' });
+		return result;
+	} catch (err) {
+		recordBrowserAudit({ ...base, ts: Date.now(), status: 'error' });
+		throw err;
+	}
+}
 
 /**
  * Optional fallback resolver: maps a peer-process PID (sent by the MCP
@@ -302,25 +323,37 @@ async function dispatch(
 			return { id: req.id, result };
 		}
 		if (method === 'listBrowsers') {
-			return { id: req.id, result: listBrowsers(sessionId) };
+			const agentType = coworkingRegistry.getAgentType(sessionId);
+			const result = await auditedBrowserCall({ sessionId, agentType, tool: 'list_browsers' }, () =>
+				listBrowsers(sessionId)
+			);
+			return { id: req.id, result };
 		}
 		if (method === 'getBrowserUrl') {
 			const params: Record<string, unknown> = req.params ?? {};
-			if (typeof params.id !== 'string') {
+			const id = params.id;
+			if (typeof id !== 'string') {
 				return { id: req.id, error: { code: -32602, message: '`id` is required' } };
 			}
-			return { id: req.id, result: getBrowserUrl(sessionId, { id: params.id }) };
+			const agentType = coworkingRegistry.getAgentType(sessionId);
+			const result = await auditedBrowserCall(
+				{ sessionId, agentType, tool: 'get_browser_url', detail: `id=${id}` },
+				() => getBrowserUrl(sessionId, { id })
+			);
+			return { id: req.id, result };
 		}
 		if (method === 'readBrowser') {
 			const params: Record<string, unknown> = req.params ?? {};
-			if (typeof params.id !== 'string') {
+			const id = params.id;
+			if (typeof id !== 'string') {
 				return { id: req.id, error: { code: -32602, message: '`id` is required' } };
 			}
+			const format = params.format;
 			if (
-				params.format !== undefined &&
-				params.format !== 'text' &&
-				params.format !== 'innerText' &&
-				params.format !== 'html'
+				format !== undefined &&
+				format !== 'text' &&
+				format !== 'innerText' &&
+				format !== 'html'
 			) {
 				return {
 					id: req.id,
@@ -330,26 +363,38 @@ async function dispatch(
 					},
 				};
 			}
+			const maxChars = params.maxChars;
 			if (
-				params.maxChars !== undefined &&
-				(typeof params.maxChars !== 'number' ||
-					!Number.isInteger(params.maxChars) ||
-					params.maxChars <= 0)
+				maxChars !== undefined &&
+				(typeof maxChars !== 'number' || !Number.isInteger(maxChars) || maxChars <= 0)
 			) {
 				return {
 					id: req.id,
 					error: { code: -32602, message: '`maxChars` must be a positive integer' },
 				};
 			}
-			const result = await readBrowser(sessionId, {
-				id: params.id,
-				format: params.format,
-				maxChars: params.maxChars,
-			});
+			const agentType = coworkingRegistry.getAgentType(sessionId);
+			const result = await auditedBrowserCall(
+				{
+					sessionId,
+					agentType,
+					tool: 'read_browser',
+					detail: `id=${id} format=${format ?? 'text'}`,
+				},
+				() => readBrowser(sessionId, { id, format, maxChars })
+			);
 			return { id: req.id, result };
 		}
 		if (method === 'browserInteract') {
+			const agentType = coworkingRegistry.getAgentType(sessionId);
 			if (!coworkingRegistry.isBrowserInteractionEnabled(sessionId)) {
+				recordBrowserAudit({
+					ts: Date.now(),
+					sessionId,
+					agentType,
+					tool: 'browser_interact',
+					status: 'denied',
+				});
 				return {
 					id: req.id,
 					error: {
@@ -360,14 +405,24 @@ async function dispatch(
 				};
 			}
 			const params: Record<string, unknown> = req.params ?? {};
-			if (typeof params.id !== 'string') {
+			const id = params.id;
+			if (typeof id !== 'string') {
 				return { id: req.id, error: { code: -32602, message: '`id` is required' } };
 			}
 			const op = validateInteractionOp(params.op);
 			if (!op) {
 				return { id: req.id, error: { code: -32602, message: 'invalid or missing `op`' } };
 			}
-			const result = await browserInteract(sessionId, { id: params.id, op });
+			const result = await auditedBrowserCall(
+				{
+					sessionId,
+					agentType,
+					tool: 'browser_interact',
+					opKind: op.kind,
+					detail: redactBrowserOpDetail(op),
+				},
+				() => browserInteract(sessionId, { id, op })
+			);
 			return { id: req.id, result };
 		}
 		return { id: req.id, error: { code: -32601, message: `Unknown method: ${String(method)}` } };

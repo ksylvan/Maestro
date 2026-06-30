@@ -65,7 +65,8 @@ export interface CoworkingApi {
 	syncSessionBrowsers(
 		sessionId: string,
 		inputs: CoworkingBrowserInput[],
-		interactionEnabled: boolean
+		interactionEnabled: boolean,
+		agentType?: string
 	): Promise<void>;
 
 	// ---- Browser op (main → renderer) ----
@@ -103,8 +104,14 @@ export function createCoworkingApi(): CoworkingApi {
 			ipcRenderer.send(responseChannel, content);
 		},
 
-		syncSessionBrowsers: (sessionId, inputs, interactionEnabled) =>
-			ipcRenderer.invoke('coworking:syncSessionBrowsers', sessionId, inputs, interactionEnabled),
+		syncSessionBrowsers: (sessionId, inputs, interactionEnabled, agentType) =>
+			ipcRenderer.invoke(
+				'coworking:syncSessionBrowsers',
+				sessionId,
+				inputs,
+				interactionEnabled,
+				agentType
+			),
 
 		onRequestBrowserOp: (callback) => {
 			const handler = (

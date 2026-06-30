@@ -70,17 +70,19 @@ function buildRecords(session: Session) {
 
 /** Build the per-session browser-input list from a Session. The registry assigns
  *  the stable `browser:N` id, so we only push raw tab metadata here. */
-function buildBrowserInputs(session: Session) {
+export function buildBrowserInputs(session: Session) {
 	const tabs = session.browserTabs ?? [];
-	return tabs.map((t) => ({
-		tabUuid: t.id,
-		url: t.url,
-		title: t.title,
-		favicon: t.favicon ?? undefined,
-		canGoBack: t.canGoBack,
-		canGoForward: t.canGoForward,
-		isLoading: t.isLoading,
-	}));
+	return tabs
+		.filter((t) => !t.hiddenFromAgent)
+		.map((t) => ({
+			tabUuid: t.id,
+			url: t.url,
+			title: t.title,
+			favicon: t.favicon ?? undefined,
+			canGoBack: t.canGoBack,
+			canGoForward: t.canGoForward,
+			isLoading: t.isLoading,
+		}));
 }
 
 export function useCoworkingRegistrySync(): void {
@@ -139,6 +141,7 @@ export function useCoworkingRegistrySync(): void {
 			sessionId: s.id,
 			inputs: buildBrowserInputs(s),
 			interactionEnabled: browserInteractionAgents.includes(s.toolType),
+			agentType: s.toolType,
 		}));
 		const currentIds = new Set(perSession.map((p) => p.sessionId));
 
@@ -163,8 +166,8 @@ export function useCoworkingRegistrySync(): void {
 				for (const { sessionId, records } of perSession) {
 					await bridge.syncSessionTerminals(sessionId, records);
 				}
-				for (const { sessionId, inputs, interactionEnabled } of perSessionBrowsers) {
-					await bridge.syncSessionBrowsers(sessionId, inputs, interactionEnabled);
+				for (const { sessionId, inputs, interactionEnabled, agentType } of perSessionBrowsers) {
+					await bridge.syncSessionBrowsers(sessionId, inputs, interactionEnabled, agentType);
 				}
 			} catch (err) {
 				// Roll back the optimistic payload-cache write FIRST so the next effect
