@@ -1,6 +1,21 @@
-import { describe, it, expect, vi } from 'vitest';
-import { applyBrowserOp } from '../../../../renderer/hooks/coworking/useCoworkingBrowserResponder';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+	applyBrowserOp,
+	resolveAndRun,
+} from '../../../../renderer/hooks/coworking/useCoworkingBrowserResponder';
 import type { BrowserTabViewHandle } from '../../../../renderer/components/MainPanel/BrowserTabView';
+import { selectActiveSession } from '../../../../renderer/stores/sessionStore';
+import type { Session } from '../../../../renderer/types';
+
+vi.mock('../../../../renderer/stores/sessionStore', () => ({
+	useSessionStore: { getState: vi.fn(() => ({})) },
+	selectActiveSession: vi.fn(),
+}));
+
+function fakeActive(id: string, activeBrowserTabId: string | null): Session {
+	// resolveAndRun only reads id + activeBrowserTabId; a minimal stand-in suffices.
+	return { id, activeBrowserTabId } as unknown as Session;
+}
 
 function makeHandle(overrides: Partial<BrowserTabViewHandle> = {}): BrowserTabViewHandle {
 	return {
@@ -104,5 +119,69 @@ describe('applyBrowserOp', () => {
 		const res = await applyBrowserOp(makeHandle({ capturePage }), { kind: 'screenshot' });
 		expect(res.ok).toBe(true);
 		expect(res.dataUrl).toBe('data:image/png;base64,XYZ');
+	});
+});
+
+describe('resolveAndRun', () => {
+	beforeEach(() => vi.clearAllMocks());
+
+	it('returns ok:false when the requesting session is not the focused agent', async () => {
+		vi.mocked(selectActiveSession).mockReturnValue(fakeActive('other', null));
+		const selectBrowserTab = vi.fn();
+		const res = await resolveAndRun({ current: new Map() }, selectBrowserTab, 'u-1', 'sess-A', {
+			kind: 'read',
+			format: 'text',
+		});
+		expect(res.ok).toBe(false);
+		expect(String(res.content)).toMatch(/not live/i);
+		expect(selectBrowserTab).not.toHaveBeenCalled();
+	});
+
+	it('uses an already-mounted handle without stealing focus (fast path)', async () => {
+		vi.mocked(selectActiveSession).mockReturnValue(fakeActive('sess-A', 'u-1'));
+		const handle = makeHandle({
+			getTabId: () => 'u-1',
+			extract: vi.fn(async () => 'TXT'),
+			getMeta: () => ({ url: 'https://x', title: 'X' }),
+		});
+		const selectBrowserTab = vi.fn();
+		const res = await resolveAndRun(
+			{ current: new Map([['u-1', handle]]) },
+			selectBrowserTab,
+			'u-1',
+			'sess-A',
+			{ kind: 'read', format: 'text' }
+		);
+		expect(res).toEqual({ ok: true, content: 'TXT', url: 'https://x', title: 'X' });
+		expect(selectBrowserTab).not.toHaveBeenCalled();
+	});
+
+	it('activates an unmounted tab, runs the op, then restores the previous tab', async () => {
+		vi.mocked(selectActiveSession).mockReturnValue(fakeActive('sess-A', 'prev-tab'));
+		const reload = vi.fn();
+		const handle = makeHandle({ getTabId: () => 'u-2', reload });
+		const map = new Map<string, BrowserTabViewHandle>();
+		// Activating the tab simulates it mounting by populating the ref map.
+		const selectBrowserTab = vi.fn((_sessionId: string, tabUuid: string) => {
+			if (tabUuid === 'u-2') map.set('u-2', handle);
+		});
+		const res = await resolveAndRun({ current: map }, selectBrowserTab, 'u-2', 'sess-A', {
+			kind: 'reload',
+		});
+		expect(res.ok).toBe(true);
+		expect(reload).toHaveBeenCalled();
+		expect(selectBrowserTab).toHaveBeenNthCalledWith(1, 'sess-A', 'u-2');
+		expect(selectBrowserTab).toHaveBeenNthCalledWith(2, 'sess-A', 'prev-tab');
+	});
+
+	it('returns ok:false when the tab cannot be mounted', async () => {
+		vi.mocked(selectActiveSession).mockReturnValue(fakeActive('sess-A', null));
+		const selectBrowserTab = vi.fn();
+		const res = await resolveAndRun({ current: new Map() }, selectBrowserTab, 'u-3', 'sess-A', {
+			kind: 'read',
+			format: 'text',
+		});
+		expect(res.ok).toBe(false);
+		expect(String(res.content)).toMatch(/could not be mounted/i);
 	});
 });

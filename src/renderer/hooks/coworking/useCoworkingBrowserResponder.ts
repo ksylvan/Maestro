@@ -97,7 +97,7 @@ export async function applyBrowserOp(
 	}
 }
 
-async function resolveAndRun(
+export async function resolveAndRun(
 	browserViewRefs: MutableRefObject<Map<string, BrowserTabViewHandle>>,
 	selectBrowserTab: (sessionId: string, tabUuid: string) => void,
 	tabUuid: string,
