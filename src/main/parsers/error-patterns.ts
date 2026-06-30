@@ -519,6 +519,18 @@ const CODEX_ERROR_PATTERNS: AgentErrorPatterns = {
 
 	session_not_found: [
 		{
+			// `codex exec resume <id>` when the rollout file backing the thread is
+			// gone (e.g. pruned, or written by a different/older Codex version).
+			// The CLI exits 1 with stderr like:
+			//   "thread/resume: thread/resume failed: no rollout found for thread id <uuid>"
+			// Without this pattern it fell through to a dead-end "Agent exited with
+			// code 1" crash instead of Maestro's in-place fresh-session recovery
+			// (which re-seeds the prior conversation from the tab transcript). See #1042.
+			pattern: /no rollout found|rollout not found/i,
+			message: 'Previous Codex session could not be found. Starting fresh conversation.',
+			recoverable: true,
+		},
+		{
 			pattern: /session.*not found/i,
 			message: 'Session not found. Starting fresh conversation.',
 			recoverable: true,
@@ -678,6 +690,15 @@ const FACTORY_DROID_ERROR_PATTERNS: AgentErrorPatterns = {
 // ============================================================================
 
 /**
+ * Actionable message shown when an SSH remote host appears to be Windows.
+ * Maestro currently builds the remote command for a POSIX shell only
+ * (see ssh-command-builder.ts: /bin/bash --norc --noprofile + single-quote
+ * escaping), so Windows remotes are not yet supported. Tracked by issue #995.
+ */
+const WINDOWS_REMOTE_UNSUPPORTED_MESSAGE =
+	'SSH execution to Windows remote hosts is not yet supported (Maestro builds the remote command for a POSIX shell). See issue #995.';
+
+/**
  * Error patterns for SSH remote execution errors.
  * These are checked separately from agent-specific patterns because they can
  * occur when ANY agent runs via SSH remote execution.
@@ -781,6 +802,30 @@ export const SSH_ERROR_PATTERNS: AgentErrorPatterns = {
 	],
 
 	agent_crashed: [
+		// Windows remote host detection (issue #995).
+		// Maestro builds the remote command for a POSIX shell. When the SSH
+		// remote is Windows, its default shell (cmd.exe or PowerShell) cannot
+		// run /bin/bash and the process dies with a bare exit 1. The phrases
+		// below are emitted ONLY by Windows shells, never by a POSIX shell, so
+		// POSIX remotes are never affected by these patterns.
+		{
+			// cmd.exe: "'/bin/bash' is not recognized as an internal or external command"
+			pattern: /is not recognized as an internal or external command/i,
+			message: WINDOWS_REMOTE_UNSUPPORTED_MESSAGE,
+			recoverable: false,
+		},
+		{
+			// PowerShell: "The term '/bin/bash' is not recognized as the name of a cmdlet"
+			pattern: /is not recognized as the name of a cmdlet/i,
+			message: WINDOWS_REMOTE_UNSUPPORTED_MESSAGE,
+			recoverable: false,
+		},
+		{
+			// cmd.exe / Windows API: "The system cannot find the path specified"
+			pattern: /the system cannot find the path specified/i,
+			message: WINDOWS_REMOTE_UNSUPPORTED_MESSAGE,
+			recoverable: false,
+		},
 		{
 			// Agent command not found (shell reports command not found)
 			// bash/sh format: "bash: claude: command not found"
@@ -983,6 +1028,126 @@ const COPILOT_ERROR_PATTERNS: AgentErrorPatterns = {
 	],
 };
 
+const PI_ERROR_PATTERNS: AgentErrorPatterns = {
+	auth_expired: [
+		{
+			pattern: /invalid api key|authentication failed|unauthorized|not authenticated/i,
+			message: 'Pi authentication failed. Check the selected provider credentials.',
+			recoverable: true,
+		},
+	],
+	rate_limited: [
+		{
+			pattern: /rate limit|too many requests|\b429\b|quota exceeded/i,
+			message: 'Pi provider rate limit exceeded. Please wait and try again.',
+			recoverable: true,
+		},
+	],
+	token_exhaustion: [
+		{
+			pattern: /context.*(exceeded|too long)|maximum.*tokens|prompt.*too long/i,
+			message: 'Pi context limit exceeded. Start a new session.',
+			recoverable: true,
+		},
+	],
+	network_error: [
+		{
+			pattern: /connection (failed|refused|reset)|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND/i,
+			message: 'Pi could not reach the selected provider. Check your network connection.',
+			recoverable: true,
+		},
+	],
+};
+
+const QWEN_ERROR_PATTERNS: AgentErrorPatterns = {
+	auth_expired: [
+		{
+			pattern: /invalid api key|authentication failed|unauthorized|not authenticated|401/i,
+			message: 'Qwen Code authentication failed. Re-authenticate your Qwen account or API key.',
+			recoverable: true,
+		},
+	],
+	rate_limited: [
+		{
+			pattern: /rate limit|too many requests|\b429\b|quota exceeded/i,
+			message: 'Qwen Code rate limit exceeded. Please wait and try again.',
+			recoverable: true,
+		},
+	],
+	token_exhaustion: [
+		{
+			pattern: /context.*(exceeded|too long)|maximum.*tokens|prompt.*too long/i,
+			message: 'Qwen Code context limit exceeded. Start a new session.',
+			recoverable: true,
+		},
+	],
+	network_error: [
+		{
+			pattern: /connection (failed|refused|reset)|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND/i,
+			message: 'Qwen Code could not reach the model provider. Check your network connection.',
+			recoverable: true,
+		},
+	],
+	agent_crashed: [
+		{
+			pattern: /\b(fatal|unexpected|internal|unhandled)\s+error\b/i,
+			message: 'An unexpected error occurred in the agent.',
+			recoverable: false,
+		},
+	],
+	session_not_found: [
+		{
+			pattern: /session.*not found|no conversation found with session id/i,
+			message: 'Session not found. Starting fresh conversation.',
+			recoverable: true,
+		},
+		{
+			pattern: /invalid.*session/i,
+			message: 'Invalid session. Starting fresh conversation.',
+			recoverable: true,
+		},
+	],
+};
+
+const OMP_ERROR_PATTERNS: AgentErrorPatterns = {
+	auth_expired: [
+		{
+			pattern:
+				/invalid api key|authentication failed|unauthorized|not authenticated|missing api key/i,
+			message: 'Oh My Pi authentication failed. Check the selected provider credentials.',
+			recoverable: true,
+		},
+	],
+	rate_limited: [
+		{
+			pattern: /rate limit|too many requests|\b429\b|quota exceeded/i,
+			message: 'Oh My Pi provider rate limit exceeded. Please wait and try again.',
+			recoverable: true,
+		},
+	],
+	token_exhaustion: [
+		{
+			pattern: /context.*(exceeded|too long)|maximum.*tokens|prompt.*too long/i,
+			message: 'Oh My Pi context limit exceeded. Start a new session.',
+			recoverable: true,
+		},
+	],
+	network_error: [
+		{
+			pattern: /connection (failed|refused|reset)|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND/i,
+			message: 'Oh My Pi could not reach the selected provider. Check your network connection.',
+			recoverable: true,
+		},
+	],
+	agent_crashed: [
+		{
+			pattern: /panic|fatal error|unhandled exception|segmentation fault/i,
+			message: 'Oh My Pi crashed unexpectedly. Check the logs and try again.',
+			recoverable: true,
+		},
+	],
+};
+
 // ============================================================================
 // Pattern Registry
 // ============================================================================
@@ -993,6 +1158,9 @@ const patternRegistry = new Map<ToolType, AgentErrorPatterns>([
 	['codex', CODEX_ERROR_PATTERNS],
 	['factory-droid', FACTORY_DROID_ERROR_PATTERNS],
 	['copilot-cli', COPILOT_ERROR_PATTERNS],
+	['pi', PI_ERROR_PATTERNS],
+	['qwen3-coder', QWEN_ERROR_PATTERNS],
+	['omp', OMP_ERROR_PATTERNS],
 ]);
 
 /**

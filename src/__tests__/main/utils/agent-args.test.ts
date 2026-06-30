@@ -10,6 +10,7 @@ import {
 	applyAgentConfigOverrides,
 	getContextWindowValue,
 } from '../../../main/utils/agent-args';
+import { AGENT_DEFINITIONS } from '../../../main/agents/definitions';
 import type { AgentConfig } from '../../../main/agents';
 
 vi.mock('../../../main/utils/logger', () => ({
@@ -369,6 +370,97 @@ describe('buildAgentArgs', () => {
 			'--resume',
 			'abc',
 		]);
+	});
+
+	it('builds Hermes batch args for the documented Maestro launch path', () => {
+		const hermes = AGENT_DEFINITIONS.find((agent) => agent.id === 'hermes');
+		expect(hermes).toBeDefined();
+		const prompt = 'Summarize the current branch status';
+
+		const baseArgs = buildAgentArgs(hermes!, {
+			baseArgs: [],
+			prompt,
+			modelId: 'anthropic/claude-sonnet-4-20250514',
+		});
+		const result = [...baseArgs, ...hermes!.promptArgs!(prompt)];
+
+		expect(result).toEqual([
+			'chat',
+			'-Q',
+			'--yolo',
+			'-m',
+			'anthropic/claude-sonnet-4-20250514',
+			'-q',
+			'Summarize the current branch status',
+		]);
+	});
+
+	it('builds Pi batch args for the documented Maestro launch path', () => {
+		const pi = AGENT_DEFINITIONS.find((agent) => agent.id === 'pi');
+		expect(pi).toBeDefined();
+		const prompt = 'Plan the next implementation step';
+
+		const baseArgs = buildAgentArgs(pi!, {
+			baseArgs: [],
+			prompt,
+			modelId: 'claude-sonnet-4.5',
+		});
+		const result = [...baseArgs, prompt];
+
+		expect(result).toEqual([
+			'-p',
+			'--mode',
+			'json',
+			'--model',
+			'claude-sonnet-4.5',
+			'Plan the next implementation step',
+		]);
+		expect(pi!.imageArgs!('/tmp/screenshot.png')).toEqual(['@/tmp/screenshot.png']);
+		expect(
+			buildAgentArgs(pi!, {
+				baseArgs: [],
+				prompt,
+				agentSessionId: 'pi-session-1',
+				readOnlyMode: true,
+			})
+		).toEqual([
+			'-p',
+			'--mode',
+			'json',
+			'--tools',
+			'read,grep,find,ls',
+			'--session',
+			'pi-session-1',
+		]);
+		expect(
+			pi!.configOptions?.find((option) => option.key === 'model')?.argBuilder?.('gpt-5')
+		).toEqual(['--model', 'gpt-5']);
+	});
+
+	it('builds Qwen read-only args with --approval-mode plan and never -y', () => {
+		const qwen = AGENT_DEFINITIONS.find((agent) => agent.id === 'qwen3-coder');
+		expect(qwen).toBeDefined();
+		const result = buildAgentArgs(qwen!, {
+			baseArgs: [],
+			prompt: 'review this code',
+			readOnlyMode: true,
+		});
+		// batchModeArgs (-y) is skipped in read-only; plan mode denies write/shell/edit
+		expect(result).toContain('--approval-mode');
+		expect(result).toContain('plan');
+		expect(result).not.toContain('-y');
+	});
+
+	it('builds omp read-only args restricting tools to read/search', () => {
+		const omp = AGENT_DEFINITIONS.find((agent) => agent.id === 'omp');
+		expect(omp).toBeDefined();
+		const result = buildAgentArgs(omp!, {
+			baseArgs: [],
+			prompt: 'review this code',
+			readOnlyMode: true,
+		});
+		expect(result).toContain('--tools');
+		expect(result).toContain('read,grep,glob');
 	});
 
 	// -- readOnlyMode + batchModeArgs interaction (TASK-S05) --

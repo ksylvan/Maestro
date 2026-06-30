@@ -4,6 +4,7 @@ import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { FilePreview } from '../../../renderer/components/FilePreview';
 import { formatShortcutKeys } from '../../../renderer/utils/shortcutFormatter';
 import { useSettingsStore } from '../../../renderer/stores/settingsStore';
+import { useImageAnnotatorStore } from '../../../renderer/components/ImageAnnotator/imageAnnotatorStore';
 
 import { mockTheme } from '../../helpers/mockTheme';
 // Mock lucide-react icons
@@ -38,6 +39,11 @@ vi.mock('lucide-react', () => ({
 	Database: () => <span data-testid="database-icon">Database</span>,
 	WrapText: () => <span data-testid="wraptext-icon">WrapText</span>,
 	AppWindow: () => <span data-testid="appwindow-icon">AppWindow</span>,
+	// Icons added by the search-kind toggle (text/regex/literal).
+	Filter: () => <span data-testid="filter-icon">Filter</span>,
+	Type: () => <span data-testid="type-icon">Type</span>,
+	Regex: () => <span data-testid="regex-icon">Regex</span>,
+	Hash: () => <span data-testid="hash-icon">Hash</span>,
 }));
 
 // Mock react-markdown
@@ -176,6 +182,18 @@ vi.mock('../../../shared/gitUtils', () => ({
 	isImageFile: (filename: string) => /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(filename),
 }));
 
+// Mock MarkdownEditor. The real editor wraps CodeMirror, which jsdom can't
+// satisfy `getByRole('textbox')` against. A bare `<textarea>` lets us keep
+// the FilePreview wiring tests (controlled vs. internal editContent, onChange
+// fan-out) without coupling to CodeMirror internals.
+vi.mock('../../../renderer/components/FilePreview/markdownEditor', () => ({
+	MarkdownEditor: React.forwardRef<unknown, { value: string; onChange: (v: string) => void }>(
+		({ value, onChange }, _ref) => (
+			<textarea value={value} onChange={(e) => onChange(e.target.value)} />
+		)
+	),
+}));
+
 const defaultProps = {
 	file: { name: 'test.md', content: '# Hello World', path: '/test/test.md' },
 	onClose: vi.fn(),
@@ -300,6 +318,38 @@ describe('FilePreview', () => {
 			render(<FilePreview {...defaultProps} sshRemoteId="remote-host-1" />);
 
 			expect(screen.queryByTestId('external-link-icon')).not.toBeInTheDocument();
+		});
+	});
+
+	describe('Mermaid (.mmd) preview', () => {
+		const mermaidFile = {
+			name: 'diagram.mmd',
+			content: 'flowchart TB\n  A[Start] --> B[End]',
+			path: '/test/diagram.mmd',
+		};
+
+		it('renders .mmd files as a diagram instead of raw text', () => {
+			render(<FilePreview {...defaultProps} file={mermaidFile} />);
+
+			expect(screen.getByTestId('mermaid-renderer')).toBeInTheDocument();
+			expect(screen.queryByTestId('syntax-highlighter')).not.toBeInTheDocument();
+		});
+
+		it('also renders the uppercase .MERMAID extension as a diagram', () => {
+			render(
+				<FilePreview
+					{...defaultProps}
+					file={{ ...mermaidFile, name: 'diagram.MERMAID', path: '/test/diagram.MERMAID' }}
+				/>
+			);
+
+			expect(screen.getByTestId('mermaid-renderer')).toBeInTheDocument();
+		});
+
+		it('shows the raw source instead of the diagram in edit mode', () => {
+			render(<FilePreview {...defaultProps} file={mermaidFile} markdownEditMode={true} />);
+
+			expect(screen.queryByTestId('mermaid-renderer')).not.toBeInTheDocument();
 		});
 	});
 
@@ -581,6 +631,51 @@ describe('FilePreview', () => {
 
 			vi.useRealTimers();
 		});
+
+		it('shows the missing-on-disk banner when polling stat throws (file gone)', async () => {
+			vi.useFakeTimers();
+
+			// stat rejects: the file no longer resolves at its cached path.
+			window.maestro.fs.stat = vi.fn().mockRejectedValue(new Error('ENOENT'));
+
+			render(<FilePreview {...defaultProps} lastModified={1000} onReloadFile={vi.fn()} />);
+
+			expect(
+				screen.queryByText(/no longer exists at its original location/)
+			).not.toBeInTheDocument();
+
+			await act(async () => {
+				vi.advanceTimersByTime(3000);
+			});
+
+			expect(screen.getByText(/no longer exists at its original location/)).toBeInTheDocument();
+			// There is nothing to reload, so no Reload button is offered.
+			expect(screen.queryByText('Reload')).not.toBeInTheDocument();
+
+			vi.useRealTimers();
+		});
+
+		it('dismisses the missing-on-disk banner when Dismiss is clicked', async () => {
+			vi.useFakeTimers();
+
+			window.maestro.fs.stat = vi.fn().mockRejectedValue(new Error('ENOENT'));
+
+			render(<FilePreview {...defaultProps} lastModified={1000} onReloadFile={vi.fn()} />);
+
+			await act(async () => {
+				vi.advanceTimersByTime(3000);
+			});
+
+			expect(screen.getByText(/no longer exists at its original location/)).toBeInTheDocument();
+
+			fireEvent.click(screen.getByText('Dismiss'));
+
+			expect(
+				screen.queryByText(/no longer exists at its original location/)
+			).not.toBeInTheDocument();
+
+			vi.useRealTimers();
+		});
 	});
 
 	describe('text file editing', () => {
@@ -623,7 +718,7 @@ describe('FilePreview', () => {
 			expect(screen.getByTestId('edit-icon')).toBeInTheDocument();
 		});
 
-		it('does not show edit button for image files', () => {
+		it('does not show the text edit toggle for image files', () => {
 			render(
 				<FilePreview
 					{...defaultProps}
@@ -635,7 +730,39 @@ describe('FilePreview', () => {
 				/>
 			);
 
-			expect(screen.queryByTestId('edit-icon')).not.toBeInTheDocument();
+			// Images can be opened in the annotator ("Edit image"), but never get
+			// the text/markdown edit-mode toggle.
+			expect(screen.queryByTestId('edit-text-toggle')).not.toBeInTheDocument();
+		});
+
+		it('opens the image annotator on the toggleMarkdownMode shortcut (Cmd+E)', () => {
+			const openAnnotator = vi.fn();
+			useImageAnnotatorStore.setState({ openAnnotator });
+
+			const { container } = render(
+				<FilePreview
+					{...defaultProps}
+					file={{
+						name: 'image.png',
+						content: 'data:image/png;base64,abc',
+						path: '/test/image.png',
+					}}
+					shortcuts={{
+						toggleMarkdownMode: {
+							id: 'toggleMarkdownMode',
+							label: 'Toggle Edit/Preview',
+							keys: ['Meta', 'e'],
+						},
+					}}
+				/>
+			);
+
+			const previewContainer = container.querySelector('[tabindex="0"]');
+			expect(previewContainer).not.toBeNull();
+
+			fireEvent.keyDown(previewContainer!, { key: 'e', metaKey: true });
+
+			expect(openAnnotator).toHaveBeenCalledWith('data:image/png;base64,abc', expect.any(Function));
 		});
 
 		it('toggles to edit mode when edit button is clicked', () => {
@@ -669,83 +796,12 @@ describe('FilePreview', () => {
 		});
 	});
 
-	describe('edit mode keyboard navigation', () => {
-		const multiLineContent = 'Line 1\nLine 2\nLine 3\nLine 4\nLine 5';
-
-		it('Cmd+Shift+Up selects from cursor to beginning of document', () => {
-			render(
-				<FilePreview
-					{...defaultProps}
-					file={{ name: 'test.txt', content: multiLineContent, path: '/test/test.txt' }}
-					markdownEditMode={true}
-				/>
-			);
-
-			const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
-			// Place cursor at position 14 (start of Line 3)
-			textarea.setSelectionRange(14, 14);
-
-			fireEvent.keyDown(textarea, { key: 'ArrowUp', metaKey: true, shiftKey: true });
-
-			expect(textarea.selectionStart).toBe(0);
-			expect(textarea.selectionEnd).toBe(14);
-		});
-
-		it('Cmd+Shift+Down selects from cursor to end of document', () => {
-			render(
-				<FilePreview
-					{...defaultProps}
-					file={{ name: 'test.txt', content: multiLineContent, path: '/test/test.txt' }}
-					markdownEditMode={true}
-				/>
-			);
-
-			const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
-			// Place cursor at position 14 (start of Line 3)
-			textarea.setSelectionRange(14, 14);
-
-			fireEvent.keyDown(textarea, { key: 'ArrowDown', metaKey: true, shiftKey: true });
-
-			expect(textarea.selectionStart).toBe(14);
-			expect(textarea.selectionEnd).toBe(multiLineContent.length);
-		});
-
-		it('Cmd+Up moves cursor to beginning without selection', () => {
-			render(
-				<FilePreview
-					{...defaultProps}
-					file={{ name: 'test.txt', content: multiLineContent, path: '/test/test.txt' }}
-					markdownEditMode={true}
-				/>
-			);
-
-			const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
-			textarea.setSelectionRange(14, 14);
-
-			fireEvent.keyDown(textarea, { key: 'ArrowUp', metaKey: true });
-
-			expect(textarea.selectionStart).toBe(0);
-			expect(textarea.selectionEnd).toBe(0);
-		});
-
-		it('Cmd+Down moves cursor to end without selection', () => {
-			render(
-				<FilePreview
-					{...defaultProps}
-					file={{ name: 'test.txt', content: multiLineContent, path: '/test/test.txt' }}
-					markdownEditMode={true}
-				/>
-			);
-
-			const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
-			textarea.setSelectionRange(14, 14);
-
-			fireEvent.keyDown(textarea, { key: 'ArrowDown', metaKey: true });
-
-			expect(textarea.selectionStart).toBe(multiLineContent.length);
-			expect(textarea.selectionEnd).toBe(multiLineContent.length);
-		});
-	});
+	// `edit mode keyboard navigation` tests were removed when FilePreview's edit
+	// surface was swapped from a raw <textarea> to CodeMirror. Cmd+Up/Down and
+	// Cmd+Shift+Up/Down are now provided by CodeMirror's `defaultKeymap`
+	// (cursorDocStart / cursorDocEnd / selectDocStart / selectDocEnd) — there's
+	// no FilePreview-level handler to test, so the old tests would have only
+	// exercised our mock.
 
 	describe('basic rendering', () => {
 		it('renders file preview with file name', () => {

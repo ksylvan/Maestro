@@ -403,6 +403,7 @@ export const THEMES: Record<ThemeId, Theme> = {
 		mode: 'dark',
 		colors: {
 			bgMain: '#282a36',
+			bgTitleBar: '#282a36',
 			bgSidebar: '#21222c',
 			bgActivity: '#343746',
 			border: '#44475a',
@@ -424,6 +425,7 @@ export const THEMES: Record<ThemeId, Theme> = {
 		mode: 'dark',
 		colors: {
 			bgMain: '#272822',
+			bgTitleBar: '#272822',
 			bgSidebar: '#1e1f1c',
 			bgActivity: '#3e3d32',
 			border: '#49483e',
@@ -445,6 +447,7 @@ export const THEMES: Record<ThemeId, Theme> = {
 		mode: 'dark',
 		colors: {
 			bgMain: '#2e3440',
+			bgTitleBar: '#2e3440',
 			bgSidebar: '#3b4252',
 			bgActivity: '#434c5e',
 			border: '#4c566a',
@@ -466,6 +469,7 @@ export const THEMES: Record<ThemeId, Theme> = {
 		mode: 'dark',
 		colors: {
 			bgMain: '#1a1b26',
+			bgTitleBar: '#1a1b26',
 			bgSidebar: '#16161e',
 			bgActivity: '#24283b',
 			border: '#414868',
@@ -487,6 +491,7 @@ export const THEMES: Record<ThemeId, Theme> = {
 		mode: 'dark',
 		colors: {
 			bgMain: '#1e1e2e',
+			bgTitleBar: '#1e1e2e',
 			bgSidebar: '#181825',
 			bgActivity: '#313244',
 			border: '#45475a',
@@ -508,6 +513,7 @@ export const THEMES: Record<ThemeId, Theme> = {
 		mode: 'dark',
 		colors: {
 			bgMain: '#282828',
+			bgTitleBar: '#282828',
 			bgSidebar: '#1d2021',
 			bgActivity: '#3c3836',
 			border: '#504945',
@@ -529,6 +535,7 @@ export const THEMES: Record<ThemeId, Theme> = {
 		mode: 'dark',
 		colors: {
 			bgMain: '#002b36',
+			bgTitleBar: '#002b36',
 			bgSidebar: '#073642',
 			bgActivity: '#0a4050',
 			border: '#2f4f56',
@@ -543,6 +550,27 @@ export const THEMES: Record<ThemeId, Theme> = {
 			error: '#dc322f',
 		},
 	},
+	'olive-nights': {
+		id: 'olive-nights',
+		name: 'Olive Nights',
+		mode: 'dark',
+		colors: {
+			bgMain: '#0a0b0a',
+			bgTitleBar: '#0a0b0a',
+			bgSidebar: '#0a0a0a',
+			bgActivity: '#111311',
+			border: '#0f0f0f',
+			textMain: '#f2ebc0',
+			textDim: '#cec8ba',
+			accent: '#5b675b',
+			accentDim: 'rgba(31, 43, 31, 1)',
+			accentText: '#ffffff',
+			accentForeground: '#fcfcfc',
+			success: '#bed78e',
+			warning: '#d0a795',
+			error: '#ff5555',
+		},
+	},
 	// Light themes
 	'github-light': {
 		id: 'github-light',
@@ -550,6 +578,7 @@ export const THEMES: Record<ThemeId, Theme> = {
 		mode: 'light',
 		colors: {
 			bgMain: '#ffffff',
+			bgTitleBar: '#ffffff',
 			bgSidebar: '#f6f8fa',
 			bgActivity: '#eff2f5',
 			border: '#d0d7de',
@@ -571,6 +600,7 @@ export const THEMES: Record<ThemeId, Theme> = {
 		mode: 'light',
 		colors: {
 			bgMain: '#fdf6e3',
+			bgTitleBar: '#fdf6e3',
 			bgSidebar: '#eee8d5',
 			bgActivity: '#e6dfc8',
 			border: '#d3cbb7',
@@ -592,6 +622,7 @@ export const THEMES: Record<ThemeId, Theme> = {
 		mode: 'light',
 		colors: {
 			bgMain: '#fafafa',
+			bgTitleBar: '#fafafa',
 			bgSidebar: '#eaeaeb',
 			bgActivity: '#dbdbdc',
 			border: '#c8c8c9',
@@ -613,6 +644,7 @@ export const THEMES: Record<ThemeId, Theme> = {
 		mode: 'light',
 		colors: {
 			bgMain: '#fbf1c7',
+			bgTitleBar: '#fbf1c7',
 			bgSidebar: '#ebdbb2',
 			bgActivity: '#d5c4a1',
 			border: '#bdae93',
@@ -634,6 +666,7 @@ export const THEMES: Record<ThemeId, Theme> = {
 		mode: 'light',
 		colors: {
 			bgMain: '#eff1f5',
+			bgTitleBar: '#eff1f5',
 			bgSidebar: '#e6e9ef',
 			bgActivity: '#dce0e8',
 			border: '#acb0be',
@@ -655,6 +688,7 @@ export const THEMES: Record<ThemeId, Theme> = {
 		mode: 'light',
 		colors: {
 			bgMain: '#fafafa',
+			bgTitleBar: '#fafafa',
 			bgSidebar: '#f3f4f5',
 			bgActivity: '#e7e8e9',
 			border: '#d9d9d9',
@@ -677,6 +711,7 @@ export const THEMES: Record<ThemeId, Theme> = {
 		mode: 'vibe',
 		colors: {
 			bgMain: '#1a0f24',
+			bgTitleBar: '#1a0f24',
 			bgSidebar: '#140a1c',
 			bgActivity: '#2a1a3a',
 			border: '#4a2a6a',
@@ -698,6 +733,7 @@ export const THEMES: Record<ThemeId, Theme> = {
 		mode: 'vibe',
 		colors: {
 			bgMain: '#1a1a24',
+			bgTitleBar: '#1a1a24',
 			bgSidebar: '#141420',
 			bgActivity: '#24243a',
 			border: '#3a3a5a',
@@ -719,6 +755,7 @@ export const THEMES: Record<ThemeId, Theme> = {
 		mode: 'vibe',
 		colors: {
 			bgMain: '#0d0221',
+			bgTitleBar: '#0d0221',
 			bgSidebar: '#0a0118',
 			bgActivity: '#150530',
 			border: '#00d4aa',
@@ -740,9 +777,10 @@ export const THEMES: Record<ThemeId, Theme> = {
 		mode: 'vibe',
 		colors: {
 			bgMain: '#0a0a0a',
-			bgSidebar: '#050505',
+			bgTitleBar: '#0a0a0a',
+			bgSidebar: '#252323',
 			bgActivity: '#141414',
-			border: '#2a2a2a',
+			border: '#4a3838',
 			textMain: '#f5f5f5',
 			textDim: '#888888',
 			accent: '#cc0033',
@@ -761,6 +799,7 @@ export const THEMES: Record<ThemeId, Theme> = {
 		mode: 'vibe',
 		colors: {
 			bgMain: '#232323',
+			bgTitleBar: '#232323',
 			bgSidebar: '#1a1a1a',
 			bgActivity: '#3a3a3a',
 			border: '#4a4a4a',
@@ -783,6 +822,7 @@ export const THEMES: Record<ThemeId, Theme> = {
 		mode: 'dark',
 		colors: {
 			bgMain: '#282a36',
+			bgTitleBar: '#282a36',
 			bgSidebar: '#21222c',
 			bgActivity: '#343746',
 			border: '#44475a',

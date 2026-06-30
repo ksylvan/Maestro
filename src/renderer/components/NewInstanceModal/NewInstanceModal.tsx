@@ -4,9 +4,12 @@ import type { AgentConfig, Session, ToolType } from '../../types';
 import type { SshRemoteConfig, AgentSshRemoteConfig } from '../../../shared/types';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 import { validateNewSession } from '../../utils/sessionValidation';
+import { isAdaptiveModeDefaultOn } from '../../../shared/agentConstants';
 import { FormInput } from '../ui/FormInput';
 import { Modal, ModalFooter } from '../ui/Modal';
 import { SshRemoteSelector } from '../shared/SshRemoteSelector';
+import { ThemedSelect } from '../shared/ThemedSelect';
+import { useSessionStore } from '../../stores/sessionStore';
 import { formatShortcutKeys } from '../../utils/shortcutFormatter';
 import type { AgentDebugInfo, NewInstanceModalProps } from './types';
 import { SUPPORTED_AGENTS, NEW_SESSION_MESSAGE_MAX_LENGTH } from './types';
@@ -15,6 +18,7 @@ import { NudgeMessageField } from './NudgeMessageField';
 import { RemotePathStatus } from './RemotePathStatus';
 import { AgentPickerGrid } from './AgentPickerGrid';
 import { logger } from '../../utils/logger';
+import { gitService } from '../../services/git';
 
 export function NewInstanceModal({
 	isOpen,
@@ -42,6 +46,9 @@ export function NewInstanceModal({
 		Record<string, Record<string, string>>
 	>({});
 	const [enableMaestroPByAgent, setEnableMaestroPByAgent] = useState<Record<string, boolean>>({});
+	const [maestroPModeByAgent, setMaestroPModeByAgent] = useState<
+		Record<string, 'interactive' | 'dynamic'>
+	>({});
 	const [maestroPPathByAgent, setMaestroPPathByAgent] = useState<Record<string, string>>({});
 	const [detectedMaestroPPath, setDetectedMaestroPPath] = useState<string | undefined>(undefined);
 	const [agentConfigs, setAgentConfigs] = useState<Record<string, Record<string, any>>>({});
@@ -52,6 +59,11 @@ export function NewInstanceModal({
 	);
 	const [loadingDynamicOptions, setLoadingDynamicOptions] = useState<Record<string, boolean>>({});
 	const [directoryWarningAcknowledged, setDirectoryWarningAcknowledged] = useState(false);
+	// Git repo status of the selected working directory.
+	// 'unknown' = haven't checked yet, 'is-repo' / 'not-repo' = checked.
+	const [gitRepoStatus, setGitRepoStatus] = useState<'unknown' | 'is-repo' | 'not-repo'>('unknown');
+	const [isInitializingRepo, setIsInitializingRepo] = useState(false);
+	const [initRepoError, setInitRepoError] = useState<string | null>(null);
 	// SSH Remote configuration
 	const [sshRemotes, setSshRemotes] = useState<SshRemoteConfig[]>([]);
 	const [agentSshRemoteConfigs, setAgentSshRemoteConfigs] = useState<
@@ -59,6 +71,11 @@ export function NewInstanceModal({
 	>({});
 	// SSH connection error state - shown when we can't connect to the selected remote
 	const [sshConnectionError, setSshConnectionError] = useState<string | null>(null);
+
+	// Group placement: '' means "No Group (Ungrouped)". Initialized when the modal
+	// opens from the source session (when duplicating) or the caller's preset.
+	const [selectedGroupId, setSelectedGroupId] = useState<string>('');
+	const groups = useSessionStore((s) => s.groups);
 
 	const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -178,6 +195,7 @@ export function NewInstanceModal({
 				setCustomAgentArgs({});
 				setCustomAgentEnvVars({});
 				setEnableMaestroPByAgent({});
+				setMaestroPModeByAgent({});
 				setMaestroPPathByAgent({});
 				setAgentSshRemoteConfigs({});
 			}
@@ -266,6 +284,28 @@ export function NewInstanceModal({
 					...prev,
 					[source.toolType]: source.customEnvVars || {},
 				}));
+				// Mirror the source agent's EXPLICIT Adaptive Mode choice so a duplicate
+				// inherits it. When the source never configured a token source, leave the
+				// entry unset so the duplicate falls through to the same default path as a
+				// fresh agent (see agentEnableMaestroP below) instead of pinning a falsy
+				// default as if it were an explicit "API" choice.
+				setEnableMaestroPByAgent((prev) => {
+					const next = { ...prev };
+					if (source.enableMaestroP === undefined) {
+						delete next[source.toolType];
+					} else {
+						next[source.toolType] = source.enableMaestroP;
+					}
+					return next;
+				});
+				setMaestroPModeByAgent((prev) => ({
+					...prev,
+					[source.toolType]: source.maestroPMode ?? 'dynamic',
+				}));
+				setMaestroPPathByAgent((prev) => ({
+					...prev,
+					[source.toolType]: source.maestroPPath || '',
+				}));
 
 				// Pre-fill SSH remote configuration if source session has it
 				if (source.sessionSshRemoteConfig?.enabled && source.sessionSshRemoteConfig?.remoteId) {
@@ -292,6 +332,67 @@ export function NewInstanceModal({
 			handleWorkingDirChange(folder);
 		}
 	}, [handleWorkingDirChange]);
+
+	// Resolve the SSH remote ID currently selected (pending or per-agent).
+	const effectiveSshRemoteId = useMemo(() => {
+		if (!isSshEnabled) return undefined;
+		const config = selectedAgent
+			? agentSshRemoteConfigs[selectedAgent]
+			: agentSshRemoteConfigs['_pending_'];
+		return config?.remoteId || undefined;
+	}, [isSshEnabled, selectedAgent, agentSshRemoteConfigs]);
+
+	// Debounced git repo detection — checks if the selected working dir is
+	// already a git repo so we can offer to `git init` it if not.
+	useEffect(() => {
+		const trimmed = workingDir.trim();
+		// Reset stale state from a previous directory before the async check
+		// resolves — otherwise the previous "not-repo" panel keeps rendering
+		// (with a clickable Init button) against the new, unvalidated path
+		// during the 500ms debounce window.
+		setGitRepoStatus('unknown');
+		setInitRepoError(null);
+		if (!trimmed) {
+			return;
+		}
+
+		// For SSH, wait until the remote path validates as a directory.
+		if (isSshEnabled && !remotePathValidation.valid) {
+			return;
+		}
+
+		let cancelled = false;
+		const timeoutId = setTimeout(async () => {
+			const expanded = expandTilde(trimmed);
+			const isRepo = await gitService.isRepo(expanded, effectiveSshRemoteId);
+			if (!cancelled) {
+				setGitRepoStatus(isRepo ? 'is-repo' : 'not-repo');
+			}
+		}, 500);
+
+		return () => {
+			cancelled = true;
+			clearTimeout(timeoutId);
+		};
+	}, [workingDir, isSshEnabled, remotePathValidation.valid, effectiveSshRemoteId, expandTilde]);
+
+	const handleInitRepo = React.useCallback(async () => {
+		const trimmed = workingDir.trim();
+		if (!trimmed || isInitializingRepo) return;
+		setIsInitializingRepo(true);
+		setInitRepoError(null);
+		try {
+			const expanded = expandTilde(trimmed);
+			const result = await gitService.init(expanded, effectiveSshRemoteId);
+			if (!result.success) {
+				setInitRepoError(result.error || 'Failed to initialize git repository');
+				return;
+			}
+			setGitRepoStatus('is-repo');
+		} finally {
+			setIsInitializingRepo(false);
+		}
+	}, [workingDir, isInitializingRepo, expandTilde, effectiveSshRemoteId]);
 
 	const handleRefreshAgent = React.useCallback(async (agentId: string) => {
 		setRefreshingAgent(agentId);
@@ -428,17 +529,30 @@ export function NewInstanceModal({
 						shareHistoryToProjectDir: sshRemoteConfig?.shareHistoryToProjectDir,
 					};
 
-		// Inherit the source session's group when duplicating so the copy lands
-		// alongside the original (issue #827). When not duplicating, honor an
-		// explicit presetGroupId from the caller (e.g. "New Agent in Group"
-		// from the group context menu).
-		const targetGroupId = sourceSession?.groupId ?? presetGroupId ?? undefined;
+		// The dropdown's selected value wins — it was seeded from the source
+		// session's group (when duplicating) or the caller's preset (e.g. "New
+		// Agent in Group" from the group context menu), so explicit user
+		// selection naturally overrides those defaults.
+		const targetGroupId = selectedGroupId || undefined;
 
-		const agentEnableMaestroP = enableMaestroPByAgent[selectedAgent] || undefined;
+		// New agents default Adaptive Mode on for Claude Code (isAdaptiveModeDefaultOn);
+		// an explicit toggle in the form (true/false) always wins over the default.
+		// The explicit choice must NOT be collapsed by `|| undefined` - an explicit
+		// `false` (API) has to survive, or over SSH it reverts to the TUI default
+		// and spawns maestro-p on a remote that may not have it (exit 127). Only the
+		// unset->default path keeps the `|| undefined` collapse (a falsy default
+		// stays "unconfigured").
+		const explicitMaestroP = enableMaestroPByAgent[selectedAgent];
+		const agentEnableMaestroP =
+			explicitMaestroP ?? (isAdaptiveModeDefaultOn(selectedAgent) || undefined);
 		const agentMaestroPPath =
 			agentEnableMaestroP && maestroPPathByAgent[selectedAgent]?.trim()
 				? maestroPPathByAgent[selectedAgent].trim()
 				: undefined;
+		// Token-source refinement only travels with the opt-in (defaults to dynamic).
+		const agentMaestroPMode = agentEnableMaestroP
+			? (maestroPModeByAgent[selectedAgent] ?? 'dynamic')
+			: undefined;
 
 		onCreate(
 			selectedAgent,
@@ -456,7 +570,8 @@ export function NewInstanceModal({
 			agentCustomEffort,
 			targetGroupId ?? undefined,
 			agentEnableMaestroP,
-			agentMaestroPPath
+			agentMaestroPPath,
+			agentMaestroPMode
 		);
 		onClose();
 
@@ -469,7 +584,19 @@ export function NewInstanceModal({
 		setCustomAgentPaths((prev) => ({ ...prev, [selectedAgent]: '' }));
 		setCustomAgentArgs((prev) => ({ ...prev, [selectedAgent]: '' }));
 		setCustomAgentEnvVars((prev) => ({ ...prev, [selectedAgent]: {} }));
-		setEnableMaestroPByAgent((prev) => ({ ...prev, [selectedAgent]: false }));
+		// Clear the explicit override (rather than forcing false) so the agent's
+		// default (on for Claude Code) applies again on the next open.
+		setEnableMaestroPByAgent((prev) => {
+			const next = { ...prev };
+			delete next[selectedAgent];
+			return next;
+		});
+		// Clear the explicit mode override too so the default (dynamic) applies again.
+		setMaestroPModeByAgent((prev) => {
+			const next = { ...prev };
+			delete next[selectedAgent];
+			return next;
+		});
 		setMaestroPPathByAgent((prev) => ({ ...prev, [selectedAgent]: '' }));
 		setAgentSshRemoteConfigs((prev) => {
 			const newConfigs = { ...prev };
@@ -486,6 +613,7 @@ export function NewInstanceModal({
 		customAgentArgs,
 		customAgentEnvVars,
 		enableMaestroPByAgent,
+		maestroPModeByAgent,
 		maestroPPathByAgent,
 		agentConfigs,
 		agentSshRemoteConfigs,
@@ -494,8 +622,7 @@ export function NewInstanceModal({
 		expandTilde,
 		handleWorkingDirChange,
 		existingSessions,
-		sourceSession?.groupId,
-		presetGroupId,
+		selectedGroupId,
 	]);
 
 	// Check if form is valid for submission
@@ -577,8 +704,11 @@ export function NewInstanceModal({
 			}
 			// Reset warning acknowledgment when modal opens
 			setDirectoryWarningAcknowledged(false);
+			// Seed group selection: duplicate inherits source's group; otherwise
+			// honor any presetGroupId from the caller.
+			setSelectedGroupId(sourceSession?.groupId ?? presetGroupId ?? '');
 		}
-	}, [isOpen, sourceSession?.id]);
+	}, [isOpen, sourceSession?.id, presetGroupId]);
 
 	// Load SSH remote configurations independently of agent detection
 	// This ensures SSH remotes are available even if agent detection fails
@@ -686,6 +816,33 @@ export function NewInstanceModal({
 					heightClass="p-2"
 				/>
 
+				{/* Agent Group - only shown when at least one group exists */}
+				{groups.length > 0 && (
+					<div className="w-full">
+						<label
+							htmlFor="agent-group-select"
+							className="block text-xs font-bold opacity-70 uppercase mb-2"
+							style={{ color: theme.colors.textMain }}
+						>
+							Agent Group
+						</label>
+						<ThemedSelect
+							id="agent-group-select"
+							theme={theme}
+							value={selectedGroupId}
+							onChange={setSelectedGroupId}
+							aria-label="Agent Group"
+							options={[
+								{ value: '', label: 'No Group (Ungrouped)' },
+								...groups.map((g) => ({
+									value: g.id,
+									label: `${g.emoji} ${g.name}`.trim(),
+								})),
+							]}
+						/>
+					</div>
+				)}
+
 				{/* Agent Selection */}
 				<AgentPickerGrid
 					theme={theme}
@@ -700,6 +857,7 @@ export function NewInstanceModal({
 					customAgentArgs={customAgentArgs}
 					customAgentEnvVars={customAgentEnvVars}
 					enableMaestroPByAgent={enableMaestroPByAgent}
+					maestroPModeByAgent={maestroPModeByAgent}
 					maestroPPathByAgent={maestroPPathByAgent}
 					detectedMaestroPPath={detectedMaestroPPath}
 					agentConfigs={agentConfigs}
@@ -717,6 +875,9 @@ export function NewInstanceModal({
 					}}
 					onEnableMaestroPChange={(agentId, value) => {
 						setEnableMaestroPByAgent((prev) => ({ ...prev, [agentId]: value }));
+					}}
+					onMaestroPModeChange={(agentId, value) => {
+						setMaestroPModeByAgent((prev) => ({ ...prev, [agentId]: value }));
 					}}
 					onMaestroPPathChange={(agentId, value) => {
 						setMaestroPPathByAgent((prev) => ({ ...prev, [agentId]: value }));
@@ -846,6 +1007,45 @@ export function NewInstanceModal({
 						validation={remotePathValidation}
 						remoteHost={sshRemoteHost}
 					/>
+				)}
+
+				{/* Git repo hint — offer to `git init` when the selected dir isn't a repo */}
+				{workingDir.trim() && gitRepoStatus === 'not-repo' && (
+					<div
+						className="flex items-center gap-3 p-3 rounded border"
+						style={{
+							backgroundColor: theme.colors.bgSidebar,
+							borderColor: theme.colors.border,
+						}}
+					>
+						<div className="flex-1">
+							<p className="text-sm" style={{ color: theme.colors.textMain }}>
+								Not a Git repository
+							</p>
+							{initRepoError && (
+								<p className="text-xs mt-1" style={{ color: theme.colors.error }}>
+									{initRepoError}
+								</p>
+							)}
+						</div>
+						<button
+							type="button"
+							onClick={handleInitRepo}
+							disabled={isInitializingRepo}
+							className="text-xs px-3 py-1.5 rounded border transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2"
+							style={{
+								backgroundColor: 'transparent',
+								borderColor: theme.colors.accent,
+								color: theme.colors.accent,
+								opacity: isInitializingRepo ? 0.6 : 1,
+								cursor: isInitializingRepo ? 'wait' : 'pointer',
+								['--tw-ring-color' as any]: theme.colors.accent,
+								['--tw-ring-offset-color' as any]: theme.colors.bgMain,
+							}}
+						>
+							{isInitializingRepo ? 'Initializing…' : 'Initialize as Git Repository'}
+						</button>
+					</div>
 				)}
 
 				{/* Directory Warning with Acknowledgment */}

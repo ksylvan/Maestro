@@ -201,6 +201,14 @@ export interface AutoRunState {
 	errorDocumentIndex?: number;
 	/** Description of the task that failed (for UI display) */
 	errorTaskDescription?: string;
+	/** True when this run pursues a free-text goal instead of documents */
+	goalMode?: boolean;
+	/** Latest self-reported progress toward the goal (0–100) */
+	goalProgress?: number;
+	/** One-line rationale accompanying the latest goal progress report */
+	goalRationale?: string;
+	/** 1-based iteration number the goal loop is on */
+	goalIteration?: number;
 }
 
 /**
@@ -420,6 +428,14 @@ export interface NotifyToastParams {
 	dismissible?: boolean;
 	/** Optional agent/session ID — clicking the toast jumps to it. */
 	sessionId?: string;
+	/**
+	 * Optional explicit source-agent label rendered in the toast header strip.
+	 * Unlike the name resolved from `sessionId` (which requires the agent to be
+	 * loaded in the desktop store), this is store-independent — so cron- and
+	 * watchdog-fired toasts always show who produced them. When set, it wins over
+	 * the resolved session name for display; `sessionId` still drives click-jump.
+	 */
+	sourceAgent?: string;
 	/** Optional AI tab ID within the agent — paired with `sessionId` for jump-to-tab. */
 	tabId?: string;
 	/** Optional inline action link rendered beneath the message body (opens in browser). */
@@ -758,8 +774,49 @@ export type CreateSessionCallback = (
 	groupId?: string,
 	config?: CreateSessionConfig
 ) => Promise<{ sessionId: string } | null>;
+/**
+ * Create a new agent in a git worktree branched off an existing parent agent,
+ * without an Auto Run playbook. The desktop creates the worktree on disk, builds
+ * a child session linked to the parent, and returns the new agent's session id.
+ */
+export type CreateWorktreeSessionCallback = (
+	parentSessionId: string,
+	config: {
+		branchName: string;
+		baseBranch?: string;
+	}
+) => Promise<{ success: boolean; sessionId?: string; error?: string }>;
 export type DeleteSessionCallback = (sessionId: string) => Promise<boolean>;
 export type RenameSessionCallback = (sessionId: string, newName: string) => Promise<boolean>;
+export type UpdateSessionCwdCallback = (
+	sessionId: string,
+	newCwd: string
+) => Promise<{ success: boolean; error?: string }>;
+/**
+ * Update an agent's SSH execution config. `sshPatch` is a partial bag of
+ * `sessionSshRemoteConfig` fields (`enabled`, `remoteId`, `workingDirOverride`,
+ * `syncHistory`, `shareHistoryToProjectDir`); only the provided keys are merged
+ * onto the existing config, so a caller can flip one field without re-sending
+ * the whole block. Typed as a plain record because the payload crosses the IPC
+ * bridge to the renderer.
+ */
+export type UpdateSessionSshCallback = (
+	sessionId: string,
+	sshPatch: Record<string, unknown>
+) => Promise<{ success: boolean; error?: string }>;
+/**
+ * Update an agent's editable per-session config from the CLI/web. `configPatch`
+ * is a partial bag of the fields the Edit Agent modal exposes (nudge / new
+ * session message, custom binary path / args / env vars, model, effort, context
+ * window, and the Claude token-source tri-state `enableMaestroP` /
+ * `maestroPMode` / `maestroPPath`). Only the provided keys are applied; a key
+ * present with value `null` clears that field to undefined. Typed as a plain
+ * record because the payload crosses the IPC bridge to the renderer.
+ */
+export type UpdateSessionConfigCallback = (
+	sessionId: string,
+	configPatch: Record<string, unknown>
+) => Promise<{ success: boolean; error?: string }>;
 export type GetAutoRunDocsCallback = (sessionId: string) => Promise<AutoRunDocument[]>;
 export type GetAutoRunDocContentCallback = (sessionId: string, filename: string) => Promise<string>;
 export type SaveAutoRunDocCallback = (

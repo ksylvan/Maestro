@@ -17,6 +17,7 @@ export interface SearchableSetting {
 	id: string;
 	/** Which tab this setting lives in */
 	tab:
+		| 'about'
 		| 'general'
 		| 'display'
 		| 'shortcuts'
@@ -178,6 +179,15 @@ export const GENERAL_SETTINGS: SearchableSetting[] = [
 		keywords: ['history', 'synopsis', 'save', 'toggle'],
 	},
 	{
+		id: 'general-synopsis-debounce',
+		tab: 'general',
+		tabLabel: 'General',
+		label: 'Synopsis Debounce',
+		description:
+			'Idle time to wait before generating a History synopsis; coalesces rapid completions into one',
+		keywords: ['synopsis', 'debounce', 'coalesce', 'history', 'delay', 'throttle', 'idle'],
+	},
+	{
 		id: 'general-thinking-mode',
 		tab: 'general',
 		tabLabel: 'General',
@@ -275,6 +285,46 @@ export const GENERAL_SETTINGS: SearchableSetting[] = [
 		keywords: ['gpu', 'rendering', 'acceleration', 'confetti', 'animation', 'hardware'],
 	},
 	{
+		id: 'general-auto-resume',
+		tab: 'general',
+		tabLabel: 'General',
+		label: 'Resume Paused Sessions on Limit',
+		description:
+			'Automatically resume agents that paused on a token, API, or credit limit once the provider window reopens',
+		keywords: [
+			'resume',
+			'limit',
+			'credit',
+			'token',
+			'rate limit',
+			'quota',
+			'auto resume',
+			'exhaustion',
+			'paused',
+		],
+	},
+	{
+		id: 'general-auto-resume-interval',
+		tab: 'general',
+		tabLabel: 'General',
+		label: 'Auto-Resume Check Interval',
+		description:
+			'How often to probe for credit/limit availability before resuming paused agents, and how long to keep trying before giving up',
+		keywords: [
+			'resume',
+			'limit',
+			'credit',
+			'token',
+			'rate limit',
+			'quota',
+			'auto resume',
+			'exhaustion',
+			'paused',
+			'interval',
+			'give up',
+		],
+	},
+	{
 		id: 'general-updates',
 		tab: 'general',
 		tabLabel: 'General',
@@ -344,6 +394,33 @@ export const GENERAL_SETTINGS: SearchableSetting[] = [
 			'render',
 			'webview',
 			'dashboard',
+		],
+	},
+	{
+		id: 'general-browser-keepalive',
+		tab: 'general',
+		tabLabel: 'General',
+		label: 'Background browser tabs',
+		description:
+			'Control whether inactive browser tabs are unloaded (reloading on return) or kept alive to preserve their in-memory state. Keep the most-recent N tabs alive or keep them all alive.',
+		keywords: [
+			'browser',
+			'background',
+			'tab',
+			'keep alive',
+			'keepalive',
+			'keep-alive',
+			'unload',
+			'reload',
+			'webview',
+			'memory',
+			'persist',
+			'persistence',
+			'state',
+			'suspend',
+			'lru',
+			'recent',
+			'inactive',
 		],
 	},
 	{
@@ -427,6 +504,23 @@ export const DISPLAY_SETTINGS: SearchableSetting[] = [
 			'position',
 			'response',
 			'ai response',
+		],
+	},
+	{
+		id: 'display-group-chat-auto-scroll',
+		tab: 'display',
+		tabLabel: 'Display',
+		label: 'Group Chat Auto-Scroll',
+		description: 'Automatically scroll group chats to the newest message when new messages arrive.',
+		keywords: [
+			'group chat',
+			'auto-scroll',
+			'autoscroll',
+			'scroll',
+			'follow',
+			'bottom',
+			'newest',
+			'messages',
 		],
 	},
 	{
@@ -536,12 +630,41 @@ export const DISPLAY_SETTINGS: SearchableSetting[] = [
 		],
 	},
 	{
+		id: 'display-left-panel-starred-sessions',
+		tab: 'display',
+		tabLabel: 'Display',
+		label: 'Show Starred Sessions section',
+		description:
+			'Show a Starred Sessions section at the top of the left side bar listing every starred AI tab and named session across all agents',
+		keywords: [
+			'starred',
+			'star',
+			'favorite',
+			'favourite',
+			'bookmark',
+			'pinned',
+			'left',
+			'side',
+			'sidebar',
+			'side bar',
+			'side panel',
+			'panel',
+			'section',
+			'tabs',
+			'sessions',
+			'agents',
+			'jump',
+			'navigate',
+			'cross-agent',
+		],
+	},
+	{
 		id: 'display-left-side-panel',
 		tab: 'display',
 		tabLabel: 'Display',
 		label: 'Left Side Panel',
 		description:
-			'Configure the left side bar: group member counts, location pills, git change indicator, Cue indicator, and worktree badges',
+			'Configure the left side bar: group member counts, collapsed pills per row, location pills, git change indicator, Cue indicator, worktree badges, and full vs abbreviated group labels on bookmarked agents',
 		keywords: [
 			'left',
 			'side',
@@ -561,6 +684,12 @@ export const DISPLAY_SETTINGS: SearchableSetting[] = [
 			'git',
 			'pill',
 			'pills',
+			'per row',
+			'row',
+			'rows',
+			'wrap',
+			'density',
+			'collapsed',
 			'badge',
 			'badges',
 			'location',
@@ -581,6 +710,20 @@ export const DISPLAY_SETTINGS: SearchableSetting[] = [
 			'branch name',
 			'agent list',
 			'session list',
+			'bookmark',
+			'bookmarks',
+			'bookmarked',
+			'full',
+			'full name',
+			'full label',
+			'abbreviated',
+			'abbreviation',
+			'tag',
+			'label',
+			'hide',
+			'hide group',
+			'hide pill',
+			'group pill',
 		],
 	},
 	{
@@ -612,9 +755,9 @@ export const DISPLAY_SETTINGS: SearchableSetting[] = [
 		id: 'display-tab-filtering',
 		tab: 'display',
 		tabLabel: 'Display',
-		label: 'Tab Filtering',
+		label: 'Tab Options',
 		description:
-			'Show starred and file preview tabs when filtering by unread; Command+0 vs Command+9 last-tab shortcut',
+			'Show starred and file preview tabs when filtering by unread; Command+0 vs Command+9 last-tab shortcut; browser tab domain pill',
 		keywords: [
 			'tab',
 			'filter',
@@ -632,6 +775,11 @@ export const DISPLAY_SETTINGS: SearchableSetting[] = [
 			'shortcut',
 			'keyboard',
 			'browser style',
+			'browser tab',
+			'domain',
+			'hostname',
+			'url',
+			'pill',
 		],
 	},
 	{
@@ -825,6 +973,26 @@ export const NOTIFICATION_SETTINGS: SearchableSetting[] = [
 			'persist',
 		],
 	},
+	{
+		id: 'notifications-toast-width',
+		tab: 'notifications',
+		tabLabel: 'Notifications',
+		label: 'Toast Notification Width',
+		description:
+			'Width of toast notifications: Small, Medium, Large, or Dynamic (match the Right Bar)',
+		keywords: [
+			'toast',
+			'notification',
+			'width',
+			'size',
+			'small',
+			'medium',
+			'large',
+			'dynamic',
+			'right bar',
+			'panel',
+		],
+	},
 ];
 
 // ---------------------------------------------------------------------------
@@ -989,6 +1157,8 @@ export const ENCORE_SETTINGS: SearchableSetting[] = [
 			'contribute',
 			'repository',
 			'registry',
+			'registry sources',
+			'sources',
 			'playbook',
 			'curated',
 		],
@@ -1009,6 +1179,8 @@ export const ENCORE_SETTINGS: SearchableSetting[] = [
 			'file watch',
 			'watcher',
 			'pipeline',
+			'global cue settings',
+			'global settings',
 			'subscription',
 			'github',
 			'pr',
@@ -1051,12 +1223,34 @@ export const ENCORE_SETTINGS: SearchableSetting[] = [
 			'director',
 			'notes',
 			'synopsis',
+			'synopsis provider',
+			'provider',
 			'history',
 			'summary',
 			'lookback',
 			'beta',
 			'fleet',
 			'unified',
+		],
+	},
+	{
+		id: 'encore-director-notes-default-mode',
+		tab: 'encore',
+		tabLabel: 'Encore Features',
+		label: "Director's Notes Default Reading Mode",
+		description:
+			'Whether the AI Overview opens in Rich (widget dashboard) or Plain (markdown) mode',
+		keywords: [
+			'director',
+			'notes',
+			'rich',
+			'plain',
+			'mode',
+			'reading',
+			'default',
+			'dashboard',
+			'widgets',
+			'markdown',
 		],
 	},
 ];
@@ -1092,9 +1286,35 @@ export const PROMPTS_SETTINGS: SearchableSetting[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// About Tab
+// ---------------------------------------------------------------------------
+export const ABOUT_SETTINGS: SearchableSetting[] = [
+	{
+		id: 'about-maestro',
+		tab: 'about',
+		tabLabel: 'About',
+		label: 'About Maestro',
+		description: 'Maestro version, tagline, and origin — born on Nov 26, 2025 in Austin, TX',
+		keywords: [
+			'about',
+			'version',
+			'maestro',
+			'tagline',
+			'origin',
+			'austin',
+			'texas',
+			'born',
+			'commit',
+			'build',
+		],
+	},
+];
+
+// ---------------------------------------------------------------------------
 // Composed registry
 // ---------------------------------------------------------------------------
 export const ALL_SEARCHABLE_SETTINGS: SearchableSetting[] = [
+	...ABOUT_SETTINGS,
 	...GENERAL_SETTINGS,
 	...DISPLAY_SETTINGS,
 	...SHORTCUTS_SETTINGS,

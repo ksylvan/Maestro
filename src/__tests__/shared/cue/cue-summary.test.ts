@@ -3,6 +3,7 @@ import {
 	buildCueRunSummary,
 	extractCueOutputExcerpt,
 	getCueEventDetail,
+	humanizeCueEventType,
 } from '../../../shared/cue/cue-summary';
 import type { CueEvent, CueRunResult } from '../../../shared/cue/contracts';
 
@@ -91,6 +92,32 @@ describe('getCueEventDetail', () => {
 		expect(getCueEventDetail(makeEvent({ type: 'time.heartbeat', payload: {} }))).toBeUndefined();
 		expect(getCueEventDetail(makeEvent({ type: 'time.scheduled', payload: {} }))).toBeUndefined();
 		expect(getCueEventDetail(makeEvent({ type: 'github.issue', payload: {} }))).toBeUndefined();
+	});
+
+	it('formats time triggers as a cadence when an interval is present', () => {
+		expect(
+			getCueEventDetail(makeEvent({ type: 'time.heartbeat', payload: { interval_minutes: 3 } }))
+		).toBe('every 3 min');
+		expect(
+			getCueEventDetail(makeEvent({ type: 'time.heartbeat', payload: { interval_minutes: 60 } }))
+		).toBe('hourly');
+		expect(
+			getCueEventDetail(makeEvent({ type: 'time.scheduled', payload: { intervalMinutes: 120 } }))
+		).toBe('every 2 hr');
+	});
+});
+
+describe('humanizeCueEventType', () => {
+	it('maps known event types to their display labels', () => {
+		expect(humanizeCueEventType('time.heartbeat')).toBe('Heartbeat Timer');
+		expect(humanizeCueEventType('github.pull_request')).toBe('Pull Request');
+		expect(humanizeCueEventType('task.pending')).toBe('Pending Task');
+	});
+
+	it('prettifies unknown/legacy types instead of leaking machine jargon', () => {
+		expect(humanizeCueEventType('custom.special_thing')).toBe('Custom Special_thing');
+		expect(humanizeCueEventType(undefined)).toBe('Trigger');
+		expect(humanizeCueEventType('')).toBe('Trigger');
 	});
 
 	it('truncates very long cli.trigger prompts', () => {
@@ -251,5 +278,19 @@ describe('extractCueOutputExcerpt', () => {
 	it('respects maxSentences=1', () => {
 		const stdout = 'First. Second. Third.';
 		expect(extractCueOutputExcerpt(stdout, { maxSentences: 1 })).toBe('First.');
+	});
+
+	it('drops markdown table grids so they never reach the History summary', () => {
+		const stdout = [
+			'All four steps complete.',
+			'',
+			'| Step | Result |',
+			'|------|--------|',
+			'| 1. Build | Pass |',
+			'| 2. Test | Pass |',
+		].join('\n');
+		const out = extractCueOutputExcerpt(stdout);
+		expect(out).toBe('All four steps complete.');
+		expect(out).not.toContain('|');
 	});
 });

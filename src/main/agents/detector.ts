@@ -25,6 +25,7 @@ import { AGENT_DEFINITIONS, type AgentConfig } from './definitions';
 import { discoverModelsFromLocalConfigs } from './opencode-config';
 import { isWindows } from '../../shared/platformDetection';
 import { parseJsonWithBom } from '../../shared/jsonUtils';
+import { capabilitySnapshots } from './capability-snapshot';
 
 const LOG_CONTEXT = 'AgentDetector';
 
@@ -195,6 +196,30 @@ export class AgentDetector {
 				customPath: customPath || undefined,
 				capabilities: getAgentCapabilities(agentDef.id),
 			});
+
+			// Mirror detection into the capability snapshot store so the
+			// renderer has a persisted readiness pill for every agent. Skip
+			// the internal `terminal` agent — it isn't user-facing.
+			//
+			// Each agent is only written when its observed state actually
+			// changed (status differs, or the detected path differs). This
+			// keeps full-detection runs (incl. reprobe-driven ones) from
+			// firing `snapshot-updated` broadcasts for every unchanged agent.
+			if (agentDef.id !== 'terminal') {
+				const existing = capabilitySnapshots.get(agentDef.id);
+				if (detection.exists) {
+					// Preserve any reactive auth_required state set by a recent
+					// spawn failure — detection alone shouldn't clear it. The
+					// next successful spawn (or explicit re-probe) flips it back.
+					if (existing?.status === 'auth_required') {
+						// no-op: leave reactive state intact
+					} else if (existing?.status !== 'ok' || existing.path !== detection.path) {
+						capabilitySnapshots.markOk(agentDef.id, { path: detection.path });
+					}
+				} else if (existing?.status !== 'not_installed') {
+					capabilitySnapshots.markNotInstalled(agentDef.id);
+				}
+			}
 		}
 
 		const availableAgents = agents.filter((a) => a.available);
@@ -294,6 +319,13 @@ export class AgentDetector {
 		// Run agent-specific model discovery command
 		const models = await this.runModelDiscovery(agentId, agent);
 
+		// A transient `omp models --json` failure returns an empty list. Don't cache
+		// that, or the picker stays empty for the whole TTL even after the CLI
+		// recovers; let the next call retry. (omp always has a non-empty catalog.)
+		if (agentId === 'omp' && models.length === 0) {
+			return models;
+		}
+
 		// Cache the results
 		this.modelCache.set(agentId, { models, timestamp: Date.now() });
 
@@ -319,9 +351,10 @@ export class AgentDetector {
 					// Discover models dynamically from two sources:
 					// 1. Well-known aliases (always valid, resolve to latest in each tier)
 					//    Includes [1m] variants for 1M extended context window
-					//    (requires extra usage enabled at claude.ai/settings/usage)
+					//    (requires extra usage enabled at claude.ai/settings/usage).
+					//    fable has no [1m] variant (Claude Code exposes 1M only for opus/sonnet).
 					// 2. Historical model usage from ~/.claude/stats-cache.json
-					const models: string[] = ['sonnet', 'opus', 'haiku', 'opus[1m]', 'sonnet[1m]'];
+					const models: string[] = ['fable', 'sonnet', 'opus', 'haiku', 'opus[1m]', 'sonnet[1m]'];
 					try {
 						const statsPath = path.join(os.homedir(), '.claude', 'stats-cache.json');
 						const statsContent = fs.readFileSync(statsPath, 'utf8');
@@ -442,6 +475,47 @@ export class AgentDetector {
 					return userModel ? [userModel] : [];
 				}
 
+				case 'omp': {
+					// Oh My Pi: `omp models --json` returns { models: [{ id, selector, ... }] }
+					// across every configured provider. Prefer the provider-qualified `selector`
+					// (e.g. anthropic/claude-opus-4-8), which is unambiguous for --model.
+					const result = await execFileNoThrow(command, ['models', '--json'], undefined, env);
+					if (result.exitCode !== 0) {
+						logger.warn(
+							`CLI model discovery failed for ${agentId}: exit code ${result.exitCode}`,
+							LOG_CONTEXT,
+							{ stderr: result.stderr }
+						);
+						return [];
+					}
+					let parsed: { models?: Array<{ id?: string; selector?: string }> };
+					try {
+						parsed = parseJsonWithBom<{ models?: Array<{ id?: string; selector?: string }> }>(
+							result.stdout
+						);
+					} catch (parseError) {
+						captureException(parseError, {
+							operation: 'agent:modelDiscovery',
+							agentId,
+						});
+						logger.warn('Failed to parse omp models --json output', LOG_CONTEXT, {
+							error: parseError,
+						});
+						return [];
+					}
+					const seen = new Set<string>();
+					const models: string[] = [];
+					for (const entry of parsed.models ?? []) {
+						const modelId = entry.selector || entry.id;
+						if (modelId && !seen.has(modelId)) {
+							seen.add(modelId);
+							models.push(modelId);
+						}
+					}
+					logger.info(`Discovered ${models.length} models for ${agentId}`, LOG_CONTEXT);
+					return models;
+				}
+
 				default:
 					// For agents without model discovery implemented, return empty array
 					logger.debug(`No model discovery implemented for ${agentId}`, LOG_CONTEXT);
@@ -495,16 +569,17 @@ export class AgentDetector {
 			switch (agentId) {
 				case 'claude-code': {
 					if (optionKey === 'effort') {
-						// Claude Code: parse --help output to extract effort levels
 						const command =
 							(await this.getAgent(agentId))?.path ||
 							(await this.getAgent(agentId))?.command ||
 							'claude';
 						const env = getExpandedEnv();
-						const result = await execFileNoThrow(command, ['--help'], undefined, env);
-						if (result.exitCode === 0) {
-							// Match: --effort <level>  Effort level ... (low, medium, high, max)
-							const match = result.stdout.match(/--effort\s+<\w+>\s+.*?\(([^)]+)\)/);
+
+						// Primary: parse --help output. Older CLI builds list the levels
+						// inline, e.g. `--effort <level>  Effort level ... (low, medium, high, max)`.
+						const help = await execFileNoThrow(command, ['--help'], undefined, env);
+						if (help.exitCode === 0) {
+							const match = help.stdout.match(/--effort\s+<\w+>\s+.*?\(([^)]+)\)/);
 							if (match) {
 								const levels = match[1]
 									.split(',')
@@ -518,8 +593,47 @@ export class AgentDetector {
 								return ['', ...levels]; // Empty string = use default
 							}
 						}
-						logger.debug('Could not parse effort levels from Claude --help output', LOG_CONTEXT);
-						return [];
+
+						// Fallback: newer CLI builds dropped the parenthetical from --help but
+						// still validate the flag. Probe with an invalid value and read back the
+						// valid set the CLI names. Two known phrasings, depending on the build:
+						//   - commander rejection (non-zero exit):
+						//     `error: option '--effort <level>' argument 'x' is invalid. It must be one of: low, medium, high, xhigh, max`
+						//   - soft warning (exit 0, still runs --version):
+						//     `Warning: Unknown --effort value 'x' - ignoring it and using the default effort. Valid values: low, medium, high, xhigh, max.`
+						const probe = await execFileNoThrow(
+							command,
+							['--effort', '__maestro_probe__', '--version'],
+							undefined,
+							env
+						);
+						const probeOutput = `${probe.stderr}\n${probe.stdout}`;
+						const probeMatch = probeOutput.match(
+							/--effort\b[^\n]*?(?:must be one of|valid values):\s*([^\n]+)/i
+						);
+						if (probeMatch) {
+							const levels = probeMatch[1]
+								.split(',')
+								.map((s) => s.trim().replace(/[.\s]+$/, ''))
+								.filter((s) => s.length > 0);
+							if (levels.length > 0) {
+								logger.info(
+									`Discovered ${levels.length} effort levels for ${agentId} from validation probe`,
+									LOG_CONTEXT,
+									{ levels }
+								);
+								return ['', ...levels]; // Empty string = use default
+							}
+						}
+
+						logger.debug(
+							'Could not discover effort levels for Claude Code; using static fallback',
+							LOG_CONTEXT
+						);
+						// Fall through to the static-options fallback below rather than
+						// returning [] - that keeps the effort pill/dropdown populated even
+						// when the CLI reworded its --help/validation output yet again.
+						break;
 					}
 					break;
 				}

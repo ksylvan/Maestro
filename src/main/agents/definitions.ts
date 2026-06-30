@@ -94,6 +94,7 @@ export interface AgentConfig extends BaseAgentConfig {
 	jsonOutputArgs?: string[]; // Args for JSON output format (e.g., ['--format', 'json'])
 	resumeArgs?: (sessionId: string) => string[]; // Function to build resume args
 	readOnlyArgs?: string[]; // Args for read-only/plan mode (e.g., ['--agent', 'plan'])
+	noToolsArgs?: string[]; // Args that disable ALL tool use, forcing a pure text response (e.g., ['--tools', ''] for Claude). Used by tab naming so a task-like first message produces a name instead of triggering a real agentic investigation.
 	modelArgs?: (modelId: string) => string[]; // Function to build model selection args (e.g., ['--model', modelId])
 	workingDirArgs?: (dir: string) => string[]; // Function to build working directory args (e.g., ['-C', dir])
 	imageArgs?: (imagePath: string) => string[]; // Function to build image attachment args (e.g., ['-i', imagePath] for Codex)
@@ -187,6 +188,7 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 		resumeArgs: (sessionId: string) => ['--resume', sessionId], // Resume with session ID; works for both api and interactive (forwarded by maestro-p)
 		readOnlyArgs: ['--permission-mode', 'plan'], // Read-only/plan mode
 		readOnlyCliEnforced: true, // CLI enforces read-only via --permission-mode plan
+		noToolsArgs: ['--tools', ''], // `--tools ""` disables every built-in tool (used by tab naming)
 		modelArgs: (modelId: string) => ['--model', modelId], // Model selection: claude --model sonnet
 		// Disable Claude Code's background-task feature across every spawn path (desktop UI, CLI batch, --live, SSH).
 		// Two motivations: (a) batch sessions exit before background tasks finish, losing results (#861); and (b) the
@@ -218,6 +220,11 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 				label: 'Effort',
 				description: 'How much effort the model should put into its response.',
 				dynamic: true,
+				// Static safety net used when runtime discovery scrapes nothing from the
+				// Claude CLI (e.g. Anthropic rewords --help / the validation warning again).
+				// Without this the effort pill and dropdown vanish entirely. Discovery still
+				// wins when it succeeds, so newly-added levels surface automatically.
+				options: ['', 'low', 'medium', 'high', 'xhigh', 'max'],
 				default: '',
 				argBuilder: (value: string) => (value && value.trim() ? ['--effort', value.trim()] : []),
 			},
@@ -289,6 +296,7 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 	{
 		id: 'gemini-cli',
 		name: 'Gemini CLI',
+		hidden: true, // Not shipping; superseded by Antigravity. Kept for type/back-compat, hidden from UI.
 		binaryName: 'gemini',
 		command: 'gemini',
 		args: [],
@@ -341,9 +349,148 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
 	{
 		id: 'qwen3-coder',
 		name: 'Qwen3 Coder',
-		binaryName: 'qwen3-coder',
-		command: 'qwen3-coder',
+		binaryName: 'qwen',
+		command: 'qwen',
 		args: [],
+		batchModePrefix: [],
+		batchModeArgs: ['-y'],
+		jsonOutputArgs: ['--output-format', 'stream-json'],
+		resumeArgs: (sessionId: string) => ['--resume', sessionId],
+		// Qwen Code (qwen-code v0.19.x) ships a first-class `--approval-mode plan` that denies
+		// write/shell/edit tools in non-interactive mode (read-only analysis). It does not need
+		// `-y` to avoid hangs (non-interactive plan/default denies tools rather than prompting),
+		// and `-y` (YOLO) would auto-approve writes, defeating read-only intent.
+		readOnlyArgs: ['--approval-mode', 'plan'],
+		readOnlyCliEnforced: true, // CLI enforces read-only via --approval-mode plan
+		yoloModeArgs: ['-y'],
+		workingDirArgs: (dir: string) => ['--include-directories', dir],
+		imageArgs: undefined,
+		modelArgs: (modelId: string) => ['-m', modelId],
+		promptArgs: (prompt: string) => ['-p', prompt],
+		configOptions: [
+			{
+				key: 'model',
+				type: 'text',
+				label: 'Model',
+				description:
+					'Model passed to -m. Qwen Code is multi-provider, so any model id works (e.g. coder-model, qwen3-coder-plus, qwen3.5-plus, or an OpenAI-compatible id like openai/gpt-4o). Leave blank for the account/plan default.',
+				default: '',
+				argBuilder: (value: string) => (value && value.trim() ? ['-m', value.trim()] : []),
+			},
+			{
+				key: 'contextWindow',
+				type: 'number' as const,
+				label: 'Context Window Size',
+				description:
+					'Maximum context window size in tokens. Qwen3-Coder supports a native 256K (262144) context window.',
+				default: 262144,
+			},
+		],
+	},
+	{
+		id: 'hermes',
+		name: 'Hermes',
+		binaryName: 'hermes',
+		command: 'hermes',
+		args: [],
+		batchModePrefix: ['chat'],
+		batchModeArgs: ['-Q', '--yolo'],
+		yoloModeArgs: ['--yolo'],
+		promptArgs: (prompt: string) => ['-q', prompt],
+		modelArgs: (modelId: string) => ['-m', modelId],
+		imageArgs: (imagePath: string) => ['--image', imagePath],
+		configOptions: [
+			{
+				key: 'model',
+				type: 'text',
+				label: 'Model',
+				description:
+					'Documented Hermes model override (for example, anthropic/claude-sonnet-4-20250514). Leave empty for the CLI default.',
+				default: '',
+				argBuilder: (value: string) => (value.trim() ? ['-m', value.trim()] : []),
+			},
+			{
+				key: 'contextWindow',
+				type: 'number',
+				label: 'Context Window Size',
+				description:
+					'Fallback context window size in tokens until Hermes reports a runtime-specific value.',
+				default: 200000,
+			},
+		],
+	},
+	{
+		id: 'pi',
+		name: 'Pi',
+		binaryName: 'pi',
+		command: 'pi',
+		args: [],
+		batchModePrefix: ['-p'],
+		jsonOutputArgs: ['--mode', 'json'],
+		noPromptSeparator: true,
+		resumeArgs: (sessionId: string) => ['--session', sessionId],
+		readOnlyArgs: ['--tools', 'read,grep,find,ls'],
+		readOnlyCliEnforced: true,
+		noToolsArgs: ['--no-tools'],
+		modelArgs: (modelId: string) => ['--model', modelId],
+		imageArgs: (imagePath: string) => [`@${imagePath}`],
+		configOptions: [
+			{
+				key: 'model',
+				type: 'text',
+				label: 'Model',
+				description:
+					'Documented Pi model override (for example, claude-sonnet-4.5). Leave empty for the CLI default.',
+				default: '',
+				argBuilder: (value: string) => (value.trim() ? ['--model', value.trim()] : []),
+			},
+			{
+				key: 'contextWindow',
+				type: 'number',
+				label: 'Context Window Size',
+				description:
+					'Fallback context window size in tokens until Pi reports a runtime-specific value.',
+				default: 200000,
+			},
+		],
+	},
+	{
+		id: 'omp',
+		name: 'Oh My Pi',
+		binaryName: 'omp',
+		command: 'omp',
+		args: [],
+		batchModePrefix: ['-p'],
+		jsonOutputArgs: ['--mode', 'json'],
+		// No noPromptSeparator: use Maestro's default '--' end-of-options separator
+		// before the prompt. omp supports '--', so prompts beginning with '-' or
+		// '---' (markdown front matter) reach the model instead of being parsed as flags.
+		resumeArgs: (sessionId: string) => ['--resume', sessionId],
+		readOnlyArgs: ['--tools', 'read,grep,glob'], // Read-only: restrict to read/search tools (search->grep, find->glob aliases)
+		readOnlyCliEnforced: true,
+		noToolsArgs: ['--no-tools'], // Tab naming disables all tools so a task-like first message yields a name, not a real agentic run (mirrors Pi)
+		modelArgs: (modelId: string) => ['--model', modelId],
+		workingDirArgs: (dir: string) => ['--cwd', dir],
+		imageArgs: (imagePath: string) => [`@${imagePath}`],
+		configOptions: [
+			{
+				key: 'model',
+				type: 'text',
+				label: 'Model',
+				description:
+					'Fuzzy model override passed to --model (for example, opus, gpt-5.2, or openai/gpt-5.2). Multi-provider; leave empty for the CLI default.',
+				default: '',
+				argBuilder: (value: string) => (value && value.trim() ? ['--model', value.trim()] : []),
+			},
+			{
+				key: 'contextWindow',
+				type: 'number',
+				label: 'Context Window Size',
+				description:
+					'Fallback context window size in tokens until Oh My Pi reports a runtime-specific value.',
+				default: 200000,
+			},
+		],
 	},
 	{
 		id: 'opencode',

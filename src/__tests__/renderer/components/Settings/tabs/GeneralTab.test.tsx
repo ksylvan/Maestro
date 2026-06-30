@@ -35,6 +35,13 @@ vi.mock('../../../../../renderer/utils/platformUtils', () => ({
 	isLinuxPlatform: vi.fn(() => false),
 }));
 
+vi.mock('../../../../../shared/platformDetection', () => ({
+	isLinux: vi.fn(() => false),
+	isMacOS: vi.fn(() => false),
+	isWindows: vi.fn(() => false),
+	getWhichCommand: vi.fn(() => 'which'),
+}));
+
 // Shared mock fns so tests can assert on useSettings setters
 const mockSetConductorProfile = vi.fn();
 const mockSetDefaultShell = vi.fn();
@@ -45,6 +52,9 @@ const mockSetGhPath = vi.fn();
 const mockSetLogLevel = vi.fn();
 const mockSetEnterToSendAI = vi.fn();
 const mockSetEnterToSendAIExpanded = vi.fn();
+const mockSetAutoResumeOnLimit = vi.fn();
+const mockSetAutoResumeCheckIntervalHours = vi.fn();
+const mockSetAutoResumeGiveUpDays = vi.fn();
 const mockSetDefaultSaveToHistory = vi.fn();
 const mockSetDefaultShowThinking = vi.fn();
 const mockSetAutomaticTabNamingEnabled = vi.fn();
@@ -84,6 +94,12 @@ vi.mock('../../../../../renderer/hooks/settings/useSettings', () => ({
 		setEnterToSendAI: mockSetEnterToSendAI,
 		enterToSendAIExpanded: false,
 		setEnterToSendAIExpanded: mockSetEnterToSendAIExpanded,
+		autoResumeOnLimit: false,
+		setAutoResumeOnLimit: mockSetAutoResumeOnLimit,
+		autoResumeCheckIntervalHours: 6,
+		setAutoResumeCheckIntervalHours: mockSetAutoResumeCheckIntervalHours,
+		autoResumeGiveUpDays: 21,
+		setAutoResumeGiveUpDays: mockSetAutoResumeGiveUpDays,
 		defaultSaveToHistory: true,
 		setDefaultSaveToHistory: mockSetDefaultSaveToHistory,
 		defaultShowThinking: 'off',
@@ -151,6 +167,7 @@ describe('GeneralTab', () => {
 			expect(screen.getByText('System Log Level')).toBeInTheDocument();
 			expect(screen.getByText('GitHub CLI (gh) Path')).toBeInTheDocument();
 			expect(screen.getByText('Input Send Behavior')).toBeInTheDocument();
+			expect(screen.getByText('Auto-Resume on Limit')).toBeInTheDocument();
 			expect(screen.getByText('Default History Toggle')).toBeInTheDocument();
 			expect(screen.getByText('Default Thinking Mode')).toBeInTheDocument();
 			expect(screen.getByText('Tab Behavior')).toBeInTheDocument();
@@ -187,6 +204,7 @@ describe('GeneralTab', () => {
 
 			const textarea = screen.getByPlaceholderText(/I'm a senior developer/);
 			expect(textarea).toBeInTheDocument();
+			expect(screen.getByRole('textbox', { name: 'Conductor Profile' })).toBe(textarea);
 		});
 
 		it('should display character count as 0/5000 when empty', async () => {
@@ -831,9 +849,14 @@ describe('GeneralTab', () => {
 			expect(
 				screen.getByText('Show AI thinking/reasoning content for new tabs')
 			).toBeInTheDocument();
-			expect(screen.getByRole('button', { name: 'Off' })).toBeInTheDocument();
-			expect(screen.getByRole('button', { name: 'On' })).toBeInTheDocument();
-			expect(screen.getByRole('button', { name: 'Sticky' })).toBeInTheDocument();
+			// Scope to the thinking-mode section: the Synopsis Debounce toggle also
+			// renders an "Off" button, so a bare getByRole would be ambiguous.
+			const thinkingSection = screen
+				.getByText('Show AI thinking/reasoning content for new tabs')
+				.closest('[data-setting-id="general-thinking-mode"]') as HTMLElement;
+			expect(within(thinkingSection).getByRole('button', { name: 'Off' })).toBeInTheDocument();
+			expect(within(thinkingSection).getByRole('button', { name: 'On' })).toBeInTheDocument();
+			expect(within(thinkingSection).getByRole('button', { name: 'Sticky' })).toBeInTheDocument();
 		});
 
 		it('should call setDefaultShowThinking with on when On is clicked', async () => {
@@ -866,7 +889,12 @@ describe('GeneralTab', () => {
 				await vi.advanceTimersByTimeAsync(100);
 			});
 
-			fireEvent.click(screen.getByRole('button', { name: 'Off' }));
+			// Scope to the thinking-mode section: the Synopsis Debounce toggle also
+			// renders an "Off" button, so a bare getByRole would be ambiguous.
+			const thinkingSection = screen
+				.getByText('Show AI thinking/reasoning content for new tabs')
+				.closest('[data-setting-id="general-thinking-mode"]') as HTMLElement;
+			fireEvent.click(within(thinkingSection).getByRole('button', { name: 'Off' }));
 			expect(mockSetDefaultShowThinking).toHaveBeenCalledWith('off');
 		});
 
@@ -998,8 +1026,8 @@ describe('GeneralTab', () => {
 		});
 
 		it('should show Linux-specific note when on Linux platform', async () => {
-			const { isLinuxPlatform } = await import('../../../../../renderer/utils/platformUtils');
-			vi.mocked(isLinuxPlatform).mockReturnValue(true);
+			const { isLinux } = await import('../../../../../shared/platformDetection');
+			vi.mocked(isLinux).mockReturnValue(true);
 
 			render(<GeneralTab theme={mockTheme} isOpen={true} />);
 
@@ -1011,7 +1039,7 @@ describe('GeneralTab', () => {
 				screen.getByText(/limited support on some Linux desktop environments/)
 			).toBeInTheDocument();
 
-			vi.mocked(isLinuxPlatform).mockReturnValue(false);
+			vi.mocked(isLinux).mockReturnValue(false);
 		});
 
 		it('should not show Linux-specific note on non-Linux platforms', async () => {

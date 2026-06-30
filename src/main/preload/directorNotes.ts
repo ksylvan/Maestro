@@ -8,6 +8,7 @@
 
 import { ipcRenderer } from 'electron';
 import type { ToolType, HistoryEntry } from '../../shared/types';
+import type { DirectorNotesNarrative } from '../../shared/directorNotesNarrative';
 
 /** Aggregate stats returned alongside unified history */
 export interface UnifiedHistoryStats {
@@ -15,7 +16,8 @@ export interface UnifiedHistoryStats {
 	sessionCount: number; // Distinct provider sessions across all agents
 	autoCount: number; // Total AUTO entries
 	userCount: number; // Total USER entries
-	totalCount: number; // Total entries (autoCount + userCount)
+	cueCount: number; // Total CUE entries
+	totalCount: number; // Total entries (autoCount + userCount + cueCount)
 }
 
 /** Pre-computed activity graph bucket for a time slice */
@@ -43,7 +45,9 @@ export interface PaginatedUnifiedHistoryResult {
  */
 export interface UnifiedHistoryOptions {
 	lookbackDays: number;
-	filter?: 'AUTO' | 'USER' | 'CUE' | null; // null = both
+	// A single type, an array of types to include, or null for "all".
+	// An empty array selects nothing.
+	filter?: 'AUTO' | 'USER' | 'CUE' | Array<'AUTO' | 'USER' | 'CUE'> | null;
 	/** Number of entries to return per page (default: 100) */
 	limit?: number;
 	/** Number of entries to skip for pagination (default: 0) */
@@ -102,6 +106,10 @@ export interface SynopsisResult {
 	generatedAt?: number; // Unix ms timestamp of when the synopsis was generated
 	stats?: SynopsisStats;
 	error?: string;
+	/** Parsed structured narrative for Rich Mode (present only on clean parse). */
+	narrative?: DirectorNotesNarrative;
+	/** Set when the raw synopsis could not be parsed into a structured narrative. */
+	narrativeError?: string;
 }
 
 /**
@@ -120,6 +128,51 @@ export interface UnifiedGraphData {
 	stats: UnifiedHistoryStats;
 }
 
+/** Options for the deterministic Rich Overview stats IPC */
+export interface RichOverviewStatsOptions {
+	lookbackDays: number;
+	bucketCount?: number;
+}
+
+/** One activity time-slice in the Rich Overview timeline, with its start time. */
+export interface RichTimelineBucket {
+	startTime: number;
+	auto: number;
+	user: number;
+	cue: number;
+}
+
+/** Per-agent activity rollup for the Rich Overview, sorted by entryCount desc. */
+export interface RichAgentStat {
+	sessionId: string;
+	agentName: string;
+	entryCount: number;
+	successCount: number;
+	failureCount: number;
+}
+
+/**
+ * Fully deterministic stats for Director's Notes Rich Mode, computed in the
+ * main process over history entries (never inferred by the AI synopsis).
+ */
+export interface RichOverviewStats {
+	totalEntries: number;
+	agentCount: number;
+	sessionCount: number;
+	autoCount: number;
+	userCount: number;
+	cueCount: number;
+	successCount: number;
+	failureCount: number;
+	successRate: number;
+	totalElapsedMs: number;
+	avgElapsedMs: number;
+	timelineBuckets: RichTimelineBucket[];
+	perAgent: RichAgentStat[];
+	lookbackDays: number;
+	generatedAt: number;
+}
+
 /**
  * Creates the Director's Notes API object for preload exposure
  */
@@ -136,12 +189,21 @@ export function createDirectorNotesApi() {
 		getGraphData: (bucketCount: number, lookbackHours: number | null): Promise<UnifiedGraphData> =>
 			ipcRenderer.invoke('director-notes:getGraphData', bucketCount, lookbackHours),
 
+		// Deterministic Rich Mode stats computed in the main process over history
+		// entries: success/failure ratios, per-agent activity, timeline buckets,
+		// time-spent. The single source of quantitative truth for Rich Mode.
+		getRichOverviewStats: (options: RichOverviewStatsOptions): Promise<RichOverviewStats> =>
+			ipcRenderer.invoke('director-notes:getRichOverviewStats', options),
+
 		// Resolve the offset (newest-first sorted across all sessions) of
 		// the first entry whose timestamp is <= the given timestamp. Powers
 		// the activity graph's click-to-jump behavior in the unified view.
 		getOffsetForTimestamp: (
 			timestamp: number,
-			options?: { lookbackDays?: number; filter?: 'AUTO' | 'USER' | 'CUE' | null }
+			options?: {
+				lookbackDays?: number;
+				filter?: 'AUTO' | 'USER' | 'CUE' | Array<'AUTO' | 'USER' | 'CUE'> | null;
+			}
 		): Promise<number> =>
 			ipcRenderer.invoke('director-notes:getOffsetForTimestamp', timestamp, options),
 

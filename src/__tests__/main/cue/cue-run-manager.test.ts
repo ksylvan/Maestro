@@ -427,6 +427,66 @@ describe('createCueRunManager', () => {
 		});
 	});
 
+	describe('self-overlap guard', () => {
+		it('queues a same-subscription re-trigger even when a concurrency slot is free', () => {
+			const deps = createDeps({
+				getSessionSettings: vi.fn(() => ({ ...defaultSettings, max_concurrent: 3 })),
+				onCueRun: vi.fn(() => new Promise<CueRunResult>(() => {})), // never resolves
+			});
+			const manager = createCueRunManager(deps);
+
+			manager.execute('session-1', 'prompt', createEvent(), 'poster');
+			expect(deps.onCueRun).toHaveBeenCalledTimes(1);
+
+			// Same subscription fires again — slots 2 and 3 are free, but it must
+			// NOT overlap the in-flight run, so it queues instead. This is the
+			// double-fire regression guard.
+			manager.execute('session-1', 'prompt', createEvent(), 'poster');
+			expect(deps.onCueRun).toHaveBeenCalledTimes(1);
+			expect(manager.getQueueStatus().get('session-1')).toBe(1);
+		});
+
+		it('drains the queued same-subscription run after the in-flight one completes', async () => {
+			let resolveRun: ((val: CueRunResult) => void) | undefined;
+			const deps = createDeps({
+				getSessionSettings: vi.fn(() => ({ ...defaultSettings, max_concurrent: 3 })),
+				onCueRun: vi.fn(
+					() =>
+						new Promise<CueRunResult>((resolve) => {
+							resolveRun = resolve;
+						})
+				),
+			});
+			const manager = createCueRunManager(deps);
+
+			manager.execute('session-1', 'prompt', createEvent(), 'poster');
+			manager.execute('session-1', 'prompt', createEvent(), 'poster'); // queued
+			expect(deps.onCueRun).toHaveBeenCalledTimes(1);
+			expect(manager.getQueueStatus().get('session-1')).toBe(1);
+
+			// Completing the in-flight run releases the guard; the queued
+			// same-root run now dispatches.
+			resolveRun!(makeResult());
+			await vi.advanceTimersByTimeAsync(0);
+			expect(deps.onCueRun).toHaveBeenCalledTimes(2);
+			expect(manager.getQueueStatus().size).toBe(0);
+		});
+
+		it('lets a different subscription use a free slot while a root is busy', () => {
+			const deps = createDeps({
+				getSessionSettings: vi.fn(() => ({ ...defaultSettings, max_concurrent: 3 })),
+				onCueRun: vi.fn(() => new Promise<CueRunResult>(() => {})),
+			});
+			const manager = createCueRunManager(deps);
+
+			manager.execute('session-1', 'prompt', createEvent(), 'poster');
+			manager.execute('session-1', 'prompt', createEvent(), 'poster'); // queued (same root)
+			manager.execute('session-1', 'prompt', createEvent(), 'reporter'); // different root → runs
+			expect(deps.onCueRun).toHaveBeenCalledTimes(2);
+			expect(manager.getQueueStatus().get('session-1')).toBe(1);
+		});
+	});
+
 	describe('DB recording', () => {
 		it('updates DB status on natural completion', async () => {
 			const deps = createDeps();
@@ -435,7 +495,13 @@ describe('createCueRunManager', () => {
 			manager.execute('session-1', 'prompt', createEvent(), 'test-sub');
 			await vi.advanceTimersByTimeAsync(0);
 
-			expect(updateCueEventStatus).toHaveBeenCalledWith('run-1', 'completed');
+			// Third arg is the run's provider session id (undefined here — the
+			// mocked result sets none). Fourth is the failure diagnostics: a
+			// completed run has no error message but still carries its exit code.
+			expect(updateCueEventStatus).toHaveBeenCalledWith('run-1', 'completed', undefined, {
+				errorMessage: null,
+				exitCode: 0,
+			});
 		});
 
 		it('updates DB status to stopped on manual stop', () => {
@@ -503,7 +569,15 @@ describe('createCueRunManager', () => {
 
 			// DB status MUST be updated to the final result state so the
 			// activity log doesn't show a phantom never-ending run.
-			expect(safeUpdateCueEventStatus).toHaveBeenCalledWith(expect.any(String), 'completed');
+			// Third arg is the run's provider session id (undefined here — the
+			// mocked result sets none); passing it through is what lets Cue stats
+			// attribute token usage.
+			expect(safeUpdateCueEventStatus).toHaveBeenCalledWith(
+				expect.any(String),
+				'completed',
+				undefined,
+				{ errorMessage: null, exitCode: 0 }
+			);
 			// And a log should explain the run was recorded post-stop AND
 			// include the structured runFinished payload so the renderer
 			// observes the transition identically to a normal completion.
@@ -534,7 +608,14 @@ describe('createCueRunManager', () => {
 			resolveRun!(makeResult({ status: 'failed', stderr: 'boom' }));
 			await vi.advanceTimersByTimeAsync(0);
 
-			expect(safeUpdateCueEventStatus).toHaveBeenCalledWith(expect.any(String), 'failed');
+			// Failure diagnostics propagate: stderr becomes error_message and the
+			// exit code is carried so the activity log can explain the failure.
+			expect(safeUpdateCueEventStatus).toHaveBeenCalledWith(
+				expect.any(String),
+				'failed',
+				undefined,
+				{ errorMessage: 'boom', exitCode: 0 }
+			);
 		});
 
 		it('stopAll followed by reset: no spurious onRunCompleted', async () => {
@@ -645,7 +726,15 @@ describe('createCueRunManager', () => {
 			// via safeUpdateCueEventStatus with the main task's status.
 			// Only the parent-side safe call is asserted because that's the
 			// regression we're guarding.
-			expect(safeUpdateCueEventStatus).toHaveBeenCalledWith(expect.any(String), 'completed');
+			// Third arg is the run's provider session id (undefined here — the
+			// mocked result sets none); passing it through is what lets Cue stats
+			// attribute token usage.
+			expect(safeUpdateCueEventStatus).toHaveBeenCalledWith(
+				expect.any(String),
+				'completed',
+				undefined,
+				{ errorMessage: null, exitCode: 0 }
+			);
 			// And the post-stop log MUST include the structured runFinished
 			// payload so renderer listeners observe the transition.
 			expect(deps.onLog).toHaveBeenCalledWith(

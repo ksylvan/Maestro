@@ -8,6 +8,7 @@ import type {
 	UsageStats,
 	Group,
 	AutoRunStats,
+	AgentError,
 } from '../../../types';
 import type { AgentSpawnErrorKind } from '../../agent/useAgentExecution';
 import { gitService } from '../../../services/git';
@@ -16,10 +17,14 @@ import { notifyToast } from '../../../stores/notificationStore';
 import { useBatchStore } from '../../../stores/batchStore';
 import { useSessionStore, selectSessionById } from '../../../stores/sessionStore';
 import { useSettingsStore } from '../../../stores/settingsStore';
-import { countUnfinishedTasks, uncheckAllTasks } from '../batchUtils';
+import { countUnfinishedTasks, findPendingHitlGate, uncheckAllTasks } from '../batchUtils';
 import { DEFAULT_BATCH_STATE, type BatchAction } from '../batchReducer';
 import { createLoopSummaryEntry } from './batchLoopSummary';
-import { buildFinalSummary } from './batchFinalSummary';
+import {
+	aggregateAutoRunHistoryTotals,
+	buildFinalSummary,
+	mergeFinalSummaryTotals,
+} from './batchFinalSummary';
 import { createProgressPoll } from './batchProgressPoll';
 import { claimFlushState, type AutoRunFlushStateRefs } from './batchFlushState';
 import type { ErrorResolutionEntry } from './useBatchControlActions';
@@ -64,6 +69,12 @@ export interface UseBatchRunnerDeps {
 	broadcastAutoRunState: (sessionId: string, state: BatchRunState | null) => void;
 	flushDebouncedUpdate: (sessionId: string) => void;
 	dispatch: (action: BatchAction) => void;
+	pauseBatchOnError: (
+		sessionId: string,
+		error: AgentError,
+		documentIndex: number,
+		taskDescription?: string
+	) => void;
 	timeTracking: UseTimeTrackingReturn;
 	worktreeManager: UseWorktreeManagerReturn;
 	documentProcessor: UseDocumentProcessorReturn;
@@ -105,6 +116,7 @@ export function useBatchRunner({
 	broadcastAutoRunState,
 	flushDebouncedUpdate,
 	dispatch,
+	pauseBatchOnError,
 	timeTracking,
 	worktreeManager,
 	documentProcessor,
@@ -178,7 +190,7 @@ export function useBatchRunner({
 				return;
 			}
 
-			const { documents, prompt, loopEnabled, maxLoops, worktree } = config;
+			const { documents, prompt, loopEnabled, maxLoops, taskSelectionMode, worktree } = config;
 
 			if (documents.length === 0) {
 				window.maestro.logger.log(
@@ -454,6 +466,16 @@ export function useBatchRunner({
 			// Track stalled documents (document filename -> stall reason)
 			const stalledDocuments: Map<string, string> = new Map();
 
+			// Track the line of the currently-active HITL gate (null when none).
+			// Used to (a) dedupe the sticky toast on Resume-without-tick —
+			// pauseBatchOnError fires every iteration that re-detects the same
+			// marker, but the user should only see one notification per real
+			// gate; and (b) flag that a returning 'resume' action came from a
+			// HITL pause so the doc re-read is HITL-scoped and doesn't alter
+			// the pre-existing agent_crashed/permission_denied/etc. resume
+			// paths.
+			let activeHitlGateLine: number | null = null;
+
 			// Track working copies for reset-on-completion documents (original filename -> working copy path)
 			// Working copies are stored in /Runs/ and serve as audit logs
 			const workingCopies: Map<string, string> = new Map();
@@ -624,7 +646,102 @@ export function useBatchRunner({
 								skipCurrentDocumentAfterError = true;
 								break;
 							}
+
+							// HITL-scoped resume: when the pause we're resuming from was a
+							// HITL gate, re-read the document so the next iteration's gate
+							// check (and processTask) see whatever the user did during
+							// the pause — most importantly, ticking the human-approval
+							// checkbox. Without this the in-memory `docContent` still
+							// contains the unchecked task and we'd re-pause forever.
+							//
+							// Other resume types (agent_crashed, permission_denied, …)
+							// keep their pre-PR behavior of continuing with in-memory
+							// content, and an I/O failure here (file deleted, SSH
+							// dropped) is logged but doesn't crash the run.
+							if (activeHitlGateLine !== null) {
+								try {
+									const {
+										taskCount: resumedRemaining,
+										checkedCount: resumedChecked,
+										content: resumedContent,
+									} = await readDocAndCountTasks(folderPath, effectiveFilename, sshRemoteId);
+									remainingTasks = resumedRemaining;
+									docCheckedCount = resumedChecked;
+									docContent = resumedContent;
+								} catch (rereadErr) {
+									logger.warn(
+										`[BatchProcessor] HITL resume re-read failed for ${effectiveFilename}; continuing with in-memory content:`,
+										undefined,
+										rereadErr
+									);
+								}
+								if (remainingTasks === 0) break;
+							}
 						}
+
+						// HITL gate detection: if the document has a HITL marker positioned
+						// before the next unchecked task with no intervening checked task,
+						// pause the run via the existing error-resolution infrastructure.
+						// Re-uses `pauseBatchOnError` so the AutoRunErrorBanner ("Resume" /
+						// "Abort Run") just works without new UI plumbing.
+						const hitlGate = findPendingHitlGate(docContent);
+						if (hitlGate) {
+							const hitlError: AgentError = {
+								type: 'hitl_gate',
+								message: hitlGate.artifact
+									? `${hitlGate.reason} (artifact: ${hitlGate.artifact})`
+									: hitlGate.reason,
+								recoverable: true,
+								agentId: session.toolType,
+								sessionId,
+								timestamp: Date.now(),
+							};
+							pauseBatchOnError(sessionId, hitlError, docIndex);
+
+							// Dedupe: only fire the user-facing toast the first time we
+							// pause at a given gate. Resume-without-tick re-runs this
+							// detection on the next iteration, but the user already has
+							// the same banner up — stacking another sticky toast each
+							// time would force them to clear N notifications.
+							const isNewGate = activeHitlGateLine !== hitlGate.line;
+							activeHitlGateLine = hitlGate.line;
+
+							if (isNewGate) {
+								window.maestro.logger.autorun(
+									`HITL gate reached: ${hitlGate.reason}`,
+									session.name,
+									{
+										document: docEntry.filename,
+										reason: hitlGate.reason,
+										artifact: hitlGate.artifact,
+										markerLine: hitlGate.line,
+									}
+								);
+
+								// Sticky toast — the user must acknowledge a review gate,
+								// so it should not auto-dismiss. Click jumps to the agent
+								// so the user can see the AutoRunErrorBanner with the
+								// Resume/Abort buttons.
+								notifyToast({
+									type: 'info',
+									title: 'Auto Run paused for review',
+									message: hitlGate.artifact
+										? `${docEntry.filename}: ${hitlGate.reason} — review ${hitlGate.artifact}`
+										: `${docEntry.filename}: ${hitlGate.reason}`,
+									project: session.name,
+									sessionId,
+									dismissible: true,
+								});
+							}
+
+							// Next loop iteration's await-on-errorResolution block handles
+							// the actual wait — keeps the pause control flow in one place.
+							continue;
+						}
+
+						// No pending gate — clear the active-gate marker so a future
+						// gate on a different line is treated as a fresh notification.
+						activeHitlGateLine = null;
 
 						// Use extracted document processor hook for task processing
 						// This handles: template substitution, document expansion, agent spawning,
@@ -658,6 +775,7 @@ export function useBatchRunner({
 									loopIteration: loopIteration + 1, // 1-indexed
 									effectiveCwd,
 									customPrompt: prompt,
+									taskSelectionMode,
 									sshRemoteId,
 								},
 								effectiveFilename, // Use working copy path for reset-on-completion docs
@@ -871,21 +989,29 @@ export function useBatchRunner({
 								};
 							});
 
-							// Add history entry
-							// Use effectiveCwd for projectPath so clicking the session link looks in the right place
-							onAddHistoryEntry({
-								type: 'AUTO',
-								timestamp: Date.now(),
-								summary: shortSummary,
-								fullResponse: fullSynopsis,
-								agentSessionId,
-								projectPath: effectiveCwd,
-								sessionId: sessionId,
-								success,
-								usageStats,
-								contextUsage,
-								elapsedTimeMs,
-							});
+							// Add history entry. Await the write so the final cumulative
+							// aggregation sees the latest task before writing the summary.
+							try {
+								await onAddHistoryEntry({
+									type: 'AUTO',
+									timestamp: Date.now(),
+									summary: shortSummary,
+									fullResponse: fullSynopsis,
+									agentSessionId,
+									projectPath: effectiveCwd,
+									sessionId: sessionId,
+									success,
+									usageStats,
+									contextUsage,
+									elapsedTimeMs,
+									completedTaskCount: tasksCompletedThisRun,
+								});
+							} catch (historyError) {
+								logger.warn('[BatchProcessor] Failed to add task history entry:', undefined, {
+									sessionId,
+									error: historyError,
+								});
+							}
 
 							// Speak the synopsis via TTS if audio feedback is enabled
 							// Use refs to get latest setting values (user may toggle mid-run)
@@ -920,6 +1046,12 @@ export function useBatchRunner({
 									}
 								);
 
+								// Whether another playbook document follows this one. `documents.length > 1`
+								// was wrong for the last doc in a multi-doc run — it would tell the
+								// user we were skipping to the next document when the batch was
+								// actually about to end.
+								const hasNextDocument = docIndex < documents.length - 1;
+
 								// Add a history entry specifically for this stalled document
 								const stallExplanation = [
 									`**Document Stalled: ${docEntry.filename}**`,
@@ -937,7 +1069,7 @@ export function useBatchRunner({
 									'',
 									`**Remaining unchecked tasks:** ${newRemainingTasks}`,
 									'',
-									documents.length > 1
+									hasNextDocument
 										? `Skipping to the next document in the playbook...`
 										: `No more documents to process.`,
 								].join('\n');
@@ -950,6 +1082,21 @@ export function useBatchRunner({
 									projectPath: effectiveCwd,
 									sessionId: sessionId,
 									success: false, // Mark as unsuccessful since we couldn't complete
+								});
+
+								// Surface the stall in a toast so the user sees it without having to
+								// open the history panel — pre-toast, silent stalls (token exhaustion,
+								// watchdog timeouts, agents that loop writing "I did nothing" notes)
+								// could go unnoticed for hours. Yellow/warning conveys "we noticed
+								// something is wrong and stopped this doc," click jumps to the session.
+								notifyToast({
+									type: 'warning',
+									title: isWatchdogFailure ? 'Auto Run agent stalled' : 'Auto Run document stalled',
+									message: hasNextDocument
+										? `${docEntry.filename}: ${newRemainingTasks} task${newRemainingTasks === 1 ? '' : 's'} remaining. Skipping to next document.`
+										: `${docEntry.filename}: ${newRemainingTasks} task${newRemainingTasks === 1 ? '' : 's'} remaining. No more documents to process.`,
+									project: session.name,
+									sessionId,
 								});
 
 								// Skip to the next document instead of breaking the entire batch
@@ -1239,6 +1386,26 @@ export function useBatchRunner({
 			// Calculate visibility-aware elapsed time using the extracted time tracking hook
 			// (excludes time when laptop was sleeping/suspended)
 			const totalElapsedMs = timeTracking.getElapsedTime(sessionId);
+			let finalTotals = {
+				totalCompletedTasks,
+				totalElapsedMs,
+				totalInputTokens,
+				totalOutputTokens,
+				totalCost,
+			};
+
+			try {
+				const historyEntries = await window.maestro.history.getAll(undefined, sessionId);
+				finalTotals = mergeFinalSummaryTotals(
+					finalTotals,
+					aggregateAutoRunHistoryTotals(historyEntries)
+				);
+			} catch (historyError) {
+				logger.warn('[BatchProcessor] Failed to aggregate Auto Run history totals:', undefined, {
+					sessionId,
+					error: historyError,
+				});
+			}
 
 			const {
 				summary: finalSummary,
@@ -1246,15 +1413,15 @@ export function useBatchRunner({
 				isSuccess,
 			} = buildFinalSummary({
 				wasStopped,
-				totalCompletedTasks,
-				totalElapsedMs,
+				totalCompletedTasks: finalTotals.totalCompletedTasks,
+				totalElapsedMs: finalTotals.totalElapsedMs,
 				stalledDocuments,
 				documents,
 				loopEnabled,
 				loopIteration,
-				totalInputTokens,
-				totalOutputTokens,
-				totalCost,
+				totalInputTokens: finalTotals.totalInputTokens,
+				totalOutputTokens: finalTotals.totalOutputTokens,
+				totalCost: finalTotals.totalCost,
 				autoRunStats,
 			});
 
@@ -1272,15 +1439,15 @@ export function useBatchRunner({
 						projectPath: session.cwd,
 						sessionId, // Include sessionId so the summary appears in session's history
 						success: isSuccess,
-						elapsedTimeMs: totalElapsedMs,
+						elapsedTimeMs: finalTotals.totalElapsedMs,
 						usageStats:
-							totalInputTokens > 0 || totalOutputTokens > 0
+							finalTotals.totalInputTokens > 0 || finalTotals.totalOutputTokens > 0
 								? {
-										inputTokens: totalInputTokens,
-										outputTokens: totalOutputTokens,
+										inputTokens: finalTotals.totalInputTokens,
+										outputTokens: finalTotals.totalOutputTokens,
 										cacheReadInputTokens: 0,
 										cacheCreationInputTokens: 0,
-										totalCostUsd: totalCost,
+										totalCostUsd: finalTotals.totalCost,
 										contextWindow: 0,
 									}
 								: undefined,
@@ -1295,8 +1462,8 @@ export function useBatchRunner({
 					try {
 						await window.maestro.stats.endAutoRun(
 							statsAutoRunId,
-							totalElapsedMs,
-							totalCompletedTasks
+							finalTotals.totalElapsedMs,
+							finalTotals.totalCompletedTasks
 						);
 					} catch (statsError) {
 						// Don't fail cleanup if stats tracking fails
@@ -1328,13 +1495,13 @@ export function useBatchRunner({
 				onComplete({
 					sessionId,
 					sessionName: session.name || session.cwd.split('/').pop() || 'Unknown',
-					completedTasks: totalCompletedTasks,
-					totalTasks: initialTotalTasks,
+					completedTasks: finalTotals.totalCompletedTasks,
+					totalTasks: Math.max(initialTotalTasks, finalTotals.totalCompletedTasks),
 					wasStopped,
-					elapsedTimeMs: totalElapsedMs,
-					inputTokens: totalInputTokens,
-					outputTokens: totalOutputTokens,
-					totalCostUsd: totalCost,
+					elapsedTimeMs: finalTotals.totalElapsedMs,
+					inputTokens: finalTotals.totalInputTokens,
+					outputTokens: finalTotals.totalOutputTokens,
+					totalCostUsd: finalTotals.totalCost,
 					documentsProcessed: documents.length,
 				});
 			}
@@ -1381,6 +1548,7 @@ export function useBatchRunner({
 			onProcessQueueAfterCompletion,
 			onSpawnAgent,
 			onUpdateSession,
+			pauseBatchOnError,
 			readDocAndCountTasks,
 			sessionsRef,
 			stopRequestedRefs,

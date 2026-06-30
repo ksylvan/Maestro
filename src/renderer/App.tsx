@@ -1,5 +1,15 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
+import React, {
+	useState,
+	useEffect,
+	useRef,
+	useMemo,
+	useCallback,
+	lazy,
+	Suspense,
+	type ReactNode,
+} from 'react';
 import { useFocusAfterRender } from './hooks/utils/useFocusAfterRender';
+import { isWebDesktop } from './utils/runtimeContext';
 // SettingsModal is now lazy-loaded inside AppStandaloneModals
 import { SessionList } from './components/SessionList';
 import { RightPanel, RightPanelHandle } from './components/RightPanel';
@@ -9,12 +19,13 @@ import { AppStandaloneModals } from './components/AppStandaloneModals';
 import { initializeRendererPrompts } from './services/promptInit';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MainPanel, type MainPanelHandle } from './components/MainPanel';
-// AppOverlays, PlaygroundPanel, DebugWizardModal, DebugPackageModal, WindowsWarningModal,
+// AppOverlays, PlaygroundPanel, DebugPackageModal, WindowsWarningModal,
 // GistPublishModal, MaestroWizard, WizardResumeModal, TourOverlay are now rendered
 // inside AppStandaloneModals
 import { useWizard, type SerializableWizardState, type WizardStep } from './components/Wizard';
 // CONDUCTOR_BADGES moved to useAutoRunAchievements hook
 import { EmptyStateView } from './components/EmptyStateView';
+import { AgentsLoadingView } from './components/AgentsLoadingView';
 // DeleteAgentConfirmModal, MarketplaceModal, SymphonyModal, DocumentGraphView,
 // DirectorNotesModal, CueModal, CueYamlEditor are now lazy-loaded inside AppStandaloneModals
 
@@ -70,6 +81,7 @@ import {
 	useCliActivityMonitoring,
 	useMobileLandscape,
 	useAppRemoteEventListeners,
+	useViewportBreakpoint,
 	// UI
 	useThemeStyles,
 	useAppHandlers,
@@ -118,6 +130,8 @@ import {
 	useQuickActionsHandlers,
 	// Session cycling (Cmd+Shift+[/])
 	useCycleSession,
+	// Starred Sessions list + activation (shared by Left Bar render and cycling)
+	useStarredItems,
 	// Input mode toggle (Tier 3A)
 	useInputMode,
 	// Live mode management (Tier 3B)
@@ -125,8 +139,11 @@ import {
 	// Session switching callbacks (navigate to session/tab from various UI surfaces)
 	useSessionSwitchCallbacks,
 } from './hooks';
+import { useChatFileDropZone } from './hooks/ui/useChatFileDropZone';
 import { useMainPanelProps, useSessionListProps, useRightPanelProps } from './hooks/props';
 import { useAgentListeners } from './hooks/agent/useAgentListeners';
+import { useSessionRecovery } from './hooks/agent/useSessionRecovery';
+import { useAutoResumeCoordinator } from './hooks/agent/useAutoResumeCoordinator';
 import { useSymphonyContribution } from './hooks/symphony/useSymphonyContribution';
 import { useCueAutoDiscovery } from './hooks/useCueAutoDiscovery';
 import { useCueVisibilityWiring } from './hooks/cue/useCueVisibilityWiring';
@@ -153,6 +170,8 @@ import { useActiveSession } from './hooks/session/useActiveSession';
 import { InlineWizardProvider, useInlineWizardContext } from './contexts/InlineWizardContext';
 import { ToastContainer } from './components/Toast';
 import { CenterFlash } from './components/CenterFlash';
+import { ThoughtStreamPanel } from './components/ThoughtStreamPanel';
+import { useQuitWhenIdle } from './hooks/useQuitWhenIdle';
 
 // Import services
 // gitService — now used in useModalHandlers (Tier 3C)
@@ -162,6 +181,8 @@ import { CenterFlash } from './components/CenterFlash';
 import type { RightPanelTab, Session, QueuedItem, CustomAICommand, ThinkingItem } from './types';
 import { THEMES } from './constants/themes';
 import { generateId } from './utils/ids';
+import { getActiveOutputSearchKey } from './utils/outputSearch';
+import { reorderQueueItem } from './utils/executionQueue';
 import { getContextColor } from './utils/theme';
 // safeClipboardWrite moved to AppStandaloneModals (GistPublishModal handler)
 import {
@@ -181,11 +202,13 @@ import {
 	hasActiveWizard,
 	findNextUnreadSession,
 	getTabDisplayName,
+	isSoleAiTabReplacement,
 } from './utils/tabHelpers';
 // validateNewSession moved to useSymphonyContribution, useSessionCrud hooks
 // formatLogsForClipboard moved to useTabExportHandlers hook
 // getSlashCommandDescription moved to useWizardHandlers
 import { useUIStore } from './stores/uiStore';
+import { useSettingsStore } from './stores/settingsStore';
 import { useTabStore } from './stores/tabStore';
 import { useFileExplorerStore } from './stores/fileExplorerStore';
 
@@ -240,8 +263,6 @@ function MaestroConsoleInner() {
 		// pendingKeyboardMasteryLevel — now self-sourced in AppOverlays (Tier 1A)
 		// Playground Panel — playgroundOpen now self-sourced in AppStandaloneModals
 		setPlaygroundOpen,
-		// Debug Wizard Modal — debugWizardModalOpen now self-sourced in AppStandaloneModals
-		setDebugWizardModalOpen,
 		// Debug Package Modal — debugPackageModalOpen now self-sourced in AppStandaloneModals
 		setDebugPackageModalOpen,
 		// Debug Application Stats Modal — self-sourced in AppStandaloneModals
@@ -334,6 +355,11 @@ function MaestroConsoleInner() {
 
 	// --- MOBILE LANDSCAPE MODE (reading-only view) ---
 	const isMobileLandscape = useMobileLandscape();
+
+	// --- RESPONSIVE BREAKPOINT (drives drawer-mode sidebars on narrow viewports) ---
+	const { isNarrow: isNarrowViewport, isMdDown: isMdDownViewport } = useViewportBreakpoint();
+	// Auto-collapse / mutual-exclusion effects live further down, after
+	// leftSidebarOpen / rightPanelOpen are pulled from the UI store.
 
 	// --- NAVIGATION HISTORY (back/forward through sessions and tabs) ---
 	const { pushNavigation, navigateBack, navigateForward } = useNavigationHistory();
@@ -485,7 +511,11 @@ function MaestroConsoleInner() {
 	);
 	const groups = useSessionStore((s) => s.groups);
 	const activeSessionId = useSessionStore((s) => s.activeSessionId);
-	// sessionsLoaded moved to useQueueProcessing hook
+	// Whether the initial agent list has finished loading. On desktop the splash
+	// covers startup until this flips true; on Web Desktop (no splash) we use it
+	// to show a loading spinner instead of flashing the empty "create your first
+	// agent" state while sessions stream in over the WebSocket bridge.
+	const sessionsLoaded = useSessionStore((s) => s.sessionsLoaded);
 	const activeSession = useActiveSession();
 
 	// Actions — stable references from store, never trigger re-renders
@@ -557,6 +587,36 @@ function MaestroConsoleInner() {
 	// State: individual selectors for granular re-render control
 	const leftSidebarOpen = useUIStore((s) => s.leftSidebarOpen);
 	const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
+
+	// Auto-collapse both sidebars when the viewport is narrow (fresh load OR
+	// transition). MainPanel needs the full width. Users can still toggle
+	// either drawer open; on narrow widths opening one auto-closes the other
+	// (the mutual-exclusion effect right below).
+	useEffect(() => {
+		if (isNarrowViewport) {
+			useUIStore.getState().setLeftSidebarOpen(false);
+			useUIStore.getState().setRightPanelOpen(false);
+		}
+	}, [isNarrowViewport]);
+
+	// Mutual exclusion on narrow: opening one drawer closes the OTHER one.
+	// Track previous values so we react to the transition that just opened a
+	// drawer, not the steady state. The old "if both open, close right" version
+	// was biased: opening the right while the left was already open would
+	// immediately re-close the right.
+	const prevLeftSidebarOpenRef = useRef(leftSidebarOpen);
+	const prevRightPanelOpenRef = useRef(rightPanelOpen);
+	useEffect(() => {
+		const leftJustOpened = !prevLeftSidebarOpenRef.current && leftSidebarOpen;
+		const rightJustOpened = !prevRightPanelOpenRef.current && rightPanelOpen;
+		if (isNarrowViewport && leftJustOpened && rightPanelOpen) {
+			useUIStore.getState().setRightPanelOpen(false);
+		} else if (isNarrowViewport && rightJustOpened && leftSidebarOpen) {
+			useUIStore.getState().setLeftSidebarOpen(false);
+		}
+		prevLeftSidebarOpenRef.current = leftSidebarOpen;
+		prevRightPanelOpenRef.current = rightPanelOpen;
+	}, [isNarrowViewport, leftSidebarOpen, rightPanelOpen]);
 	const activeRightTab = useUIStore((s) => s.activeRightTab);
 	const activeFocus = useUIStore((s) => s.activeFocus);
 	const bookmarksCollapsed = useUIStore((s) => s.bookmarksCollapsed);
@@ -570,6 +630,7 @@ function MaestroConsoleInner() {
 	const draggingSessionId = useUIStore((s) => s.draggingSessionId);
 	// flashNotification, successFlashNotification — now self-sourced in AppStandaloneModals
 	const selectedSidebarIndex = useUIStore((s) => s.selectedSidebarIndex);
+	const sidebarExtraSelection = useUIStore((s) => s.sidebarExtraSelection);
 
 	// Actions: stable closures created at store init, no hook overhead needed
 	const {
@@ -583,6 +644,7 @@ function MaestroConsoleInner() {
 		setFlashNotification,
 		setSuccessFlashNotification,
 		setSelectedSidebarIndex,
+		setSidebarExtraSelection,
 	} = useUIStore.getState();
 
 	const {
@@ -717,7 +779,6 @@ function MaestroConsoleInner() {
 	// Expose debug helpers to window for console access
 	// No dependency array - always keep functions fresh
 	(window as any).__maestroDebug = {
-		openDebugWizard: () => setDebugWizardModalOpen(true),
 		openCommandK: () => setQuickActionOpen(true),
 		openWizard: () => openWizardModal(),
 		openSettings: () => setSettingsModalOpen(true),
@@ -877,6 +938,40 @@ function MaestroConsoleInner() {
 		[setRenameTabId, setRenameTabInitialName, setRenameTabModalOpen]
 	);
 
+	// Opens the rename modal for a browser tab. Pre-fills with any existing
+	// user-assigned name (empty when the tab is still using the page-set title).
+	const handleRequestBrowserTabRename = useCallback(
+		(tabId: string) => {
+			const session = selectActiveSession(useSessionStore.getState());
+			if (!session) return;
+			const tab = session.browserTabs?.find((t) => t.id === tabId);
+			if (!tab) return;
+			setRenameTabId(tabId);
+			setRenameTabInitialName(tab.customTitle ?? '');
+			setRenameTabModalOpen(true);
+		},
+		[setRenameTabId, setRenameTabInitialName, setRenameTabModalOpen]
+	);
+
+	// Clears a browser tab's user-assigned name, letting the website set the
+	// tab title again on the next navigation/title update.
+	const handleResetBrowserTabName = useCallback((tabId: string) => {
+		const session = selectActiveSession(useSessionStore.getState());
+		if (!session) return;
+		useSessionStore.getState().setSessions((prev) =>
+			prev.map((s) =>
+				s.id === session.id
+					? {
+							...s,
+							browserTabs: (s.browserTabs || []).map((t) =>
+								t.id === tabId ? { ...t, customTitle: undefined } : t
+							),
+						}
+					: s
+			)
+		);
+	}, []);
+
 	// Opens the startup-command modal for a terminal tab. Captures sessionId at
 	// open time so the save action targets the correct session even if the user
 	// switches agents while the modal is up.
@@ -954,6 +1049,7 @@ function MaestroConsoleInner() {
 		handleCloseRenameTabModal,
 		handleConfirmQuit,
 		handleCancelQuit,
+		handleQuitWhenIdle,
 		onKeyboardMasteryLevelUp,
 		handleKeyboardMasteryCelebrationClose,
 		handleStandingOvationClose,
@@ -1024,11 +1120,13 @@ function MaestroConsoleInner() {
 	} = useWorktreeHandlers();
 
 	// --- APP HANDLERS (drag, file, folder operations) ---
+	// NOTE: file-drop attach is now scoped per-region (useChatFileDropZone for the
+	// main panel / group chat; the Files panel for tree imports). useAppHandlers
+	// still owns the document-level dragover/drop preventDefault that keeps the
+	// inert regions (left bar, History/Auto Run) from navigating to a file:// URL,
+	// plus session-drag lifecycle. setIsDraggingFile/dragCounterRef are still
+	// threaded into useInputHandlers' handleDrop for defensive reset.
 	const {
-		handleFileDragEnter,
-		handleFileDragLeave,
-		handleFileDragOver,
-		isDraggingFile,
 		setIsDraggingFile,
 		dragCounterRef,
 		handleFileClick,
@@ -1075,6 +1173,17 @@ function MaestroConsoleInner() {
 		[activeSession?.inputMode, activeSession?.shellCwd, activeSession?.cwd]
 	);
 
+	// Open a file path clicked in the Git Log / Git Diff viewers as a preview tab.
+	// The viewer dismisses itself first (via its own onClose); here we just read
+	// and open the file. The path arrives absolute (resolved against the viewer's
+	// cwd) so handleFileClick uses it verbatim and still honors SSH remotes.
+	const handleOpenGitFile = useCallback(
+		(absolutePath: string, fileName: string) => {
+			void handleFileClick({ name: fileName, type: 'file' }, absolutePath);
+		},
+		[handleFileClick]
+	);
+
 	// Auto-focus the AI input box when switching from terminal to AI mode
 	const prevInputModeRef = useRef(activeSession?.inputMode);
 	const shouldFocusOnModeSwitch =
@@ -1083,6 +1192,25 @@ function MaestroConsoleInner() {
 	useEffect(() => {
 		prevInputModeRef.current = activeSession?.inputMode;
 	}, [activeSession?.inputMode]);
+
+	// Auto-focus the AI input when closing the last tab spawns a fresh chat tab.
+	// closeTab() replaces the sole remaining AI tab with a new empty one, so the
+	// session still has one tab but its id changed; land the caret in the input
+	// just like a manual new tab does (the close paths don't reach inputRef).
+	const prevFocusSessionIdRef = useRef(activeSession?.id);
+	const prevAiTabIdsRef = useRef<string[]>(
+		activeSession ? activeSession.aiTabs.map((t) => t.id) : []
+	);
+	const shouldFocusOnLastTabReplaced = isSoleAiTabReplacement(
+		prevFocusSessionIdRef.current,
+		prevAiTabIdsRef.current,
+		activeSession
+	);
+	useFocusAfterRender(inputRef, shouldFocusOnLastTabReplaced, 0);
+	useEffect(() => {
+		prevFocusSessionIdRef.current = activeSession?.id;
+		prevAiTabIdsRef.current = activeSession ? activeSession.aiTabs.map((t) => t.id) : [];
+	}, [activeSession?.id, activeSession?.aiTabs]);
 
 	// PERF: Memoize sessions for NewInstanceModal validation (only recompute when modal is open)
 	// This prevents re-renders of the modal's validation logic on every session state change
@@ -1341,6 +1469,7 @@ function MaestroConsoleInner() {
 		handleProcessMonitorNavigateToSession,
 		handleToastSessionClick,
 		handleNamedSessionSelect,
+		handleJumpToStarredSession,
 		handleUtilityTabSelect,
 		handleUtilityFileTabSelect,
 	} = useSessionSwitchCallbacks({
@@ -1390,12 +1519,43 @@ function MaestroConsoleInner() {
 		contextWarningYellowThreshold: contextManagementSettings.contextWarningYellowThreshold,
 	});
 
+	// --- AUTO-RESUME ON LIMIT (Phase 3) ---
+	// Renderer singleton: on the autoResumeCheckIntervalHours interval, probe
+	// every limit-paused agent and resume the ones whose provider window has
+	// reopened. Reads its own settings from the store; early-returns + clears
+	// the timer when autoResumeOnLimit is off. `resumeAutoRunAfterError` is the
+	// shared entry point that unblocks both spec- and goal-driven Auto Runs.
+	useAutoResumeCoordinator({ resumeAutoRunAfterError });
+
 	const handleRemoveQueuedItem = useCallback((itemId: string) => {
 		updateSessionWith(activeSessionIdRef.current, (s) => ({
 			...s,
 			executionQueue: s.executionQueue.filter((item) => item.id !== itemId),
 		}));
 	}, []);
+
+	const handleToggleQueuedItemPause = useCallback((itemId: string) => {
+		updateSessionWith(activeSessionIdRef.current, (s) => ({
+			...s,
+			executionQueue: s.executionQueue.map((item) =>
+				item.id === itemId ? { ...item, paused: !item.paused } : item
+			),
+		}));
+	}, []);
+
+	// Reorder a queued item within the active session's inline chat list. The
+	// inline list is filtered to a single tab, so fromIndex/toIndex address that
+	// tab's items; reorderQueueItem rearranges them while keeping other tabs'
+	// queued items in their absolute positions (see the helper for details).
+	const handleReorderQueuedItem = useCallback(
+		(fromIndex: number, toIndex: number, tabId?: string) => {
+			updateSessionWith(activeSessionIdRef.current, (s) => ({
+				...s,
+				executionQueue: reorderQueueItem(s.executionQueue, fromIndex, toIndex, tabId),
+			}));
+		},
+		[]
+	);
 
 	// toggleBookmark — provided by useSessionCrud hook
 
@@ -1435,6 +1595,7 @@ function MaestroConsoleInner() {
 		retryLastMessage: retryInlineWizardMessage,
 		generateDocuments: generateInlineWizardDocuments,
 		endWizard: endInlineWizard,
+		isWizardActiveForTab,
 	} = inlineWizardContext;
 
 	// --- WIZARD HANDLERS (extracted hook) ---
@@ -1482,6 +1643,7 @@ function MaestroConsoleInner() {
 		stagedImages,
 		setStagedImages,
 		processInput,
+		processInputRef,
 		handleInputKeyDown,
 		handleMainPanelInputBlur,
 		handleReplayMessage,
@@ -1509,6 +1671,17 @@ function MaestroConsoleInner() {
 		sessionsRef,
 		activeSessionIdRef,
 	});
+
+	// In-place recovery from session_not_found errors. The hook drives the
+	// inline SessionRecoveryCard surfaced by useAgentErrorListener — it grooms
+	// (or passes raw) the tab's prior conversation, sets pendingMergedContext,
+	// and re-sends the failed prompt via processInputRef so the existing
+	// spawn path stands up a fresh session on the same tab.
+	const {
+		startRecovery: handleSessionRecover,
+		isRecovering: isRecoveringSession,
+		recoveryError: sessionRecoveryError,
+	} = useSessionRecovery({ processInputRef });
 
 	// Force Send: dispatch a queued item immediately with forceParallel=true.
 	// Mirrors the user's manual flow (copy text → delete queued → Cmd+Shift+Enter)
@@ -1596,6 +1769,9 @@ function MaestroConsoleInner() {
 
 	// Auto Run achievement tracking (progress intervals, peak usage stats)
 	useAutoRunAchievements({ activeBatchSessionIds });
+
+	// "Quit when idle" watcher - quits the app once all operations finish once armed
+	useQuitWhenIdle();
 
 	// Handler for switching to autorun tab - shows setup modal if no folder configured
 	const handleSetActiveRightTab = useCallback(
@@ -1685,29 +1861,9 @@ function MaestroConsoleInner() {
 		});
 
 	// --- KEYBOARD NAVIGATION ---
-	// Extracted hook for sidebar navigation, panel focus, and related keyboard handlers
-	const {
-		handleSidebarNavigation,
-		handleTabNavigation,
-		handleEnterToActivate,
-		handleEscapeInMain,
-	} = useKeyboardNavigation({
-		sortedSessions,
-		navSessions,
-		bookmarkNavSize,
-		selectedSidebarIndex,
-		setSelectedSidebarIndex,
-		activeSessionId,
-		setActiveSessionId,
-		activeFocus,
-		setActiveFocus,
-		groups,
-		setGroups,
-		bookmarksCollapsed,
-		setBookmarksCollapsed,
-		inputRef,
-		terminalOutputRef,
-	});
+	// NOTE: useKeyboardNavigation is called further down, after useStarredItems,
+	// so arrow-key navigation can traverse the Starred Sessions + Group Chats
+	// sections (which depend on starredItems / activateStarredItem).
 
 	// --- MAIN KEYBOARD HANDLER ---
 	// Extracted hook for main keyboard event listener (empty deps, uses ref pattern)
@@ -1756,13 +1912,72 @@ function MaestroConsoleInner() {
 	// NOTE: Auto Run document loading and file watching are now handled by useAutoRunDocumentLoader hook
 
 	// --- ACTIONS ---
+	// Starred Sessions list + activation - single owner shared by the Left Bar
+	// render (SessionList) and Cmd+[ / Cmd+] cycling so both traverse the same rows.
+	const { starredItems, activateStarredItem } = useStarredItems({
+		onJumpToStarredSession: handleJumpToStarredSession,
+		showConfirmation,
+	});
+
 	// cycleSession — provided by useCycleSession hook
-	const { cycleSession } = useCycleSession({ sortedSessions, handleOpenGroupChat });
+	const { cycleSession } = useCycleSession({
+		sortedSessions,
+		handleOpenGroupChat,
+		starredItems,
+		activateStarredItem,
+		navIndexMap,
+	});
+
+	// --- KEYBOARD NAVIGATION ---
+	// Sidebar arrow-key navigation, panel focus, Enter-to-activate. Placed after
+	// useStarredItems so it can traverse the Starred Sessions (top) and Group
+	// Chats (bottom) sections in addition to the agent list.
+	const groupChatsExpanded = useSettingsStore((s) => s.groupChatsExpanded);
+	const groupChatSortAlphabetical = useSettingsStore((s) => s.groupChatSortAlphabetical);
+	const starredSessionsCollapsed = useSettingsStore((s) => s.starredSessionsCollapsed);
+	const { setGroupChatsExpanded, setStarredSessionsCollapsed } = useSettingsStore.getState();
+	const {
+		handleSidebarNavigation,
+		handleTabNavigation,
+		handleEnterToActivate,
+		handleEscapeInMain,
+	} = useKeyboardNavigation({
+		sortedSessions,
+		navSessions,
+		bookmarkNavSize,
+		selectedSidebarIndex,
+		setSelectedSidebarIndex,
+		sidebarExtraSelection,
+		setSidebarExtraSelection,
+		activeSessionId,
+		setActiveSessionId,
+		activeFocus,
+		setActiveFocus,
+		groups,
+		setGroups,
+		bookmarksCollapsed,
+		setBookmarksCollapsed,
+		inputRef,
+		terminalOutputRef,
+		starredItems,
+		activateStarredItem,
+		starredSectionCollapsed: starredSessionsCollapsed,
+		setStarredSectionCollapsed: setStarredSessionsCollapsed,
+		groupChats,
+		handleOpenGroupChat,
+		groupChatsExpanded,
+		setGroupChatsExpanded,
+		groupChatSortAlphabetical,
+		showUnreadAgentsOnly,
+	});
 
 	// goToNextUnreadTab — jump to the next agent with unread tabs, clearing current agent's unreads
 	const goToNextUnreadTab = useCallback(() => {
 		const currentActiveId = useSessionStore.getState().activeSessionId;
-		const result = findNextUnreadSession(sortedSessions, currentActiveId);
+		// Treat a tab with an active inline wizard as a draft target: an unfinished
+		// wizard is meant to be completed into an Auto Run doc, so the navigation
+		// should stop on it just like any other draft.
+		const result = findNextUnreadSession(sortedSessions, currentActiveId, isWizardActiveForTab);
 
 		// Clear current agent's unread tabs
 		if (result.clearedCurrent) {
@@ -1791,7 +2006,7 @@ function MaestroConsoleInner() {
 		} else {
 			showSuccessFlash('No unread or draft tabs');
 		}
-	}, [sortedSessions, setSessions, setActiveSessionId, showSuccessFlash]);
+	}, [sortedSessions, setSessions, setActiveSessionId, showSuccessFlash, isWizardActiveForTab]);
 
 	// showConfirmation, performDeleteSession — provided by useSessionLifecycle hook (Phase 2H)
 	// deleteSession, deleteWorktreeGroup — provided by useSessionCrud hook
@@ -2062,8 +2277,12 @@ function MaestroConsoleInner() {
 	});
 
 	// Queue browser handlers — extracted to useQueueHandlers hook
-	const { handleRemoveQueueItem, handleSwitchQueueSession, handleReorderQueueItems } =
-		useQueueHandlers();
+	const {
+		handleRemoveQueueItem,
+		handleSwitchQueueSession,
+		handleReorderQueueItems,
+		handleTogglePauseQueueItem,
+	} = useQueueHandlers();
 
 	// Symphony contribution handler — extracted to useSymphonyContribution hook
 	const { handleStartContribution } = useSymphonyContribution({
@@ -2078,6 +2297,7 @@ function MaestroConsoleInner() {
 		shortcuts,
 		activeFocus,
 		activeRightTab,
+		handleOpenBatchRunner,
 		sessions,
 		selectedSidebarIndex,
 		activeSessionId,
@@ -2095,6 +2315,7 @@ function MaestroConsoleInner() {
 		activeSession,
 		fileTreeFilter,
 		fileTreeFilterOpen,
+		fileTreeFilterInputRef,
 		gitDiffPreview,
 		gitLogOpen,
 		lightboxImage,
@@ -2289,7 +2510,9 @@ function MaestroConsoleInner() {
 	);
 
 	const handleOpenOutputSearch = useCallback(() => {
-		useUIStore.getState().setOutputSearchOpen(true);
+		// Output search is scoped per agent+AI-tab; open the active window's slot.
+		const key = getActiveOutputSearchKey();
+		if (key) useUIStore.getState().setOutputSearchOpen(key, true);
 	}, []);
 
 	const mainPanelProps = useMainPanelProps({
@@ -2401,6 +2624,8 @@ function MaestroConsoleInner() {
 		handleStopBatchRun,
 		handleDeleteLog,
 		handleRemoveQueuedItem,
+		handleToggleQueuedItemPause,
+		handleReorderQueuedItem,
 		handleForceSendQueuedItem,
 		forcedParallelEnabled: settings.forcedParallelExecution,
 		getForceSendContext,
@@ -2440,6 +2665,8 @@ function MaestroConsoleInner() {
 		handleNewBrowserTab,
 		handleBrowserTabSelect: handleSelectBrowserTab,
 		handleBrowserTabClose: handleCloseBrowserTab,
+		handleBrowserTabRename: handleRequestBrowserTabRename,
+		handleBrowserTabResetName: handleResetBrowserTabName,
 		handleBrowserTabUpdate: handleUpdateBrowserTab,
 
 		// Terminal tab callbacks (Phase 8)
@@ -2460,6 +2687,9 @@ function MaestroConsoleInner() {
 		handleOpenPromptComposer,
 		handleReplayMessage,
 		handleForkConversation,
+		handleSessionRecover,
+		isRecoveringSession,
+		sessionRecoveryError,
 		handleMainPanelFileClick,
 		handleNavigateBack: handleFileTabNavigateBack,
 		handleNavigateForward: handleFileTabNavigateForward,
@@ -2534,6 +2764,10 @@ function MaestroConsoleInner() {
 		visibleSessions,
 		navIndexMap,
 
+		// Starred Sessions (shared with Cmd+[ / Cmd+] cycling via useStarredItems)
+		starredItems,
+		activateStarredItem,
+
 		// Ref
 		sidebarContainerRef,
 
@@ -2562,6 +2796,7 @@ function MaestroConsoleInner() {
 		handleDeleteWorktreeSession,
 		handleToggleWorktreeExpanded,
 		handleConfigureCue,
+		handleJumpToStarredSession,
 		openWizardModal,
 		handleOpenFeedbackModal,
 		handleStartTour,
@@ -2634,11 +2869,17 @@ function MaestroConsoleInner() {
 		handleOpenBrowserTabAt,
 	});
 
+	// Chat-attach drop zone for the group chat view (parity with the main panel).
+	// Scoped to the group chat container so only that region reacts.
+	const groupChatDropZone = useChatFileDropZone(theme, handleDrop);
+
 	return (
-		<GitStatusProvider sessions={sessions} activeSessionId={activeSessionId}>
+		<>
 			<div
-				className={`flex h-screen w-full font-mono overflow-hidden transition-colors duration-300 ${
-					isMobileLandscape || useNativeTitleBar ? 'pt-0' : 'pt-10'
+				className={`flex maestro-app-shell w-full font-mono overflow-hidden transition-colors duration-300 ${
+					isMobileLandscape || useNativeTitleBar || isMdDownViewport || isWebDesktop()
+						? 'pt-0'
+						: 'pt-10'
 				}`}
 				style={{
 					backgroundColor: theme.colors.bgMain,
@@ -2646,62 +2887,24 @@ function MaestroConsoleInner() {
 					fontFamily: fontFamily,
 					fontSize: `${fontSize}px`,
 				}}
-				onDragEnter={handleFileDragEnter}
-				onDragLeave={handleFileDragLeave}
-				onDragOver={handleFileDragOver}
-				onDrop={handleDrop}
 			>
-				{/* External File Drop Overlay */}
-				{isDraggingFile && (
-					<div
-						className="fixed inset-0 z-[9999] flex items-center justify-center cursor-pointer"
-						style={{ backgroundColor: `${theme.colors.accent}20` }}
-						onClick={() => {
-							// Escape hatch: if the overlay ever gets stuck (drag canceled in
-							// a way that didn't fire dragend or dragleave), clicking it
-							// resets the drag state.
-							dragCounterRef.current = 0;
-							setIsDraggingFile(false);
-						}}
-					>
-						<div
-							className="pointer-events-none rounded-xl border-2 border-dashed p-8 flex flex-col items-center gap-3"
-							style={{
-								borderColor: theme.colors.accent,
-								backgroundColor: `${theme.colors.bgMain}ee`,
-							}}
-						>
-							<svg
-								className="w-16 h-16"
-								style={{ color: theme.colors.accent }}
-								fill="none"
-								stroke="currentColor"
-								viewBox="0 0 24 24"
-							>
-								<path
-									strokeLinecap="round"
-									strokeLinejoin="round"
-									strokeWidth={2}
-									d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-								/>
-							</svg>
-							<span className="text-lg font-medium" style={{ color: theme.colors.textMain }}>
-								Drop file or folder
-							</span>
-							<span className="text-sm" style={{ color: theme.colors.textDim }}>
-								Images attach as thumbnails. Anything else becomes an @reference.
-							</span>
-						</div>
-					</div>
-				)}
+				{/* External file drops are handled per-region, not globally: the main
+				    panel and group chat attach to the chat (see useChatFileDropZone),
+				    while the Files panel imports into the tree. The left bar and the
+				    History/Auto Run panel intentionally do nothing. */}
 
-				{/* --- DRAGGABLE TITLE BAR (hidden in mobile landscape or when using native title bar) --- */}
-				{!isMobileLandscape && !useNativeTitleBar && (
+				{/* --- DRAGGABLE TITLE BAR --- hidden in mobile landscape, native title bar,
+				    narrow viewport, the legacy web build, OR the web-desktop bundle
+				    (no Electron host = nothing to drag, just visual clutter). */}
+				{!isMobileLandscape && !useNativeTitleBar && !isMdDownViewport && !isWebDesktop() && (
 					<div
 						className="fixed top-0 left-0 right-0 h-10 flex items-center justify-center"
 						style={
 							{
 								WebkitAppRegion: 'drag',
+								// Falls back to bgMain (the historical see-through behavior)
+								// for themes/saved customs that predate the bgTitleBar token.
+								backgroundColor: theme.colors.bgTitleBar ?? theme.colors.bgMain,
 							} as React.CSSProperties
 						}
 					>
@@ -2784,6 +2987,7 @@ function MaestroConsoleInner() {
 					onCloseConfirmModal={handleCloseConfirmModal}
 					onConfirmQuit={handleConfirmQuit}
 					onCancelQuit={handleCancelQuit}
+					onQuitWhenIdle={handleQuitWhenIdle}
 					activeBatchSessionIds={activeBatchSessionIds}
 					// AppSessionModals props
 					onCloseNewInstanceModal={handleCloseNewInstanceModal}
@@ -2877,7 +3081,6 @@ function MaestroConsoleInner() {
 					setUpdateCheckModalOpenForQuickActions={setUpdateCheckModalOpen}
 					openWizard={openWizardModal}
 					wizardGoToStep={wizardGoToStep}
-					setDebugWizardModalOpen={setDebugWizardModalOpen}
 					setDebugPackageModalOpen={setDebugPackageModalOpen}
 					setDebugApplicationStatsOpen={setDebugApplicationStatsOpen}
 					startTour={handleQuickActionsStartTour}
@@ -2914,11 +3117,18 @@ function MaestroConsoleInner() {
 					onCopyTabContext={handleQuickActionsCopyTabContext}
 					onExportTabHtml={handleQuickActionsExportTabHtml}
 					onPublishTabGist={handleQuickActionsPublishTabGist}
+					mainPanelRef={mainPanelRef}
 					isFilePreviewOpen={!!activeSession?.activeFileTabId}
 					ghCliAvailable={ghCliAvailable}
 					onPublishGist={() => setGistPublishModalOpen(true)}
 					lastGraphFocusFile={lastGraphFocusFilePath}
 					onOpenLastDocumentGraph={handleOpenLastDocumentGraph}
+					currentGraphFile={
+						activeFileTab && /\.(md|markdown)$/i.test(activeFileTab.name)
+							? activeFileTab.name
+							: undefined
+					}
+					onOpenCurrentFileInGraph={mainPanelProps.onOpenInGraph}
 					lightboxImage={lightboxImage}
 					lightboxImages={lightboxImages}
 					stagedImages={stagedImages}
@@ -2930,6 +3140,7 @@ function MaestroConsoleInner() {
 					gitViewerCwd={gitViewerCwd}
 					onCloseGitDiff={handleCloseGitDiff}
 					onCloseGitLog={handleCloseGitLog}
+					onOpenGitFile={handleOpenGitFile}
 					onCloseAutoRunSetup={handleCloseAutoRunSetup}
 					onAutoRunFolderSelected={handleAutoRunFolderSelected}
 					onCloseBatchRunner={handleCloseBatchRunner}
@@ -3004,9 +3215,13 @@ function MaestroConsoleInner() {
 					onQuickActionsNewFileTab={handleNewFileTab}
 					onQuickActionsNewBrowserTab={handleNewBrowserTab}
 					onQuickActionsNewTerminalTab={handleOpenTerminalTab}
+					onGoToNextUnread={goToNextUnreadTab}
+					onNavBack={handleNavBack}
+					onNavForward={handleNavForward}
 					onRemoveQueueItem={handleRemoveQueueItem}
 					onSwitchQueueSession={handleSwitchQueueSession}
 					onReorderQueueItems={handleReorderQueueItems}
+					onTogglePauseQueueItem={handleTogglePauseQueueItem}
 					// AppGroupChatModals props
 					onCloseNewGroupChatModal={handleCloseNewGroupChatModal}
 					onCreateGroupChat={handleCreateGroupChat}
@@ -3117,8 +3332,13 @@ function MaestroConsoleInner() {
 					recordTourSkip={recordTourSkip}
 				/>
 
-				{/* --- EMPTY STATE VIEW (when no sessions) --- */}
-				{sessions.length === 0 && !isMobileLandscape ? (
+				{/* --- LOADING VIEW (agent list still streaming in, no splash) --- */}
+				{sessions.length === 0 && !sessionsLoaded && !isMobileLandscape ? (
+					<AgentsLoadingView theme={theme} />
+				) : null}
+
+				{/* --- EMPTY STATE VIEW (loaded, genuinely no sessions) --- */}
+				{sessions.length === 0 && sessionsLoaded && !isMobileLandscape ? (
 					<EmptyStateView
 						theme={theme}
 						shortcuts={shortcuts}
@@ -3140,6 +3360,25 @@ function MaestroConsoleInner() {
 						<SessionList {...sessionListProps} />
 					</ErrorBoundary>
 				)}
+
+				{/* --- MOBILE BACKDROP (taps anywhere outside a drawer to close it) --- */}
+				{isNarrowViewport && sessions.length > 0 && (leftSidebarOpen || rightPanelOpen) && (
+					<div
+						className="maestro-mobile-backdrop"
+						onClick={() => {
+							setLeftSidebarOpen(false);
+							setRightPanelOpen(false);
+						}}
+						aria-hidden
+					/>
+				)}
+
+				{/* Sidebar-show opener is now rendered inline inside the
+				    MainPanelHeader (left edge of the header row) so it shifts
+				    content instead of overlapping the session name. */}
+
+				{/* Right-edge mobile button removed — the existing top-right panel
+				    toggle in MainPanelHeader already handles opening Files. */}
 
 				{/* --- SYSTEM LOG VIEWER (replaces center content when open, lazy-loaded) --- */}
 				{logViewerOpen && (
@@ -3169,7 +3408,11 @@ function MaestroConsoleInner() {
 					activeGroupChatId &&
 					groupChats.find((c) => c.id === activeGroupChatId) && (
 						<>
-							<div className="flex-1 flex flex-col min-w-0">
+							<div
+								className="flex-1 flex flex-col min-w-0 relative"
+								{...groupChatDropZone.dragHandlers}
+							>
+								{groupChatDropZone.overlay}
 								<GroupChatPanel
 									theme={theme}
 									groupChat={groupChats.find((c) => c.id === activeGroupChatId)!}
@@ -3307,7 +3550,26 @@ function MaestroConsoleInner() {
 
 				{/* --- CENTER FLASH (single, app-wide; mounted via portal) --- */}
 				<CenterFlash theme={theme} />
+
+				{/* --- THOUGHT STREAM (single, app-wide; persists across tab switches) --- */}
+				<ThoughtStreamPanel theme={theme} />
 			</div>
+		</>
+	);
+}
+
+/**
+ * GitStatusProviderFromStore — reads sessions/activeSessionId from the store
+ * so GitStatusProvider can sit ABOVE MaestroConsoleInner. Required because
+ * useModalHandlers (called inside MaestroConsoleInner) consumes useGitDetail,
+ * and a context provider must wrap its consumer.
+ */
+function GitStatusProviderFromStore({ children }: { children: ReactNode }) {
+	const sessions = useSessionStore((s) => s.sessions);
+	const activeSessionId = useSessionStore((s) => s.activeSessionId);
+	return (
+		<GitStatusProvider sessions={sessions} activeSessionId={activeSessionId}>
+			{children}
 		</GitStatusProvider>
 	);
 }
@@ -3340,7 +3602,9 @@ export default function MaestroConsole() {
 	return (
 		<InlineWizardProvider>
 			<InputProvider>
-				<MaestroConsoleInner />
+				<GitStatusProviderFromStore>
+					<MaestroConsoleInner />
+				</GitStatusProviderFromStore>
 			</InputProvider>
 		</InlineWizardProvider>
 	);

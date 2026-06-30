@@ -27,6 +27,8 @@ describe('agentConstants', () => {
 			expect(DEFAULT_CONTEXT_WINDOWS['codex']).toBe(200000);
 			expect(DEFAULT_CONTEXT_WINDOWS['opencode']).toBe(128000);
 			expect(DEFAULT_CONTEXT_WINDOWS['factory-droid']).toBe(200000);
+			expect(DEFAULT_CONTEXT_WINDOWS['hermes']).toBe(200000);
+			expect(DEFAULT_CONTEXT_WINDOWS['pi']).toBe(200000);
 		});
 
 		it('should have terminal context window set to 0', () => {
@@ -55,6 +57,10 @@ describe('agentConstants', () => {
 
 		it('should contain codex (OpenAI uses combined context)', () => {
 			expect(COMBINED_CONTEXT_AGENTS.has('codex')).toBe(true);
+		});
+
+		it('should contain copilot-cli (Copilot CLI normalizes input reporting cumulative-style)', () => {
+			expect(COMBINED_CONTEXT_AGENTS.has('copilot-cli')).toBe(true);
 		});
 
 		it('should not contain claude-code (Claude uses separate limits)', () => {

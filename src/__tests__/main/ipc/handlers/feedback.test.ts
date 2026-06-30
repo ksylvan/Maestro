@@ -16,16 +16,22 @@ vi.mock('electron', () => ({
 		isPackaged: false,
 		getAppPath: () => '/mock/app',
 		getVersion: () => '0.15.3',
+		getPath: () => '/mock/userData',
 	},
 }));
 
-vi.mock('fs/promises', () => ({
-	default: {
+vi.mock('fs/promises', () => {
+	const mock = {
 		readFile: vi.fn(),
 		writeFile: vi.fn(),
 		unlink: vi.fn(),
-	},
-}));
+		mkdir: vi.fn(),
+		rename: vi.fn(),
+	};
+	// Provide both default (feedback.ts) and named (atomic-json-store) shapes,
+	// sharing the same vi.fn instances so assertions see every write.
+	return { ...mock, default: mock };
+});
 
 vi.mock('../../../../main/utils/logger', () => ({
 	logger: {
@@ -462,5 +468,246 @@ describe('feedback handlers', () => {
 		});
 		expect(setCachedGhStatus).toHaveBeenCalledWith(true, true);
 		expect(result).toEqual({ authenticated: true });
+	});
+});
+
+describe('feedback drafts handlers', () => {
+	const sampleDraft = {
+		id: 'draft-1',
+		suggestedName: 'App crashes on save',
+		category: 'bug_report' as const,
+		summary: 'App crashes on save',
+		confidence: 80,
+		agentType: 'claude-code',
+		messages: [{ role: 'user' as const, content: 'It crashes when I save', timestamp: 1000 }],
+		attachments: [
+			{ id: 'a1', name: 'shot.png', dataUrl: 'data:image/png;base64,abc123', sizeBytes: 42 },
+		],
+		inputDraft: 'more details to add',
+		includeDebugPackage: false,
+		createdAt: 1000,
+		updatedAt: 1000,
+	};
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		registeredHandlers.clear();
+		registerFeedbackHandlers({
+			getProcessManager: () => mockProcessManager as any,
+		});
+	});
+
+	it('registers the drafts list/save/delete handlers', () => {
+		expect(ipcMain.handle).toHaveBeenCalledWith('feedback:drafts:list', expect.any(Function));
+		expect(ipcMain.handle).toHaveBeenCalledWith('feedback:drafts:save', expect.any(Function));
+		expect(ipcMain.handle).toHaveBeenCalledWith('feedback:drafts:delete', expect.any(Function));
+	});
+
+	it('returns an empty list when the drafts file is missing', async () => {
+		vi.mocked(fs.readFile).mockRejectedValue(new Error('ENOENT'));
+
+		const handler = registeredHandlers.get('feedback:drafts:list');
+		const result = await handler!({});
+
+		expect(result).toEqual({ drafts: [] });
+	});
+
+	it('lists drafts sorted by updatedAt descending', async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(
+			JSON.stringify({
+				drafts: [
+					{ ...sampleDraft, id: 'older', updatedAt: 100 },
+					{ ...sampleDraft, id: 'newer', updatedAt: 900 },
+				],
+			}) as any
+		);
+
+		const handler = registeredHandlers.get('feedback:drafts:list');
+		const result = await handler!({});
+
+		expect(result.drafts.map((d: { id: string }) => d.id)).toEqual(['newer', 'older']);
+	});
+
+	it('saves a new draft and writes it with timestamps', async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({ drafts: [] }) as any);
+		vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+
+		const handler = registeredHandlers.get('feedback:drafts:save');
+		const result = await handler!({}, sampleDraft);
+
+		expect(result.draft.id).toBe('draft-1');
+		expect(result.draft.updatedAt).toBeGreaterThan(0);
+
+		const writeCall = vi
+			.mocked(fs.writeFile)
+			.mock.calls.find(([p]) => String(p).includes('feedback-drafts.json'));
+		expect(writeCall).toBeDefined();
+		const written = JSON.parse(String(writeCall?.[1]));
+		expect(written.drafts).toHaveLength(1);
+		expect(written.drafts[0].id).toBe('draft-1');
+		expect(written.drafts[0].suggestedName).toBe('App crashes on save');
+		expect(written.drafts[0].attachments).toHaveLength(1);
+	});
+
+	it('upserts an existing draft instead of duplicating it', async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({ drafts: [sampleDraft] }) as any);
+		vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+
+		const handler = registeredHandlers.get('feedback:drafts:save');
+		await handler!({}, { ...sampleDraft, summary: 'Updated summary' });
+
+		const writeCall = vi
+			.mocked(fs.writeFile)
+			.mock.calls.find(([p]) => String(p).includes('feedback-drafts.json'));
+		const written = JSON.parse(String(writeCall?.[1]));
+		expect(written.drafts).toHaveLength(1);
+		expect(written.drafts[0].id).toBe('draft-1');
+		expect(written.drafts[0].summary).toBe('Updated summary');
+		expect(written.drafts[0].createdAt).toBe(1000);
+	});
+
+	it('deletes a draft by id and writes the remaining list', async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({ drafts: [sampleDraft] }) as any);
+		vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+
+		const handler = registeredHandlers.get('feedback:drafts:delete');
+		const result = await handler!({}, { id: 'draft-1' });
+
+		expect(result).toEqual({});
+		const writeCall = vi
+			.mocked(fs.writeFile)
+			.mock.calls.find(([p]) => String(p).includes('feedback-drafts.json'));
+		const written = JSON.parse(String(writeCall?.[1]));
+		expect(written.drafts).toEqual([]);
+	});
+
+	it('persists and clamps the submit-ready response on save', async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({ drafts: [] }) as any);
+		vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+		vi.mocked(fs.rename).mockResolvedValue(undefined);
+
+		const handler = registeredHandlers.get('feedback:drafts:save');
+		const result = await handler!(
+			{},
+			{
+				...sampleDraft,
+				lastResponse: {
+					confidence: 95,
+					ready: true,
+					message: 'Looks good',
+					category: 'bug_report',
+					summary: 'Crash on save',
+					structured: {
+						expectedBehavior: 'no crash',
+						actualBehavior: 'crash',
+						reproductionSteps: 'save',
+						additionalContext: '',
+					},
+				},
+			}
+		);
+
+		expect(result.draft.lastResponse?.ready).toBe(true);
+		expect(result.draft.lastResponse?.structured.expectedBehavior).toBe('no crash');
+
+		const writeCall = vi
+			.mocked(fs.writeFile)
+			.mock.calls.find(([p]) => String(p).includes('feedback-drafts.json'));
+		const written = JSON.parse(String(writeCall?.[1]));
+		expect(written.drafts[0].lastResponse.ready).toBe(true);
+		expect(written.drafts[0].lastResponse.structured.actualBehavior).toBe('crash');
+	});
+
+	it('normalizes a malformed lastResponse to null', async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({ drafts: [] }) as any);
+		vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+		vi.mocked(fs.rename).mockResolvedValue(undefined);
+
+		const handler = registeredHandlers.get('feedback:drafts:save');
+		const result = await handler!({}, { ...sampleDraft, lastResponse: 'not-an-object' });
+
+		expect(result.draft.lastResponse).toBeNull();
+	});
+
+	it('serializes overlapping saves so neither draft is lost (read-modify-write race)', async () => {
+		// Back the mocked fs with an in-memory file so an unserialized
+		// read-modify-write would clobber: both saves would read the empty base
+		// and the later write would drop the earlier draft.
+		const norm = (p: unknown): string => String(p).replace(/\\/g, '/');
+		const draftsFile = '/mock/userData/feedback-drafts.json';
+		const files = new Map<string, string>([[draftsFile, JSON.stringify({ drafts: [] })]]);
+		const tmps = new Map<string, string>();
+		vi.mocked(fs.mkdir).mockResolvedValue(undefined as any);
+		vi.mocked(fs.readFile).mockImplementation(async (p: any) => {
+			await new Promise((r) => setTimeout(r, 0));
+			const content = files.get(norm(p));
+			if (content === undefined) throw new Error('ENOENT');
+			return content as any;
+		});
+		vi.mocked(fs.writeFile).mockImplementation(async (p: any, data: any) => {
+			await new Promise((r) => setTimeout(r, 0));
+			tmps.set(norm(p), String(data));
+			return undefined as any;
+		});
+		vi.mocked(fs.rename).mockImplementation(async (from: any, to: any) => {
+			const content = tmps.get(norm(from));
+			if (content !== undefined) files.set(norm(to), content);
+			tmps.delete(norm(from));
+			return undefined as any;
+		});
+
+		const save = registeredHandlers.get('feedback:drafts:save');
+		await Promise.all([
+			save!({}, { ...sampleDraft, id: 'first' }),
+			save!({}, { ...sampleDraft, id: 'second' }),
+		]);
+
+		const ids = JSON.parse(String(files.get(draftsFile)))
+			.drafts.map((d: { id: string }) => d.id)
+			.sort();
+		expect(ids).toEqual(['first', 'second']);
+	});
+
+	it('keeps the newest messages when trimming beyond the cap', async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({ drafts: [] }) as any);
+		vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+		vi.mocked(fs.rename).mockResolvedValue(undefined);
+
+		// 205 messages: only the last 200 (MAX_DRAFT_MESSAGES) survive, and they
+		// must be the newest ones, not the oldest. Trimming from the front would
+		// drop a user's most recent exchange on resume.
+		const messages = Array.from({ length: 205 }, (_, i) => ({
+			role: 'user' as const,
+			content: `msg-${i}`,
+			timestamp: 1000 + i,
+		}));
+
+		const handler = registeredHandlers.get('feedback:drafts:save');
+		const result = await handler!({}, { ...sampleDraft, messages });
+
+		expect(result.draft.messages).toHaveLength(200);
+		// Oldest five (msg-0..msg-4) dropped; newest message survives at the end.
+		expect(result.draft.messages[0].content).toBe('msg-5');
+		expect(result.draft.messages[199].content).toBe('msg-204');
+	});
+
+	it('preserves long unsent composer input up to the draft message cap', async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({ drafts: [] }) as any);
+		vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+		vi.mocked(fs.rename).mockResolvedValue(undefined);
+
+		const handler = registeredHandlers.get('feedback:drafts:save');
+
+		// 8000 chars exceeds the 5000 field cap but fits the 20000 message cap:
+		// composer text in that range must survive a save/resume round-trip
+		// instead of being silently truncated to the field limit.
+		const longInput = 'a'.repeat(8000);
+		const result = await handler!({}, { ...sampleDraft, inputDraft: longInput });
+		expect(result.draft.inputDraft).toHaveLength(8000);
+
+		// Beyond the message cap it is still clamped to MAX_DRAFT_MESSAGE_LENGTH.
+		const hugeInput = 'a'.repeat(25000);
+		const clamped = await handler!({}, { ...sampleDraft, inputDraft: hugeInput });
+		expect(clamped.draft.inputDraft).toHaveLength(20000);
 	});
 });

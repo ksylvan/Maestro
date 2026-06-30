@@ -164,11 +164,25 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		default: false,
 		category: 'appearance',
 	},
+	showStarredSessionsSection: {
+		description:
+			'Show a "Starred Sessions" section at the top of the left side bar listing every starred AI tab across all agents.',
+		type: 'boolean',
+		default: true,
+		category: 'appearance',
+	},
 	showLeftPanelGroupMemberCount: {
 		description:
 			'Show a member count in parentheses after each group name in the left side bar (e.g. "UNGROUPED AGENTS (24)").',
 		type: 'boolean',
 		default: false,
+		category: 'appearance',
+	},
+	leftPanelCollapsedPillsPerRow: {
+		description:
+			'Maximum number of collapsed-group activity pills per row in the left side bar before wrapping to a new row. Range: 5-50.',
+		type: 'number',
+		default: 20,
 		category: 'appearance',
 	},
 	showLeftPanelLocationPills: {
@@ -197,6 +211,20 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 			'Show the terminal prompt glyph (>_) next to agents that have at least one terminal tab with a saved startup command.',
 		type: 'boolean',
 		default: true,
+		category: 'appearance',
+	},
+	showGroupLabelInBookmarks: {
+		description:
+			'Show the group badge (e.g. "CCS") next to bookmarked agents in the left side bar. Turn off to hide the group pill entirely.',
+		type: 'boolean',
+		default: true,
+		category: 'appearance',
+	},
+	showFullGroupLabelInBookmarks: {
+		description:
+			'Show the full group name (e.g. "[2] CASE/CONTENT-SYSTEM") instead of the abbreviated badge (e.g. "CCS") next to bookmarked agents in the left side bar. Long names are truncated with the complete value available on hover.',
+		type: 'boolean',
+		default: false,
 		category: 'appearance',
 	},
 	fileEditWordWrap: {
@@ -236,6 +264,13 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		description: 'Icon theme for the file explorer sidebar. Options: default, material, or none.',
 		type: 'string',
 		default: 'default',
+		category: 'appearance',
+	},
+	toastWidth: {
+		description:
+			'Width of toast notifications. Options: small, medium, large, dynamic (default, matches the Right Bar width).',
+		type: 'string',
+		default: 'dynamic',
 		category: 'appearance',
 	},
 	disableConfetti: {
@@ -355,6 +390,13 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		default: true,
 		category: 'editor',
 	},
+	synopsisDebounceSeconds: {
+		description:
+			'Seconds of idle time to wait after a task completes before generating its History synopsis. Rapid back-to-back completions are coalesced into one synopsis. 0 generates a synopsis immediately after each completion.',
+		type: 'number',
+		default: 0,
+		category: 'editor',
+	},
 	defaultShowThinking: {
 		description: 'Show model thinking/reasoning in responses. Values: off, on, sticky.',
 		type: 'string',
@@ -384,6 +426,12 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		type: 'boolean',
 		default: false,
 		category: 'editor',
+	},
+	groupChatAutoScroll: {
+		description: 'Automatically scroll group chats to the newest message when new messages arrive.',
+		type: 'boolean',
+		default: true,
+		category: 'appearance',
 	},
 	bionifyReadingMode: {
 		description:
@@ -549,7 +597,7 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 	maxOutputLines: {
 		description: 'Maximum lines of agent output displayed per message before truncation.',
 		type: 'number',
-		default: 25,
+		default: Infinity,
 		category: 'logging',
 	},
 	logViewerSelectedLevels: {
@@ -606,6 +654,26 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		type: 'boolean',
 		default: true,
 		category: 'updates',
+	},
+	autoResumeOnLimit: {
+		description:
+			'Automatically resume agents that paused on a token, API, or credit limit once the provider window reopens.',
+		type: 'boolean',
+		default: true,
+		category: 'advanced',
+	},
+	autoResumeCheckIntervalHours: {
+		description: 'How often to probe for credit/limit availability before resuming paused agents.',
+		type: 'number',
+		default: 2,
+		category: 'advanced',
+	},
+	autoResumeGiveUpDays: {
+		description:
+			'Stop auto-resuming a paused agent after this many days of repeated limits. Probing is cheap, so this is intentionally long.',
+		type: 'number',
+		default: 7,
+		category: 'advanced',
 	},
 	enableBetaUpdates: {
 		description: 'Opt in to beta release channel for early access to new features.',
@@ -869,6 +937,25 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		default: true,
 		category: 'onboarding',
 	},
+	groupChatSortAlphabetical: {
+		description:
+			'Sort group chats alphabetically (true) instead of by most recent activity (false).',
+		type: 'boolean',
+		default: false,
+		category: 'onboarding',
+	},
+	starredSessionsCollapsed: {
+		description: 'Whether the "Starred Sessions" section in the left bar is collapsed.',
+		type: 'boolean',
+		default: false,
+		category: 'onboarding',
+	},
+	bookmarksCollapsed: {
+		description: 'Whether the "Bookmarks" section in the left bar is collapsed.',
+		type: 'boolean',
+		default: false,
+		category: 'onboarding',
+	},
 
 	// --- Integrations ---
 	wakatimeEnabled: {
@@ -912,6 +999,19 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		default: false,
 		category: 'editor',
 	},
+	browserTabKeepAlive: {
+		description:
+			"How background browser tabs are handled when inactive. 'off' unloads them (lowest memory, page reloads on return); 'recent' keeps the N most-recently-used tabs alive; 'all' keeps every browser tab in the agent alive.",
+		type: 'string',
+		default: 'off',
+		category: 'editor',
+	},
+	browserTabKeepAliveLimit: {
+		description: "How many recent browser tabs to keep alive when browserTabKeepAlive is 'recent'.",
+		type: 'number',
+		default: 10,
+		category: 'editor',
+	},
 
 	// --- Encore Features (experimental) ---
 	encoreFeatures: {
@@ -927,9 +1027,9 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		category: 'advanced',
 	},
 	directorNotesSettings: {
-		description: "Director's Notes settings: provider, lookback window.",
+		description: "Director's Notes settings: provider, lookback window, default reading mode.",
 		type: 'object',
-		default: { provider: 'claude-code', defaultLookbackDays: 7 },
+		default: { provider: 'claude-code', defaultLookbackDays: 7, defaultMode: 'rich' },
 		category: 'advanced',
 	},
 

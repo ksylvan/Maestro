@@ -338,6 +338,24 @@ function getWindowsKnownPaths(binaryName: string): string[] {
 			// npm global installation
 			...npmGlobal('gemini'),
 		],
+		hermes: [
+			// Python/pipx and standalone installations
+			...localBin('hermes'),
+			path.join(home, 'AppData', 'Roaming', 'Python', 'Scripts', 'hermes.exe'),
+			...npmGlobal('hermes'),
+		],
+		pi: [
+			// npm global installation
+			...npmGlobal('pi'),
+			...localBin('pi'),
+		],
+		omp: [
+			// Bun global installation (primary method for Oh My Pi)
+			path.join(home, '.bun', 'bin', 'omp.exe'),
+			// npm global installation
+			...npmGlobal('omp'),
+			...localBin('omp'),
+		],
 		gh: [
 			// GitHub CLI official installer (MSI)
 			path.join(programFiles, 'GitHub CLI', 'gh.exe'),
@@ -465,6 +483,29 @@ function getUnixKnownPaths(binaryName: string): string[] {
 			...homebrew('gemini'),
 			// Node version managers (nvm, fnm, volta, etc.)
 			...nodeVersionManagers('gemini'),
+		],
+		hermes: [
+			// Python/pipx and standalone installations
+			...localBin('hermes'),
+			...homebrew('hermes'),
+			path.join(home, 'bin', 'hermes'),
+		],
+		pi: [
+			// npm global and Node version manager installations
+			...localBin('pi'),
+			...homebrew('pi'),
+			...npmGlobal('pi'),
+			path.join(home, 'bin', 'pi'),
+			...nodeVersionManagers('pi'),
+		],
+		omp: [
+			// Bun global installation (primary method for Oh My Pi)
+			path.join(home, '.bun', 'bin', 'omp'),
+			...localBin('omp'),
+			...homebrew('omp'),
+			...npmGlobal('omp'),
+			path.join(home, 'bin', 'omp'),
+			...nodeVersionManagers('omp'),
 		],
 		gh: [
 			// Homebrew (Apple Silicon + Intel)

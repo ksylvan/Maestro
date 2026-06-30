@@ -19,7 +19,9 @@ src/cli/
 │   ├── auto-run.ts
 │   ├── clean-playbooks.ts
 │   ├── create-agent.ts       # Create agent via WebSocket (requires running app)
+│   ├── create-worktree.ts    # Create worktree agent off a parent via WebSocket (requires running app)
 │   ├── create-ssh-remote.ts  # Create SSH remote via disk I/O
+│   ├── goal-run.ts            # Goal-Driven Auto Run (free-text objective)
 │   ├── list-agents.ts
 │   ├── list-groups.ts
 │   ├── list-playbooks.ts
@@ -29,8 +31,10 @@ src/cli/
 │   ├── refresh-auto-run.ts
 │   ├── refresh-files.ts
 │   ├── remove-agent.ts       # Remove agent via WebSocket (requires running app)
+│   ├── update-agent.ts       # Move agent to group / change cwd via WebSocket (requires running app)
 │   ├── remove-ssh-remote.ts  # Remove SSH remote via disk I/O
 │   ├── run-playbook.ts
+│   ├── run-doc.ts            # Run raw Auto Run docs headlessly (no saved playbook)
 │   ├── send.ts
 │   ├── settings-agent.ts
 │   ├── settings-get.ts
@@ -41,10 +45,14 @@ src/cli/
 │   ├── show-playbook.ts
 │   └── status.ts
 ├── services/               # Business logic
+│   ├── agent-busy.ts        # Shared busy-state check (desktop + CLI activity)
 │   ├── agent-sessions.ts    # Read Claude Code session files
+│   ├── agent-busy.ts        # Busy-state checks + --wait loop (shared by playbook/run-doc)
 │   ├── agent-spawner.ts     # Spawn agent CLIs
-│   ├── batch-processor.ts   # Playbook execution engine
+│   ├── batch-processor.ts   # Playbook (Spec-Driven) execution engine
+│   ├── goal-runner.ts       # Goal-Driven Auto Run engine (shared goalDriven core)
 │   ├── maestro-client.ts    # IPC client to running Maestro desktop app
+│   ├── session-command.ts   # Shared helpers for desktop-driving commands (see below)
 │   ├── playbooks.ts         # Playbook file management
 │   └── storage.ts           # Electron Store file reader + SSH remote helpers
 └── output/                 # Output formatting
@@ -53,6 +61,15 @@ src/cli/
 ```
 
 Note: `run-playbook.ts` is the file name, but the command is registered under the `playbook` verb (see entry point). Additional commands (`auto-run`, `open-file`, `refresh-*`, `settings-*`, `status`) are lightweight wrappers over `maestro-client.ts` for talking to a running desktop app.
+
+**Adding a desktop-driving command? Reuse `services/session-command.ts` first.** Most commands that mutate a running app follow one shape: resolve an agent, send a single `{ type, sessionId, ... }` WS message, expect a `{ success, error? }` reply, then report it (JSON or human-readable) and exit non-zero on failure. `session-command.ts` centralizes that:
+
+- `runAgentCommand(agentId, options, build)` - the one-liner path: resolves the agent (partial IDs), sends the message `build()` describes, reports the result. Used by `rename-agent`, `auto-run-control` (stop/resume/skip/abort/reset), `remove-playbook`, `agent-control` (focus/switch-mode).
+- `sendSimpleCommand(payload, responseType)` + `reportResult(result, opts)` + `failCommand(msg, json)` - the building blocks, for commands that don't key off an agent ID (e.g. `rename-group` uses `resolveGroupId`; `set-theme`/`encore` send `set_setting`).
+- `resolveAgentOrFail(agentId, json)` - resolve-or-exit helper.
+- `resolveTabOwner(tabId)` - resolve the agent that owns a desktop tab (exact ID or unique prefix) via `list_desktop_sessions`; used by the `tab` verbs so the user only supplies a tab ID.
+
+Do NOT re-implement the withMaestroClient + sendCommand + JSON/text + `process.exit(1)` boilerplate in a new command file; extend `session-command.ts` if your case needs a new shape.
 
 ### Shared Code with Desktop
 
@@ -63,6 +80,7 @@ The CLI imports directly from `src/shared/` and some `src/main/` modules:
 - **Output parsers**: `src/main/parsers/` (Claude, Codex, OpenCode, Factory Droid)
 - **Template variables**: `src/shared/templateVariables.ts`
 - **Prompt templates**: `src/prompts/` (auto-run prompts)
+- **Goal-Driven core**: `src/shared/goalDriven/` (marker parsing + exit evaluation shared by the CLI `goal-runner` and the desktop `useGoalRunner` hook)
 
 The CLI avoids Electron-specific imports (no `electron`, no `electron-store`, no IPC).
 
@@ -160,6 +178,39 @@ Options:
 
 This command is lazy-loaded to avoid eager resolution of prompt templates.
 
+### `goal-run <agent-id> <goal>`
+
+Launch a Goal-Driven Auto Run: instead of working through a checklist of documents (the `playbook` command), pursue a single free-text objective. Each iteration spawns a FRESH agent that makes one increment of progress, self-reports how far along it is via Maestro markers, and exits, repeating until the goal is reached, a deadlock is declared, the iteration limit is hit, or progress stalls.
+
+```bash
+maestro-cli goal-run <agent-id> "<goal>" [--exit-criteria <text>] [--max-iterations <n>] [--no-history] [--json] [--verbose]
+```
+
+Options:
+
+- `--exit-criteria <text>` - What "done" looks like and when to declare a deadlock (guides the agent; not matched automatically)
+- `--max-iterations <n>` - Cap iterations (default: infinite, bounded by `GOAL_RUN_HARD_ITERATION_CAP`)
+- `--no-history` - Skip writing history entries
+- `--json` - Output as JSON Lines (events: `goal_start`, `goal_iteration_start`, `goal_iteration_complete`, `goal_complete`)
+- `--verbose` - Show full prompt sent to agent on each iteration
+
+Implemented by `services/goal-runner.ts` (`runGoal`), the CLI counterpart to the desktop `useGoalRunner` hook. Both drive the SAME pure engine in `src/shared/goalDriven/*` (marker parsing + exit evaluation) so CLI and desktop behave identically. Like `playbook`, it is lazy-loaded, refuses to start when the agent is busy (`services/agent-busy.ts`), and threads per-agent SSH remote + model/effort/args/env overrides into every spawn.
+
+### `run-doc <docs...>`
+
+Run one or more raw Auto Run `.md` documents without a saved playbook. Mirrors `playbook` but builds an ephemeral `Playbook` on the fly (`src/cli/commands/run-doc.ts`), then drives it through the same `batch-processor` generator. Headless and self-contained - it does **not** route through the desktop renderer (unlike `auto-run --launch`), so it runs whether or not the Maestro window is open. This is the path group-chat participants use to execute a document they just wrote.
+
+```bash
+maestro-cli run-doc <docs...> --agent <id-or-name> [--prompt <text>] [--loop] [--max-loops <n>] [--reset-on-completion] [--dry-run] [--no-history] [--json] [--debug] [--verbose] [--no-synopsis] [--wait]
+```
+
+- `-a, --agent <id>` (required) - target agent by ID (full/partial) or display name
+- Document paths may be relative to the agent's Auto Run folder, relative to cwd, or absolute; all must share one folder, which becomes the run's `folderPath`.
+- An empty `--prompt` falls back to the default Auto Run prompt (`PROMPT_IDS.AUTORUN_DEFAULT`), handled inside `batch-processor`.
+- Busy-state detection and `--wait` are shared with `playbook` via `src/cli/services/agent-busy.ts` (`checkAgentBusy`, `waitForAgentAvailable`).
+
+Note: `resolveAgentId()` in `src/cli/services/storage.ts` resolves `--agent` by ID first, then falls back to an exact case-insensitive display-name match, so name targeting works across `run-doc`, `playbook` lookups, `list playbooks`, and `auto-run`.
+
 ### `send <agent-id> <message>`
 
 Send a message to an agent and receive a JSON response. Supports multi-turn conversations via session resumption.
@@ -217,6 +268,19 @@ Options:
 - `--context-window <size>` - Validated as positive integer
 - `--ssh-remote <id>` + `--ssh-cwd <path>` - Builds `sessionSshRemoteConfig` for remote execution
 
+### `create-worktree`
+
+Create a new agent in a git worktree branched off an existing parent agent, without an Auto Run playbook. Sends a `create_worktree_session` message; the desktop creates the worktree on disk, builds a child session linked to the parent (reusing `spawnWorktreeAgentAndDispatch`), and returns the new agent's session ID. The optional `--message` is then delivered as a plain prompt over the same connection via `send_command`, addressed by the returned ID - it deliberately does NOT route through `dispatch`, which re-resolves the agent against the CLI's persisted sessions file and would race the desktop's debounced persistence.
+
+```bash
+maestro-cli create-worktree -a <parent-agent-id> -b <branch-name> [--base-branch <ref>] [-m <message>] [--json]
+```
+
+- `-a, --agent <id>` - Parent agent ID, supports partial IDs via `resolveTargetSessionId()` (required)
+- `-b, --branch <name>` - Branch name for the worktree, created if it does not exist (required)
+- `--base-branch <name>` - Ref the new branch is based on when it does not yet exist; defaults to the parent repo HEAD
+- `-m, --message <text>` - Optional initial prompt dispatched to the new agent after creation
+
 ### `remove-agent <agent-id>`
 
 Remove an agent via WebSocket (`withMaestroClient`). Sends a `delete_session` message. Supports partial ID matching via `resolveAgentId()`.
@@ -225,9 +289,21 @@ Remove an agent via WebSocket (`withMaestroClient`). Sends a `delete_session` me
 maestro-cli remove-agent <agent-id> [--json]
 ```
 
+### `update-agent <agent-id>`
+
+Mutate an existing agent in place via WebSocket (`withMaestroClient`). At least one of `--group` or `--cwd` is required; the command fans out one round-trip per flag.
+
+```bash
+maestro-cli update-agent <agent-id> [-g <group-id|none>] [-d <new-cwd>] [--json]
+```
+
+- `--group <id>` sends a `move_session_to_group` message (reuses the same write path as drag-and-drop in the Left Bar). Pass `none`, `null`, or `""` to ungroup. Supports partial group IDs via `resolveGroupId()`.
+- `--cwd <path>` sends the new `update_session_cwd` message. Resolves to absolute via `path.resolve()`. The renderer mutates `cwd`/`fullPath`/`shellCwd` only - `projectRoot` is preserved so historical provider sessions stay addressable (important for archive workflows where you relocate the case folder but want prior conversations to remain attached).
+- The renderer refuses cwd updates when `aiPid > 0` (the PTY's cwd is fixed at spawn time) and returns `{ success: false, error: '...' }`; the CLI surfaces that error and exits non-zero.
+
 ### `list ssh-remotes`
 
-List all configured SSH remotes. Reads directly from `maestro-settings.json` via `readSshRemotes()` — no running app required.
+List all configured SSH remotes. Reads directly from `maestro-settings.json` via `readSshRemotes()` - no running app required.
 
 ```bash
 maestro-cli list ssh-remotes [--json]
@@ -401,17 +477,17 @@ The CLI spawner is simpler than the desktop process manager but honors the same
 per-agent/per-session overrides that users configure in the desktop app:
 
 - **Honored**: custom binary path, custom CLI args, custom env vars, custom model,
-  custom effort/reasoning — all merged via `applyAgentConfigOverrides()` just
+  custom effort/reasoning - all merged via `applyAgentConfigOverrides()` just
   like the desktop (`session` wins over `agent config` wins over defaults).
-- **Honored**: SSH remote execution — when `sessionSshRemoteConfig.enabled` is
+- **Honored**: SSH remote execution - when `sessionSshRemoteConfig.enabled` is
   true, the spawn is wrapped via `wrapSpawnWithSsh()` (dynamic import so the
   SSH chain stays out of the local hot path). If the configured remote can't
   be resolved, the CLI returns a clear error instead of silently falling back
-  to local — users who opt into SSH don't want their prompt leaking locally.
+  to local - users who opt into SSH don't want their prompt leaking locally.
 - **Not applicable**: PTY (CLI uses plain `child_process.spawn`), real-time
   output streaming to UI.
 
-See `src/cli/services/agent-spawner.ts` — the `resolveAgentOverrides()` helper
+See `src/cli/services/agent-spawner.ts` - the `resolveAgentOverrides()` helper
 and `maybeWrapSpawnWithSsh()` are the CLI-side equivalents of the desktop
 `process:spawn` IPC handler's override + SSH wrapping logic.
 
@@ -616,6 +692,7 @@ Machine-parseable output format. Each line is a complete JSON object. Used when 
 | Run playbook        | `src/cli/commands/run-playbook.ts`                                                     |
 | Create agent        | `src/cli/commands/create-agent.ts`                                                     |
 | Remove agent        | `src/cli/commands/remove-agent.ts`                                                     |
+| Update agent        | `src/cli/commands/update-agent.ts`                                                     |
 | SSH remote CRUD     | `src/cli/commands/create-ssh-remote.ts`, `list-ssh-remotes.ts`, `remove-ssh-remote.ts` |
 | Shared types        | `src/shared/types.ts`                                                                  |
 | Template variables  | `src/shared/templateVariables.ts`                                                      |

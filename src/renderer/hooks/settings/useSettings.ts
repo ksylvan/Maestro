@@ -30,6 +30,7 @@ import type {
 	EncoreFeatureFlags,
 } from '../../types';
 import type { FileExplorerIconTheme } from '../../utils/fileExplorerIcons/shared';
+import type { ToastWidth } from '../../../shared/toastWidth';
 import {
 	useSettingsStore,
 	loadAllSettings,
@@ -98,6 +99,8 @@ export interface UseSettingsReturn {
 	setEnterToSendAIExpanded: (value: boolean) => void;
 	defaultSaveToHistory: boolean;
 	setDefaultSaveToHistory: (value: boolean) => void;
+	synopsisDebounceSeconds: number;
+	setSynopsisDebounceSeconds: (value: number) => void;
 
 	// Default thinking toggle (three states: 'off' | 'on' | 'sticky')
 	defaultShowThinking: ThinkingMode;
@@ -106,6 +109,7 @@ export interface UseSettingsReturn {
 	rightPanelWidth: number;
 	markdownEditMode: boolean;
 	chatRawTextMode: boolean;
+	groupChatAutoScroll: boolean;
 	bionifyReadingMode: boolean;
 	bionifyIntensity: number;
 	bionifyAlgorithm: string;
@@ -113,6 +117,7 @@ export interface UseSettingsReturn {
 	setRightPanelWidth: (value: number) => void;
 	setMarkdownEditMode: (value: boolean) => void;
 	setChatRawTextMode: (value: boolean) => void;
+	setGroupChatAutoScroll: (value: boolean) => void;
 	setBionifyReadingMode: (value: boolean) => void;
 	setBionifyIntensity: (value: number) => void;
 	setBionifyAlgorithm: (value: string) => void;
@@ -120,6 +125,8 @@ export interface UseSettingsReturn {
 	setShowHiddenFiles: (value: boolean) => void;
 	fileExplorerIconTheme: FileExplorerIconTheme;
 	setFileExplorerIconTheme: (value: FileExplorerIconTheme) => void;
+	toastWidth: ToastWidth;
+	setToastWidth: (value: ToastWidth) => void;
 
 	// Logging settings
 	logLevel: string;
@@ -148,6 +155,13 @@ export interface UseSettingsReturn {
 	// Update settings
 	checkForUpdatesOnStartup: boolean;
 	setCheckForUpdatesOnStartup: (value: boolean) => void;
+	// Auto-resume paused agents when provider limits/credits become available again
+	autoResumeOnLimit: boolean;
+	setAutoResumeOnLimit: (value: boolean) => void;
+	autoResumeCheckIntervalHours: number;
+	setAutoResumeCheckIntervalHours: (value: number) => void;
+	autoResumeGiveUpDays: number;
+	setAutoResumeGiveUpDays: (value: number) => void;
 	enableBetaUpdates: boolean;
 	setEnableBetaUpdates: (value: boolean) => void;
 
@@ -198,6 +212,8 @@ export interface UseSettingsReturn {
 	setUngroupedCollapsed: (value: boolean) => void;
 	groupChatsExpanded: boolean;
 	setGroupChatsExpanded: (value: boolean) => void;
+	starredSessionsCollapsed: boolean;
+	setStarredSessionsCollapsed: (value: boolean) => void;
 
 	// Onboarding settings
 	tourCompleted: boolean;
@@ -261,6 +277,8 @@ export interface UseSettingsReturn {
 	setShowFilePreviewsInUnreadFilter: (value: boolean) => void;
 	useCmd0AsLastTab: boolean;
 	setUseCmd0AsLastTab: (value: boolean) => void;
+	showBrowserTabDomain: boolean;
+	setShowBrowserTabDomain: (value: boolean) => void;
 
 	// Document Graph settings
 	documentGraphShowExternalLinks: boolean;
@@ -317,6 +335,10 @@ export interface UseSettingsReturn {
 	setBrowserHomeUrl: (value: string) => void;
 	htmlDoubleClickOpensInBrowser: boolean;
 	setHtmlDoubleClickOpensInBrowser: (value: boolean) => void;
+	browserTabKeepAlive: 'off' | 'recent' | 'all';
+	setBrowserTabKeepAlive: (value: 'off' | 'recent' | 'all') => void;
+	browserTabKeepAliveLimit: number;
+	setBrowserTabKeepAliveLimit: (value: number) => void;
 
 	// Automatic tab naming settings
 	automaticTabNamingEnabled: boolean;
@@ -391,8 +413,12 @@ export interface UseSettingsReturn {
 	setShowWorktreeBranchName: (value: boolean) => void;
 
 	// Left side panel
+	showStarredSessionsSection: boolean;
+	setShowStarredSessionsSection: (value: boolean) => void;
 	showLeftPanelGroupMemberCount: boolean;
 	setShowLeftPanelGroupMemberCount: (value: boolean) => void;
+	leftPanelCollapsedPillsPerRow: number;
+	setLeftPanelCollapsedPillsPerRow: (value: number) => void;
 	showLeftPanelLocationPills: boolean;
 	setShowLeftPanelLocationPills: (value: boolean) => void;
 	showLeftPanelGitIndicator: boolean;
@@ -401,6 +427,10 @@ export interface UseSettingsReturn {
 	setShowLeftPanelCueIndicator: (value: boolean) => void;
 	showLeftPanelStartupCommandIndicator: boolean;
 	setShowLeftPanelStartupCommandIndicator: (value: boolean) => void;
+	showGroupLabelInBookmarks: boolean;
+	setShowGroupLabelInBookmarks: (value: boolean) => void;
+	showFullGroupLabelInBookmarks: boolean;
+	setShowFullGroupLabelInBookmarks: (value: boolean) => void;
 
 	// File Edit & Preview
 	fileEditWordWrap: boolean;

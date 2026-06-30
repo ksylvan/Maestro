@@ -32,6 +32,7 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { Session } from '../../types';
+import { isLimitError } from '../../../shared/types';
 import { sanitizeBrowserTabForPersistence } from '../../utils/browserTabPersistence';
 import { logger } from '../../utils/logger';
 import { captureException } from '../../utils/sentry';
@@ -39,12 +40,32 @@ import { captureException } from '../../utils/sentry';
 // Maximum persisted logs per AI tab (matches session persistence limit)
 const MAX_PERSISTED_LOGS_PER_TAB = 100;
 
+// Maximum persisted file-preview content per tab. Preview tabs hold the full
+// file in `content`, but the viewer only renders a truncated slice (see
+// LARGE_FILE_PREVIEW_LIMIT) and re-reads from disk on activation. Persisting
+// whole files is pure bloat: a single 500k-line .jsonl stored 363MB in one tab,
+// ballooning sessions.json to 500MB+ and OOM-ing the main process on startup
+// (it JSON.parses the whole file at boot). Tabs over this cap persist with
+// content stripped and reload from disk when opened. Small files persist as-is
+// so unsaved edit state survives a restart.
+const MAX_PERSISTED_PREVIEW_CONTENT = 256 * 1024;
+
 /**
  * Prepare a session for persistence by:
  * 1. Filtering out tabs with active wizard state (incomplete wizards should not persist)
  * 2. Truncating logs in each AI tab to MAX_PERSISTED_LOGS_PER_TAB entries
  * 3. Resetting runtime-only state (busy state, thinking time, etc.)
  * 4. Excluding runtime-only fields (closedTabHistory, agentError, etc.)
+ *
+ * Exception: a limit pause (a token/API/credit/rate limit the agent can resume
+ * from) is deliberately persisted - `state: 'error'`, `agentError`,
+ * `agentErrorPaused`, `agentErrorTabId`, and the paused tab's `agentError`. This
+ * is what lets Auto-Resume On Limit survive an app restart: on a cold start the
+ * coordinator re-finds the paused session and resumes the agent conversation
+ * (via the agent's native `--resume`) once its provider window reopens. Every
+ * OTHER error stays stripped - a stale auth/crash error must not survive a
+ * restart. Note: the in-memory Auto Run / goal-run ORCHESTRATION loop is NOT
+ * persisted; only the agent session and its `executionQueue` resume.
  *
  * This ensures sessions don't get stuck in busy state after app restart,
  * since underlying processes are gone after restart.
@@ -68,6 +89,12 @@ const prepareSessionForPersistence = (session: Session): Session => {
 	// presence so a stuck busy state can't survive a restart.
 	const sourceTabs = session.aiTabs ?? [];
 	const nonWizardTabs = sourceTabs.filter((tab) => !tab.wizardState?.isActive);
+
+	// A limit pause is the one error state we persist so Auto-Resume On Limit can
+	// re-attach after an app restart (see the block comment above). All other
+	// error state stays stripped below.
+	const isLimitPause =
+		!!session.agentError && session.agentErrorPaused === true && isLimitError(session.agentError);
 
 	// "All tabs were wizard tabs" fallback — only fires when there were
 	// originally tabs but every one was a wizard. For truly-empty input
@@ -104,7 +131,16 @@ const prepareSessionForPersistence = (session: Session): Session => {
 		// Reset runtime-only tab state - processes don't survive app restart
 		state: 'idle' as const,
 		thinkingStartTime: undefined,
-		agentError: undefined,
+		// Keep the paused tab's limit-pause error so it round-trips a restart;
+		// every other tab error is transient and stripped. Gate on the paused tab
+		// id so a stale limit error on a non-paused tab can't revive error UI.
+		agentError:
+			isLimitPause &&
+			tab.id === session.agentErrorTabId &&
+			tab.agentError &&
+			isLimitError(tab.agentError)
+				? tab.agentError
+				: undefined,
 		// Clear wizard state entirely from persistence (even inactive wizard state)
 		wizardState: undefined,
 	}));
@@ -150,17 +186,41 @@ const prepareSessionForPersistence = (session: Session): Session => {
 	);
 	const newActiveBrowserTabId = activeBrowserTabExists ? session.activeBrowserTabId : null;
 
+	// Strip oversized file-preview content. Preview tabs hold the full file in
+	// `content`, which the viewer truncates at render time and re-reads from disk
+	// on activation, so persisting megabytes of file bytes is pure bloat (a 363MB
+	// .jsonl OOM'd startup). Keep the tab so it reopens; just drop the heavy
+	// content (and stale editContent) for tabs over the cap.
+	const cleanedFilePreviewTabs = (session.filePreviewTabs || []).map((tab) =>
+		tab.content && tab.content.length > MAX_PERSISTED_PREVIEW_CONTENT
+			? { ...tab, content: '', editContent: undefined }
+			: tab
+	);
+
 	return {
 		...sessionWithoutRuntimeFields,
 		aiTabs: truncatedTabs,
 		activeTabId: newActiveTabId,
+		filePreviewTabs: cleanedFilePreviewTabs,
 		// Reset terminal tab runtime state
 		terminalTabs: cleanedTerminalTabs,
 		activeTerminalTabId: newActiveTerminalTabId,
 		browserTabs: cleanedBrowserTabs,
 		activeBrowserTabId: newActiveBrowserTabId,
-		// Reset runtime-only session state - processes don't survive app restart
-		state: 'idle',
+		// Reset runtime-only session state - processes don't survive app restart.
+		// A limit pause is the exception: keep it in 'error' so Auto-Resume can
+		// re-find it on restart (see the block comment above).
+		state: isLimitPause ? 'error' : 'idle',
+		// Restore the limit-pause fields stripped by the destructuring above so
+		// they round-trip to disk. Only set on a limit pause; otherwise they stay
+		// undefined (stripped).
+		...(isLimitPause
+			? {
+					agentError: session.agentError,
+					agentErrorPaused: true,
+					agentErrorTabId: session.agentErrorTabId,
+				}
+			: {}),
 		busySource: undefined,
 		thinkingStartTime: undefined,
 		currentCycleTokens: undefined,
@@ -203,8 +263,17 @@ const prepareSessionForPersistence = (session: Session): Session => {
 export interface UseDebouncedPersistenceReturn {
 	/** True if there are pending changes that haven't been persisted yet */
 	isPending: boolean;
-	/** Force immediate persistence of pending changes */
-	flushNow: () => void;
+	/**
+	 * Force immediate persistence of pending changes.
+	 *
+	 * Optionally pass the freshest sessions array. Callers that fire flushNow
+	 * synchronously right after a store mutation (e.g. a modal's onSave) run
+	 * BEFORE React has re-rendered, so the hook's internal `sessions` ref and
+	 * `isPending` flag are both still stale - the no-arg path would flush old
+	 * data or nothing at all. Passing the post-mutation sessions snapshot lets
+	 * the flush persist the just-made change without waiting for the debounce.
+	 */
+	flushNow: (latestSessions?: Session[]) => void;
 }
 
 /** Default debounce delay in milliseconds */
@@ -367,18 +436,33 @@ export function useDebouncedPersistence(
 	 * - App quit/visibility change
 	 * - Tab switching
 	 */
-	const flushNow = useCallback(() => {
-		// Clear any pending timer
-		if (timerRef.current) {
-			clearTimeout(timerRef.current);
-			timerRef.current = null;
-		}
+	const flushNow = useCallback(
+		(latestSessions?: Session[]) => {
+			// Clear any pending timer
+			if (timerRef.current) {
+				clearTimeout(timerRef.current);
+				timerRef.current = null;
+			}
 
-		// Only flush if there are pending changes
-		if (isPending) {
-			persistSessions();
-		}
-	}, [isPending, persistSessions]);
+			// When the caller hands us the post-mutation snapshot, seed the ref
+			// with it and flush unconditionally. The render-synced `isPending`
+			// flag can't be trusted here: flushNow is called synchronously from
+			// the mutating event handler, before React re-renders, so a change
+			// just written to the store reads as "not pending" yet. persistInternal
+			// diffs against the baseline, so a no-op flush is harmless.
+			if (latestSessions) {
+				sessionsRef.current = latestSessions;
+				persistSessions();
+				return;
+			}
+
+			// No snapshot: only flush if there are known pending changes.
+			if (isPending) {
+				persistSessions();
+			}
+		},
+		[isPending, persistSessions]
+	);
 
 	// Debounced persistence effect
 	useEffect(() => {

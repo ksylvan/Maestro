@@ -134,6 +134,22 @@ export interface ToolExecutionEvent {
 	toolCallId?: string;
 }
 
+export interface ProcessUserInputBroadcast {
+	originId: string;
+	sessionId: string;
+	tabId?: string;
+	inputMode: 'ai' | 'terminal';
+	entry: {
+		id: string;
+		timestamp: number;
+		source: 'user';
+		text: string;
+		images?: string[];
+		readOnly?: boolean;
+		forceParallel?: boolean;
+	};
+}
+
 /**
  * SSH remote info
  */
@@ -181,6 +197,9 @@ export function createProcessApi() {
 		write: (sessionId: string, data: string): Promise<boolean> =>
 			ipcRenderer.invoke('process:write', sessionId, data),
 
+		broadcastUserInput: (payload: ProcessUserInputBroadcast): Promise<void> =>
+			ipcRenderer.invoke('process:broadcast-user-input', payload),
+
 		/**
 		 * Send interrupt signal (Ctrl+C) to a process
 		 */
@@ -227,6 +246,12 @@ export function createProcessApi() {
 			const handler = (_: unknown, sessionId: string, data: string) => callback(sessionId, data);
 			ipcRenderer.on('process:data', handler);
 			return () => ipcRenderer.removeListener('process:data', handler);
+		},
+
+		onUserInput: (callback: (payload: ProcessUserInputBroadcast) => void): (() => void) => {
+			const handler = (_: unknown, payload: ProcessUserInputBroadcast) => callback(payload);
+			ipcRenderer.on('process:user-input', handler);
+			return () => ipcRenderer.removeListener('process:user-input', handler);
 		},
 
 		/**
@@ -714,6 +739,48 @@ export function createProcessApi() {
 		},
 
 		/**
+		 * Subscribe to remote create-worktree-agent from the CLI. Creates a new
+		 * agent in a git worktree branched off a parent agent, without Auto Run.
+		 */
+		onRemoteCreateWorktreeSession: (
+			callback: (parentSessionId: string, config: any, responseChannel: string) => void
+		): (() => void) => {
+			const handler = (
+				_: unknown,
+				parentSessionId: string,
+				config: any,
+				responseChannel: string
+			) => {
+				try {
+					// callback may return a promise even though typed as void
+					Promise.resolve(callback(parentSessionId, config, responseChannel)).catch((error) => {
+						ipcRenderer.send(responseChannel, {
+							success: false,
+							error: error instanceof Error ? error.message : String(error),
+						});
+					});
+				} catch (error) {
+					ipcRenderer.send(responseChannel, {
+						success: false,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+			};
+			ipcRenderer.on('remote:createWorktreeSession', handler);
+			return () => ipcRenderer.removeListener('remote:createWorktreeSession', handler);
+		},
+
+		/**
+		 * Send response for remote create-worktree-agent
+		 */
+		sendRemoteCreateWorktreeSessionResponse: (
+			responseChannel: string,
+			result: { success: boolean; sessionId?: string; error?: string }
+		): void => {
+			ipcRenderer.send(responseChannel, result);
+		},
+
+		/**
 		 * Subscribe to remote set Auto Run folder from web interface
 		 * (request-response). Web clients use this to repoint a session at a
 		 * different `.maestro/` folder, mirroring desktop's `dialog.selectFolder`
@@ -1175,6 +1242,96 @@ export function createProcessApi() {
 		 */
 		sendRemoteRenameSessionResponse: (responseChannel: string, success: boolean): void => {
 			ipcRenderer.send(responseChannel, success);
+		},
+
+		/**
+		 * Subscribe to remote update session cwd from CLI/web.
+		 * Uses request-response pattern with a unique responseChannel; the
+		 * renderer responds with { success, error? } so the caller can surface
+		 * the reason a cwd change was refused (e.g. agent still running).
+		 */
+		onRemoteUpdateSessionCwd: (
+			callback: (sessionId: string, newCwd: string, responseChannel: string) => void
+		): (() => void) => {
+			const handler = (_: unknown, sessionId: string, newCwd: string, responseChannel: string) =>
+				callback(sessionId, newCwd, responseChannel);
+			ipcRenderer.on('remote:updateSessionCwd', handler);
+			return () => ipcRenderer.removeListener('remote:updateSessionCwd', handler);
+		},
+
+		/**
+		 * Send response for remote update session cwd
+		 */
+		sendRemoteUpdateSessionCwdResponse: (
+			responseChannel: string,
+			result: { success: boolean; error?: string }
+		): void => {
+			ipcRenderer.send(responseChannel, result);
+		},
+
+		/**
+		 * Subscribe to remote requests to update an agent's SSH execution config.
+		 * The renderer merges the partial patch and responds with { success, error? }
+		 * so the caller can surface why an update was refused (e.g. agent running).
+		 */
+		onRemoteUpdateSessionSsh: (
+			callback: (
+				sessionId: string,
+				sshPatch: Record<string, unknown>,
+				responseChannel: string
+			) => void
+		): (() => void) => {
+			const handler = (
+				_: unknown,
+				sessionId: string,
+				sshPatch: Record<string, unknown>,
+				responseChannel: string
+			) => callback(sessionId, sshPatch, responseChannel);
+			ipcRenderer.on('remote:updateSessionSsh', handler);
+			return () => ipcRenderer.removeListener('remote:updateSessionSsh', handler);
+		},
+
+		/**
+		 * Send response for remote update session SSH config
+		 */
+		sendRemoteUpdateSessionSshResponse: (
+			responseChannel: string,
+			result: { success: boolean; error?: string }
+		): void => {
+			ipcRenderer.send(responseChannel, result);
+		},
+
+		/**
+		 * Subscribe to remote requests to update an agent's editable per-session
+		 * config (nudge/new-session message, custom path/args/env vars, model,
+		 * effort, context window, Claude token source). The renderer merges the
+		 * partial patch and responds with { success, error? }.
+		 */
+		onRemoteUpdateSessionConfig: (
+			callback: (
+				sessionId: string,
+				configPatch: Record<string, unknown>,
+				responseChannel: string
+			) => void
+		): (() => void) => {
+			const handler = (
+				_: unknown,
+				sessionId: string,
+				configPatch: Record<string, unknown>,
+				responseChannel: string
+			) => callback(sessionId, configPatch, responseChannel);
+			ipcRenderer.on('remote:updateSessionConfig', handler);
+			return () => ipcRenderer.removeListener('remote:updateSessionConfig', handler);
+		},
+
+		/**
+		 * Send response for remote update session config
+		 */
+		sendRemoteUpdateSessionConfigResponse: (
+			responseChannel: string,
+			result: { success: boolean; error?: string }
+		): void => {
+			ipcRenderer.send(responseChannel, result);
 		},
 
 		/**

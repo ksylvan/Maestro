@@ -1,5 +1,5 @@
 /**
- * claudeUsageStore — renderer-side mirror of the main-process Claude Max-plan
+ * claudeUsageStore — renderer-side mirror of the main-process Claude plan
  * usage snapshot map.
  *
  * Snapshots live on disk (electron-store namespace `claude-usage-snapshots`,
@@ -124,6 +124,48 @@ export function useClaudeUsageSnapshot(
 		const exact = snapshots[configDirKey];
 		if (exact) return exact;
 		const targetBasename = configDirKey.slice(configDirKey.lastIndexOf('/') + 1);
+		if (targetBasename) {
+			for (const [k, v] of Object.entries(snapshots)) {
+				const basename = k.slice(k.lastIndexOf('/') + 1);
+				if (basename === targetBasename) return v;
+			}
+		}
+	}
+
+	const entries = Object.values(snapshots);
+	if (entries.length === 1) return entries[0];
+	return null;
+}
+
+/**
+ * Non-hook variant of `useClaudeUsageSnapshot` for imperative call sites (the
+ * auto-resume coordinator probes a paused session's account outside React).
+ * Resolves the session's canonical `CLAUDE_CONFIG_DIR` key from the spawner's
+ * stamped `lastUsageSnapshotKey` (or the session/agent env var as a fallback),
+ * then applies the same forgiving lookup as the hook: exact key, then basename,
+ * then the single-account fallback. Returns `null` for non-Claude sessions or
+ * when no snapshot matches.
+ */
+export function getClaudeUsageSnapshotForSession(
+	session: Pick<Session, 'toolType' | 'claudeInteractive' | 'customEnvVars'> | null | undefined
+): ClaudeUsageSnapshot | null {
+	if (!session || session.toolType !== 'claude-code') return null;
+	const snapshots = useClaudeUsageStore.getState().snapshots;
+
+	const stamped = session.claudeInteractive?.lastUsageSnapshotKey;
+	const envKey = (session.customEnvVars as Record<string, string> | undefined)?.CLAUDE_CONFIG_DIR;
+	const rawKey =
+		typeof stamped === 'string' && stamped.length > 0
+			? stamped
+			: typeof envKey === 'string' && envKey.length > 0
+				? envKey
+				: undefined;
+	const key = rawKey ? rawKey.replace(/\/+$/, '') : undefined;
+
+	if (key) {
+		const exact = snapshots[key];
+		if (exact) return exact;
+		const targetBasename = key.slice(key.lastIndexOf('/') + 1);
 		if (targetBasename) {
 			for (const [k, v] of Object.entries(snapshots)) {
 				const basename = k.slice(k.lastIndexOf('/') + 1);

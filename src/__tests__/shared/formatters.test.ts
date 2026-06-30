@@ -9,6 +9,7 @@ import {
 	formatTokens,
 	formatTokensCompact,
 	formatRelativeTime,
+	formatCacheAge,
 	formatAgeShort,
 	formatActiveTime,
 	formatElapsedTime,
@@ -18,6 +19,9 @@ import {
 	truncatePath,
 	truncateCommand,
 	abbreviateGroupName,
+	isAbsolutePath,
+	getBasename,
+	formatSshTarget,
 } from '../../shared/formatters';
 
 describe('shared/formatters', () => {
@@ -191,6 +195,33 @@ describe('shared/formatters', () => {
 				expect(formatRelativeTime(now - 60 * 60000, { includeSeconds: true })).toBe('1h ago');
 				expect(formatRelativeTime(now - 24 * 60 * 60000, { includeSeconds: true })).toBe('1d ago');
 			});
+		});
+	});
+
+	// ==========================================================================
+	// formatCacheAge tests
+	// ==========================================================================
+	describe('formatCacheAge', () => {
+		it('should format null and zero as just now', () => {
+			expect(formatCacheAge(null)).toBe('just now');
+			expect(formatCacheAge(0)).toBe('just now');
+		});
+
+		it('should format sub-minute durations as just now', () => {
+			expect(formatCacheAge(15_000)).toBe('just now');
+			expect(formatCacheAge(59_999)).toBe('just now');
+		});
+
+		it('should format minutes below one hour', () => {
+			expect(formatCacheAge(60_000)).toBe('1m ago');
+			expect(formatCacheAge(45 * 60_000)).toBe('45m ago');
+			expect(formatCacheAge(59 * 60_000)).toBe('59m ago');
+		});
+
+		it('should format whole hours without rolling into days', () => {
+			expect(formatCacheAge(60 * 60_000)).toBe('1h ago');
+			expect(formatCacheAge(2 * 60 * 60_000)).toBe('2h ago');
+			expect(formatCacheAge(25 * 60 * 60_000)).toBe('25h ago');
 		});
 	});
 
@@ -536,6 +567,12 @@ describe('shared/formatters', () => {
 			expect(abbreviateGroupName('client-facing-team')).toBe('CFT');
 		});
 
+		it('drops leading numbering/bracket tokens from initials', () => {
+			expect(abbreviateGroupName('[1] Aleyemma/Money-Sessions')).toBe('AMS');
+			expect(abbreviateGroupName('(2) Research Operations')).toBe('RO');
+			expect(abbreviateGroupName('#3 backend-api-gateway')).toBe('BAG');
+		});
+
 		it('strips vowels from single long words, preserving the first character', () => {
 			expect(abbreviateGroupName('Engineering')).toBe('Engnrng');
 			expect(abbreviateGroupName('Documentation')).toBe('Dcmnttn');
@@ -550,6 +587,106 @@ describe('shared/formatters', () => {
 		it('respects custom target/max', () => {
 			expect(abbreviateGroupName('Engineering', { max: 5 })).toBe('Engnr');
 			expect(abbreviateGroupName('TenChars10', { max: 5 })).toBe('TnChr');
+		});
+
+		// Issue #1017: groups named like "[ARP] Auditoria Relatório Pessoal" used to
+		// fall into the multi-word initials path, which took just the leading "[" of
+		// the bracketed word and produced "[ARP" with the closing bracket dropped.
+		it('uses a bracketed tag prefix as the preferred short form', () => {
+			expect(abbreviateGroupName('[ARP] Auditoria Relatório Pessoal')).toBe('ARP');
+			expect(abbreviateGroupName('[CEDR] Conteúdo Educação Designer Reuniões')).toBe('CEDR');
+			expect(abbreviateGroupName('[GU] Generic User')).toBe('GU');
+			// Bracket prefix is honored even when the name is already short.
+			expect(abbreviateGroupName('[ARP]')).toBe('ARP');
+			// Tag itself is over max → fall through to initials, which skip the
+			// leading bracket entirely (no lopped "[" in the output).
+			expect(abbreviateGroupName('[VeryLongTagName] X', { max: 5 })).toBe('VX');
+			// Pure-numbering prefix is not a tag → dropped, initials of the rest win.
+			expect(abbreviateGroupName('[1] Aleyemma/Money-Sessions')).toBe('AMS');
+		});
+	});
+
+	// ==========================================================================
+	// isAbsolutePath tests
+	// ==========================================================================
+	describe('isAbsolutePath', () => {
+		it('recognizes Unix absolute paths', () => {
+			expect(isAbsolutePath('/Users/name/file.ts')).toBe(true);
+			expect(isAbsolutePath('/')).toBe(true);
+		});
+
+		it('recognizes Windows drive paths with either separator', () => {
+			expect(isAbsolutePath('C:\\Users\\name\\file.ts')).toBe(true);
+			expect(isAbsolutePath('C:/Users/name/file.ts')).toBe(true);
+			expect(isAbsolutePath('d:\\temp')).toBe(true);
+		});
+
+		it('recognizes backslash-prefixed (UNC / drive-relative) paths', () => {
+			expect(isAbsolutePath('\\\\server\\share')).toBe(true);
+			expect(isAbsolutePath('\\folder\\file')).toBe(true);
+		});
+
+		it('rejects relative paths and non-paths', () => {
+			expect(isAbsolutePath('')).toBe(false);
+			expect(isAbsolutePath('src/components/Foo.tsx')).toBe(false);
+			expect(isAbsolutePath('./file.ts')).toBe(false);
+			expect(isAbsolutePath('file.ts')).toBe(false);
+			expect(isAbsolutePath('C:file.ts')).toBe(false); // no separator after drive
+		});
+	});
+
+	// ==========================================================================
+	// getBasename tests
+	// ==========================================================================
+	describe('getBasename', () => {
+		it('extracts the final segment of a Unix path', () => {
+			expect(getBasename('/Users/name/file.ts')).toBe('file.ts');
+		});
+
+		it('extracts the final segment of a Windows path', () => {
+			expect(getBasename('C:\\Users\\name\\file.ts')).toBe('file.ts');
+		});
+
+		it('ignores a trailing separator', () => {
+			expect(getBasename('/Users/name/folder/')).toBe('folder');
+			expect(getBasename('C:\\Users\\name\\folder\\')).toBe('folder');
+		});
+
+		it('returns the input unchanged when there is no separator', () => {
+			expect(getBasename('file.ts')).toBe('file.ts');
+		});
+
+		it('handles empty input', () => {
+			expect(getBasename('')).toBe('');
+		});
+	});
+
+	// ==========================================================================
+	// formatSshTarget tests
+	// ==========================================================================
+	describe('formatSshTarget', () => {
+		it('shows user@host:port when all fields are present', () => {
+			expect(formatSshTarget({ host: '10.0.50.63', port: 2222, username: 'linvsw' })).toBe(
+				'linvsw@10.0.50.63:2222'
+			);
+		});
+
+		it('always shows the port, including the default 22 (the bug this prevents)', () => {
+			// A remote named "wsl ubuntu 2222" but saved with port 22 must reveal :22
+			expect(formatSshTarget({ host: '10.0.50.63', port: 22, username: 'linvsw' })).toBe(
+				'linvsw@10.0.50.63:22'
+			);
+		});
+
+		it('omits the user@ prefix when no username is set (no leading @)', () => {
+			expect(formatSshTarget({ host: 'maestro.gosubstrate.com', port: 22 })).toBe(
+				'maestro.gosubstrate.com:22'
+			);
+			expect(formatSshTarget({ host: 'host', port: 22, username: '   ' })).toBe('host:22');
+		});
+
+		it('defaults the port to 22 when omitted', () => {
+			expect(formatSshTarget({ host: 'host', username: 'me' })).toBe('me@host:22');
 		});
 	});
 });

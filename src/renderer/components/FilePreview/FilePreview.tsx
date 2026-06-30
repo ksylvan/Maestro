@@ -23,10 +23,13 @@ import {
 	RefreshCw,
 	X,
 	Filter,
+	Type,
+	Regex,
+	Hash,
 } from 'lucide-react';
 import { GhostIconButton } from '../ui/GhostIconButton';
 import { captureException } from '../../utils/sentry';
-import { safeClipboardWrite, safeClipboardWriteBlob } from '../../utils/clipboard';
+import { safeClipboardWrite, safeClipboardWriteImage } from '../../utils/clipboard';
 import { flashCopiedToClipboard } from '../../utils/flashCopiedToClipboard';
 import { notifyCenterFlash } from '../../stores/centerFlashStore';
 import { notifyToast } from '../../stores/notificationStore';
@@ -71,8 +74,19 @@ import { useFilePreviewSearch } from '../../hooks/file';
 import type { FilePreviewSearchAdapter } from './search/types';
 import { FilePreviewHeader } from './FilePreviewHeader';
 import { ImageViewer } from './ImageViewer';
+import { ImageSaveModal } from './ImageSaveModal';
+import { useImageAnnotatorStore } from '../ImageAnnotator/imageAnnotatorStore';
+import { getParentDir, getBasename } from '../../../shared/formatters';
 import { FilePreviewToc } from './FilePreviewToc';
-import { HighlightedCodeEditor } from './HighlightedCodeEditor';
+import { MarkdownEditor } from './markdownEditor';
+import type { MarkdownEditorHandle } from './markdownEditor';
+import {
+	domGetTopLine,
+	domScrollToLine,
+	domGetTopLineByAttr,
+	domScrollToLineByAttr,
+} from './lineSync';
+import { rehypeSourceLine } from './rehypeSourceLine';
 import { logger } from '../../utils/logger';
 
 // Lazy-loaded large-file markdown renderer. Keeping it out of the main bundle
@@ -159,6 +173,11 @@ export const FilePreview = React.memo(
 		);
 		const [isSaving, setIsSaving] = useState(false);
 		const [showUnsavedChangesModal, setShowUnsavedChangesModal] = useState(false);
+		// Image-edit save flow: holds the annotator's composited data URL while the
+		// user picks a save destination (overwrite vs new file). Null when idle.
+		const [imageSaveData, setImageSaveData] = useState<string | null>(null);
+		const [imageSaveBusy, setImageSaveBusy] = useState(false);
+		const openAnnotator = useImageAnnotatorStore((s) => s.openAnnotator);
 		const [searchMode, setSearchMode] = useState<'text' | 'jq'>('text');
 		const [showJqHelp, setShowJqHelp] = useState(false);
 		const [jqError, setJqError] = useState<string | null>(null);
@@ -172,7 +191,10 @@ export const FilePreview = React.memo(
 		const codeContainerRef = useRef<HTMLDivElement>(null);
 		const contentRef = useRef<HTMLDivElement>(null);
 		const containerRef = useRef<HTMLDivElement>(null);
-		const textareaRef = useRef<HTMLTextAreaElement>(null);
+		// Imperative handle for the CodeMirror-based markdown/text edit editor.
+		// Replaces the raw <textarea> ref the previous implementation passed
+		// around — see ./markdownEditor for the surface this exposes.
+		const editorRef = useRef<MarkdownEditorHandle>(null);
 		const markdownContainerRef = useRef<HTMLDivElement>(null);
 		const layerIdRef = useRef<string>();
 		const cancelButtonRef = useRef<HTMLButtonElement>(null);
@@ -188,6 +210,13 @@ export const FilePreview = React.memo(
 		// Imperative handle for the lazy-loaded Giant tier preview. Cmd+F in
 		// Giant tier opens CodeMirror's native search panel via this handle.
 		const giantRef = useRef<import('./giantPreview').GiantPreviewHandle>(null);
+		// Top source line of each view, kept fresh by a capture-phase scroll
+		// listener so toggling between preview and edit can re-anchor on the
+		// same line. The conditional render unmounts the outgoing view before
+		// effects run, so we cannot read its scroll position at toggle time -
+		// hence the running refs.
+		const previewTopLineRef = useRef(1);
+		const editorTopLineRef = useRef(1);
 
 		// Reset full content view when file changes
 		useEffect(() => {
@@ -196,17 +225,27 @@ export const FilePreview = React.memo(
 
 		// File change detection state
 		const [fileChangedOnDisk, setFileChangedOnDisk] = useState(false);
+		// True once the file can no longer be stat'd at its cached path (deleted, or
+		// moved/renamed elsewhere). Distinct from fileChangedOnDisk: there is nothing
+		// to reload, so the banner offers only Dismiss.
+		const [fileMissingOnDisk, setFileMissingOnDisk] = useState(false);
 		const lastModifiedRef = useRef(lastModified);
 
 		// Keep ref in sync with prop (reset when parent reloads content with new lastModified)
 		useEffect(() => {
 			lastModifiedRef.current = lastModified;
 			setFileChangedOnDisk(false);
+			setFileMissingOnDisk(false);
 		}, [lastModified]);
+
+		// Reset the missing banner when navigating to a different file.
+		useEffect(() => {
+			setFileMissingOnDisk(false);
+		}, [file?.path]);
 
 		// Poll file stat to detect external changes (every 3s for the active file)
 		useEffect(() => {
-			if (!file?.path || !lastModified || fileChangedOnDisk) return;
+			if (!file?.path || !lastModified || fileChangedOnDisk || fileMissingOnDisk) return;
 
 			const interval = setInterval(async () => {
 				try {
@@ -217,12 +256,15 @@ export const FilePreview = React.memo(
 						setFileChangedOnDisk(true);
 					}
 				} catch {
-					// Silently ignore — file may have been deleted or become inaccessible
+					// stat threw: the file no longer exists at this path. It was deleted
+					// or moved/renamed out from under the open tab. Surface it so the user
+					// knows their edits would no longer save in place.
+					setFileMissingOnDisk(true);
 				}
 			}, 3000);
 
 			return () => clearInterval(interval);
-		}, [file?.path, lastModified, sshRemoteId, fileChangedOnDisk]);
+		}, [file?.path, lastModified, sshRemoteId, fileChangedOnDisk, fileMissingOnDisk]);
 
 		// Handle reload click
 		const handleReloadFile = useCallback(() => {
@@ -246,36 +288,22 @@ export const FilePreview = React.memo(
 		const hasChanges = editContent !== (file?.content ?? '');
 
 		// Deep-link scroll-to-line. Fires when a maestro://file/...#L<n> link
-		// opens this file: flip to edit mode, scroll the textarea to that line,
-		// place the caret there, then notify the parent so it clears the
-		// transient flag (otherwise we'd re-jump on every render).
+		// opens this file: flip to edit mode, jump the editor to that line,
+		// then notify the parent so it clears the transient flag (otherwise
+		// we'd re-jump on every render).
 		useEffect(() => {
 			if (!pendingScrollToLine || !file) return;
-			// We need the textarea, which only exists in edit mode. If we're
-			// still in preview, flip to edit first — the next render will land
-			// us back in this effect with the textarea mounted.
+			// The editor only exists in edit mode. If we're still in preview,
+			// flip to edit first — the next render lands back here with the
+			// editor mounted and the handle available.
 			if (!markdownEditMode) {
 				setMarkdownEditMode(true);
 				return;
 			}
-			const textarea = textareaRef.current;
-			if (!textarea) return;
-			const lines = (file.content ?? '').split('\n');
-			const targetLine = Math.min(Math.max(1, pendingScrollToLine), lines.length);
-			// Compute character offset of the start of the target line.
-			let offset = 0;
-			for (let i = 0; i < targetLine - 1; i++) {
-				offset += lines[i].length + 1; // +1 for the newline
-			}
-			// Place caret at line start, then scroll. setSelectionRange focuses
-			// at the target offset; we follow up with explicit scroll math so
-			// the line lands a third down the viewport (matches how editors
-			// like VS Code reveal navigated lines).
-			textarea.focus();
-			textarea.setSelectionRange(offset, offset);
-			const lineHeight = parseInt(getComputedStyle(textarea).lineHeight) || 21;
-			const desiredTop = Math.max(0, (targetLine - 1) * lineHeight - textarea.clientHeight / 3);
-			textarea.scrollTop = desiredTop;
+			const editor = editorRef.current;
+			if (!editor) return;
+			editor.focus();
+			editor.scrollToLine(pendingScrollToLine);
 			onPendingScrollToLineConsumed?.();
 		}, [
 			pendingScrollToLine,
@@ -291,6 +319,9 @@ export const FilePreview = React.memo(
 		const language = file ? getLanguageFromFilename(file.name) : '';
 		const isMarkdown = language === 'markdown';
 		const isHtml = file ? /\.html?$/i.test(file.name) : false;
+		// Mermaid diagram files render as a diagram by default (like markdown);
+		// Cmd+E drops into source editing since they're plain editable text.
+		const isMermaid = file ? /\.(mmd|mermaid)$/i.test(file.name) : false;
 		const isReadableText = file ? !isMarkdown && isReadableTextPreview(file.name) : false;
 		const isCsv = language === 'csv';
 		const isJsonl = language === 'jsonl';
@@ -329,8 +360,8 @@ export const FilePreview = React.memo(
 			if (!file?.content || isImage || isBinary) return 'rich' as const;
 			const bytes = file.content.length;
 			const { lines, maxLineLength } = scanLineStats(file.content);
-			return pickPreviewTier(bytes, lines, maxLineLength);
-		}, [file?.path, file?.content, isImage, isBinary]);
+			return pickPreviewTier(bytes, lines, maxLineLength, isMarkdown);
+		}, [file?.path, file?.content, isImage, isBinary, isMarkdown]);
 
 		// Effective tier respects the user's per-tab override, falling back to
 		// the auto-picked tier. The PreviewTierChip in the header lets the user
@@ -382,6 +413,40 @@ export const FilePreview = React.memo(
 			return undefined;
 		}, [previewTier, isMarkdown, markdownEditMode, isImage, isBinary]);
 
+		// Whether the active preview shows line numbers; gates the regex / line
+		// search chip (left of the Cmd+F input). True for the code editor and the
+		// code/text preview tiers; false for rendered markdown, CSV, JSON-jq, HTML
+		// render, and images.
+		const viewHasLineNumbers = useMemo(() => {
+			if (isImage || isBinary) return false;
+			if (isEditableText && markdownEditMode) return true; // CM6 editor
+			if (markdownEditMode) return false;
+			if (isMarkdown || isCsv || isJsonl) return false;
+			if (isMermaid) return false; // rendered diagram has no source gutter
+			if (isJson && searchMode === 'jq') return false;
+			if (isHtml && htmlRenderMode) return false;
+			// Rich-tier readable text uses a wrapped prose block with no gutter; the
+			// Fast and Giant tiers render a numbered gutter, so exclude readable text
+			// only when it falls outside those tiers.
+			if (isReadableText && previewTier !== 'fast' && previewTier !== 'giant') return false;
+			return true;
+		}, [
+			isImage,
+			isBinary,
+			isEditableText,
+			markdownEditMode,
+			isMarkdown,
+			isMermaid,
+			isCsv,
+			isJsonl,
+			isJson,
+			searchMode,
+			isHtml,
+			htmlRenderMode,
+			isReadableText,
+			previewTier,
+		]);
+
 		// Search state and effects (code highlighting, markdown CSS Highlight API, edit textarea)
 		const {
 			searchQuery,
@@ -394,11 +459,14 @@ export const FilePreview = React.memo(
 			goToPrevMatch,
 			searchInputRef,
 			setMatchCount,
+			searchKind,
+			cycleSearchKind,
+			regexError,
 		} = useFilePreviewSearch({
 			codeContainerRef,
 			markdownContainerRef,
 			contentRef,
-			textareaRef,
+			editorRef,
 			isMarkdown,
 			isReadableText,
 			isImage,
@@ -411,6 +479,7 @@ export const FilePreview = React.memo(
 			fileContent: file?.content,
 			accentColor: theme.colors.accent,
 			searchMode,
+			supportsLineSearch: viewHasLineNumbers,
 			displayedContentLength: displayContent.length,
 			initialSearchQuery,
 			onSearchQueryChange,
@@ -535,8 +604,10 @@ export const FilePreview = React.memo(
 			[fileTree, fileTreeIndices, cwd, homeDir]
 		);
 
-		// Memoize rehypePlugins array to prevent unnecessary re-renders
-		const rehypePlugins = useMemo(() => [rehypeRaw, rehypeSlug], []);
+		// Memoize rehypePlugins array to prevent unnecessary re-renders.
+		// rehypeSourceLine runs first so it reads the original source positions
+		// before rehypeRaw re-parses raw HTML (which discards position info).
+		const rehypePlugins = useMemo(() => [rehypeSourceLine, rehypeRaw, rehypeSlug], []);
 
 		// Memoize ReactMarkdown components to prevent infinite render loops
 		// The img component was causing loops because MarkdownImage useEffect sets state,
@@ -627,11 +698,16 @@ export const FilePreview = React.memo(
 				window.maestro.fs
 					.stat(file.path, sshRemoteId)
 					.then((stats) =>
-						setFileStats({
-							size: stats.size,
-							createdAt: stats.createdAt,
-							modifiedAt: stats.modifiedAt,
-						})
+						// stat returns null for a missing path - clear stats like the catch.
+						setFileStats(
+							stats
+								? {
+										size: stats.size,
+										createdAt: stats.createdAt,
+										modifiedAt: stats.modifiedAt,
+									}
+								: null
+						)
 					)
 					.catch((err) => {
 						logger.error('Failed to get file stats:', undefined, err);
@@ -668,48 +744,150 @@ export const FilePreview = React.memo(
 		}, [file?.content, file?.path, externalEditContent]);
 
 		// Focus appropriate element and sync scroll position when mode changes
+		// Which active preview reports real source lines (vs. percent-only views
+		// like CSV/JSON/HTML/rendered-markdown). Mirrors the render branch order
+		// below so it agrees with what's actually on screen.
+		const previewSyncSource = (): 'giant' | 'text-fast' | 'text-dom' | 'markdown-dom' | null => {
+			if (isHtml && htmlRenderMode) return null;
+			if (isMermaid) return null;
+			if (isCsv) return null;
+			if (isJsonl || (isJson && searchMode === 'jq')) return null;
+			if (previewTier === 'giant') return 'giant';
+			// Fast-tier markdown scrolls inside its own virtuoso container, which
+			// the data-source-line walk can't target - leave it on percent.
+			if (isMarkdown && previewTier === 'fast') return null;
+			// Rich markdown renders into markdownContainerRef inside contentRef;
+			// rehypeSourceLine tags each block so we can map render ⇄ source line.
+			if (isMarkdown) return 'markdown-dom';
+			if (isReadableText && previewTier === 'fast') return 'text-fast';
+			if (isReadableText) return 'text-dom';
+			return null;
+		};
+
+		// 1-based source line at the top of the active preview, or null when the
+		// active view can't report one.
+		const readPreviewTopLine = (): number | null => {
+			switch (previewSyncSource()) {
+				case 'giant':
+					return giantRef.current?.getTopLine() ?? null;
+				case 'text-fast':
+					return textFastRef.current?.getTopLine() ?? null;
+				case 'text-dom': {
+					const scroller = contentRef.current;
+					const containerEl = markdownContainerRef.current;
+					if (!scroller || !containerEl) return null;
+					return domGetTopLine(scroller, containerEl, displayContent);
+				}
+				case 'markdown-dom': {
+					const scroller = contentRef.current;
+					const containerEl = markdownContainerRef.current;
+					if (!scroller || !containerEl) return null;
+					return domGetTopLineByAttr(scroller, containerEl);
+				}
+				default:
+					return null;
+			}
+		};
+
+		// Scroll the active preview so `line` sits at the top. Returns false when
+		// the active view has no line mapping (caller falls back to percent).
+		const scrollPreviewToLine = (line: number): boolean => {
+			switch (previewSyncSource()) {
+				case 'giant':
+					giantRef.current?.scrollToLine(line);
+					return true;
+				case 'text-fast':
+					textFastRef.current?.scrollToLine(line);
+					return true;
+				case 'text-dom': {
+					const scroller = contentRef.current;
+					const containerEl = markdownContainerRef.current;
+					if (!scroller || !containerEl) return false;
+					domScrollToLine(scroller, containerEl, displayContent, line);
+					return true;
+				}
+				case 'markdown-dom': {
+					const scroller = contentRef.current;
+					const containerEl = markdownContainerRef.current;
+					if (!scroller || !containerEl) return false;
+					return domScrollToLineByAttr(scroller, containerEl, line);
+				}
+				default:
+					return false;
+			}
+		};
+
+		// Capture-phase scroll listener keeps the top-line refs fresh. Stored in a
+		// ref so the listener (attached once) always runs against current state.
+		const captureTopLineRef = useRef<() => void>(() => {});
+		captureTopLineRef.current = () => {
+			if (markdownEditMode) {
+				const line = editorRef.current?.getTopLine();
+				if (line) editorTopLineRef.current = line;
+			} else {
+				const line = readPreviewTopLine();
+				if (line != null) previewTopLineRef.current = line;
+			}
+		};
+
+		useEffect(() => {
+			const root = contentRef.current;
+			if (!root) return;
+			let raf: number | null = null;
+			const onScroll = () => {
+				if (raf != null) return;
+				raf = requestAnimationFrame(() => {
+					raf = null;
+					captureTopLineRef.current();
+				});
+			};
+			// Capture phase so scrolls from the nested tier scrollers (CodeMirror,
+			// the virtualized fast tiers) and the editor all reach this one listener.
+			root.addEventListener('scroll', onScroll, true);
+			return () => {
+				if (raf != null) cancelAnimationFrame(raf);
+				root.removeEventListener('scroll', onScroll, true);
+			};
+		}, [file?.path]);
+
 		const prevMarkdownEditModeRef = useRef(markdownEditMode);
 		useEffect(() => {
 			const wasEditMode = prevMarkdownEditModeRef.current;
 			prevMarkdownEditModeRef.current = markdownEditMode;
+			if (markdownEditMode === wasEditMode) return;
 
-			if (markdownEditMode && textareaRef.current) {
-				// Entering edit mode - focus textarea and sync scroll from preview
-				if (!wasEditMode && contentRef.current) {
-					// Calculate scroll percentage from preview mode
-					const { scrollTop, scrollHeight, clientHeight } = contentRef.current;
-					const maxScroll = scrollHeight - clientHeight;
-					const scrollPercent = maxScroll > 0 ? scrollTop / maxScroll : 0;
-
-					// Apply scroll percentage to textarea after it renders
-					requestAnimationFrame(() => {
-						if (textareaRef.current) {
-							const { scrollHeight: textareaScrollHeight, clientHeight: textareaClientHeight } =
-								textareaRef.current;
-							const textareaMaxScroll = textareaScrollHeight - textareaClientHeight;
-							textareaRef.current.scrollTop = Math.round(scrollPercent * textareaMaxScroll);
-						}
-					});
-				}
-				textareaRef.current.focus();
+			if (markdownEditMode && editorRef.current) {
+				// Entering edit mode - focus the editor and land it on the line that
+				// was at the top of the preview (so the view doesn't jump).
+				const canSyncLine = previewSyncSource() !== null;
+				const line = previewTopLineRef.current;
+				editorTopLineRef.current = line;
+				// Sync scroll one frame in (after the editor lays out).
+				requestAnimationFrame(() => {
+					if (canSyncLine) {
+						editorRef.current?.scrollToLine(line, { select: false });
+					} else if (contentRef.current) {
+						// Percent fallback for views without a 1:1 line map.
+						const { scrollTop, scrollHeight, clientHeight } = contentRef.current;
+						const maxScroll = scrollHeight - clientHeight;
+						editorRef.current?.setScrollPercent(maxScroll > 0 ? scrollTop / maxScroll : 0);
+					}
+				});
+				// Focus must wait until AFTER the freshly-mounted editor has
+				// painted: a rAF callback runs BEFORE the next paint, and calling
+				// focus() on a not-yet-painted contenteditable silently no-ops -
+				// focus falls to <body>, which is what broke the Cmd+E toggle
+				// (the user had to click into the editor before Cmd+E worked
+				// again). setTimeout(0) runs as a macrotask after paint, where
+				// focus reliably sticks.
+				setTimeout(() => editorRef.current?.focus(), 0);
 			} else if (!markdownEditMode && wasEditMode && containerRef.current) {
-				// Exiting edit mode - focus container and sync scroll from textarea
-				if (textareaRef.current && contentRef.current) {
-					// Calculate scroll percentage from edit mode
-					const { scrollTop, scrollHeight, clientHeight } = textareaRef.current;
-					const maxScroll = scrollHeight - clientHeight;
-					const scrollPercent = maxScroll > 0 ? scrollTop / maxScroll : 0;
-
-					// Apply scroll percentage to preview after it renders
-					requestAnimationFrame(() => {
-						if (contentRef.current) {
-							const { scrollHeight: previewScrollHeight, clientHeight: previewClientHeight } =
-								contentRef.current;
-							const previewMaxScroll = previewScrollHeight - previewClientHeight;
-							contentRef.current.scrollTop = Math.round(scrollPercent * previewMaxScroll);
-						}
-					});
-				}
+				// Exiting edit mode - the editor has already unmounted, so use the
+				// scroll-tracked top line to re-anchor the preview.
+				const line = editorTopLineRef.current;
+				requestAnimationFrame(() => {
+					scrollPreviewToLine(line);
+				});
 				containerRef.current.focus();
 			}
 		}, [markdownEditMode]);
@@ -743,6 +921,119 @@ export const FilePreview = React.memo(
 				setIsSaving(false);
 			}
 		}, [file, onSave, hasChanges, isSaving, editContent, sshRemoteId]);
+
+		// Open the previewed image in the annotator. The annotator hands back a
+		// composited data URL via onSave; we stash it and let the user pick a save
+		// destination (overwrite vs new file) before writing to disk.
+		const handleEditImage = useCallback(() => {
+			if (!file || !isImage) return;
+			openAnnotator(file.content, (newDataUrl) => setImageSaveData(newDataUrl));
+		}, [file, isImage, openAnnotator]);
+
+		// Format the annotator exports, derived from its data URL mime
+		// (e.g. "data:image/png;base64,..." -> "png"). The annotator only ever
+		// produces PNG, but we read it from the payload to stay honest.
+		const editedImageExtension = useMemo(() => {
+			if (!imageSaveData) return 'png';
+			const match = /^data:image\/([a-z0-9.+-]+)/i.exec(imageSaveData);
+			const sub = match?.[1]?.toLowerCase();
+			if (!sub) return 'png';
+			if (sub === 'svg+xml') return 'svg';
+			if (sub === 'jpeg') return 'jpg';
+			return sub;
+		}, [imageSaveData]);
+
+		// Original file's normalized extension. Overwrite-in-place is only valid
+		// when it matches the editor's output format; otherwise we'd be writing
+		// (PNG) bytes under a misleading extension.
+		const originalImageExtension = useMemo(() => {
+			if (!file) return '';
+			const ext = (getBasename(file.name).split('.').pop() ?? '').toLowerCase();
+			return ext === 'jpeg' ? 'jpg' : ext;
+		}, [file]);
+
+		const canOverwriteImage = originalImageExtension === editedImageExtension;
+
+		// Sibling name used when the original format can't be reproduced
+		// (e.g. photo.jpg -> photo.png).
+		const imageFallbackName = useMemo(() => {
+			if (!file) return '';
+			const name = getBasename(file.name);
+			const dot = name.lastIndexOf('.');
+			const base = dot > 0 ? name.slice(0, dot) : name;
+			return `${base}.${editedImageExtension}`;
+		}, [file, editedImageExtension]);
+
+		// Build a path for a file sitting next to the previewed one, preserving
+		// the original path's separator style (Windows vs POSIX).
+		const siblingImagePath = useCallback(
+			(name: string): string => {
+				const basePath = file?.path ?? '';
+				const parent = getParentDir(basePath);
+				const sep = basePath.includes('\\') && !basePath.includes('/') ? '\\' : '/';
+				return `${parent}${sep}${name}`;
+			},
+			[file?.path]
+		);
+
+		const writeEditedImage = useCallback(
+			async (targetPath: string, reloadAfter: boolean, flashMessage = 'Image Saved') => {
+				if (!imageSaveData) return;
+				setImageSaveBusy(true);
+				try {
+					await window.maestro.fs.writeImageFile(targetPath, imageSaveData, sshRemoteId);
+					// Keep our own write from tripping the file-change poller.
+					try {
+						const stat = await window.maestro?.fs?.stat(targetPath, sshRemoteId);
+						if (stat?.modifiedAt && reloadAfter) {
+							lastModifiedRef.current = new Date(stat.modifiedAt).getTime();
+						}
+					} catch {
+						// Non-critical - worst case the change banner flashes briefly.
+					}
+					setImageSaveData(null);
+					notifyCenterFlash({ message: flashMessage, color: 'theme' });
+					// Overwrite changes the file we're viewing - refresh so the preview
+					// reflects the edited pixels. A new file leaves the original intact.
+					if (reloadAfter) onReloadFile?.();
+				} catch (err) {
+					logger.error('Failed to save edited image:', undefined, err);
+					notifyToast({
+						type: 'error',
+						title: 'Save Failed',
+						message: err instanceof Error ? err.message : 'Could not save the edited image.',
+					});
+				} finally {
+					setImageSaveBusy(false);
+				}
+			},
+			[imageSaveData, sshRemoteId, onReloadFile]
+		);
+
+		const handleOverwriteImage = useCallback(() => {
+			if (!file) return;
+			if (canOverwriteImage) {
+				void writeEditedImage(file.path, true);
+				return;
+			}
+			// Can't reproduce the original format - write a sibling file in the
+			// editor's format instead and tell the user what landed where.
+			void writeEditedImage(
+				siblingImagePath(imageFallbackName),
+				false,
+				`Saved as ${imageFallbackName}`
+			);
+		}, [file, canOverwriteImage, imageFallbackName, siblingImagePath, writeEditedImage]);
+
+		const handleSaveImageAs = useCallback(
+			(newName: string) => {
+				if (!file) return;
+				const targetPath = siblingImagePath(newName);
+				const isNewPath = getBasename(targetPath) !== getBasename(file.path);
+				void writeEditedImage(targetPath, !isNewPath, `Saved as ${newName}`);
+			},
+			[file, siblingImagePath, writeEditedImage]
+		);
 
 		// Track scroll position to show/hide stats bar and report changes
 		useEffect(() => {
@@ -942,28 +1233,11 @@ export const FilePreview = React.memo(
 		const copyContentToClipboard = async () => {
 			if (!file) return;
 			if (isImage) {
-				try {
-					const response = await fetch(file.content);
-					const blob = await response.blob();
-					const ok = await safeClipboardWriteBlob([new ClipboardItem({ [blob.type]: blob })]);
-					if (ok) {
-						flashCopiedToClipboard(undefined, 'Image Copied');
-					} else {
-						const fallbackOk = await safeClipboardWrite(file.content);
-						if (fallbackOk) {
-							flashCopiedToClipboard(file.content, 'Image URL Copied');
-						} else {
-							failClipboardToast('Failed to Copy Image');
-						}
-					}
-				} catch (err) {
-					captureException(err);
-					const fallbackOk = await safeClipboardWrite(file.content);
-					if (fallbackOk) {
-						flashCopiedToClipboard(file.content, 'Image URL Copied');
-					} else {
-						failClipboardToast('Failed to Copy Image');
-					}
+				const ok = await safeClipboardWriteImage(file.content);
+				if (ok) {
+					flashCopiedToClipboard(undefined, 'Image Copied');
+				} else {
+					failClipboardToast('Failed to Copy Image');
 				}
 			} else {
 				const ok = await safeClipboardWrite(file.content);
@@ -1057,6 +1331,12 @@ export const FilePreview = React.memo(
 				e.preventDefault();
 				e.stopPropagation();
 				setMarkdownEditMode(!markdownEditMode);
+			} else if (isImage && isShortcut(e, 'toggleMarkdownMode')) {
+				// Cmd+E on an image jumps straight into the annotator (the image
+				// "editor"), mirroring how the same shortcut opens the text editor.
+				e.preventDefault();
+				e.stopPropagation();
+				handleEditImage();
 			} else if (
 				isShortcut(e, 'toggleFilePreviewToc') &&
 				isMarkdown &&
@@ -1222,6 +1502,7 @@ export const FilePreview = React.memo(
 					sshRemoteId={sshRemoteId}
 					copyContentToClipboard={copyContentToClipboard}
 					copyPathToClipboard={copyPathToClipboard}
+					onEditImage={isImage ? handleEditImage : undefined}
 					headerBtnClass={headerBtnClass}
 					headerIconClass={headerIconClass}
 					isHtml={isHtml}
@@ -1276,6 +1557,39 @@ export const FilePreview = React.memo(
 					</div>
 				)}
 
+				{/* File no longer on disk banner (deleted or moved/renamed elsewhere) */}
+				{fileMissingOnDisk && (
+					<div
+						className="flex items-center gap-3 px-6 py-2 border-b shrink-0"
+						style={{
+							backgroundColor: theme.colors.warning + '15',
+							borderColor: theme.colors.warning + '40',
+						}}
+					>
+						<AlertTriangle
+							className="w-3.5 h-3.5 shrink-0"
+							style={{ color: theme.colors.warning }}
+						/>
+						<span className="flex-1 text-xs" style={{ color: theme.colors.textMain }}>
+							This file no longer exists at its original location. It may have been deleted or
+							moved.
+							{hasChanges ? ' Saving will prompt you for a new location.' : ''}
+						</span>
+						<div className="flex items-center gap-2 shrink-0">
+							<button
+								onClick={() => setFileMissingOnDisk(false)}
+								className="px-2 py-1 text-xs font-medium rounded hover:opacity-80 transition-opacity"
+								style={{
+									backgroundColor: theme.colors.warning,
+									color: theme.colors.accentForeground ?? '#000',
+								}}
+							>
+								Dismiss
+							</button>
+						</div>
+					</div>
+				)}
+
 				{/* Content - isolated scroll to prevent scroll chaining */}
 				<div
 					ref={contentRef}
@@ -1312,6 +1626,42 @@ export const FilePreview = React.memo(
 											jq
 										</button>
 									)}
+									{/* Search-kind chip: plain text → regex → line number.
+									    Only shown for line-numbered code/text views. */}
+									{searchMode !== 'jq' && viewHasLineNumbers && (
+										<button
+											onClick={() => {
+												cycleSearchKind();
+												setTimeout(() => searchInputRef.current?.focus(), 0);
+											}}
+											className="flex items-center gap-1 px-2 rounded border text-xs font-medium whitespace-nowrap transition-colors self-stretch"
+											style={{
+												borderColor:
+													searchKind === 'text' ? theme.colors.border : theme.colors.accent,
+												backgroundColor:
+													searchKind === 'text'
+														? theme.colors.bgSidebar
+														: theme.colors.accent + '20',
+												color: searchKind === 'text' ? theme.colors.textDim : theme.colors.accent,
+											}}
+											title={
+												searchKind === 'text'
+													? 'Plain-text search (click to switch to regex)'
+													: searchKind === 'regex'
+														? 'Regex search (click to switch to line-number jump)'
+														: 'Go to line (click to switch to plain-text search)'
+											}
+										>
+											{searchKind === 'text' ? (
+												<Type className="w-3 h-3" />
+											) : searchKind === 'regex' ? (
+												<Regex className="w-3 h-3" />
+											) : (
+												<Hash className="w-3 h-3" />
+											)}
+											{searchKind === 'text' ? 'Text' : searchKind === 'regex' ? 'Regex' : 'Line'}
+										</button>
+									)}
 									<input
 										ref={searchInputRef}
 										type="text"
@@ -1330,7 +1680,7 @@ export const FilePreview = React.memo(
 													setJqError(null);
 													containerRef.current?.focus();
 												}
-											} else if (searchMode === 'text') {
+											} else if (searchMode === 'text' && searchKind !== 'line') {
 												if (e.key === 'Enter' && !e.shiftKey) {
 													e.preventDefault();
 													goToNextMatch();
@@ -1346,7 +1696,11 @@ export const FilePreview = React.memo(
 										placeholder={
 											searchMode === 'jq'
 												? 'jq filter — .field, select(.x == "y"), keys, contains("...")'
-												: 'Search in file... (Enter: next, Shift+Enter: prev)'
+												: searchKind === 'line'
+													? 'Go to line number…'
+													: searchKind === 'regex'
+														? 'Search by regex... (Enter: next, Shift+Enter: prev)'
+														: 'Search in file... (Enter: next, Shift+Enter: prev)'
 										}
 										className="flex-1 px-3 py-2 rounded border bg-transparent outline-none text-sm"
 										style={{
@@ -1357,7 +1711,9 @@ export const FilePreview = React.memo(
 														: searchQuery
 															? theme.colors.accent + '60'
 															: theme.colors.border
-													: theme.colors.accent,
+													: regexError
+														? theme.colors.error + '80'
+														: theme.colors.accent,
 											color: theme.colors.textMain,
 											backgroundColor: theme.colors.bgSidebar,
 											fontFamily:
@@ -1369,8 +1725,9 @@ export const FilePreview = React.memo(
 										spellCheck={searchMode === 'jq' ? false : undefined}
 										autoFocus
 									/>
-									{/* Text search: match count + prev/next navigation */}
-									{searchMode === 'text' && searchQuery.trim() && (
+									{/* Text / regex search: match count + prev/next navigation
+									    (line-number mode jumps live and shows no match chrome) */}
+									{searchMode === 'text' && searchKind !== 'line' && searchQuery.trim() && (
 										<>
 											<span
 												className="text-xs whitespace-nowrap"
@@ -1433,6 +1790,15 @@ export const FilePreview = React.memo(
 										</>
 									)}
 								</div>
+								{/* regex error */}
+								{searchMode !== 'jq' && searchKind === 'regex' && regexError && (
+									<div
+										className="mt-1 px-2 py-1 rounded text-xs"
+										style={{ color: theme.colors.error }}
+									>
+										{regexError}
+									</div>
+								)}
 								{/* jq error */}
 								{searchMode === 'jq' && jqError && (
 									<div
@@ -1509,21 +1875,51 @@ export const FilePreview = React.memo(
 									This file cannot be displayed as text.
 								</p>
 								<button
-									onClick={() => window.maestro.shell.openPath(file.path)}
+									onClick={async () => {
+										// Local files open in place. Remote files don't exist on this
+										// machine, so download a binary-safe copy to a temp dir over SSH
+										// first, then hand the local path to the OS opener.
+										if (!sshRemoteId) {
+											void window.maestro.shell.openPath(file.path);
+											return;
+										}
+										try {
+											notifyCenterFlash({ message: 'Downloading…', color: 'theme' });
+											const { path: localPath } = await window.maestro.fs.downloadRemoteFile(
+												file.path,
+												sshRemoteId
+											);
+											await window.maestro.shell.openPath(localPath);
+										} catch (error) {
+											notifyToast({
+												color: 'red',
+												title: 'Open failed',
+												message:
+													error instanceof Error
+														? error.message
+														: 'Could not download the remote file',
+											});
+										}
+									}}
 									className="mt-4 px-4 py-2 rounded text-sm hover:opacity-80 transition-opacity"
 									style={{
 										backgroundColor: theme.colors.accent,
 										color: theme.colors.accentForeground,
 									}}
 								>
-									Open in Default App
+									{sshRemoteId ? 'Download & Open' : 'Open in Default App'}
 								</button>
 							</div>
 						</div>
 					) : isEditableText && markdownEditMode ? (
-						// Edit mode - syntax-highlighted editor for any text file
-						<HighlightedCodeEditor
-							ref={textareaRef}
+						// Edit mode - CodeMirror 6 editor for any text file.
+						// Key on file path so switching files remounts the editor —
+						// keeps each file's undo history isolated (the previous
+						// textarea-based implementation got that "for free" since
+						// changing value reset the input).
+						<MarkdownEditor
+							key={file.path}
+							ref={editorRef}
 							value={editContent}
 							onChange={setEditContent}
 							language={language}
@@ -1539,97 +1935,33 @@ export const FilePreview = React.memo(
 								});
 							}}
 							onKeyDown={(e) => {
-								// Handle Cmd+S for save
+								// CodeMirror's defaultKeymap already binds Cmd/Ctrl+ArrowUp/Down
+								// to doc start/end, PageUp/PageDown for paging, and the usual
+								// selection / word-jump shortcuts — no need to reimplement them
+								// against a textarea ref. We only intercept the app-level
+								// shortcuts (save, exit edit mode, toggle preview/edit).
+								//
+								// `e` here is a native KeyboardEvent forwarded by CodeMirror's
+								// dom handler. isShortcut only reads modifier/key fields that
+								// exist on both native and React events, so the cast is safe.
 								if (e.key === 's' && (e.metaKey || e.ctrlKey)) {
 									e.preventDefault();
 									e.stopPropagation();
 									handleSave();
-								}
-								// Handle Escape to exit edit mode (without save)
-								else if (e.key === 'Escape') {
+								} else if (e.key === 'Escape') {
 									e.preventDefault();
 									e.stopPropagation();
 									setMarkdownEditMode(false);
-								}
-								// Handle Cmd+Up: Move cursor to beginning (Shift: select to beginning)
-								else if (e.key === 'ArrowUp' && (e.metaKey || e.ctrlKey)) {
+								} else if (isShortcut(e as unknown as React.KeyboardEvent, 'toggleMarkdownMode')) {
+									// Handle the toggle here too: while the CodeMirror
+									// contenteditable holds focus, relying on the keydown to
+									// bubble out to the container handler is unreliable, so the
+									// editor → preview direction would silently no-op until the
+									// user clicked elsewhere. Toggling directly keeps Cmd+E
+									// working both ways without a focus round-trip.
 									e.preventDefault();
-									const textarea = e.currentTarget;
-									if (e.shiftKey) {
-										const anchor =
-											textarea.selectionDirection === 'backward'
-												? textarea.selectionEnd
-												: textarea.selectionStart;
-										textarea.setSelectionRange(0, anchor, 'backward');
-									} else {
-										textarea.setSelectionRange(0, 0);
-									}
-									textarea.scrollTop = 0;
-								}
-								// Handle Cmd+Down: Move cursor to end (Shift: select to end)
-								else if (e.key === 'ArrowDown' && (e.metaKey || e.ctrlKey)) {
-									e.preventDefault();
-									const textarea = e.currentTarget;
-									const len = textarea.value.length;
-									if (e.shiftKey) {
-										const anchor =
-											textarea.selectionDirection === 'forward'
-												? textarea.selectionStart
-												: textarea.selectionEnd;
-										textarea.setSelectionRange(anchor, len, 'forward');
-									} else {
-										textarea.setSelectionRange(len, len);
-									}
-									textarea.scrollTop = textarea.scrollHeight;
-								}
-								// Handle Opt+Up: Page up (move cursor up by roughly a page)
-								else if (e.key === 'ArrowUp' && e.altKey) {
-									e.preventDefault();
-									const textarea = e.currentTarget;
-									const lineHeight = parseInt(getComputedStyle(textarea).lineHeight) || 24;
-									const linesPerPage = Math.floor(textarea.clientHeight / lineHeight);
-									const lines = textarea.value.substring(0, textarea.selectionStart).split('\n');
-									const currentLine = lines.length - 1;
-									const targetLine = Math.max(0, currentLine - linesPerPage);
-									// Calculate new cursor position
-									let newPos = 0;
-									for (let i = 0; i < targetLine; i++) {
-										newPos += lines[i].length + 1; // +1 for newline
-									}
-									// Preserve column position if possible
-									const currentCol =
-										lines[currentLine].length -
-										(lines[currentLine].length -
-											(textarea.selectionStart - (newPos - (currentLine > 0 ? 1 : 0))));
-									const targetLineText = textarea.value.split('\n')[targetLine] || '';
-									newPos =
-										textarea.value.split('\n').slice(0, targetLine).join('\n').length +
-										(targetLine > 0 ? 1 : 0);
-									newPos += Math.min(currentCol, targetLineText.length);
-									textarea.setSelectionRange(newPos, newPos);
-									// Scroll to show the cursor
-									textarea.scrollTop -= textarea.clientHeight;
-								}
-								// Handle Opt+Down: Page down (move cursor down by roughly a page)
-								else if (e.key === 'ArrowDown' && e.altKey) {
-									e.preventDefault();
-									const textarea = e.currentTarget;
-									const lineHeight = parseInt(getComputedStyle(textarea).lineHeight) || 24;
-									const linesPerPage = Math.floor(textarea.clientHeight / lineHeight);
-									const allLines = textarea.value.split('\n');
-									const textBeforeCursor = textarea.value.substring(0, textarea.selectionStart);
-									const currentLine = textBeforeCursor.split('\n').length - 1;
-									const targetLine = Math.min(allLines.length - 1, currentLine + linesPerPage);
-									// Calculate column position in current line
-									const linesBeforeCurrent = textBeforeCursor.split('\n');
-									const currentCol = linesBeforeCurrent[linesBeforeCurrent.length - 1].length;
-									// Calculate new cursor position
-									let newPos =
-										allLines.slice(0, targetLine).join('\n').length + (targetLine > 0 ? 1 : 0);
-									newPos += Math.min(currentCol, allLines[targetLine].length);
-									textarea.setSelectionRange(newPos, newPos);
-									// Scroll to show the cursor
-									textarea.scrollTop += textarea.clientHeight;
+									e.stopPropagation();
+									setMarkdownEditMode(false);
 								}
 							}}
 						/>
@@ -1653,6 +1985,13 @@ export const FilePreview = React.memo(
 								backgroundColor: '#fff',
 							}}
 						/>
+					) : isMermaid && !markdownEditMode ? (
+						// Rendered Mermaid diagram. Reuses the same theme-aware,
+						// DOMPurify-sanitized renderer that draws ```mermaid``` blocks
+						// inside markdown. Cmd+E toggles to source editing.
+						<div className="p-4">
+							<MermaidRenderer chart={file.content} theme={theme} />
+						</div>
 					) : isCsv && !markdownEditMode ? (
 						<CsvTableRenderer
 							content={file.content}
@@ -1928,6 +2267,22 @@ export const FilePreview = React.memo(
 				</div>
 
 				{/* Copy / save flashes are now rendered globally by <CenterFlash /> */}
+
+				{/* Image-edit save destination modal (overwrite vs new file) */}
+				{imageSaveData && file && (
+					<ImageSaveModal
+						theme={theme}
+						fileName={file.name}
+						outputExtension={editedImageExtension}
+						canOverwrite={canOverwriteImage}
+						fallbackFileName={imageFallbackName}
+						originalExtension={originalImageExtension}
+						onOverwrite={handleOverwriteImage}
+						onSaveAs={handleSaveImageAs}
+						onCancel={() => setImageSaveData(null)}
+						isSaving={imageSaveBusy}
+					/>
+				)}
 
 				{/* Unsaved Changes Confirmation Modal */}
 				{showUnsavedChangesModal && (

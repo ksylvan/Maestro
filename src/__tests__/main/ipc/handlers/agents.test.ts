@@ -29,6 +29,7 @@ vi.mock('../../../../main/agents', async () => {
 			{ id: 'claude-code', name: 'Claude Code', binaryName: 'claude', configOptions: [] },
 			{ id: 'codex', name: 'Codex', binaryName: 'codex', configOptions: [] },
 			{ id: 'opencode', name: 'OpenCode', binaryName: 'opencode', configOptions: [] },
+			{ id: 'omp', name: 'Oh My Pi', binaryName: 'omp', configOptions: [] },
 			{ id: 'terminal', name: 'Terminal', binaryName: 'bash', configOptions: [] },
 		],
 		DEFAULT_CAPABILITIES: {
@@ -74,6 +75,9 @@ vi.mock('../../../../main/utils/execFile', () => ({
 // Mock fs
 vi.mock('fs', () => ({
 	existsSync: vi.fn(),
+	readdirSync: vi.fn(),
+	accessSync: vi.fn(),
+	constants: { R_OK: 4 },
 	promises: {
 		readdir: vi.fn(),
 		readFile: vi.fn(),
@@ -113,6 +117,8 @@ describe('agents IPC handlers', () => {
 	beforeEach(() => {
 		// Clear mocks
 		vi.clearAllMocks();
+		vi.mocked(fs.readdirSync).mockReturnValue([] as any);
+		vi.mocked(fs.accessSync).mockImplementation(() => undefined);
 
 		// Create mock agent detector
 		mockAgentDetector = {
@@ -172,9 +178,19 @@ describe('agents IPC handlers', () => {
 				'agents:getModels',
 				'agents:getConfigOptions',
 				'agents:discoverSlashCommands',
+				// Capability snapshot bridge (status pill + reprobe + live events)
+				'agents:getSnapshot',
+				'agents:getAllSnapshots',
+				'agents:reprobe',
 				'agents:getMaestroPDetectedPath',
+				'agents:getRemoteMaestroPAvailable',
 				'agents:getClaudeUsageSnapshots',
+				'agents:getClaudeUsageAccountKeys',
+				'agents:getLimitResetAt',
 				'claude:usage:refresh-all',
+				'agents:getCodexUsageSnapshots',
+				'agents:getCodexUsageAccountKeys',
+				'codex:usage:refresh-all',
 			];
 
 			for (const channel of expectedChannels) {
@@ -336,12 +352,25 @@ describe('agents IPC handlers', () => {
 				const handler = handlers.get('agents:detect');
 				await handler!({} as any, 'remote-1');
 
-				// Every probe should invoke 'command -v <binary>', never 'which'.
-				// Asserting one call per AGENT_DEFINITION catches regressions that
-				// silently skip agents instead of just dropping to zero.
+				// The remote detection piggybacks one extra maestro-p launch test
+				// (`maestro-p --version`) on top of the per-agent binary probes, so the
+				// total is AGENT_DEFINITIONS.length + 1.
 				const calls = vi.mocked(buildSshCommand).mock.calls;
-				expect(calls.length).toBe(agentCapabilities.AGENT_DEFINITIONS.length);
-				for (const [, options] of calls) {
+				expect(calls.length).toBe(agentCapabilities.AGENT_DEFINITIONS.length + 1);
+
+				// The maestro-p availability check is a LAUNCH test, not a path check:
+				// it runs `maestro-p --version` (which loads node + node-pty) rather
+				// than `command -v maestro-p`, so a host with no node fails it.
+				const maestroPProbe = calls.find(([, o]) => o.command === 'maestro-p');
+				expect(maestroPProbe).toBeDefined();
+				expect(maestroPProbe![1].args).toEqual(['--version']);
+
+				// Every other (per-agent) probe should invoke 'command -v <binary>',
+				// never 'which'. Asserting one such call per AGENT_DEFINITION catches
+				// regressions that silently skip agents instead of just dropping to zero.
+				const agentProbes = calls.filter(([, o]) => o.command !== 'maestro-p');
+				expect(agentProbes.length).toBe(agentCapabilities.AGENT_DEFINITIONS.length);
+				for (const [, options] of agentProbes) {
 					expect(options.command).toBe('command');
 					expect(options.args[0]).toBe('-v');
 				}
@@ -449,6 +478,15 @@ describe('agents IPC handlers', () => {
 				supportsResultMessages: true,
 				supportsModelSelection: false,
 				supportsStreamJsonInput: true,
+				supportsThinkingDisplay: false,
+				supportsContextMerge: false,
+				supportsContextExport: false,
+				supportsWizard: false,
+				supportsGroupChatModeration: false,
+				usesJsonLineOutput: false,
+				usesCombinedContextWindow: false,
+				supportsAppendSystemPrompt: false,
+				supportsProjectMemory: false,
 			};
 
 			vi.mocked(agentCapabilities.getAgentCapabilities).mockReturnValue(mockCapabilities);
@@ -478,6 +516,15 @@ describe('agents IPC handlers', () => {
 				supportsResultMessages: false,
 				supportsModelSelection: false,
 				supportsStreamJsonInput: false,
+				supportsThinkingDisplay: false,
+				supportsContextMerge: false,
+				supportsContextExport: false,
+				supportsWizard: false,
+				supportsGroupChatModeration: false,
+				usesJsonLineOutput: false,
+				usesCombinedContextWindow: false,
+				supportsAppendSystemPrompt: false,
+				supportsProjectMemory: false,
 			};
 
 			vi.mocked(agentCapabilities.getAgentCapabilities).mockReturnValue(defaultCaps);
@@ -507,6 +554,15 @@ describe('agents IPC handlers', () => {
 				supportsResultMessages: true,
 				supportsModelSelection: true,
 				supportsStreamJsonInput: true,
+				supportsThinkingDisplay: false,
+				supportsContextMerge: false,
+				supportsContextExport: false,
+				supportsWizard: false,
+				supportsGroupChatModeration: false,
+				usesJsonLineOutput: false,
+				usesCombinedContextWindow: false,
+				supportsAppendSystemPrompt: false,
+				supportsProjectMemory: false,
 			};
 
 			vi.mocked(agentCapabilities.getAgentCapabilities).mockReturnValue(mockCapabilities);
@@ -1072,6 +1128,42 @@ describe('agents IPC handlers', () => {
 				);
 				expect(result).toEqual(['opencode/gpt-5-nano', 'ollama/qwen3:8b']);
 				expect(mockAgentDetector.discoverModels).not.toHaveBeenCalled();
+			});
+
+			it('should discover omp models over SSH via models --json', async () => {
+				mockSettingsStore.get.mockReturnValue([
+					{
+						id: 'remote-1',
+						host: 'dev.example.com',
+						user: 'dev',
+						enabled: true,
+					},
+				]);
+
+				vi.mocked(buildSshCommand).mockResolvedValue({
+					command: 'ssh',
+					args: ['-o', 'BatchMode=yes', 'dev@dev.example.com', 'omp models --json'],
+				});
+
+				vi.mocked(execFileNoThrow).mockResolvedValue({
+					exitCode: 0,
+					stdout: JSON.stringify({
+						models: [
+							{ id: 'claude-opus-4-8', selector: 'anthropic/claude-opus-4-8' },
+							{ id: 'gpt-5.2', selector: 'openai-codex/gpt-5.2' },
+						],
+					}),
+					stderr: '',
+				});
+
+				const handler = handlers.get('agents:getModels');
+				const result = await handler!({} as any, 'omp', false, 'remote-1');
+
+				expect(buildSshCommand).toHaveBeenCalledWith(
+					expect.objectContaining({ id: 'remote-1', host: 'dev.example.com' }),
+					expect.objectContaining({ command: 'omp', args: ['models', '--json'] })
+				);
+				expect(result).toEqual(['anthropic/claude-opus-4-8', 'openai-codex/gpt-5.2']);
 			});
 
 			it('should throw when SSH remote not found', async () => {

@@ -9,6 +9,9 @@ import {
 	OpenCodeOutputParser,
 	CodexOutputParser,
 	CopilotOutputParser,
+	PiOutputParser,
+	OmpOutputParser,
+	QwenOutputParser,
 } from '../../../main/parsers';
 
 describe('parsers/index', () => {
@@ -57,21 +60,45 @@ describe('parsers/index', () => {
 			expect(hasOutputParser('copilot-cli')).toBe(true);
 		});
 
-		it('should register exactly 5 parsers', () => {
+		it('should register Pi parser', () => {
+			expect(hasOutputParser('pi')).toBe(false);
+
+			initializeOutputParsers();
+
+			expect(hasOutputParser('pi')).toBe(true);
+		});
+
+		it('should register Qwen parser', () => {
+			expect(hasOutputParser('qwen3-coder')).toBe(false);
+
+			initializeOutputParsers();
+
+			expect(hasOutputParser('qwen3-coder')).toBe(true);
+		});
+
+		it('should register Omp parser', () => {
+			expect(hasOutputParser('omp')).toBe(false);
+
+			initializeOutputParsers();
+
+			expect(hasOutputParser('omp')).toBe(true);
+		});
+
+		it('should register exactly 8 parsers', () => {
 			initializeOutputParsers();
 
 			const parsers = getAllOutputParsers();
-			expect(parsers.length).toBe(5); // Claude, OpenCode, Codex, Factory Droid, Copilot
+			expect(parsers.length).toBe(8);
 		});
 
 		it('should clear existing parsers before registering', () => {
 			// First initialization
 			initializeOutputParsers();
-			expect(getAllOutputParsers().length).toBe(5);
+			expect(getAllOutputParsers().length).toBe(8);
 
-			// Second initialization should still have exactly 5
+			// Second initialization should still have exactly 8
 			initializeOutputParsers();
-			expect(getAllOutputParsers().length).toBe(5);
+			expect(getAllOutputParsers().length).toBe(8);
 		});
 	});
 
@@ -113,6 +140,23 @@ describe('parsers/index', () => {
 			expect(parser).not.toBeNull();
 			expect(parser).toBeInstanceOf(CopilotOutputParser);
 		});
+
+		it('should return PiOutputParser for pi', () => {
+			const parser = getOutputParser('pi');
+			expect(parser).not.toBeNull();
+			expect(parser).toBeInstanceOf(PiOutputParser);
+		});
+
+		it('should return OmpOutputParser for omp', () => {
+			const parser = getOutputParser('omp');
+			expect(parser).not.toBeNull();
+			expect(parser).toBeInstanceOf(OmpOutputParser);
+		});
+		it('should return QwenOutputParser for qwen3-coder', () => {
+			const parser = getOutputParser('qwen3-coder');
+			expect(parser).not.toBeNull();
+			expect(parser).toBeInstanceOf(QwenOutputParser);
+		});
 	});
 
 	describe('parser exports', () => {
@@ -134,6 +178,20 @@ describe('parsers/index', () => {
 		it('should export CopilotOutputParser class', () => {
 			const parser = new CopilotOutputParser();
 			expect(parser.agentId).toBe('copilot-cli');
+		});
+
+		it('should export PiOutputParser class', () => {
+			const parser = new PiOutputParser();
+			expect(parser.agentId).toBe('pi');
+		});
+
+		it('should export OmpOutputParser class', () => {
+			const parser = new OmpOutputParser();
+			expect(parser.agentId).toBe('omp');
+		});
+		it('should export QwenOutputParser class', () => {
+			const parser = new QwenOutputParser();
+			expect(parser.agentId).toBe('qwen3-coder');
 		});
 	});
 

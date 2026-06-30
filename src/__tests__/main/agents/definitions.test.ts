@@ -26,6 +26,22 @@ describe('agent-definitions', () => {
 			expect(agentIds).toContain('gemini-cli');
 			expect(agentIds).toContain('qwen3-coder');
 			expect(agentIds).toContain('copilot-cli');
+			expect(agentIds).toContain('hermes');
+			expect(agentIds).toContain('pi');
+			expect(agentIds).toContain('omp');
+		});
+
+		it('should have omp with batch mode and json output configuration', () => {
+			const omp = AGENT_DEFINITIONS.find((def) => def.id === 'omp');
+			expect(omp).toBeDefined();
+			expect(omp?.name).toBe('Oh My Pi');
+			expect(omp?.command).toBe('omp');
+			expect(omp?.binaryName).toBe('omp');
+			expect(omp?.batchModePrefix).toEqual(['-p']);
+			expect(omp?.jsonOutputArgs).toEqual(['--mode', 'json']);
+			expect(omp?.resumeArgs?.('abc')).toEqual(['--resume', 'abc']);
+			expect(omp?.modelArgs?.('opus')).toEqual(['--model', 'opus']);
+			expect(omp?.hidden).toBeFalsy();
 		});
 
 		it('should have required properties on all definitions', () => {
@@ -84,6 +100,31 @@ describe('agent-definitions', () => {
 			expect(copilot?.readOnlyCliEnforced).toBe(true);
 		});
 
+		it('should configure Pi for documented JSONL batch output', () => {
+			const pi = AGENT_DEFINITIONS.find((def) => def.id === 'pi');
+			expect(pi?.batchModePrefix).toEqual(['-p']);
+			expect(pi?.jsonOutputArgs).toEqual(['--mode', 'json']);
+			expect(pi?.noPromptSeparator).toBe(true);
+			expect(pi?.resumeArgs?.('pi-session-1')).toEqual(['--session', 'pi-session-1']);
+			expect(pi?.readOnlyArgs).toEqual(['--tools', 'read,grep,find,ls']);
+			expect(pi?.readOnlyCliEnforced).toBe(true);
+			expect(pi?.noToolsArgs).toEqual(['--no-tools']);
+			expect(pi?.modelArgs?.('anthropic/claude-sonnet-4')).toEqual([
+				'--model',
+				'anthropic/claude-sonnet-4',
+			]);
+			expect(pi?.imageArgs?.('/tmp/image.png')).toEqual(['@/tmp/image.png']);
+		});
+
+		it('should keep Hermes on the documented plain-text batch path', () => {
+			const hermes = AGENT_DEFINITIONS.find((def) => def.id === 'hermes');
+			expect(hermes?.batchModePrefix).toEqual(['chat']);
+			expect(hermes?.batchModeArgs).toEqual(['-Q', '--yolo']);
+			expect(hermes?.jsonOutputArgs).toBeUndefined();
+			expect(hermes?.resumeArgs).toBeUndefined();
+			expect(hermes?.promptArgs?.('hello')).toEqual(['-q', 'hello']);
+		});
+
 		it('should have opencode with default env vars for YOLO mode and disabled question tool', () => {
 			const opencode = AGENT_DEFINITIONS.find((def) => def.id === 'opencode');
 			expect(opencode?.defaultEnvVars).toBeDefined();
@@ -136,6 +177,8 @@ describe('agent-definitions', () => {
 				'opencode',
 				'gemini-cli',
 				'copilot-cli',
+				'omp',
+				'qwen3-coder',
 			];
 			for (const agentId of knownAgents) {
 				const def = getAgentDefinition(agentId);
@@ -318,6 +361,49 @@ describe('agent-definitions', () => {
 			expect(copilot?.batchModeArgs).toEqual(['--allow-all']);
 			expect(copilot?.batchModeArgs).not.toContain('--silent');
 			expect(copilot?.yoloModeArgs).toEqual(['--allow-all']);
+		});
+	});
+
+	describe('Qwen3 Coder agent', () => {
+		it('should be a visible, real agent (not hidden)', () => {
+			const qwen = getAgentDefinition('qwen3-coder');
+			expect(qwen).toBeDefined();
+			expect(qwen?.hidden).toBeFalsy();
+			expect(qwen?.binaryName).toBe('qwen');
+			expect(qwen?.command).toBe('qwen');
+		});
+
+		it('should build modelArgs and stream-json output args', () => {
+			const qwen = getAgentDefinition('qwen3-coder');
+			expect(qwen?.modelArgs?.('qwen3-coder-plus')).toEqual(['-m', 'qwen3-coder-plus']);
+			expect(qwen?.jsonOutputArgs).toEqual(['--output-format', 'stream-json']);
+			expect(qwen?.promptArgs?.('hello')).toEqual(['-p', 'hello']);
+		});
+
+		it('should expose a free-text model config option with trimming argBuilder', () => {
+			const qwen = getAgentDefinition('qwen3-coder');
+			const modelOption = qwen?.configOptions?.find((opt) => opt.key === 'model');
+			expect(modelOption).toBeDefined();
+			expect(modelOption?.type).toBe('text');
+			expect(modelOption?.default).toBe('');
+			expect(modelOption?.argBuilder?.('qwen3-coder-plus')).toEqual(['-m', 'qwen3-coder-plus']);
+			expect(modelOption?.argBuilder?.('')).toEqual([]);
+			expect(modelOption?.argBuilder?.('  ')).toEqual([]);
+		});
+
+		it('should use --approval-mode plan for CLI-enforced read-only (never -y)', () => {
+			const qwen = getAgentDefinition('qwen3-coder');
+			expect(qwen?.readOnlyArgs).toEqual(['--approval-mode', 'plan']);
+			expect(qwen?.readOnlyCliEnforced).toBe(true);
+			expect(qwen?.readOnlyArgs).not.toContain('-y');
+		});
+	});
+
+	describe('Oh My Pi agent', () => {
+		it('should restrict to read-only tools for CLI-enforced read-only', () => {
+			const omp = getAgentDefinition('omp');
+			expect(omp?.readOnlyArgs).toEqual(['--tools', 'read,grep,glob']);
+			expect(omp?.readOnlyCliEnforced).toBe(true);
 		});
 	});
 

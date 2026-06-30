@@ -76,6 +76,12 @@ interface ProcessConfig {
 	// Windows command line length workaround
 	sendPromptViaStdin?: boolean; // If true, send the prompt via stdin as JSON instead of command line
 	sendPromptViaStdinRaw?: boolean; // If true, send the prompt via stdin as raw text instead of command line
+	// Claude token-source selection. Normally resolved server-side from the
+	// persisted session by sessionId, but spawns using a synthetic sessionId
+	// (e.g. background synopsis) forward these inline so the handler can resolve.
+	enableMaestroP?: boolean;
+	maestroPMode?: 'interactive' | 'dynamic';
+	maestroPPath?: string;
 }
 
 type AgentConfigOption = import('../shared/types').AgentConfigOption;
@@ -101,6 +107,8 @@ interface SessionMessagesResult {
 		timestamp: string;
 		uuid: string;
 		toolUse?: unknown;
+		/** Base64 data URLs reconstructed from image content blocks in the transcript. */
+		images?: string[];
 	}>;
 	total: number;
 	hasMore: boolean;
@@ -152,6 +160,7 @@ type GroupChatData = {
 import type { CueGraphSession, CueRunResult, CueSessionStatus, CueSettings } from '../shared/cue';
 import type { CueLogPayload } from '../shared/cue-log-types';
 import type { CueStatsAggregation, CueStatsTimeRange } from '../shared/cue-stats-types';
+import type { DurationPercentiles } from '../shared/percentiles';
 import type { MaestroCliStatus, MaestroCliInstallResult } from '../shared/maestro-cli';
 import type { GitWorktreeSetupResult, GitWorktreeCheckoutResult } from '../main/preload/git';
 
@@ -231,6 +240,21 @@ interface MaestroAPI {
 			};
 		}) => Promise<{ pid: number; success: boolean }>;
 		write: (sessionId: string, data: string) => Promise<boolean>;
+		broadcastUserInput: (payload: {
+			originId: string;
+			sessionId: string;
+			tabId?: string;
+			inputMode: 'ai' | 'terminal';
+			entry: {
+				id: string;
+				timestamp: number;
+				source: 'user';
+				text: string;
+				images?: string[];
+				readOnly?: boolean;
+				forceParallel?: boolean;
+			};
+		}) => Promise<void>;
 		interrupt: (sessionId: string) => Promise<boolean>;
 		kill: (sessionId: string) => Promise<boolean>;
 		resize: (sessionId: string, cols: number, rows: number) => Promise<boolean>;
@@ -267,6 +291,23 @@ interface MaestroAPI {
 		>;
 		isTerminalBusy: (sessionId: string) => Promise<boolean>;
 		onData: (callback: (sessionId: string, data: string) => void) => () => void;
+		onUserInput: (
+			callback: (payload: {
+				originId: string;
+				sessionId: string;
+				tabId?: string;
+				inputMode: 'ai' | 'terminal';
+				entry: {
+					id: string;
+					timestamp: number;
+					source: 'user';
+					text: string;
+					images?: string[];
+					readOnly?: boolean;
+					forceParallel?: boolean;
+				};
+			}) => void
+		) => () => void;
 		onExit: (callback: (sessionId: string, code: number) => void) => () => void;
 		onSessionId: (callback: (sessionId: string, agentSessionId: string) => void) => () => void;
 		onSlashCommands: (callback: (sessionId: string, slashCommands: string[]) => void) => () => void;
@@ -334,6 +375,7 @@ interface MaestroAPI {
 				duration?: number;
 				dismissible?: boolean;
 				sessionId?: string;
+				sourceAgent?: string;
 				tabId?: string;
 				actionUrl?: string;
 				actionLabel?: string;
@@ -389,6 +431,20 @@ interface MaestroAPI {
 		sendRemoteConfigureAutoRunResponse: (
 			responseChannel: string,
 			result: { success: boolean; playbookId?: string; error?: string }
+		) => void;
+		onRemoteCreateWorktreeSession: (
+			callback: (
+				parentSessionId: string,
+				config: {
+					branchName: string;
+					baseBranch?: string;
+				},
+				responseChannel: string
+			) => void
+		) => () => void;
+		sendRemoteCreateWorktreeSessionResponse: (
+			responseChannel: string,
+			result: { success: boolean; sessionId?: string; error?: string }
 		) => void;
 		onRemoteSetAutoRunFolder: (
 			callback: (sessionId: string, folderPath: string, responseChannel: string) => void
@@ -475,6 +531,35 @@ interface MaestroAPI {
 			callback: (sessionId: string, newName: string, responseChannel: string) => void
 		) => () => void;
 		sendRemoteRenameSessionResponse: (responseChannel: string, success: boolean) => void;
+		onRemoteUpdateSessionCwd: (
+			callback: (sessionId: string, newCwd: string, responseChannel: string) => void
+		) => () => void;
+		sendRemoteUpdateSessionCwdResponse: (
+			responseChannel: string,
+			result: { success: boolean; error?: string }
+		) => void;
+		onRemoteUpdateSessionSsh: (
+			callback: (
+				sessionId: string,
+				sshPatch: Record<string, unknown>,
+				responseChannel: string
+			) => void
+		) => () => void;
+		sendRemoteUpdateSessionSshResponse: (
+			responseChannel: string,
+			result: { success: boolean; error?: string }
+		) => void;
+		onRemoteUpdateSessionConfig: (
+			callback: (
+				sessionId: string,
+				configPatch: Record<string, unknown>,
+				responseChannel: string
+			) => void
+		) => () => void;
+		sendRemoteUpdateSessionConfigResponse: (
+			responseChannel: string,
+			result: { success: boolean; error?: string }
+		) => void;
 		onRemoteCreateGroup: (
 			callback: (name: string, emoji: string | undefined, responseChannel: string) => void
 		) => () => void;
@@ -588,6 +673,114 @@ interface MaestroAPI {
 			issueNumber: number,
 			comment?: string
 		) => Promise<{ success: boolean; error?: string }>;
+		drafts: {
+			list: () => Promise<{
+				drafts: Array<{
+					id: string;
+					suggestedName: string;
+					category: 'bug_report' | 'feature_request' | 'improvement' | 'general_feedback';
+					summary: string;
+					confidence: number;
+					agentType: string;
+					messages: Array<{
+						role: 'user' | 'assistant' | 'system';
+						content: string;
+						timestamp: number;
+						confidence?: number;
+						category?: 'bug_report' | 'feature_request' | 'improvement' | 'general_feedback';
+						summary?: string;
+					}>;
+					attachments: Array<{ id: string; name: string; dataUrl: string; sizeBytes: number }>;
+					inputDraft: string;
+					includeDebugPackage: boolean;
+					createdAt: number;
+					updatedAt: number;
+					lastResponse?: {
+						confidence: number;
+						ready: boolean;
+						message: string;
+						category: 'bug_report' | 'feature_request' | 'improvement' | 'general_feedback';
+						summary: string;
+						structured: {
+							expectedBehavior: string;
+							actualBehavior: string;
+							reproductionSteps: string;
+							additionalContext: string;
+						};
+					} | null;
+				}>;
+			}>;
+			save: (draft: {
+				id: string;
+				suggestedName: string;
+				category: 'bug_report' | 'feature_request' | 'improvement' | 'general_feedback';
+				summary: string;
+				confidence: number;
+				agentType: string;
+				messages: Array<{
+					role: 'user' | 'assistant' | 'system';
+					content: string;
+					timestamp: number;
+					confidence?: number;
+					category?: 'bug_report' | 'feature_request' | 'improvement' | 'general_feedback';
+					summary?: string;
+				}>;
+				attachments: Array<{ id: string; name: string; dataUrl: string; sizeBytes: number }>;
+				inputDraft: string;
+				includeDebugPackage: boolean;
+				createdAt: number;
+				updatedAt: number;
+				lastResponse?: {
+					confidence: number;
+					ready: boolean;
+					message: string;
+					category: 'bug_report' | 'feature_request' | 'improvement' | 'general_feedback';
+					summary: string;
+					structured: {
+						expectedBehavior: string;
+						actualBehavior: string;
+						reproductionSteps: string;
+						additionalContext: string;
+					};
+				} | null;
+			}) => Promise<{
+				draft: {
+					id: string;
+					suggestedName: string;
+					category: 'bug_report' | 'feature_request' | 'improvement' | 'general_feedback';
+					summary: string;
+					confidence: number;
+					agentType: string;
+					messages: Array<{
+						role: 'user' | 'assistant' | 'system';
+						content: string;
+						timestamp: number;
+						confidence?: number;
+						category?: 'bug_report' | 'feature_request' | 'improvement' | 'general_feedback';
+						summary?: string;
+					}>;
+					attachments: Array<{ id: string; name: string; dataUrl: string; sizeBytes: number }>;
+					inputDraft: string;
+					includeDebugPackage: boolean;
+					createdAt: number;
+					updatedAt: number;
+					lastResponse?: {
+						confidence: number;
+						ready: boolean;
+						message: string;
+						category: 'bug_report' | 'feature_request' | 'improvement' | 'general_feedback';
+						summary: string;
+						structured: {
+							expectedBehavior: string;
+							actualBehavior: string;
+							reproductionSteps: string;
+							additionalContext: string;
+						};
+					} | null;
+				};
+			}>;
+			delete: (id: string) => Promise<Record<string, never>>;
+		};
 	};
 	agentError: {
 		clearError: (sessionId: string) => Promise<{ success: boolean }>;
@@ -625,6 +818,11 @@ interface MaestroAPI {
 				errorRecoverable?: boolean;
 				errorDocumentIndex?: number;
 				errorTaskDescription?: string;
+				// Goal-Driven mode fields — surfaced so web/mobile show goal percent + iteration
+				goalMode?: boolean;
+				goalProgress?: number;
+				goalRationale?: string;
+				goalIteration?: number;
 			} | null
 		) => Promise<void>;
 		broadcastTabsChange: (
@@ -668,6 +866,17 @@ interface MaestroAPI {
 			remoteCwd?: string
 		) => Promise<{ stdout: string; stderr: string }>;
 		isRepo: (cwd: string, sshRemoteId?: string, remoteCwd?: string) => Promise<boolean>;
+		init: (
+			cwd: string,
+			sshRemoteId?: string,
+			remoteCwd?: string
+		) => Promise<{ success: boolean; error?: string }>;
+		commitAll: (
+			cwd: string,
+			message: string,
+			sshRemoteId?: string,
+			remoteCwd?: string
+		) => Promise<{ success: boolean; committed: boolean; commitHash?: string; error?: string }>;
 		numstat: (
 			cwd: string,
 			sshRemoteId?: string,
@@ -886,11 +1095,22 @@ interface MaestroAPI {
 			requestId?: string
 		) => Promise<string | null>;
 		cancelReadFile: (requestId: string) => Promise<void>;
+		downloadRemoteFile: (
+			remotePath: string,
+			sshRemoteId: string,
+			localDestPath?: string
+		) => Promise<{ success: boolean; path: string }>;
 		writeFile: (
 			filePath: string,
 			content: string,
 			sshRemoteId?: string
 		) => Promise<{ success: boolean }>;
+		writeImageFile: (
+			filePath: string,
+			dataUrl: string,
+			sshRemoteId?: string
+		) => Promise<{ success: boolean }>;
+		mkdir: (dirPath: string, sshRemoteId?: string) => Promise<{ success: boolean }>;
 		stat: (
 			filePath: string,
 			sshRemoteId?: string
@@ -900,7 +1120,7 @@ interface MaestroAPI {
 			modifiedAt: string;
 			isDirectory: boolean;
 			isFile: boolean;
-		}>;
+		} | null>;
 		directorySize: (
 			dirPath: string,
 			sshRemoteId?: string,
@@ -925,6 +1145,12 @@ interface MaestroAPI {
 			dirPath: string,
 			sshRemoteId?: string
 		) => Promise<{ fileCount: number; folderCount: number }>;
+		copyPath: (
+			sourcePath: string,
+			destPath: string,
+			options?: { overwrite?: boolean }
+		) => Promise<{ success: boolean }>;
+		getPathForFile: (file: File) => string;
 	};
 	webserver: {
 		getUrl: () => Promise<string>;
@@ -996,20 +1222,59 @@ interface MaestroAPI {
 			customPath?: string,
 			sshRemoteId?: string
 		) => Promise<{ name: string; prompt?: string; description?: string }[] | null>;
+
+		// Capability snapshots — persisted per-agent readiness + version info.
+		getSnapshot: (
+			agentId: string,
+			sshRemoteId?: string
+		) => Promise<import('../shared/agentCapabilities').AgentCapabilitiesSnapshot | null>;
+		getAllSnapshots: () => Promise<
+			import('../shared/agentCapabilities').AgentCapabilitiesSnapshotMap
+		>;
+		reprobe: (
+			agentId: string,
+			sshRemoteId?: string
+		) => Promise<import('../shared/agentCapabilities').AgentCapabilitiesSnapshot | null>;
+		onSnapshotUpdated: (
+			callback: (payload: import('../shared/agentCapabilities').SnapshotUpdatedPayload) => void
+		) => () => void;
 		getMaestroPDetectedPath: () => Promise<string | null>;
+		getRemoteMaestroPAvailable: (sshRemoteId: string, force?: boolean) => Promise<boolean | null>;
 		getClaudeUsageSnapshots: () => Promise<
 			Record<
 				string,
 				{
 					sampledAt: string;
 					configDirKey: string;
+					authState?: 'authenticated' | 'unauthenticated';
 					session: { percent: number; resetsAt: string };
 					weekAllModels: { percent: number; resetsAt: string };
 					weekSonnetOnly: { percent: number; resetsAt: string };
 				}
 			>
 		>;
+		getClaudeUsageAccountKeys: () => Promise<string[]>;
+		getLimitResetAt: (agentId: string, claudeConfigDir?: string) => Promise<number | undefined>;
+		getCodexUsageSnapshots: () => Promise<
+			Record<
+				string,
+				{
+					sampledAt: string;
+					codexHomeKey: string;
+					authState: 'authenticated' | 'missing_auth' | 'unauthenticated' | 'error';
+					label?: string;
+					email?: string;
+					planType?: string;
+					session?: { percent: number; resetsAt: string };
+					weekly?: { percent: number; resetsAt: string };
+					additionalLimits?: Array<{ name: string; percent: number; resetsAt?: string }>;
+					error?: string;
+				}
+			>
+		>;
+		getCodexUsageAccountKeys: () => Promise<string[]>;
 		refreshClaudeUsageSnapshots: () => Promise<{ refreshed: number }>;
+		refreshCodexUsageSnapshots: () => Promise<{ refreshed: number }>;
 	};
 	// Agent Sessions API - all methods accept optional sshRemoteId for SSH remote session storage access
 	agentSessions: {
@@ -1222,7 +1487,9 @@ interface MaestroAPI {
 		openPath: (itemPath: string) => Promise<void>;
 		trashItem: (itemPath: string) => Promise<void>;
 		showItemInFolder: (itemPath: string) => Promise<void>;
+		copyTextToClipboard: (text: string) => Promise<void>;
 		copyImageToClipboard: (dataUrl: string) => Promise<void>;
+		readImageFromClipboard: () => Promise<string | null>;
 	};
 	tunnel: {
 		isCloudflaredInstalled: () => Promise<boolean>;
@@ -1332,6 +1599,7 @@ interface MaestroAPI {
 		onQuitConfirmationRequest: (callback: () => void) => () => void;
 		confirmQuit: () => void;
 		cancelQuit: () => void;
+		quitConfirmationPending: () => void;
 		onSystemResume: (callback: () => void) => () => void;
 		onBrowserTabShortcutKey: (
 			callback: (input: {
@@ -1585,6 +1853,8 @@ interface MaestroAPI {
 			pagination?: { limit?: number; offset?: number };
 			lookbackHours?: number | null;
 			sharedContext?: { sshRemoteId: string; remoteCwd: string };
+			types?: HistoryEntryType[];
+			hostKey?: string | null;
 		}) => Promise<{
 			entries: Array<{
 				id: string;
@@ -1659,7 +1929,8 @@ interface MaestroAPI {
 		getOffsetForTimestamp: (
 			sessionId: string,
 			timestamp: number,
-			lookbackHours?: number | null
+			lookbackHours?: number | null,
+			types?: HistoryEntryType[]
 		) => Promise<number>;
 		onExternalChange: (handler: () => void) => () => void;
 		reload: () => Promise<boolean>;
@@ -1808,6 +2079,7 @@ interface MaestroAPI {
 				loopEnabled: boolean;
 				maxLoops?: number | null;
 				prompt: string;
+				taskSelectionMode?: 'task' | 'document';
 				worktreeSettings?: {
 					branchNameTemplate: string;
 					createPROnCompletion: boolean;
@@ -1824,6 +2096,7 @@ interface MaestroAPI {
 				loopEnabled: boolean;
 				maxLoops?: number | null;
 				prompt: string;
+				taskSelectionMode?: 'task' | 'document';
 				updatedAt: number;
 				worktreeSettings?: {
 					branchNameTemplate: string;
@@ -1960,7 +2233,7 @@ interface MaestroAPI {
 			releasesUrl: string;
 			error?: string;
 		}>;
-		download: () => Promise<{ success: boolean; error?: string }>;
+		download: (targetTag?: string) => Promise<{ success: boolean; error?: string }>;
 		install: () => Promise<void>;
 		getStatus: () => Promise<{
 			status:
@@ -2047,6 +2320,32 @@ interface MaestroAPI {
 				rssBytes?: number;
 			}>;
 		}>;
+		// Performance profiling (Chromium contentTracing)
+		getProfilingStatus: () => Promise<{
+			success: boolean;
+			active: boolean;
+			startedAt: number;
+			elapsedMs: number;
+			categories: string[];
+			error?: string;
+		}>;
+		startProfiling: () => Promise<{
+			success: boolean;
+			active: boolean;
+			startedAt: number;
+			elapsedMs: number;
+			categories: string[];
+			error?: string;
+		}>;
+		stopProfiling: () => Promise<{
+			success: boolean;
+			path: string | null;
+			cancelled: boolean;
+			bundleSizeBytes: number;
+			traceSizeBytes: number;
+			durationMs: number;
+			error?: string;
+		}>;
 	};
 	// Sync API (custom storage location)
 	sync: {
@@ -2088,6 +2387,9 @@ interface MaestroAPI {
 				customPath?: string;
 				customArgs?: string;
 				customEnvVars?: Record<string, string>;
+				enableMaestroP?: boolean;
+				maestroPMode?: 'interactive' | 'dynamic';
+				maestroPPath?: string;
 			}
 		) => Promise<GroupChatData>;
 		list: () => Promise<Array<GroupChatData>>;
@@ -2103,6 +2405,9 @@ interface MaestroAPI {
 					customPath?: string;
 					customArgs?: string;
 					customEnvVars?: Record<string, string>;
+					enableMaestroP?: boolean;
+					maestroPMode?: 'interactive' | 'dynamic';
+					maestroPPath?: string;
 				};
 			}
 		) => Promise<GroupChatData>;
@@ -2151,7 +2456,7 @@ interface MaestroAPI {
 			message: string,
 			images?: string[]
 		) => Promise<void>;
-		removeParticipant: (id: string, name: string) => Promise<void>;
+		removeParticipant: (id: string, name: string) => Promise<GroupChatData | null>;
 		resetParticipantContext: (
 			id: string,
 			name: string,
@@ -2659,6 +2964,9 @@ interface MaestroAPI {
 			totalQueries: number;
 			totalDuration: number;
 			avgDuration: number;
+			queryDurationPercentiles: DurationPercentiles;
+			queryDurationPercentilesByAgent: Record<string, DurationPercentiles>;
+			autoRunTaskDurationPercentiles: DurationPercentiles;
 			byAgent: Record<string, { count: number; duration: number }>;
 			bySource: { user: number; auto: number };
 			byLocation: { local: number; remote: number };
@@ -3124,6 +3432,12 @@ interface MaestroAPI {
 				workingDirOverride?: string;
 				syncHistory?: boolean;
 			};
+			// Session-level custom env vars, forwarded so naming inherits the same provider auth as the chat.
+			sessionCustomEnvVars?: Record<string, string>;
+			// Claude token-source selection, forwarded so tab naming honors TUI/Dynamic/API.
+			enableMaestroP?: boolean;
+			maestroPMode?: 'interactive' | 'dynamic';
+			maestroPPath?: string;
 		}) => Promise<string | null>;
 	};
 
@@ -3131,7 +3445,7 @@ interface MaestroAPI {
 	directorNotes: {
 		getUnifiedHistory: (options: {
 			lookbackDays: number;
-			filter?: 'AUTO' | 'USER' | 'CUE' | null;
+			filter?: 'AUTO' | 'USER' | 'CUE' | Array<'AUTO' | 'USER' | 'CUE'> | null;
 			limit?: number;
 			offset?: number;
 			graphBucketCount?: number;
@@ -3163,6 +3477,7 @@ interface MaestroAPI {
 				sessionCount: number;
 				autoCount: number;
 				userCount: number;
+				cueCount: number;
 				totalCount: number;
 			};
 			graphBuckets?: Array<{ auto: number; user: number; cue: number }>;
@@ -3185,13 +3500,44 @@ interface MaestroAPI {
 				sessionCount: number;
 				autoCount: number;
 				userCount: number;
+				cueCount: number;
 				totalCount: number;
 			};
 		}>;
 		getOffsetForTimestamp: (
 			timestamp: number,
-			options?: { lookbackDays?: number; filter?: 'AUTO' | 'USER' | 'CUE' | null }
+			options?: {
+				lookbackDays?: number;
+				filter?: 'AUTO' | 'USER' | 'CUE' | Array<'AUTO' | 'USER' | 'CUE'> | null;
+			}
 		) => Promise<number>;
+		/**
+		 * Deterministic Rich Mode stats computed in the main process over
+		 * history entries (never inferred by the AI synopsis).
+		 */
+		getRichOverviewStats: (options: { lookbackDays: number; bucketCount?: number }) => Promise<{
+			totalEntries: number;
+			agentCount: number;
+			sessionCount: number;
+			autoCount: number;
+			userCount: number;
+			cueCount: number;
+			successCount: number;
+			failureCount: number;
+			successRate: number;
+			totalElapsedMs: number;
+			avgElapsedMs: number;
+			timelineBuckets: Array<{ startTime: number; auto: number; user: number; cue: number }>;
+			perAgent: Array<{
+				sessionId: string;
+				agentName: string;
+				entryCount: number;
+				successCount: number;
+				failureCount: number;
+			}>;
+			lookbackDays: number;
+			generatedAt: number;
+		}>;
 		generateSynopsis: (options: {
 			lookbackDays: number;
 			provider: string;
@@ -3208,6 +3554,10 @@ interface MaestroAPI {
 				durationMs: number;
 			};
 			error?: string;
+			/** Parsed structured narrative for Rich Mode (present only on clean parse). */
+			narrative?: import('../shared/directorNotesNarrative').DirectorNotesNarrative;
+			/** Set when the raw synopsis could not be parsed into a structured narrative. */
+			narrativeError?: string;
 		}>;
 		/** Subscribe to synopsis generation progress updates. Returns cleanup function. */
 		onSynopsisProgress: (
@@ -3273,7 +3623,7 @@ interface MaestroAPI {
 			projectRoot: string,
 			content: string,
 			promptFiles?: Record<string, string>
-		) => Promise<void>;
+		) => Promise<{ changed: boolean }>;
 		deleteYaml: (projectRoot: string) => Promise<boolean>;
 		validateYaml: (content: string) => Promise<{ valid: boolean; errors: string[] }>;
 		savePipelineLayout: (layout: Record<string, unknown>) => Promise<void>;

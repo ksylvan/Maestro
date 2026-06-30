@@ -32,6 +32,7 @@ import { generateId } from '../../../utils/ids';
 import { logger } from '../../../utils/logger';
 import { removeHiddenProgressLog } from './helpers/exitTabCleanup';
 import { getErrorTitleForType } from './helpers/errorTitles';
+import { isLimitError } from '../../../../shared/types';
 import type { AgentError, GroupChatMessage, LogEntry, SessionState } from '../../../types';
 import type { UseAgentListenersDeps, ToolProgressState } from './types';
 
@@ -61,6 +62,14 @@ export function useAgentErrorListener(deps: UseAgentErrorListenerDeps): void {
 				raw: error.raw,
 				parsedJson: error.parsedJson,
 			};
+
+			// Limit pauses (rate-limit / token-or-credit exhaustion) get auto-resume
+			// bookkeeping seeded here: a zeroed retry counter now, and a best-effort
+			// `limitResetAt` patched in below (asynchronously, never blocking the pause).
+			const isLimit = isLimitError(agentError);
+			if (isLimit) {
+				agentError.resumeAttemptCount = 0;
+			}
 
 			const groupChatParsed = parseGroupChatSessionId(sessionId);
 			if (groupChatParsed.isGroupChat) {
@@ -147,23 +156,6 @@ export function useAgentErrorListener(deps: UseAgentErrorListenerDeps): void {
 				prev.map((s) => {
 					if (s.id !== actualSessionId) return s;
 
-					// Tag the error frame with `renderStyle: 'text-stream'` when the
-					// session is running through maestro-p (interactive TUI) so the
-					// bottom-center pill on the error card reads "TUI" instead of
-					// "API". The same tagger runs on assistant output in
-					// useBatchedSessionUpdates; errors live in their own listener and
-					// need parity here. system-source entries (session_not_found
-					// recovery) stay untagged — they aren't real Claude turns.
-					const isInteractive = s.claudeInteractive?.mode === 'interactive';
-					const errorLogEntry: LogEntry = {
-						id: generateId(),
-						timestamp: agentError.timestamp,
-						source: isSessionNotFound ? 'system' : 'error',
-						text: agentError.message,
-						agentError: isSessionNotFound ? undefined : agentError,
-						...(isInteractive && !isSessionNotFound ? { renderStyle: 'text-stream' as const } : {}),
-					};
-
 					// If the error is for a tab the user closed mid-thinking, drop the
 					// orphan entry — there's no tab UI to surface the error on, and the
 					// pill should stop showing this thinking item.
@@ -188,6 +180,45 @@ export function useAgentErrorListener(deps: UseAgentErrorListenerDeps): void {
 					const targetTab = tabIdFromSession
 						? s.aiTabs.find((tab) => tab.id === tabIdFromSession)
 						: getActiveTab(s);
+
+					// For session_not_found, find the most recent user message on the
+					// target tab so the recovery modal can re-send it after grooming.
+					// Without this, the prompt that triggered the dead session is lost.
+					// Limit pauses reuse the same capture: when the prompt that hit the
+					// limit was a direct send (not a queued item the drainer would replay),
+					// stashing it as `recoveryAction.lastUserPrompt` lets Phase 3 re-fire it.
+					const lastUserPrompt =
+						(isSessionNotFound || isLimit) && targetTab
+							? [...targetTab.logs].reverse().find((l) => l.source === 'user')?.text
+							: undefined;
+
+					// Tag the error frame with `renderStyle: 'text-stream'` when the
+					// session is running through maestro-p (interactive TUI) so the
+					// bottom-center pill on the error card reads "TUI" instead of
+					// "API". The same tagger runs on assistant output in
+					// useBatchedSessionUpdates; errors live in their own listener and
+					// need parity here. system-source entries (session_not_found
+					// recovery) stay untagged — they aren't real Claude turns.
+					const isInteractive = s.claudeInteractive?.mode === 'interactive';
+					const canOfferRecovery = isSessionNotFound && !!lastUserPrompt && !!targetTab;
+					// Limit pauses keep the normal error log (message + agentError), but
+					// also carry the captured prompt so the auto-resume coordinator can
+					// re-fire a direct send. The `canOfferRecovery` session_not_found flow
+					// owns the special "recover raw or compressed" copy; this only adds data.
+					const stashLimitPrompt = isLimit && !!lastUserPrompt && !!targetTab;
+					const errorLogEntry: LogEntry = {
+						id: generateId(),
+						timestamp: agentError.timestamp,
+						source: isSessionNotFound ? 'system' : 'error',
+						text: canOfferRecovery
+							? 'Session not found, however we can recover it raw or compressed.'
+							: agentError.message,
+						agentError: isSessionNotFound ? undefined : agentError,
+						...(isInteractive && !isSessionNotFound ? { renderStyle: 'text-stream' as const } : {}),
+						...(canOfferRecovery || stashLimitPrompt
+							? { recoveryAction: { lastUserPrompt: lastUserPrompt!, tabId: targetTab!.id } }
+							: {}),
+					};
 					const updatedAiTabs = targetTab
 						? s.aiTabs.map((tab) =>
 								tab.id === targetTab.id
@@ -215,6 +246,49 @@ export function useAgentErrorListener(deps: UseAgentErrorListenerDeps): void {
 					};
 				})
 			);
+
+			// Best-effort: estimate when the provider limit window reopens and stamp
+			// it onto the paused error so the auto-resume coordinator (Phase 3) can
+			// schedule its probe. Fired AFTER the synchronous pause above so it never
+			// blocks it; a missing bridge / non-Claude provider just leaves it unset.
+			//
+			// Skip SSH-backed sessions: the usage snapshot is sampled on THIS machine
+			// and reflects the local account, not the remote one. Stamping a local
+			// reset time would make isEligibleToProbe defer the probe on the wrong
+			// window; leaving limitResetAt unset routes SSH sessions through the
+			// interval-based fallback that probeAvailability was designed for.
+			const pausedSession = getSessions().find((s) => s.id === actualSessionId);
+			const isSshBacked = !!pausedSession?.sshRemoteId;
+			if (isLimit && !isSshBacked && window.maestro.agents?.getLimitResetAt) {
+				void window.maestro.agents
+					.getLimitResetAt(agentError.agentId)
+					.then((resetAt) => {
+						if (typeof resetAt !== 'number') return;
+						setSessions((prev) =>
+							prev.map((s) => {
+								// Only patch if THIS error is still the active one (a newer
+								// error would carry a different timestamp).
+								if (s.id !== actualSessionId || s.agentError?.timestamp !== agentError.timestamp) {
+									return s;
+								}
+								const patchedError: AgentError = { ...s.agentError, limitResetAt: resetAt };
+								return {
+									...s,
+									agentError: patchedError,
+									aiTabs: s.aiTabs.map((tab) =>
+										tab.agentError?.timestamp === agentError.timestamp
+											? { ...tab, agentError: patchedError }
+											: tab
+									),
+								};
+							})
+						);
+					})
+					.catch(() => {
+						// Reset estimate is advisory - swallow so a probe failure never
+						// disrupts the pause/notification flow.
+					});
+			}
 
 			// Pause active Auto Run batch and record history when applicable.
 			if (deps.getBatchStateRef.current && deps.pauseBatchOnErrorRef.current) {

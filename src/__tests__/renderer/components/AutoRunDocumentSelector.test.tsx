@@ -314,6 +314,76 @@ describe('AutoRunDocumentSelector', () => {
 		});
 	});
 
+	describe('Tree Rendering (nested-only docs)', () => {
+		// Folders start collapsed on open and only reveal their files when the user
+		// expands them. The empty-state ("No matches") is gated on an active filter,
+		// so a collapsed folder with nothing selected must NOT show a false empty
+		// state.
+		const nestedTree: DocTreeNode[] = [
+			{
+				name: '2026-06-01-AI-Census',
+				type: 'folder',
+				path: '2026-06-01-AI-Census',
+				children: [
+					{
+						name: 'CENSUS-01',
+						type: 'file',
+						path: '2026-06-01-AI-Census/CENSUS-01',
+					},
+					{
+						name: 'CENSUS-02',
+						type: 'file',
+						path: '2026-06-01-AI-Census/CENSUS-02',
+					},
+				],
+			},
+		];
+		const nestedDocuments = ['2026-06-01-AI-Census/CENSUS-01', '2026-06-01-AI-Census/CENSUS-02'];
+
+		it('keeps folders collapsed on open and reveals files when expanded', () => {
+			render(
+				<AutoRunDocumentSelector
+					{...defaultProps}
+					documents={nestedDocuments}
+					documentTree={nestedTree}
+					selectedDocument={null}
+				/>
+			);
+
+			const button = screen.getByRole('button', { name: /select a document/i });
+			fireEvent.click(button);
+
+			// Folder starts collapsed -> nested files hidden, but no false empty state.
+			expect(screen.queryByText('CENSUS-01.md')).not.toBeInTheDocument();
+			expect(screen.queryByText('CENSUS-02.md')).not.toBeInTheDocument();
+			expect(screen.queryByText(/No matches for/i)).not.toBeInTheDocument();
+
+			// Expanding the folder reveals its files.
+			fireEvent.click(screen.getByText('2026-06-01-AI-Census'));
+			expect(screen.getByText('CENSUS-01.md')).toBeInTheDocument();
+			expect(screen.getByText('CENSUS-02.md')).toBeInTheDocument();
+		});
+
+		it('shows "No matches" only when a filter query excludes everything', () => {
+			render(
+				<AutoRunDocumentSelector
+					{...defaultProps}
+					documents={nestedDocuments}
+					documentTree={nestedTree}
+					selectedDocument={null}
+				/>
+			);
+
+			const button = screen.getByRole('button', { name: /select a document/i });
+			fireEvent.click(button);
+
+			const filter = screen.getByPlaceholderText('Filter documents...');
+			fireEvent.change(filter, { target: { value: 'zzz-no-such-doc' } });
+
+			expect(screen.getByText(/No matches for/i)).toBeInTheDocument();
+		});
+	});
+
 	describe('Click Outside', () => {
 		it('closes dropdown when clicking outside', () => {
 			render(

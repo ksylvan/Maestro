@@ -1,14 +1,18 @@
 import type { Session } from '../../../types';
-import type { QuickAction } from '../types';
+import type { ActiveTabInfo, QuickAction } from '../types';
+import { editClipboardImage } from '../../ImageAnnotator/editClipboardImage';
 
 interface BuildFeatureCommandsArgs {
 	activeSession: Session | undefined;
-	isAiMode?: boolean;
+	/** Resolved active tab type; AI-context commands only apply when this is 'ai'. */
+	activeTabType?: ActiveTabInfo['activeTabType'];
 	canSummarizeActiveTab?: boolean;
 	markdownEditMode?: boolean;
 	isFilePreviewOpen?: boolean;
 	ghCliAvailable?: boolean;
 	lastGraphFocusFile?: string;
+	/** Name of the active markdown file, set only when one is open in the preview. */
+	currentGraphFile?: string;
 	hasActiveSessionCapability?: (
 		capability:
 			| 'supportsSessionStorage'
@@ -33,6 +37,7 @@ interface BuildFeatureCommandsArgs {
 	onOpenMaestroCue?: () => void;
 	onConfigureCue?: (session: Session) => void;
 	onOpenLastDocumentGraph?: () => void;
+	onOpenCurrentFileInGraph?: () => void;
 	onPublishGist?: () => void;
 	bionifyReadingMode: boolean;
 	setBionifyReadingMode: (enabled: boolean) => void;
@@ -40,6 +45,8 @@ interface BuildFeatureCommandsArgs {
 	setAudioFeedbackEnabled: (enabled: boolean) => void;
 	idleNotificationEnabled: boolean;
 	setIdleNotificationEnabled: (enabled: boolean) => void;
+	showStarredSessionsSection: boolean;
+	setShowStarredSessionsSection: (enabled: boolean) => void;
 	shortcuts: {
 		usageDashboard?: QuickAction['shortcut'];
 		agentSessions?: QuickAction['shortcut'];
@@ -50,6 +57,7 @@ interface BuildFeatureCommandsArgs {
 		directorNotes?: QuickAction['shortcut'];
 		maestroCue?: QuickAction['shortcut'];
 		fuzzyFileSearch?: QuickAction['shortcut'];
+		editClipboardImage?: QuickAction['shortcut'];
 	};
 	tabShortcuts?: Record<string, QuickAction['shortcut']>;
 }
@@ -64,12 +72,13 @@ function flash(
 
 export function buildFeatureCommands({
 	activeSession,
-	isAiMode,
+	activeTabType,
 	canSummarizeActiveTab,
 	markdownEditMode,
 	isFilePreviewOpen,
 	ghCliAvailable,
 	lastGraphFocusFile,
+	currentGraphFile,
 	hasActiveSessionCapability,
 	setQuickActionOpen,
 	setSuccessFlashNotification,
@@ -88,6 +97,7 @@ export function buildFeatureCommands({
 	onOpenMaestroCue,
 	onConfigureCue,
 	onOpenLastDocumentGraph,
+	onOpenCurrentFileInGraph,
 	onPublishGist,
 	bionifyReadingMode,
 	setBionifyReadingMode,
@@ -95,10 +105,22 @@ export function buildFeatureCommands({
 	setAudioFeedbackEnabled,
 	idleNotificationEnabled,
 	setIdleNotificationEnabled,
+	showStarredSessionsSection,
+	setShowStarredSessionsSection,
 	shortcuts,
 	tabShortcuts,
 }: BuildFeatureCommandsArgs): QuickAction[] {
 	const commands: QuickAction[] = [
+		{
+			id: 'editClipboardImage',
+			label: 'Edit Image from Clipboard',
+			subtext: 'Open the image annotator on the current clipboard image',
+			shortcut: shortcuts.editClipboardImage,
+			action: () => {
+				setQuickActionOpen(false);
+				void editClipboardImage();
+			},
+		},
 		{
 			id: 'toggleBionifyReadingMode',
 			label: bionifyReadingMode ? 'Turn Off Bionify Emphasis' : 'Turn On Bionify Emphasis',
@@ -136,6 +158,22 @@ export function buildFeatureCommands({
 				flash(
 					setSuccessFlashNotification,
 					newState ? 'Idle Notifications: ON' : 'Idle Notifications: OFF'
+				);
+				setQuickActionOpen(false);
+			},
+		},
+		{
+			id: 'toggleStarredSessionsSection',
+			label: showStarredSessionsSection
+				? 'Hide Starred Sessions Section'
+				: 'Show Starred Sessions Section',
+			subtext: `Starred Sessions section: ${showStarredSessionsSection ? 'visible' : 'hidden'}`,
+			action: () => {
+				const newState = !showStarredSessionsSection;
+				setShowStarredSessionsSection(newState);
+				flash(
+					setSuccessFlashNotification,
+					newState ? 'Starred Sessions: SHOWN' : 'Starred Sessions: HIDDEN'
 				);
 				setQuickActionOpen(false);
 			},
@@ -195,7 +233,7 @@ export function buildFeatureCommands({
 		});
 	}
 
-	if (isAiMode && canSummarizeActiveTab && onSummarizeAndContinue) {
+	if (activeTabType === 'ai' && canSummarizeActiveTab && onSummarizeAndContinue) {
 		commands.push({
 			id: 'summarizeAndContinue',
 			label: 'Context: Compact',
@@ -208,7 +246,12 @@ export function buildFeatureCommands({
 		});
 	}
 
-	if (activeSession && hasActiveSessionCapability?.('supportsContextMerge') && onOpenMergeSession) {
+	if (
+		activeTabType === 'ai' &&
+		activeSession &&
+		hasActiveSessionCapability?.('supportsContextMerge') &&
+		onOpenMergeSession
+	) {
 		commands.push({
 			id: 'mergeSession',
 			label: 'Context: Merge Into',
@@ -221,7 +264,12 @@ export function buildFeatureCommands({
 		});
 	}
 
-	if (activeSession && hasActiveSessionCapability?.('supportsContextMerge') && onOpenSendToAgent) {
+	if (
+		activeTabType === 'ai' &&
+		activeSession &&
+		hasActiveSessionCapability?.('supportsContextMerge') &&
+		onOpenSendToAgent
+	) {
 		commands.push({
 			id: 'sendToAgent',
 			label: 'Context: Send to Agent',
@@ -292,6 +340,23 @@ export function buildFeatureCommands({
 			subtext: 'Open YAML editor for event-driven automation',
 			action: () => {
 				onConfigureCue(activeSession);
+				setQuickActionOpen(false);
+			},
+		});
+	}
+
+	if (currentGraphFile && onOpenCurrentFileInGraph) {
+		commands.push({
+			id: 'viewInDocumentGraph',
+			label: 'View in Document Graph',
+			subtext: `Focus the graph on ${currentGraphFile}`,
+			shortcut: {
+				id: 'viewInDocumentGraph',
+				label: 'View in Document Graph',
+				keys: ['Meta', 'Shift', 'g'],
+			},
+			action: () => {
+				onOpenCurrentFileInGraph();
 				setQuickActionOpen(false);
 			},
 		});

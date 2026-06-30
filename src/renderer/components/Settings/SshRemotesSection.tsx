@@ -34,6 +34,7 @@ import { GhostIconButton } from '../ui/GhostIconButton';
 import { Spinner } from '../ui/Spinner';
 import type { Theme } from '../../types';
 import type { SshRemoteConfig } from '../../../shared/types';
+import { formatSshTarget } from '../../../shared/formatters';
 import { useSshRemotes } from '../../hooks';
 import { SshRemoteModal } from './SshRemoteModal';
 import { logger } from '../../utils/logger';
@@ -239,23 +240,25 @@ export function SshRemotesSection({ theme }: SshRemotesSectionProps) {
 													className="text-xs font-mono truncate"
 													style={{ color: theme.colors.textDim }}
 												>
-													{config.username}@{config.host}:{config.port}
+													{formatSshTarget(config)}
 												</div>
 
 												{/* Test Result */}
 												{testResult && (
 													<div
-														className="mt-2 text-xs flex items-center gap-1"
+														className="mt-2 text-xs flex items-start gap-1"
 														style={{
 															color: testResult.success ? theme.colors.success : theme.colors.error,
 														}}
 													>
 														{testResult.success ? (
-															<CheckCircle className="w-3 h-3" />
+															<CheckCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
 														) : (
-															<XCircle className="w-3 h-3" />
+															<XCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
 														)}
-														<span className="truncate">{testResult.message}</span>
+														<span className="whitespace-pre-wrap break-words min-w-0">
+															{testResult.message}
+														</span>
 													</div>
 												)}
 											</div>

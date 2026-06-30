@@ -67,6 +67,14 @@ vi.mock('../../../renderer/services/git', () => ({
 	},
 }));
 
+const refreshGitStatusMock = vi.fn().mockResolvedValue(undefined);
+vi.mock('../../../renderer/contexts/GitStatusContext', () => ({
+	useGitDetail: () => ({
+		getFileDetails: () => undefined,
+		refreshGitStatus: refreshGitStatusMock,
+	}),
+}));
+
 vi.mock('../../../renderer/utils/shortcutFormatter', () => ({
 	formatShortcutKeys: vi.fn((keys: string[]) => keys.join('+')),
 	isMacOS: vi.fn(() => false),
@@ -96,6 +104,8 @@ const mockShortcuts: Record<string, Shortcut> = {
 	toggleMarkdownMode: { id: 'toggleMarkdownMode', keys: ['Cmd', 'M'], enabled: true },
 	createDebugPackage: { id: 'createDebugPackage', keys: ['Alt', 'Cmd', 'D'], enabled: true },
 	nextUnreadTab: { id: 'nextUnreadTab', keys: ['Alt', 'Meta', 'ArrowDown'], enabled: true },
+	navBack: { id: 'navBack', keys: ['Meta', 'Shift', ','], enabled: true },
+	navForward: { id: 'navForward', keys: ['Meta', 'Shift', '.'], enabled: true },
 };
 
 // Thin wrapper: pre-populates an AI tab so the quick actions modal has
@@ -280,6 +290,29 @@ describe('QuickActionsModal', () => {
 			).toBeInTheDocument();
 		});
 
+		it('renders Navigate Back / Forward actions with shortcuts when handlers provided', () => {
+			const props = createDefaultProps({
+				onNavBack: vi.fn(),
+				onNavForward: vi.fn(),
+			});
+			render(<QuickActionsModal {...props} />);
+
+			expect(screen.getByText('Navigate Back')).toBeInTheDocument();
+			expect(screen.getByText('Navigate Forward')).toBeInTheDocument();
+			expect(screen.getByText(formatShortcutKeys(mockShortcuts.navBack.keys))).toBeInTheDocument();
+			expect(
+				screen.getByText(formatShortcutKeys(mockShortcuts.navForward.keys))
+			).toBeInTheDocument();
+		});
+
+		it('omits Navigate Back / Forward actions when handlers are absent', () => {
+			const props = createDefaultProps();
+			render(<QuickActionsModal {...props} />);
+
+			expect(screen.queryByText('Navigate Back')).not.toBeInTheDocument();
+			expect(screen.queryByText('Navigate Forward')).not.toBeInTheDocument();
+		});
+
 		it('renders Settings action', () => {
 			const props = createDefaultProps();
 			render(<QuickActionsModal {...props} />);
@@ -445,6 +478,28 @@ describe('QuickActionsModal', () => {
 			expect(props.setRightPanelOpen).toHaveBeenCalled();
 		});
 
+		it('handles Navigate Back action', () => {
+			const onNavBack = vi.fn();
+			const props = createDefaultProps({ onNavBack });
+			render(<QuickActionsModal {...props} />);
+
+			fireEvent.click(screen.getByText('Navigate Back'));
+
+			expect(onNavBack).toHaveBeenCalled();
+			expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);
+		});
+
+		it('handles Navigate Forward action', () => {
+			const onNavForward = vi.fn();
+			const props = createDefaultProps({ onNavForward });
+			render(<QuickActionsModal {...props} />);
+
+			fireEvent.click(screen.getByText('Navigate Forward'));
+
+			expect(onNavForward).toHaveBeenCalled();
+			expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);
+		});
+
 		it('handles Switch AI/Shell Mode action', () => {
 			const props = createDefaultProps();
 			render(<QuickActionsModal {...props} />);
@@ -607,7 +662,7 @@ describe('QuickActionsModal', () => {
 			expect(useUIStore.getState().activeFocus).toBe('main');
 
 			vi.advanceTimersByTime(50);
-			expect(useUIStore.getState().outputSearchOpen).toBe(true);
+			expect(useUIStore.getState().outputSearchByKey['session-1::tab-1']?.open).toBe(true);
 
 			vi.useRealTimers();
 		});
@@ -1083,7 +1138,7 @@ describe('QuickActionsModal', () => {
 			fireEvent.click(screen.getByText('Move to Group...'));
 
 			expect(screen.getByText('← Back to main menu')).toBeInTheDocument();
-			expect(screen.getByText('📁 No Group (Root)')).toBeInTheDocument();
+			expect(screen.getByText('📁 No Group (Ungrouped)')).toBeInTheDocument();
 		});
 
 		it('shows groups in move-to-group mode', () => {
@@ -1132,7 +1187,7 @@ describe('QuickActionsModal', () => {
 			render(<QuickActionsModal {...props} />);
 
 			fireEvent.click(screen.getByText('Move to Group...'));
-			fireEvent.click(screen.getByText('📁 No Group (Root)'));
+			fireEvent.click(screen.getByText('📁 No Group (Ungrouped)'));
 
 			expect(props.setSessions).toHaveBeenCalled();
 			expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);
@@ -1228,7 +1283,7 @@ describe('QuickActionsModal', () => {
 			// When initialMode is 'move-to-group' the "Back to main menu" action is
 			// suppressed (the user never saw the main menu), so assert on group-mode
 			// specific entries instead.
-			expect(screen.getByText('📁 No Group (Root)')).toBeInTheDocument();
+			expect(screen.getByText('📁 No Group (Ungrouped)')).toBeInTheDocument();
 			expect(screen.getByText('+ Create New Group')).toBeInTheDocument();
 		});
 	});
@@ -1510,6 +1565,7 @@ describe('QuickActionsModal', () => {
 			const { gitService } = await import('../../../renderer/services/git');
 			vi.mocked(gitService.getDiff).mockResolvedValueOnce({ diff: '' });
 			useCenterFlashStore.getState().setActive(null);
+			refreshGitStatusMock.mockClear();
 
 			const props = createDefaultProps();
 			render(<QuickActionsModal {...props} />);
@@ -1520,6 +1576,8 @@ describe('QuickActionsModal', () => {
 				expect(props.setGitDiffPreview).not.toHaveBeenCalled();
 				expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);
 				expect(useCenterFlashStore.getState().active?.message).toBe('No diff to examine');
+				// Stale widget stats triggered a re-poll
+				expect(refreshGitStatusMock).toHaveBeenCalledTimes(1);
 			});
 		});
 

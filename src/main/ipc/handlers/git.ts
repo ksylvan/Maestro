@@ -2,7 +2,7 @@ import { ipcMain, BrowserWindow } from 'electron';
 import fs from 'fs/promises';
 import path from 'path';
 import chokidar, { FSWatcher } from 'chokidar';
-import { execFileNoThrow } from '../../utils/execFile';
+import { execFileNoThrow, execFileBufferNoThrow } from '../../utils/execFile';
 import { execGit } from '../../utils/remote-git';
 import { logger } from '../../utils/logger';
 import { getSshRemoteById } from '../../stores';
@@ -150,6 +150,109 @@ export function registerGitHandlers(_deps: GitHandlerDependencies): void {
 					effectiveRemoteCwd
 				);
 				return result.exitCode === 0;
+			}
+		)
+	);
+
+	// Initialize a new git repository at the given directory.
+	// Returns { success, error? }. Used by the agent-create UI to offer
+	// `git init` when a chosen working directory isn't already a repo.
+	ipcMain.handle(
+		'git:init',
+		withIpcErrorLogging(
+			handlerOpts('init'),
+			async (cwd: string, sshRemoteId?: string, remoteCwd?: string) => {
+				const sshRemote = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
+				// Fail fast if an SSH remote was requested but can't be resolved —
+				// otherwise we'd silently `git init` the wrong (local) directory.
+				if (sshRemoteId && !sshRemote) {
+					return {
+						success: false,
+						error: `SSH remote not found: ${sshRemoteId}`,
+					};
+				}
+				const effectiveRemoteCwd = sshRemote ? remoteCwd || cwd : undefined;
+				const result = await execGit(['init'], cwd, sshRemote, effectiveRemoteCwd);
+				if (result.exitCode !== 0) {
+					return {
+						success: false,
+						error: result.stderr?.trim() || 'git init failed',
+					};
+				}
+				return { success: true };
+			}
+		)
+	);
+
+	// Stage every change (new, modified, deleted) and commit it in one shot.
+	// Used by Auto Run to checkpoint each iteration. Returns
+	// { success, committed, commitHash?, error? }. A clean tree is NOT an error:
+	// it resolves { success: true, committed: false } so callers can no-op
+	// quietly. Commit failures (e.g. missing git identity, failing hooks) surface
+	// as { success: false } so the caller can log without aborting its run.
+	ipcMain.handle(
+		'git:commitAll',
+		withIpcErrorLogging(
+			handlerOpts('commitAll'),
+			async (cwd: string, message: string, sshRemoteId?: string, remoteCwd?: string) => {
+				const sshRemote = sshRemoteId ? getSshRemoteById(sshRemoteId) : undefined;
+				// Fail fast if an SSH remote was requested but can't be resolved —
+				// otherwise we'd silently commit in the wrong (local) directory.
+				if (sshRemoteId && !sshRemote) {
+					return {
+						success: false,
+						committed: false,
+						error: `SSH remote not found: ${sshRemoteId}`,
+					};
+				}
+				const effectiveRemoteCwd = sshRemote ? remoteCwd || cwd : undefined;
+
+				// Stage everything first so the porcelain check below reflects the
+				// full pending change set (including untracked files).
+				const addResult = await execGit(['add', '-A'], cwd, sshRemote, effectiveRemoteCwd);
+				if (addResult.exitCode !== 0) {
+					return {
+						success: false,
+						committed: false,
+						error: addResult.stderr?.trim() || 'git add failed',
+					};
+				}
+
+				// Nothing staged → clean tree, nothing to commit. Report success.
+				const statusResult = await execGit(
+					['status', '--porcelain'],
+					cwd,
+					sshRemote,
+					effectiveRemoteCwd
+				);
+				if (statusResult.exitCode === 0 && statusResult.stdout.trim() === '') {
+					return { success: true, committed: false };
+				}
+
+				const commitResult = await execGit(
+					['commit', '-m', message],
+					cwd,
+					sshRemote,
+					effectiveRemoteCwd
+				);
+				if (commitResult.exitCode !== 0) {
+					return {
+						success: false,
+						committed: false,
+						error:
+							commitResult.stderr?.trim() || commitResult.stdout?.trim() || 'git commit failed',
+					};
+				}
+
+				// Best-effort short hash for feedback/logging; absence is non-fatal.
+				const hashResult = await execGit(
+					['rev-parse', '--short', 'HEAD'],
+					cwd,
+					sshRemote,
+					effectiveRemoteCwd
+				);
+				const commitHash = hashResult.exitCode === 0 ? hashResult.stdout.trim() : undefined;
+				return { success: true, committed: true, commitHash };
 			}
 		)
 	);
@@ -405,17 +508,19 @@ export function registerGitHandlers(_deps: GitHandlerDependencies): void {
 				const ext = filePath.split('.').pop()?.toLowerCase() || '';
 
 				if (isImageFile(filePath)) {
-					// For images, we need to get raw binary content
-					// Use spawnSync to capture raw binary output
-					const { spawnSync } = require('child_process');
-					const result = spawnSync('git', ['show', `${ref}:${filePath}`], {
+					// For images we need raw binary content. Use the async,
+					// binary-safe exec helper instead of spawnSync so reading the blob
+					// never blocks the main-process event loop (which would freeze the
+					// entire UI while a large image / cold git object is fetched).
+					const result = await execFileBufferNoThrow(
+						'git',
+						['show', `${ref}:${filePath}`],
 						cwd,
-						encoding: 'buffer',
-						maxBuffer: 50 * 1024 * 1024, // 50MB max
-					});
+						50 * 1024 * 1024 // 50MB max
+					);
 
-					if (result.status !== 0) {
-						return { error: result.stderr?.toString() || 'Failed to read file from git' };
+					if (result.exitCode !== 0) {
+						return { error: result.stderr || 'Failed to read file from git' };
 					}
 
 					const base64 = result.stdout.toString('base64');

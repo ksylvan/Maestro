@@ -1,6 +1,8 @@
 ## Auto Run Documents (aka Playbooks)
 
-A **Playbook** is a collection of Auto Run documents — Markdown files with checkbox tasks (`- [ ]`) that Maestro's Auto Run engine executes sequentially via AI agents. The **Playbook Exchange** is an official repository of community and curated playbooks users can browse and import directly into their sessions.
+Auto Run has two modes. **Spec-Driven** (this document) works a checklist of Markdown documents to completion. **Goal-Driven** (see the section near the end) pursues a single free-text objective with no checklist, iterating until the goal is reached. Pick the mode that fits what the user asked for: a list of concrete steps means Spec-Driven; an open-ended "keep working until X" objective means Goal-Driven.
+
+A **Playbook** is a collection of Spec-Driven Auto Run documents - Markdown files with checkbox tasks (`- [ ]`) that Maestro's Auto Run engine executes sequentially via AI agents. The **Playbook Exchange** is an official repository of community and curated playbooks users can browse and import directly into their sessions.
 
 When a user asks for a "playbook", "play book", "playbooks", "auto-run document", "autorun doc", or "auto run doc", follow the rules below exactly.
 
@@ -8,7 +10,7 @@ When a user asks for a "playbook", "play book", "playbooks", "auto-run document"
 
 Write all Auto Run documents to: `{{AUTORUN_FOLDER}}`
 
-This folder may be outside your working directory (e.g., in a parent repository when you're in a worktree). That is intentional — always use this exact path.
+This folder may be outside your working directory (e.g., in a parent repository when you're in a worktree). That is intentional - always use this exact path.
 
 ### Authoring vs. Launching
 
@@ -25,20 +27,29 @@ These are two distinct actions and the user's phrasing tells you which (or both)
 
 **Critical:** When the user asks you to _run_ an auto-run, do NOT execute the tasks yourself by reading the document and doing the work in this chat. That bypasses the Auto Run engine, leaves nothing in the UI, produces no playbook record, and loses the per-task fresh-context isolation that makes auto-runs reliable. Launching via `maestro-cli auto-run --launch` is the only correct path. Always pass `--agent {{AGENT_ID}}` so the run targets you (without it the CLI picks the first available agent).
 
+### Playbook Type: Task-Based vs Document-Based
+
+Every playbook runs in one of two fresh-context modes. **When you create a playbook, explicitly tell the user which type it is** (one line is enough) so they know how it will execute:
+
+- **Task-based** - Maestro spawns a fresh agent for each `- [ ]` task, with no memory of previous tasks. Maximum isolation; every task must be fully self-contained (see Task Format below). This is the default and the right choice for most agents.
+- **Document-based** - a single agent walks every task in the document in one continuous session, carrying context forward between tasks. Appropriate only for agents with very large context windows (≥1M tokens), where a whole document's worth of work fits in one context.
+
+Maestro auto-selects the mode from the running agent's context window - document-based at ≥1M tokens, task-based below that - and the user can override it per run. Because a playbook may run either way, **always author self-contained tasks** (Task Format below); document-based execution is an optimization, not a license to write tasks that depend on chat memory. After you create a playbook, state its type plainly, e.g. _"Created a task-based playbook - each task runs in a fresh agent context."_
+
 ### File Naming
 
 Use the format `PREFIX-XX.md` where `XX` is a zero-padded two-digit phase number (01, 02, ...). Zero-padding ensures correct lexicographic sorting.
 
-- 1–2 phases: flat in the folder — `AUTH-REWRITE-01.md`, `AUTH-REWRITE-02.md`
-- 3+ phases: dated subdirectory — `{{AUTORUN_FOLDER}}/YYYY-MM-DD-Auth-Rewrite/AUTH-REWRITE-01.md`
+- 1-2 phases: flat in the folder - `AUTH-REWRITE-01.md`, `AUTH-REWRITE-02.md`
+- 3+ phases: dated subdirectory - `{{AUTORUN_FOLDER}}/YYYY-MM-DD-Auth-Rewrite/AUTH-REWRITE-01.md`
 
-**Multi-phase rule:** For 3+ phase documents for a single effort, place them in one flat subdirectory directly under `{{AUTORUN_FOLDER}}`, prefixed with today's date. Do NOT create nested `project/feature/` directories — all phase documents for a given effort go into one folder.
+**Multi-phase rule:** For 3+ phase documents for a single effort, place them in one flat subdirectory directly under `{{AUTORUN_FOLDER}}`, prefixed with today's date. Do NOT create nested `project/feature/` directories - all phase documents for a given effort go into one folder.
 
 ### Task Format (MANDATORY)
 
-**Every task MUST use `- [ ]` checkbox syntax.** The Auto Run engine only processes checkbox items. Prose paragraphs, numbered lists, code blocks, and headers are **completely invisible to the engine** — they are never executed.
+**Every task MUST use `- [ ]` checkbox syntax.** The Auto Run engine only processes checkbox items. Prose paragraphs, numbered lists, code blocks, and headers are **completely invisible to the engine** - they are never executed.
 
-**Common failure mode:** Writing detailed implementation steps as prose (headers, paragraphs, code snippets) and only using `- [ ]` for a validation checklist at the end. This produces documents where ZERO implementation work gets done — the engine skips to validation checks that all fail because nothing was built. **If the engine should do it, it MUST be a `- [ ]` checkbox.**
+**Common failure mode:** Writing detailed implementation steps as prose (headers, paragraphs, code snippets) and only using `- [ ]` for a validation checklist at the end. This produces documents where ZERO implementation work gets done - the engine skips to validation checks that all fail because nothing was built. **If the engine should do it, it MUST be a `- [ ]` checkbox.**
 
 Each checkbox task runs in a **fresh agent context** with no memory of previous tasks. Tasks must be:
 
@@ -70,9 +81,9 @@ Each `- [ ]` task starts a fresh AI context and receives the entire document. Th
 
 ### Early Exit (Halt Marker)
 
-A running agent can abort the entire Auto Run mid-playbook by writing the marker `<!-- maestro:halt: reason here -->` (or bare `<!-- maestro:halt -->`) into the current document. When the engine sees this marker after a task, it stops dispatch immediately — no further tasks in the current document, no further documents in the playbook. The optional reason is recorded in the History panel and emitted to the JSONL stream as a `halt` event.
+A running agent can abort the entire Auto Run mid-playbook by writing the marker `<!-- maestro:halt: reason here -->` (or bare `<!-- maestro:halt -->`) into the current document. When the engine sees this marker after a task, it stops dispatch immediately - no further tasks in the current document, no further documents in the playbook. The optional reason is recorded in the History panel and emitted to the JSONL stream as a `halt` event.
 
-The default Auto Run prompt already instructs executing agents that this option exists and when to use it (true playbook-wide blockers, not ordinary task failures). You generally do not need to mention the marker in your playbook unless you want to call out specific halt-worthy conditions, e.g. "If the build is broken before you start, halt the playbook." A stale halt marker left in a document will block re-runs with an error — the user must remove it before the playbook will start again.
+The default Auto Run prompt already instructs executing agents that this option exists and when to use it (true playbook-wide blockers, not ordinary task failures). You generally do not need to mention the marker in your playbook unless you want to call out specific halt-worthy conditions, e.g. "If the build is broken before you start, halt the playbook." A stale halt marker left in a document will block re-runs with an error - the user must remove it before the playbook will start again.
 
 ### Structured Output Artifacts
 
@@ -96,4 +107,18 @@ This enables exploration via Maestro's DocGraph viewer and tools like Obsidian.
 - [ ] Add rate limiting to `src/routes/auth.ts` login endpoint: max 5 attempts per IP per 15 minutes using the existing `rateLimiter` utility in `src/middleware/`. Add tests for the rate limit behavior.
 ```
 
-**Note:** Nudge messages configured on an agent do not apply to Auto Run tasks — they are only appended to interactive user messages.
+### Goal-Driven Auto Run (no checklist)
+
+Everything above describes **Spec-Driven** runs (checklist documents). **Goal-Driven** mode is the alternative: instead of authoring a document, you give the engine a single free-text **goal** and optional **exit criteria**, and it spawns a fresh agent each iteration that makes one increment of real progress, self-reports how far along it is, and exits. The next iteration picks up from there, until the goal is reached, the agent declares a deadlock, an iteration cap is hit, or progress stalls. There are no documents and no `- [ ]` tasks.
+
+Choose Goal-Driven when the user describes an open-ended objective ("keep improving X until Y", "research Z thoroughly", "get test coverage above 90%") rather than a concrete list of steps. There is nothing to author - launch it directly via the CLI:
+
+```bash
+{{MAESTRO_CLI_PATH}} goal-run {{AGENT_ID}} "<the goal in plain language>" [--exit-criteria "<what done looks like; when to declare a deadlock>"] [--max-iterations <n>]
+```
+
+Omit `--max-iterations` to run until the goal is reached or a deadlock is detected (infinite). Useful flags: `--json` for machine-parseable event output, `--verbose` to echo each iteration's prompt, `--no-history` to skip history entries. As with Spec-Driven runs, always pass the agent id so the run targets you, and **never** pursue the goal yourself in chat - launching via `goal-run` is the only correct path so the engine drives it, the UI shows progress, and each iteration gets fresh-context isolation.
+
+The agent reports progress with markers in its output each iteration: `<!-- maestro:progress 45 | short rationale -->` (0-100), `<!-- maestro:goal-complete -->` when done, or `<!-- maestro:deadlock: reason -->` when truly blocked. The engine reads these to drive the progress bar and decide when to stop; you do not need to mention them when launching.
+
+**Note:** Nudge messages configured on an agent do not apply to Auto Run tasks - they are only appended to interactive user messages.

@@ -37,6 +37,9 @@ import fs from 'fs/promises';
 import { WebSocket } from 'ws';
 import { logger } from '../../utils/logger';
 import { captureException } from '../../utils/sentry';
+import { getStatsDB } from '../../stats/singleton';
+import { runReadonlyStatsQuery } from '../../stats/readonly-query';
+import type { StatsTimeRange } from '../../../shared/stats-types';
 import type {
 	AutoRunDocument,
 	AutoRunState,
@@ -278,8 +281,27 @@ export interface MessageHandlerCallbacks {
 		groupId?: string,
 		config?: CreateSessionConfig
 	) => Promise<{ sessionId: string } | null>;
+	createWorktreeSession: (
+		parentSessionId: string,
+		config: {
+			branchName: string;
+			baseBranch?: string;
+		}
+	) => Promise<{ success: boolean; sessionId?: string; error?: string }>;
 	deleteSession: (sessionId: string) => Promise<boolean>;
 	renameSession: (sessionId: string, newName: string) => Promise<boolean>;
+	updateSessionCwd: (
+		sessionId: string,
+		newCwd: string
+	) => Promise<{ success: boolean; error?: string }>;
+	updateSessionSsh: (
+		sessionId: string,
+		sshPatch: Record<string, unknown>
+	) => Promise<{ success: boolean; error?: string }>;
+	updateSessionConfig: (
+		sessionId: string,
+		configPatch: Record<string, unknown>
+	) => Promise<{ success: boolean; error?: string }>;
 	getGitStatus: (sessionId: string) => Promise<GitStatusResult>;
 	getGitDiff: (sessionId: string, filePath?: string) => Promise<GitDiffResult>;
 	getGitBranchesForSession: (sessionId: string) => Promise<GitBranchesResult>;
@@ -502,6 +524,10 @@ export class WebSocketMessageHandler {
 				this.handleConfigureAutoRun(client, message);
 				break;
 
+			case 'create_worktree_session':
+				this.handleCreateWorktreeSession(client, message);
+				break;
+
 			case 'set_auto_run_folder':
 				this.handleSetAutoRunFolder(client, message);
 				break;
@@ -576,6 +602,18 @@ export class WebSocketMessageHandler {
 
 			case 'rename_session':
 				this.handleRenameSession(client, message);
+				break;
+
+			case 'update_session_cwd':
+				this.handleUpdateSessionCwd(client, message);
+				break;
+
+			case 'update_session_ssh':
+				this.handleUpdateSessionSsh(client, message);
+				break;
+
+			case 'update_session_config':
+				this.handleUpdateSessionConfig(client, message);
 				break;
 
 			case 'get_groups':
@@ -690,6 +728,14 @@ export class WebSocketMessageHandler {
 				this.handleGetAchievements(client, message);
 				break;
 
+			case 'get_stats_aggregation':
+				this.handleGetStatsAggregation(client, message);
+				break;
+
+			case 'stats_query':
+				this.handleStatsQuery(client, message);
+				break;
+
 			case 'generate_director_notes_synopsis':
 				this.handleGenerateDirectorNotesSynopsis(client, message);
 				break;
@@ -734,9 +780,27 @@ export class WebSocketMessageHandler {
 				this.handleGetSessionHistory(client, message);
 				break;
 
+			case 'bridge.invoke':
+				void this.handleBridgeInvoke(client, message);
+				break;
+
 			default:
 				this.handleUnknown(client, message);
 		}
+	}
+
+	/**
+	 * Generic IPC bridge — dispatch a bridge.invoke message to the matching
+	 * ipcMain handler and return the result/error as a bridge.response. This
+	 * backs the web-desktop bundle, the default browser interface.
+	 */
+	private async handleBridgeInvoke(client: WebClient, message: WebClientMessage): Promise<void> {
+		const { handleBridgeInvoke } = await import('./bridgeHandlers');
+		await handleBridgeInvoke(
+			client,
+			message as unknown as Parameters<typeof handleBridgeInvoke>[1],
+			(c, payload) => c.socket.send(JSON.stringify(payload))
+		);
 	}
 
 	/**
@@ -1749,19 +1813,19 @@ export class WebSocketMessageHandler {
 			return;
 		}
 
-		// Path traversal protection: resolve against session root
 		const sessions = this.callbacks.getSessions?.();
 		const session = sessions?.find((s) => s.id === sessionId);
 		if (!session?.cwd) {
 			sendErrorResult('Session not found or has no working directory');
 			return;
 		}
+		// Relative paths resolve against the agent's working directory; absolute
+		// paths are honored as-is. Opening files outside the worktree is
+		// intentionally allowed — a paired client already has shell-level access
+		// (execute_command), so confining preview tabs to the worktree gated
+		// nothing the connection token doesn't already gate.
 		const sessionRoot = path.resolve(session.cwd);
 		const resolved = path.resolve(sessionRoot, filePath);
-		if (!resolved.startsWith(sessionRoot + path.sep) && resolved !== sessionRoot) {
-			sendErrorResult('Invalid file path: path is outside the agent working directory');
-			return;
-		}
 
 		if (!this.callbacks.openFileTab) {
 			sendErrorResult('File tab opening not configured');
@@ -2696,6 +2760,8 @@ export class WebSocketMessageHandler {
 	 */
 	private static readonly ALLOWED_SETTING_KEYS = new Set([
 		'activeThemeId',
+		'customThemeColors',
+		'customThemeBaseId',
 		'fontSize',
 		'enterToSendAI',
 		'defaultSaveToHistory',
@@ -2705,6 +2771,7 @@ export class WebSocketMessageHandler {
 		'colorBlindMode',
 		'conductorProfile',
 		'maxOutputLines',
+		'encoreFeatures',
 	]);
 
 	/**
@@ -2844,6 +2911,57 @@ export class WebSocketMessageHandler {
 	}
 
 	/**
+	 * Handle create_worktree_session message - create a new agent in a git
+	 * worktree branched off an existing parent agent, without an Auto Run
+	 * playbook. The desktop creates the worktree, builds a child session linked
+	 * to the parent, and returns the new agent's session id.
+	 */
+	private handleCreateWorktreeSession(client: WebClient, message: WebClientMessage): void {
+		const parentSessionId = message.parentSessionId as string;
+		const branchName = message.branchName as string;
+
+		if (!parentSessionId || typeof parentSessionId !== 'string') {
+			this.sendError(client, 'Missing or invalid parentSessionId');
+			return;
+		}
+
+		if (!branchName || typeof branchName !== 'string' || branchName.trim() === '') {
+			this.sendError(client, 'Missing or invalid branchName');
+			return;
+		}
+
+		if (message.baseBranch !== undefined && typeof message.baseBranch !== 'string') {
+			this.sendError(client, 'baseBranch must be a string');
+			return;
+		}
+
+		if (!this.callbacks.createWorktreeSession) {
+			this.sendError(client, 'Worktree session creation not configured');
+			return;
+		}
+
+		const config = {
+			branchName: branchName.trim(),
+			baseBranch: (message.baseBranch as string | undefined)?.trim() || undefined,
+		};
+
+		this.callbacks
+			.createWorktreeSession(parentSessionId, config)
+			.then((result) => {
+				this.send(client, {
+					type: 'create_worktree_session_result',
+					success: result.success,
+					sessionId: result.sessionId,
+					error: result.error,
+					requestId: message.requestId,
+				});
+			})
+			.catch((error) => {
+				this.sendError(client, `Failed to create worktree session: ${error.message}`);
+			});
+	}
+
+	/**
 	 * Handle delete_session message - delete an agent session
 	 */
 	private handleDeleteSession(client: WebClient, message: WebClientMessage): void {
@@ -2914,6 +3032,135 @@ export class WebSocketMessageHandler {
 			})
 			.catch((error) => {
 				this.sendError(client, `Failed to rename session: ${error.message}`);
+			});
+	}
+
+	/**
+	 * Handle update_session_cwd message - update an agent's working directory.
+	 * The desktop's `projectRoot` (used for provider session storage) is left
+	 * untouched so historical conversations stay addressable; only the UI-facing
+	 * `cwd`/`fullPath` move. Renderer-side validation rejects updates while an
+	 * agent process is alive — the PTY's cwd is fixed at spawn time.
+	 */
+	private handleUpdateSessionCwd(client: WebClient, message: WebClientMessage): void {
+		const sessionId = message.sessionId as string;
+		const newCwd = message.newCwd as string;
+
+		if (!sessionId) {
+			this.sendError(client, 'Missing sessionId');
+			return;
+		}
+
+		if (!newCwd || typeof newCwd !== 'string' || newCwd.trim() === '') {
+			this.sendError(client, 'Missing or empty newCwd');
+			return;
+		}
+
+		if (!this.callbacks.updateSessionCwd) {
+			this.sendError(client, 'Session cwd updates not configured');
+			return;
+		}
+
+		this.callbacks
+			.updateSessionCwd(sessionId, newCwd)
+			.then((result) => {
+				this.send(client, {
+					type: 'update_session_cwd_result',
+					success: result.success,
+					error: result.error,
+					sessionId,
+					newCwd,
+					requestId: message.requestId,
+				});
+			})
+			.catch((error) => {
+				this.sendError(client, `Failed to update session cwd: ${error.message}`);
+			});
+	}
+
+	/**
+	 * Handle update_session_ssh message - update an agent's SSH execution config
+	 * (remote selection, working-dir override, history-sync flags). Only the
+	 * fields present in `sshPatch` are merged onto the existing config. Like
+	 * cwd updates, the renderer refuses while the agent process is alive because
+	 * the spawn target is fixed at launch time.
+	 */
+	private handleUpdateSessionSsh(client: WebClient, message: WebClientMessage): void {
+		const sessionId = message.sessionId as string;
+		const sshPatch = message.sshPatch as Record<string, unknown> | undefined;
+
+		if (!sessionId) {
+			this.sendError(client, 'Missing sessionId');
+			return;
+		}
+
+		if (!sshPatch || typeof sshPatch !== 'object') {
+			this.sendError(client, 'Missing or invalid sshPatch');
+			return;
+		}
+
+		if (!this.callbacks.updateSessionSsh) {
+			this.sendError(client, 'Session SSH updates not configured');
+			return;
+		}
+
+		this.callbacks
+			.updateSessionSsh(sessionId, sshPatch)
+			.then((result) => {
+				this.send(client, {
+					type: 'update_session_ssh_result',
+					success: result.success,
+					error: result.error,
+					sessionId,
+					requestId: message.requestId,
+				});
+			})
+			.catch((error) => {
+				this.sendError(client, `Failed to update session SSH config: ${error.message}`);
+			});
+	}
+
+	/**
+	 * Handle update_session_config message - update an agent's editable
+	 * per-session config (nudge / new-session message, custom path / args / env
+	 * vars, model, effort, context window, Claude token-source tri-state). Only
+	 * the keys present in `configPatch` are applied; a key with value `null`
+	 * clears that field. These are spawn-time settings (they take effect on the
+	 * next launch), so unlike cwd/SSH the renderer applies them even while the
+	 * agent process is alive.
+	 */
+	private handleUpdateSessionConfig(client: WebClient, message: WebClientMessage): void {
+		const sessionId = message.sessionId as string;
+		const configPatch = message.configPatch as Record<string, unknown> | undefined;
+
+		if (!sessionId) {
+			this.sendError(client, 'Missing sessionId');
+			return;
+		}
+
+		if (!configPatch || typeof configPatch !== 'object') {
+			this.sendError(client, 'Missing or invalid configPatch');
+			return;
+		}
+
+		if (!this.callbacks.updateSessionConfig) {
+			this.sendError(client, 'Session config updates not configured');
+			return;
+		}
+
+		this.callbacks
+			.updateSessionConfig(sessionId, configPatch)
+			.then((result) => {
+				this.send(client, {
+					type: 'update_session_config_result',
+					success: result.success,
+					error: result.error,
+					sessionId,
+					requestId: message.requestId,
+				});
+			})
+			.catch((error) => {
+				this.sendError(client, `Failed to update session config: ${error.message}`);
 			});
 	}
 
@@ -3833,6 +4080,70 @@ export class WebSocketMessageHandler {
 	}
 
 	/**
+	 * Handle get_stats_aggregation message - return the Usage Dashboard's
+	 * aggregated stats (query counts, durations, per-agent/day/hour breakdowns)
+	 * for a time range. Reads the main-process stats singleton directly.
+	 */
+	private handleGetStatsAggregation(client: WebClient, message: WebClientMessage): void {
+		const range = (message.range as string) || 'week';
+		const validRanges = new Set(['day', 'week', 'month', 'quarter', 'year', 'all']);
+
+		if (!validRanges.has(range)) {
+			this.sendError(client, 'Invalid range. Must be one of: day, week, month, quarter, year, all');
+			return;
+		}
+
+		try {
+			const data = getStatsDB().getAggregatedStats(range as StatsTimeRange);
+			this.send(client, {
+				type: 'stats_aggregation',
+				data,
+				requestId: message.requestId,
+				timestamp: Date.now(),
+			});
+		} catch (error) {
+			this.sendError(
+				client,
+				`Failed to get stats aggregation: ${error instanceof Error ? error.message : String(error)}`
+			);
+		}
+	}
+
+	/**
+	 * Handle stats_query message - run a single read-only SQL statement against
+	 * the stats database and return the rows. Read-only enforcement lives in
+	 * runReadonlyStatsQuery (dedicated readonly connection + single-statement +
+	 * stmt.readonly assertion).
+	 */
+	private handleStatsQuery(client: WebClient, message: WebClientMessage): void {
+		const sql = message.sql as string | undefined;
+		const params = Array.isArray(message.params) ? (message.params as unknown[]) : [];
+
+		if (!sql || typeof sql !== 'string') {
+			this.sendError(client, 'Missing required "sql" string for stats_query');
+			return;
+		}
+
+		try {
+			const result = runReadonlyStatsQuery(sql, params);
+			this.send(client, {
+				type: 'stats_query_result',
+				columns: result.columns,
+				rows: result.rows,
+				rowCount: result.rowCount,
+				truncated: result.truncated,
+				requestId: message.requestId,
+				timestamp: Date.now(),
+			});
+		} catch (error) {
+			this.sendError(
+				client,
+				`Stats query failed: ${error instanceof Error ? error.message : String(error)}`
+			);
+		}
+	}
+
+	/**
 	 * Handle get_achievements message - fetch achievement data
 	 */
 	private handleGetAchievements(client: WebClient, message: WebClientMessage): void {
@@ -3974,6 +4285,10 @@ export class WebSocketMessageHandler {
 		const duration = typeof message.duration === 'number' ? message.duration : undefined;
 		const dismissible = message.dismissible === true;
 		const sessionId = typeof message.sessionId === 'string' ? message.sessionId : undefined;
+		const sourceAgent =
+			typeof message.sourceAgent === 'string' && message.sourceAgent.length > 0
+				? message.sourceAgent
+				: undefined;
 		const tabId = typeof message.tabId === 'string' ? message.tabId : undefined;
 		const actionUrl = typeof message.actionUrl === 'string' ? message.actionUrl : undefined;
 		const actionLabel = typeof message.actionLabel === 'string' ? message.actionLabel : undefined;
@@ -4095,6 +4410,7 @@ export class WebSocketMessageHandler {
 				dismissible,
 				duration,
 				sessionId,
+				sourceAgent,
 				tabId,
 				actionUrl,
 				actionLabel,

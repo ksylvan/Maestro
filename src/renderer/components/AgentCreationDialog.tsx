@@ -23,6 +23,7 @@ import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { AgentConfigPanel } from './shared/AgentConfigPanel';
 import { useAgentConfiguration } from '../hooks/agent/useAgentConfiguration';
 import { isBetaAgent } from '../../shared/agentMetadata';
+import { isAdaptiveModeDefaultOn } from '../../shared/agentConstants';
 import { logger } from '../utils/logger';
 
 // ============================================================================
@@ -59,6 +60,8 @@ export interface AgentCreationConfig {
 	agentConfig?: Record<string, any>;
 	/** Opt the session into Batch Mode (Claude Code only). */
 	enableMaestroP?: boolean;
+	/** Token-source refinement when opted in: TUI-only or dynamic auto-switch. */
+	maestroPMode?: 'interactive' | 'dynamic';
 	/** Optional override for the maestro-p binary path. */
 	maestroPPath?: string;
 }
@@ -119,6 +122,9 @@ export function AgentCreationDialog({
 	>({});
 	// Batch Mode (Claude Code only): per-agent opt-in + optional maestro-p path override.
 	const [enableMaestroPByAgent, setEnableMaestroPByAgent] = useState<Record<string, boolean>>({});
+	const [maestroPModeByAgent, setMaestroPModeByAgent] = useState<
+		Record<string, 'interactive' | 'dynamic'>
+	>({});
 	const [maestroPPathByAgent, setMaestroPPathByAgent] = useState<Record<string, string>>({});
 	const [detectedMaestroPPath, setDetectedMaestroPPath] = useState<string | undefined>(undefined);
 	const [agentConfigs, setAgentConfigs] = useState<Record<string, Record<string, any>>>({});
@@ -284,7 +290,13 @@ export function AgentCreationDialog({
 				customArgs: customAgentArgs[selectedAgent] || undefined,
 				customEnvVars: customAgentEnvVars[selectedAgent] || undefined,
 				agentConfig: agentConfigs[selectedAgent] || undefined,
-				enableMaestroP: enableMaestroPByAgent[selectedAgent] || undefined,
+				enableMaestroP:
+					(enableMaestroPByAgent[selectedAgent] ?? isAdaptiveModeDefaultOn(selectedAgent)) ||
+					undefined,
+				maestroPMode:
+					(enableMaestroPByAgent[selectedAgent] ?? isAdaptiveModeDefaultOn(selectedAgent))
+						? (maestroPModeByAgent[selectedAgent] ?? 'dynamic')
+						: undefined,
 				maestroPPath: maestroPPathByAgent[selectedAgent] || undefined,
 			});
 
@@ -308,6 +320,7 @@ export function AgentCreationDialog({
 		customAgentEnvVars,
 		agentConfigs,
 		enableMaestroPByAgent,
+		maestroPModeByAgent,
 		maestroPPathByAgent,
 		onCreateAgent,
 	]);
@@ -553,9 +566,15 @@ export function AgentCreationDialog({
 														refreshingAgent={refreshingAgent === agent.id}
 														compact
 														showBuiltInEnvVars
-														enableMaestroP={enableMaestroPByAgent[agent.id] ?? false}
+														enableMaestroP={
+															enableMaestroPByAgent[agent.id] ?? isAdaptiveModeDefaultOn(agent.id)
+														}
 														onEnableMaestroPChange={(value) =>
 															setEnableMaestroPByAgent((prev) => ({ ...prev, [agent.id]: value }))
+														}
+														maestroPMode={maestroPModeByAgent[agent.id] ?? 'dynamic'}
+														onMaestroPModeChange={(value) =>
+															setMaestroPModeByAgent((prev) => ({ ...prev, [agent.id]: value }))
 														}
 														maestroPPath={maestroPPathByAgent[agent.id] ?? ''}
 														onMaestroPPathChange={(value) =>

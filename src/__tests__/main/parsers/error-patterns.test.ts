@@ -561,6 +561,30 @@ describe('error-patterns', () => {
 					expect(result?.type).toBe('agent_crashed');
 				});
 			});
+
+			describe('session_not_found patterns', () => {
+				// Real stderr emitted by `codex exec resume <id>` (codex-cli 0.130.0)
+				// when the rollout file backing the thread is missing. Regression
+				// guard for #1042 — must NOT fall through to agent_crashed.
+				it('should match Codex "no rollout found for thread id" resume failure', () => {
+					const stderr =
+						'Error: thread/resume: thread/resume failed: no rollout found for thread id 019e4aa3-5e01-73e1-9f61-d3961386dafd (code -32600)';
+					const result = matchErrorPattern(CODEX_ERROR_PATTERNS, stderr);
+					expect(result).not.toBeNull();
+					expect(result?.type).toBe('session_not_found');
+					expect(result?.recoverable).toBe(true);
+				});
+
+				it('should match "rollout not found"', () => {
+					const result = matchErrorPattern(CODEX_ERROR_PATTERNS, 'rollout not found');
+					expect(result?.type).toBe('session_not_found');
+				});
+
+				it('should match generic "session not found"', () => {
+					const result = matchErrorPattern(CODEX_ERROR_PATTERNS, 'session not found');
+					expect(result?.type).toBe('session_not_found');
+				});
+			});
 		});
 	});
 
@@ -756,6 +780,59 @@ describe('error-patterns', () => {
 				const result = matchSshErrorPattern('ssh: protocol error');
 				expect(result).not.toBeNull();
 				expect(result?.type).toBe('agent_crashed');
+			});
+		});
+
+		describe('Windows remote host (issue #995)', () => {
+			// Maestro builds the remote command for a POSIX shell
+			// (/bin/bash --norc --noprofile). On a Windows SSH remote the default
+			// shell (cmd.exe or PowerShell) cannot run it and the agent dies with a
+			// bare exit 1. These cases prove the cryptic crash now maps to a clear,
+			// actionable message. Full Windows-remote support is deferred (needs a
+			// live Windows SSH host to verify the generated command).
+			it('should map cmd.exe "is not recognized as an internal or external command" to the actionable message', () => {
+				const result = matchSshErrorPattern(
+					"'/bin/bash' is not recognized as an internal or external command, operable program or batch file."
+				);
+				expect(result).not.toBeNull();
+				expect(result?.type).toBe('agent_crashed');
+				expect(result?.recoverable).toBe(false);
+				expect(result?.message).toContain('Windows remote');
+				expect(result?.message).toContain('not yet supported');
+				expect(result?.message).toContain('#995');
+			});
+
+			it('should map PowerShell "is not recognized as the name of a cmdlet" to the actionable message', () => {
+				const result = matchSshErrorPattern(
+					"/bin/bash : The term '/bin/bash' is not recognized as the name of a cmdlet, function, script file, or operable program."
+				);
+				expect(result).not.toBeNull();
+				expect(result?.type).toBe('agent_crashed');
+				expect(result?.message).toContain('Windows remote');
+				expect(result?.message).toContain('#995');
+			});
+
+			it('should map Windows "The system cannot find the path specified" to the actionable message', () => {
+				const result = matchSshErrorPattern('The system cannot find the path specified.');
+				expect(result).not.toBeNull();
+				expect(result?.type).toBe('agent_crashed');
+				expect(result?.message).toContain('Windows remote');
+				expect(result?.message).toContain('#995');
+			});
+
+			it('should NOT apply the Windows message to a POSIX remote failure (POSIX remotes unaffected)', () => {
+				// A real POSIX-remote "command not found" still maps to its own
+				// agent-specific message, never the Windows-remote message.
+				const result = matchSshErrorPattern('bash: claude: command not found');
+				expect(result).not.toBeNull();
+				expect(result?.type).toBe('agent_crashed');
+				expect(result?.message).toContain('Claude command not found');
+				expect(result?.message).not.toContain('Windows remote');
+			});
+
+			it('should return null for normal POSIX output mentioning bash (no false positive)', () => {
+				const result = matchSshErrorPattern('Running /bin/bash to set up the environment');
+				expect(result).toBeNull();
 			});
 		});
 

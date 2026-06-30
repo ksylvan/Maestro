@@ -36,6 +36,54 @@ export type FeedbackCategory =
 	| 'improvement'
 	| 'general_feedback';
 
+export interface FeedbackDraftAttachment {
+	id: string;
+	name: string;
+	dataUrl: string;
+	sizeBytes: number;
+}
+
+export interface FeedbackDraftMessage {
+	role: 'user' | 'assistant' | 'system';
+	content: string;
+	timestamp: number;
+	confidence?: number;
+	category?: FeedbackCategory;
+	summary?: string;
+}
+
+export interface FeedbackDraftStructured {
+	expectedBehavior: string;
+	actualBehavior: string;
+	reproductionSteps: string;
+	additionalContext: string;
+}
+
+export interface FeedbackDraftResponse {
+	confidence: number;
+	ready: boolean;
+	message: string;
+	category: FeedbackCategory;
+	summary: string;
+	structured: FeedbackDraftStructured;
+}
+
+export interface FeedbackDraft {
+	id: string;
+	suggestedName: string;
+	category: FeedbackCategory;
+	summary: string;
+	confidence: number;
+	agentType: string;
+	messages: FeedbackDraftMessage[];
+	attachments: FeedbackDraftAttachment[];
+	inputDraft: string;
+	includeDebugPackage: boolean;
+	createdAt: number;
+	updatedAt: number;
+	lastResponse?: FeedbackDraftResponse | null;
+}
+
 export interface FeedbackSubmissionPayload {
 	sessionId: string;
 	category: FeedbackCategory;
@@ -107,6 +155,14 @@ export interface FeedbackApi {
 	 * Subscribe to an existing issue (+1 reaction) and optionally comment
 	 */
 	subscribeIssue: (issueNumber: number, comment?: string) => Promise<FeedbackSubmitResponse>;
+	/**
+	 * Persisted, resumable feedback drafts (list / upsert / delete)
+	 */
+	drafts: {
+		list: () => Promise<{ drafts: FeedbackDraft[] }>;
+		save: (draft: FeedbackDraft) => Promise<{ draft: FeedbackDraft }>;
+		delete: (id: string) => Promise<Record<string, never>>;
+	};
 }
 
 /**
@@ -140,5 +196,13 @@ export function createFeedbackApi(): FeedbackApi {
 
 		subscribeIssue: (issueNumber: number, comment?: string): Promise<FeedbackSubmitResponse> =>
 			ipcRenderer.invoke('feedback:subscribe-issue', { issueNumber, comment }),
+
+		drafts: {
+			list: (): Promise<{ drafts: FeedbackDraft[] }> => ipcRenderer.invoke('feedback:drafts:list'),
+			save: (draft: FeedbackDraft): Promise<{ draft: FeedbackDraft }> =>
+				ipcRenderer.invoke('feedback:drafts:save', draft),
+			delete: (id: string): Promise<Record<string, never>> =>
+				ipcRenderer.invoke('feedback:drafts:delete', { id }),
+		},
 	};
 }

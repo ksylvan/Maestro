@@ -52,6 +52,15 @@ export interface ParsedArgs {
 	passThroughArgs: string[];
 	streamThinking: boolean;
 	maxWaitSeconds: number;
+	/**
+	 * Budget for the FIRST JSONL entry to arrive after the prompt is sent
+	 * (handshake + cold start + claude beginning the turn). Distinct from
+	 * `maxWaitSeconds`, which governs the gap BETWEEN bytes once output is
+	 * already flowing. A turn that never produces any output (e.g. the prompt
+	 * was lost into a startup modal) fails at this bound with a `first_byte_timeout`
+	 * instead of burning the full idle budget. Always <= maxWaitSeconds.
+	 */
+	firstByteTimeoutSeconds: number;
 	resumeSessionId: string | null;
 	/**
 	 * True when invoked with `--input-format stream-json`. Maestro sets this
@@ -74,6 +83,19 @@ export interface ParseArgsOptions {
 
 export const DEFAULT_MAX_WAIT_SECONDS = 300;
 
+// How long to wait for claude to produce its FIRST JSONL entry after the prompt
+// is sent, before giving up with `first_byte_timeout`. Must cover a cold TUI
+// start + MCP handshake + model warmup AND the turn's own pre-transcript work:
+// heavy scheduled prompts (full news analysis + web search + extended thinking)
+// can keep the working spinner animating for minutes BEFORE claude writes its
+// first transcript line, and the `--resume` path additionally reloads a large
+// prior conversation before new output begins. At the old 120s, those healthy
+// turns were being killed mid-think. 240s clears them while still sitting a
+// real margin below the 300s idle budget, so a turn that genuinely never starts
+// still fails before the whole `--max-wait` window. Overridable via
+// `--first-byte-timeout`.
+export const DEFAULT_FIRST_BYTE_TIMEOUT_SECONDS = 240;
+
 const PROMPT_VALUE_FLAGS = new Set(['-p', '--print', '--prompt']);
 const CONSUMED_BOOLEAN_FLAGS = new Set(['-h', '--help', '-v', '--version']);
 // `--input-format` is handled specially below: `stream-json` flips
@@ -95,8 +117,40 @@ const KNOWN_CLAUDE_BOOLEAN_LONG_FLAGS = new Set([
 	'--dangerously-skip-permissions',
 ]);
 
+/** Blocking sleep with no event loop, used to back off on EAGAIN. */
+function sleepSync(ms: number): void {
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 function defaultReadStdin(): string {
-	return fs.readFileSync(0, 'utf-8');
+	// `fs.readFileSync(0)` throws EAGAIN when stdin is a NON-BLOCKING pipe that
+	// isn't fully buffered yet - which is exactly how Electron's `process.execPath`
+	// (ELECTRON_RUN_AS_NODE) hands us stdin. Small payloads fit the initial buffer
+	// and never hit it; a large stream-json image envelope (multiple MB) does, and
+	// the bare readFileSync crashed maestro-p with "EAGAIN ... read" - surfaced to
+	// the user as "Agent exited with code 1" on any TUI turn with an attached image.
+	// Read in a loop, backing off on EAGAIN until EOF.
+	const CHUNK = 65536;
+	const buf = Buffer.alloc(CHUNK);
+	const out: Buffer[] = [];
+	for (;;) {
+		let bytesRead: number;
+		try {
+			bytesRead = fs.readSync(0, buf, 0, CHUNK, null);
+		} catch (err) {
+			const code = (err as NodeJS.ErrnoException).code;
+			if (code === 'EAGAIN') {
+				sleepSync(5);
+				continue;
+			}
+			// Some platforms surface end-of-pipe as EOF rather than a 0-byte read.
+			if (code === 'EOF') break;
+			throw err;
+		}
+		if (bytesRead === 0) break;
+		out.push(Buffer.from(buf.subarray(0, bytesRead)));
+	}
+	return Buffer.concat(out).toString('utf-8');
 }
 
 function defaultWarn(message: string): void {
@@ -127,6 +181,7 @@ export function parseArgs(argv: string[], options: ParseArgsOptions = {}): Parse
 	let promptFromPositional: string | null = null;
 	let streamThinking = false;
 	let maxWaitSeconds = DEFAULT_MAX_WAIT_SECONDS;
+	let firstByteTimeoutSeconds = DEFAULT_FIRST_BYTE_TIMEOUT_SECONDS;
 	let resumeSessionId: string | null = null;
 	let streamJsonInput = false;
 	const passThroughArgs: string[] = [];
@@ -211,6 +266,26 @@ export function parseArgs(argv: string[], options: ParseArgsOptions = {}): Parse
 				} else {
 					warn(
 						`maestro-p: --max-wait "${value}" is not a positive integer; using default ${DEFAULT_MAX_WAIT_SECONDS}s.`
+					);
+				}
+			}
+			i += 1;
+			continue;
+		}
+
+		if (flag === '--first-byte-timeout') {
+			const value = consumeValue();
+			if (value === undefined) {
+				warn(
+					`maestro-p: --first-byte-timeout requires a value; using default ${DEFAULT_FIRST_BYTE_TIMEOUT_SECONDS}s.`
+				);
+			} else {
+				const parsed = Number.parseInt(value, 10);
+				if (Number.isFinite(parsed) && parsed > 0) {
+					firstByteTimeoutSeconds = parsed;
+				} else {
+					warn(
+						`maestro-p: --first-byte-timeout "${value}" is not a positive integer; using default ${DEFAULT_FIRST_BYTE_TIMEOUT_SECONDS}s.`
 					);
 				}
 			}
@@ -329,12 +404,21 @@ export function parseArgs(argv: string[], options: ParseArgsOptions = {}): Parse
 		}
 	}
 
+	// The first-byte budget never exceeds the overall idle budget: if a caller
+	// sets a tight `--max-wait` (shorter than the first-byte default), the
+	// overall budget wins so we don't keep waiting for a first byte past the
+	// point the caller wanted the whole run abandoned.
+	if (firstByteTimeoutSeconds > maxWaitSeconds) {
+		firstByteTimeoutSeconds = maxWaitSeconds;
+	}
+
 	return {
 		prompt,
 		mode,
 		passThroughArgs,
 		streamThinking,
 		maxWaitSeconds,
+		firstByteTimeoutSeconds,
 		resumeSessionId,
 		streamJsonInput,
 	};

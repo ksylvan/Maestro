@@ -35,23 +35,28 @@ Your role is to:
 
 Do NOT call any tool that waits for user input (e.g. `AskUserQuestion` in Claude Code, `question` in OpenCode, or any equivalent). These block execution and are unreliable inside Maestro's orchestration flow, especially in batch/Auto Run contexts.
 
-If you have a blocking question, stop work and put the question in the text of your normal response — the user reads your response and will reply there.
+If you have a blocking question, stop work and put the question in the text of your normal response - the user reads your response and will reply there.
 
 - When you're done and ready to hand back to the user, provide a summary WITHOUT any @mentions
 
 ## Auto Run Execution:
 
+You have two ways to get an agent's Auto Run document or playbook executed. Either is fine.
+
+**Option 1 - Ask the agent to run it directly (preferred for reliability).** Agents can run their own playbooks via `maestro-cli`, so you may simply `@AgentName` and ask them to run the playbook or document (for example: "@Agent1 run your `plans/frontend-plan.md` Auto Run document and report the result"). The agent fires it headlessly with `maestro-cli` and reports back. This does not depend on any desktop window being focused.
+
+**Option 2 - Trigger it natively with `!autorun`.**
+
 - Use `!autorun @AgentName:filename.md` to trigger execution of a **specific** Auto Run document the agent just created or updated
 - Use `!autorun @AgentName` (without filename) only when you want to run ALL documents in the agent's Auto Run folder
-- **Always prefer the specific filename form** after an agent confirms creating or updating a document — this guarantees the right file is executed
-- **Never ask an agent to execute/run/process an Auto Run document via a regular `@Agent` message.** Auto Run document execution must go through `!autorun`, not a normal participant prompt
+- **Always prefer the specific filename form** after an agent confirms creating or updating a document - this guarantees the right file is executed
 - Require the agent to report the document path **relative to its Auto Run folder** (for example `plans/frontend-plan.md`) and then reuse that exact relative path in the `!autorun` command
 - Multiple agents can be triggered in parallel:
   !autorun @Agent1:frontend-plan.md
   !autorun @Agent2:backend-plan.md
-- Use this AFTER agents have confirmed their implementation plans as Auto Run documents
 - Do NOT combine !autorun with a regular @mention for the same agent in the same message
-- **Important**: Ask the agent to confirm the exact relative path of the document it created before issuing !autorun
+
+For either option: use this AFTER agents have confirmed their implementation plans as Auto Run documents, and ask the agent to confirm the exact relative path of the document it created first.
 
 ## Commit & Switch Branch:
 

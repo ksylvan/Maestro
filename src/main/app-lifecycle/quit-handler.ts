@@ -17,6 +17,7 @@ import { stopAllCueCliRuns } from '../cue/cue-cli-executor';
 import { flushTelemetry } from '../cue/cue-telemetry';
 import { captureException } from '../utils/sentry';
 import { powerManager as powerManagerInstance } from '../power-manager';
+import { isMacOS } from '../../shared/platformDetection';
 
 /**
  * Safety timeout for quit confirmation from the renderer.
@@ -24,6 +25,60 @@ import { powerManager as powerManagerInstance } from '../power-manager';
  * renderer crashed), force-quit to prevent the app from lingering in the background.
  */
 const QUIT_CONFIRMATION_TIMEOUT_MS = 5000;
+
+/**
+ * Grace window between running cleanup and hard-exiting on a normal user quit.
+ *
+ * After performCleanup() the only work left is fire-and-forget (telemetry POST,
+ * the tunnel's SIGTERM->exit, web-server socket close). The critical teardown
+ * (PTY SIGKILL, stats DB close) already ran synchronously. We let those tails
+ * make progress for this long, then hardExit() the process. Kept short so quit
+ * still feels instant; the trade is a sub-second delay for a guaranteed exit.
+ */
+const FORCE_EXIT_GRACE_MS = 750;
+
+/**
+ * Grace window for the macOS update-install path before hard-exiting.
+ *
+ * By the time before-quit fires, `autoUpdater.quitAndInstall()` has already
+ * spawned Squirrel.Mac's ShipIt helper, which only waits for our PID to die
+ * before swapping the .app bundle and relaunching - it needs nothing from our
+ * in-process teardown. We give the spawned helper a slightly longer settle
+ * window than a normal quit (the cost of a failed update is high), then
+ * hardExit() to dodge the native-addon finalizer deadlock that the *graceful*
+ * teardown hits (see hardExit() and the before-quit handler).
+ */
+const UPDATE_EXIT_GRACE_MS = 2000;
+
+/**
+ * Terminates the process immediately, bypassing Electron's Node-environment
+ * teardown.
+ *
+ * Why not app.exit()/process.exit(): both still run node::FreeEnvironment ->
+ * Environment::CleanupHandles, which finalizes native-addon ThreadSafeFunctions.
+ * A node-pty / fsevents TSFN whose underlying mutex is already gone deadlocks
+ * there on uv_mutex_lock and hangs the process forever, forcing the user to kill
+ * it from Activity Monitor (MAESTRO-3B). Confirmed via `sample`: on quit the main
+ * thread parks in napi_release_threadsafe_function -> uv_mutex_lock ->
+ * __psynch_mutexwait and never returns, even after app.exit(0) is called.
+ *
+ * SIGKILL to self is kernel-enforced, uncatchable, and runs no finalizers, so it
+ * cannot deadlock. On Windows, Node maps 'SIGKILL' to TerminateProcess on the
+ * target, which is the equivalent hard kill. All durable state (stats DB,
+ * unflushed telemetry rows in SQLite) was already persisted synchronously in
+ * performCleanup before the grace window, so nothing is lost.
+ */
+function hardExit(): void {
+	try {
+		process.kill(process.pid, 'SIGKILL');
+	} catch (err) {
+		// process.kill should never throw when signalling self, but if it does
+		// fall back to app.exit() so we still attempt to terminate rather than
+		// linger in the background.
+		logger.error(`Hard exit via SIGKILL failed, falling back to app.exit: ${err}`, 'Shutdown');
+		app.exit(0);
+	}
+}
 
 /** Dependencies for quit handler */
 export interface QuitHandlerDependencies {
@@ -61,6 +116,15 @@ interface QuitHandlerState {
 	isRequestingConfirmation: boolean;
 	/** Safety timeout for quit confirmation — forces quit if renderer never responds */
 	confirmationTimeout: ReturnType<typeof setTimeout> | null;
+	/**
+	 * Whether this quit is the auto-updater installing an update. On that path we
+	 * must let Electron's graceful will-quit/quit teardown run so electron-updater
+	 * can apply the update (Squirrel.Mac install-on-quit, the Windows NSIS handoff).
+	 * The force-exit fallback is skipped when this is set.
+	 */
+	installingUpdate: boolean;
+	/** Guards against re-entrant before-quit running cleanup / arming the timer twice. */
+	cleanupStarted: boolean;
 }
 
 /** Quit handler instance */
@@ -106,6 +170,8 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 		quitConfirmed: false,
 		isRequestingConfirmation: false,
 		confirmationTimeout: null,
+		installingUpdate: false,
+		cleanupStarted: false,
 	};
 
 	return {
@@ -125,6 +191,16 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 				clearConfirmationTimeout();
 				state.isRequestingConfirmation = false;
 				// Nothing to do - app stays running
+			});
+
+			// Renderer is showing the quit-confirmation modal and is waiting on the
+			// user. Disarm the dead-renderer safety timeout so we don't force-quit
+			// out from under an open dialog. We keep isRequestingConfirmation set so
+			// repeat quit attempts stay suppressed; the eventual confirm/cancel from
+			// the modal clears it.
+			ipcMain.on('app:quitConfirmationPending', () => {
+				logger.info('Quit confirmation pending — user deciding, disarming timeout', 'Window');
+				clearConfirmationTimeout();
 			});
 
 			// IMPORTANT: This handler must be synchronous for event.preventDefault() to work!
@@ -175,8 +251,47 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 					return;
 				}
 
-				// Quit confirmed - proceed with cleanup (async operations are fire-and-forget)
+				// Quit confirmed. Guard against a re-entrant before-quit (e.g. another
+				// path calling app.quit() during the grace window) running cleanup or
+				// arming the timer twice.
+				if (state.cleanupStarted) {
+					return;
+				}
+				state.cleanupStarted = true;
+
+				// Proceed with cleanup (async operations are fire-and-forget).
 				performCleanup();
+
+				// Take control of the exit on every path that can deadlock: hold the
+				// event loop open (preventDefault) and hardExit() after a grace window.
+				// This dodges the native Node-environment teardown that can hang the
+				// process forever on node-pty / fsevents ThreadSafeFunction finalizers
+				// (see hardExit() and FORCE_EXIT_GRACE_MS).
+				//
+				// The update-install path used to opt out of this and let Electron's
+				// graceful teardown run "so electron-updater can apply the update". On
+				// macOS that was wrong: Squirrel.Mac applies the update from an external
+				// ShipIt helper that quitAndInstall already spawned before this handler
+				// fires - it only needs our PID to die, not a graceful exit. Routing it
+				// through the graceful path instead reintroduced the very deadlock the
+				// hardExit() change was made to avoid, leaving "Maestro (not responding)"
+				// after "Restart to Update" until the user force-quit. So on macOS we
+				// hard-exit here too (after a longer settle window). Windows/Linux keep
+				// the graceful teardown their updater handoffs are written against.
+				const forceExitOnInstall = state.installingUpdate && isMacOS();
+				if (!state.installingUpdate || forceExitOnInstall) {
+					event.preventDefault();
+					const graceMs = state.installingUpdate ? UPDATE_EXIT_GRACE_MS : FORCE_EXIT_GRACE_MS;
+					setTimeout(() => {
+						logger.info(
+							forceExitOnInstall
+								? 'Hard-exiting after update-install grace window (ShipIt armed; dodging teardown deadlock)'
+								: 'Hard-exiting after cleanup grace window',
+							'Shutdown'
+						);
+						hardExit();
+					}, graceMs);
+				}
 			});
 		},
 
@@ -185,6 +300,12 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 		confirmQuit: () => {
 			clearConfirmationTimeout();
 			state.quitConfirmed = true;
+			// confirmQuit() is only invoked from the auto-updater's
+			// onBeforeQuitAndInstall hook (the renderer's user-quit path goes through
+			// the 'app:quitConfirmed' IPC handler instead). Mark this so the
+			// before-quit handler skips the force-exit and lets the updater apply the
+			// update via the graceful will-quit/quit teardown.
+			state.installingUpdate = true;
 		},
 	};
 

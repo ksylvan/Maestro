@@ -35,10 +35,12 @@ const mockSetBionifyReadingMode = vi.fn();
 const mockSetBionifyIntensity = vi.fn();
 const mockSetBionifyAlgorithm = vi.fn();
 const mockSetUserMessageAlignment = vi.fn();
+const mockSetGroupChatAutoScroll = vi.fn();
 const mockSetFileExplorerIconTheme = vi.fn();
 const mockSetUseNativeTitleBar = vi.fn();
 const mockSetAutoHideMenuBar = vi.fn();
 const mockSetDocumentGraphShowExternalLinks = vi.fn();
+const mockSetLeftPanelCollapsedPillsPerRow = vi.fn();
 const mockSetDocumentGraphMaxNodes = vi.fn();
 const mockUpdateContextManagementSettings = vi.fn();
 const mockSetLocalIgnorePatterns = vi.fn();
@@ -74,12 +76,16 @@ vi.mock('../../../../../renderer/hooks/settings/useSettings', () => ({
 		setBionifyAlgorithm: mockSetBionifyAlgorithm,
 		userMessageAlignment: 'right',
 		setUserMessageAlignment: mockSetUserMessageAlignment,
+		groupChatAutoScroll: true,
+		setGroupChatAutoScroll: mockSetGroupChatAutoScroll,
 		fileExplorerIconTheme: 'default',
 		setFileExplorerIconTheme: mockSetFileExplorerIconTheme,
 		useNativeTitleBar: false,
 		setUseNativeTitleBar: mockSetUseNativeTitleBar,
 		autoHideMenuBar: false,
 		setAutoHideMenuBar: mockSetAutoHideMenuBar,
+		leftPanelCollapsedPillsPerRow: 15,
+		setLeftPanelCollapsedPillsPerRow: mockSetLeftPanelCollapsedPillsPerRow,
 		documentGraphShowExternalLinks: true,
 		setDocumentGraphShowExternalLinks: mockSetDocumentGraphShowExternalLinks,
 		documentGraphMaxNodes: 200,
@@ -122,6 +128,7 @@ vi.mock('../../../../../renderer/hooks/settings/useSettings', () => ({
 			htmlRender: true,
 			previewTier: true,
 			editToggle: true,
+			editImage: true,
 			copyContent: true,
 			publishGist: true,
 			documentGraph: true,
@@ -202,6 +209,22 @@ describe('DisplayTab', () => {
 		vi.useRealTimers();
 		vi.clearAllMocks();
 		mockUseSettingsOverrides = {};
+	});
+
+	describe('Group Chats', () => {
+		it('should render and toggle the auto-scroll setting', () => {
+			render(<DisplayTab theme={mockTheme} />);
+
+			expect(screen.getByText('Group Chats')).toBeInTheDocument();
+			const toggle = screen.getByRole('switch', {
+				name: 'Auto-scroll group chats to newest message',
+			});
+			expect(toggle).toHaveAttribute('aria-checked', 'true');
+
+			fireEvent.click(toggle);
+
+			expect(mockSetGroupChatAutoScroll).toHaveBeenCalledWith(false);
+		});
 	});
 
 	describe('Files Pane Icon Theme', () => {
@@ -721,7 +744,7 @@ describe('DisplayTab', () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			fireEvent.click(screen.getByRole('button', { name: '1000' }));
+			fireEvent.click(screen.getByRole('button', { name: '1.0K' }));
 			expect(mockSetMaxLogBuffer).toHaveBeenCalledWith(1000);
 		});
 
@@ -732,7 +755,7 @@ describe('DisplayTab', () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			fireEvent.click(screen.getByRole('button', { name: '5000' }));
+			fireEvent.click(screen.getByRole('button', { name: '5.0K' }));
 			expect(mockSetMaxLogBuffer).toHaveBeenCalledWith(5000);
 		});
 
@@ -743,7 +766,7 @@ describe('DisplayTab', () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			fireEvent.click(screen.getByRole('button', { name: '10000' }));
+			fireEvent.click(screen.getByRole('button', { name: '10.0K' }));
 			expect(mockSetMaxLogBuffer).toHaveBeenCalledWith(10000);
 		});
 
@@ -754,7 +777,7 @@ describe('DisplayTab', () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			fireEvent.click(screen.getByRole('button', { name: '25000' }));
+			fireEvent.click(screen.getByRole('button', { name: '25.0K' }));
 			expect(mockSetMaxLogBuffer).toHaveBeenCalledWith(25000);
 		});
 
@@ -1262,10 +1285,12 @@ describe('DisplayTab', () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			// Multiple sliders exist (doc graph, yellow threshold, red threshold)
-			// The doc graph slider is the first one
-			const sliders = screen.getAllByRole('slider');
-			const docGraphSlider = sliders[0];
+			// Scope to the Document Graph section so unrelated sliders elsewhere on
+			// the tab (e.g. left-panel pills-per-row) don't shift positional indices.
+			const docGraphSection = document.querySelector(
+				'[data-setting-id="display-document-graph"]'
+			) as HTMLElement;
+			const docGraphSlider = within(docGraphSection).getByRole('slider');
 			fireEvent.change(docGraphSlider, { target: { value: '500' } });
 
 			expect(mockSetDocumentGraphMaxNodes).toHaveBeenCalledWith(500);
@@ -1416,10 +1441,11 @@ describe('DisplayTab', () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			// Find the yellow threshold slider (first range input in the threshold area)
-			const sliders = screen.getAllByRole('slider');
-			// First slider is document graph max nodes, second is yellow, third is red
-			const yellowSlider = sliders[1];
+			// Scope to the Context Window Warnings section: slider[0] is yellow, slider[1] is red.
+			const warningsSection = document.querySelector(
+				'[data-setting-id="display-context-warnings"]'
+			) as HTMLElement;
+			const yellowSlider = within(warningsSection).getAllByRole('slider')[0];
 			fireEvent.change(yellowSlider, { target: { value: '70' } });
 
 			expect(mockUpdateContextManagementSettings).toHaveBeenCalledWith({
@@ -1434,8 +1460,10 @@ describe('DisplayTab', () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			const sliders = screen.getAllByRole('slider');
-			const yellowSlider = sliders[1];
+			const warningsSection = document.querySelector(
+				'[data-setting-id="display-context-warnings"]'
+			) as HTMLElement;
+			const yellowSlider = within(warningsSection).getAllByRole('slider')[0];
 
 			// Set yellow to 85, which is >= red (80)
 			fireEvent.change(yellowSlider, { target: { value: '85' } });
@@ -1453,8 +1481,10 @@ describe('DisplayTab', () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			const sliders = screen.getAllByRole('slider');
-			const redSlider = sliders[2];
+			const warningsSection = document.querySelector(
+				'[data-setting-id="display-context-warnings"]'
+			) as HTMLElement;
+			const redSlider = within(warningsSection).getAllByRole('slider')[1];
 			fireEvent.change(redSlider, { target: { value: '90' } });
 
 			expect(mockUpdateContextManagementSettings).toHaveBeenCalledWith({
@@ -1469,8 +1499,10 @@ describe('DisplayTab', () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			const sliders = screen.getAllByRole('slider');
-			const redSlider = sliders[2];
+			const warningsSection = document.querySelector(
+				'[data-setting-id="display-context-warnings"]'
+			) as HTMLElement;
+			const redSlider = within(warningsSection).getAllByRole('slider')[1];
 
 			// Set red to 50, which is <= yellow (60)
 			fireEvent.change(redSlider, { target: { value: '50' } });

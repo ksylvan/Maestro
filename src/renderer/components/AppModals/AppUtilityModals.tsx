@@ -1,4 +1,5 @@
 import { lazy, Suspense, memo } from 'react';
+import type React from 'react';
 import type {
 	Theme,
 	Session,
@@ -11,6 +12,7 @@ import type {
 	ThinkingMode,
 } from '../../types';
 import type { FileNode } from '../../types/fileTree';
+import type { MainPanelHandle } from '../MainPanel/types';
 import type { WizardStep } from '../Wizard/WizardContext';
 import type { FlatFileItem } from '../FileSearchModal';
 
@@ -92,9 +94,9 @@ export interface AppUtilityModalsProps {
 	onOpenTabSwitcher: () => void;
 	// Bulk tab close operations
 	onCloseAllTabs?: () => void;
-	onCloseOtherTabs?: () => void;
-	onCloseTabsLeft?: () => void;
-	onCloseTabsRight?: () => void;
+	onCloseOtherTabs?: (pivotTabId?: string) => void;
+	onCloseTabsLeft?: (pivotTabId?: string) => void;
+	onCloseTabsRight?: (pivotTabId?: string) => void;
 	setPlaygroundOpen?: (open: boolean) => void;
 	onRefreshGitFileState: () => Promise<void>;
 	onDebugReleaseQueuedItem: () => void;
@@ -103,7 +105,6 @@ export interface AppUtilityModalsProps {
 	setUpdateCheckModalOpen?: (open: boolean) => void;
 	openWizard: () => void;
 	wizardGoToStep: (step: WizardStep) => void;
-	setDebugWizardModalOpen?: (open: boolean) => void;
 	setDebugPackageModalOpen?: (open: boolean) => void;
 	setDebugApplicationStatsOpen?: (open: boolean) => void;
 	startTour: () => void;
@@ -144,6 +145,7 @@ export interface AppUtilityModalsProps {
 	onCopyTabContext?: (tabId: string) => void;
 	onExportTabHtml?: (tabId: string) => void;
 	onPublishTabGist?: (tabId: string) => void;
+	mainPanelRef?: React.RefObject<MainPanelHandle | null>;
 
 	// Gist publishing (for QuickActionsModal)
 	isFilePreviewOpen: boolean;
@@ -153,6 +155,9 @@ export interface AppUtilityModalsProps {
 	// Document Graph - quick re-open last graph
 	lastGraphFocusFile?: string;
 	onOpenLastDocumentGraph?: () => void;
+	// Document Graph - view the active markdown file
+	currentGraphFile?: string;
+	onOpenCurrentFileInGraph?: () => void;
 
 	// Symphony
 	onOpenSymphony?: () => void;
@@ -181,6 +186,9 @@ export interface AppUtilityModalsProps {
 	// GitLogViewer
 	gitLogOpen: boolean;
 	onCloseGitLog: () => void;
+
+	// Shared by both git viewers: open a clicked file path as a preview tab.
+	onOpenGitFile?: (absolutePath: string, fileName: string) => void;
 
 	// AutoRunSetupModal
 	autoRunSetupModalOpen: boolean;
@@ -260,11 +268,17 @@ export interface AppUtilityModalsProps {
 	onRemoveQueueItem: (sessionId: string, itemId: string) => void;
 	onSwitchQueueSession: (sessionId: string, tabId?: string) => void;
 	onReorderQueueItems: (sessionId: string, fromIndex: number, toIndex: number) => void;
+	onTogglePauseQueueItem: (sessionId: string, itemId: string) => void;
 	// New tab creation (for QuickActionsModal)
 	onQuickActionsNewTab?: () => void;
 	onQuickActionsNewFileTab?: () => void;
 	onQuickActionsNewBrowserTab?: () => void;
 	onQuickActionsNewTerminalTab?: () => void;
+	// Next unread / draft tab navigation (shared with Alt+Cmd+Down)
+	onGoToNextUnread?: () => void;
+	// Session/tab history navigation (shared with Cmd+Shift+, / Cmd+Shift+.)
+	onNavBack?: () => void;
+	onNavForward?: () => void;
 }
 
 /**
@@ -342,7 +356,6 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 	setUpdateCheckModalOpen,
 	openWizard,
 	wizardGoToStep,
-	setDebugWizardModalOpen,
 	setDebugPackageModalOpen,
 	setDebugApplicationStatsOpen,
 	startTour,
@@ -375,6 +388,7 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 	onCopyTabContext,
 	onExportTabHtml,
 	onPublishTabGist,
+	mainPanelRef,
 	// Gist publishing
 	isFilePreviewOpen,
 	ghCliAvailable,
@@ -382,6 +396,9 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 	// Document Graph - quick re-open last graph
 	lastGraphFocusFile,
 	onOpenLastDocumentGraph,
+	// Document Graph - view the active markdown file
+	currentGraphFile,
+	onOpenCurrentFileInGraph,
 	// Symphony
 	onOpenSymphony,
 	// Director's Notes
@@ -404,6 +421,7 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 	// GitLogViewer
 	gitLogOpen,
 	onCloseGitLog,
+	onOpenGitFile,
 	// AutoRunSetupModal
 	autoRunSetupModalOpen,
 	onCloseAutoRunSetup,
@@ -462,11 +480,15 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 	onRemoveQueueItem,
 	onSwitchQueueSession,
 	onReorderQueueItems,
+	onTogglePauseQueueItem,
 	// New tab creation (for QuickActionsModal)
 	onQuickActionsNewTab,
 	onQuickActionsNewFileTab,
 	onQuickActionsNewBrowserTab,
 	onQuickActionsNewTerminalTab,
+	onGoToNextUnread,
+	onNavBack,
+	onNavForward,
 }: AppUtilityModalsProps) {
 	// Read per-modal data from the modal store for modals that support it.
 	// `presetDocuments` is set by the inline wizard's "Start Auto Run" button so
@@ -534,7 +556,6 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 					setUpdateCheckModalOpen={setUpdateCheckModalOpen}
 					openWizard={openWizard}
 					wizardGoToStep={wizardGoToStep}
-					setDebugWizardModalOpen={setDebugWizardModalOpen}
 					setDebugPackageModalOpen={setDebugPackageModalOpen}
 					setDebugApplicationStatsOpen={setDebugApplicationStatsOpen}
 					startTour={startTour}
@@ -566,12 +587,15 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 					onCopyTabContext={onCopyTabContext}
 					onExportTabHtml={onExportTabHtml}
 					onPublishTabGist={onPublishTabGist}
+					mainPanelRef={mainPanelRef}
 					isFilePreviewOpen={isFilePreviewOpen}
 					ghCliAvailable={ghCliAvailable}
 					onPublishGist={onPublishGist}
 					onOpenPlaybookExchange={onOpenMarketplace}
 					lastGraphFocusFile={lastGraphFocusFile}
 					onOpenLastDocumentGraph={onOpenLastDocumentGraph}
+					currentGraphFile={currentGraphFile}
+					onOpenCurrentFileInGraph={onOpenCurrentFileInGraph}
 					onOpenSymphony={onOpenSymphony}
 					onOpenDirectorNotes={onOpenDirectorNotes}
 					onOpenMaestroCue={onOpenMaestroCue}
@@ -581,6 +605,9 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 					onNewFileTab={onQuickActionsNewFileTab}
 					onNewBrowserTab={onQuickActionsNewBrowserTab}
 					onNewTerminalTab={onQuickActionsNewTerminalTab}
+					onGoToNextUnread={onGoToNextUnread}
+					onNavBack={onNavBack}
+					onNavForward={onNavForward}
 				/>
 			)}
 
@@ -605,6 +632,7 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 						cwd={gitViewerCwd}
 						theme={theme}
 						onClose={onCloseGitDiff}
+						onOpenFile={onOpenGitFile}
 					/>
 				</Suspense>
 			)}
@@ -616,6 +644,7 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 						cwd={gitViewerCwd}
 						theme={theme}
 						onClose={onCloseGitLog}
+						onOpenFile={onOpenGitFile}
 						sshRemoteId={
 							activeSession?.sshRemoteId ||
 							(activeSession?.sessionSshRemoteConfig?.enabled
@@ -657,7 +686,6 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 					lastModifiedAt={activeSession.batchRunnerPromptModifiedAt}
 					showConfirmation={showConfirmation}
 					folderPath={activeSession.autoRunFolderPath}
-					currentDocument={activeSession.autoRunSelectedFile || ''}
 					presetDocuments={batchRunnerPresetDocuments}
 					allDocuments={autoRunDocumentList}
 					documentTree={autoRunDocumentTree}
@@ -746,6 +774,7 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 					onRemoveItem={onRemoveQueueItem}
 					onSwitchSession={onSwitchQueueSession}
 					onReorderItems={onReorderQueueItems}
+					onToggleItemPause={onTogglePauseQueueItem}
 				/>
 			)}
 		</>

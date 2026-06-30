@@ -9,6 +9,7 @@
  * - directorySize: Calculate directory size recursively (local & SSH remote)
  * - writeFile: Write content to file (local & SSH remote)
  * - rename: Rename file/directory (local & SSH remote)
+ * - copyPath: Copy a file/directory into a destination (local only; drag-import)
  * - delete: Delete file/directory (local & SSH remote)
  * - countItems: Count files and folders recursively (local & SSH remote)
  * - fetchImageAsBase64: Fetch image from URL and return as base64
@@ -30,8 +31,10 @@ import {
 import {
 	readDirRemote,
 	readFileRemote,
+	readBinaryFileRemoteAsBase64,
 	readFileRemoteAbortable,
 	writeFileRemote,
+	mkdirRemote,
 	statRemote,
 	directorySizeRemote,
 	renameRemote,
@@ -185,6 +188,24 @@ export function registerFilesystemHandlers(): void {
 					if (!sshConfig) {
 						throw new Error(`SSH remote not found: ${sshRemoteId}`);
 					}
+
+					// Images must be read as base64 ON THE REMOTE: a `cat`-over-SSH read
+					// returns stdout decoded as text, which mangles binary bytes beyond
+					// local recovery (the old "binary images may have issues" path). The
+					// remote `base64` output is pure ASCII and survives the text channel.
+					const imgExt = filePath.split('.').pop()?.toLowerCase();
+					if (IMAGE_EXTENSIONS.includes(imgExt || '')) {
+						const imgResult = await readBinaryFileRemoteAsBase64(filePath, sshConfig);
+						if (!imgResult.success) {
+							if (imgResult.error?.startsWith('File not found:')) {
+								return null;
+							}
+							throw new Error(imgResult.error || 'Failed to read remote image');
+						}
+						const mimeType = imgExt === 'svg' ? 'image/svg+xml' : `image/${imgExt}`;
+						return `data:${mimeType};base64,${imgResult.data}`;
+					}
+
 					let result: Awaited<ReturnType<typeof readFileRemote>>;
 					if (requestId) {
 						const controller = new AbortController();
@@ -203,17 +224,13 @@ export function registerFilesystemHandlers(): void {
 						result = await readFileRemote(filePath, sshConfig);
 					}
 					if (!result.success) {
+						// Missing remote files mirror the local ENOENT path below: return
+						// null instead of throwing so callers can handle absence cleanly
+						// without surfacing an unhandled IPC rejection. (MAESTRO-MG/MF)
+						if (result.error?.startsWith('File not found:')) {
+							return null;
+						}
 						throw new Error(result.error || 'Failed to read remote file');
-					}
-					// For images over SSH, we'd need to base64 encode on remote and decode here
-					// For now, return raw content (text files work, binary images may have issues)
-					const ext = filePath.split('.').pop()?.toLowerCase();
-					const isImage = IMAGE_EXTENSIONS.includes(ext || '');
-					if (isImage) {
-						// The remote readFile returns raw bytes as string - convert to base64 data URL
-						const mimeType = ext === 'svg' ? 'image/svg+xml' : `image/${ext}`;
-						const base64 = Buffer.from(result.data!, 'binary').toString('base64');
-						return `data:${mimeType};base64,${base64}`;
 					}
 					return result.data!;
 				}
@@ -290,6 +307,38 @@ export function registerFilesystemHandlers(): void {
 		}
 	});
 
+	// Download a remote SSH file to the local disk. The remote bytes are read as
+	// base64 ON THE REMOTE (binary-safe over SSH's text channel) and decoded to
+	// raw bytes locally. SSH-only: there is no local fallback because a local file
+	// is already on disk and needs no download. When `localDestPath` is omitted the
+	// file lands in a temp dir (used by "Open in Default App" for remote binaries);
+	// pass an explicit path for the user-chosen "Download File" save location.
+	// Returns the absolute path the file was written to.
+	ipcMain.handle(
+		'fs:downloadRemoteFile',
+		async (_, remotePath: string, sshRemoteId: string, localDestPath?: string) => {
+			const sshConfig = getSshRemoteById(sshRemoteId);
+			if (!sshConfig) {
+				throw new Error(`SSH remote not found: ${sshRemoteId}`);
+			}
+
+			const result = await readBinaryFileRemoteAsBase64(remotePath, sshConfig);
+			if (!result.success) {
+				throw new Error(result.error || `Failed to download remote file: ${remotePath}`);
+			}
+
+			let destPath = localDestPath;
+			if (!destPath) {
+				const tempDir = path.join(os.tmpdir(), 'maestro-remote-downloads');
+				await fs.mkdir(tempDir, { recursive: true });
+				destPath = path.join(tempDir, path.basename(remotePath));
+			}
+
+			await fs.writeFile(destPath, Buffer.from(result.data ?? '', 'base64'));
+			return { success: true, path: destPath };
+		}
+	);
+
 	// Get file/directory statistics (supports SSH remote)
 	ipcMain.handle('fs:stat', async (_, filePath: string, sshRemoteId?: string) => {
 		try {
@@ -301,6 +350,12 @@ export function registerFilesystemHandlers(): void {
 				}
 				const result = await statRemote(filePath, sshConfig);
 				if (!result.success) {
+					// Missing remote paths return null instead of throwing (mirrors the
+					// local ENOENT handling below and fs:readFile) so callers can handle
+					// absence without an unhandled IPC rejection. (MAESTRO-MH/ME)
+					if (result.error?.startsWith('Path not found:')) {
+						return null;
+					}
 					throw new Error(result.error || 'Failed to get remote file stats');
 				}
 				// Map remote stat result to match local format
@@ -324,7 +379,17 @@ export function registerFilesystemHandlers(): void {
 				isDirectory: stats.isDirectory(),
 				isFile: stats.isFile(),
 			};
-		} catch (error) {
+		} catch (error: any) {
+			// Return null for missing files/paths instead of throwing, matching the
+			// fs:readFile handler's ENOENT contract. Callers stat phantom targets
+			// routinely (e.g. the Document Graph following unresolved [[wiki]] links),
+			// and a missing target is an expected, benign condition - not an error.
+			// ENOTDIR covers links that treat a file as a directory (e.g. `[[file.md/sub]]`).
+			// Mirrors fs:readFile so callers avoid an unhandled IPC rejection reaching
+			// Sentry. (MAESTRO-MH/ME)
+			if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') {
+				return null;
+			}
 			throw new Error(`Failed to get file stats: ${error}`);
 		}
 	});
@@ -450,6 +515,67 @@ export function registerFilesystemHandlers(): void {
 		}
 	);
 
+	// Write a base64 data URL to disk as binary (supports SSH remote). Used by
+	// the image annotator's "save to file" flow, where the composited image is a
+	// `data:image/...;base64,...` URL that must be written as raw bytes (the
+	// plain `fs:writeFile` handler encodes content as UTF-8, which corrupts
+	// binary payloads).
+	ipcMain.handle(
+		'fs:writeImageFile',
+		async (_, filePath: string, dataUrl: string, sshRemoteId?: string) => {
+			try {
+				const commaIndex = dataUrl.indexOf(',');
+				const base64 =
+					commaIndex >= 0 && dataUrl.startsWith('data:') ? dataUrl.slice(commaIndex + 1) : dataUrl;
+				const buffer = Buffer.from(base64, 'base64');
+
+				// SSH remote: writeFileRemote accepts a Buffer and base64-encodes it
+				// for safe transfer, decoding on the remote side.
+				if (sshRemoteId) {
+					const sshConfig = getSshRemoteById(sshRemoteId);
+					if (!sshConfig) {
+						throw new Error(`SSH remote not found: ${sshRemoteId}`);
+					}
+					const result = await writeFileRemote(filePath, buffer, sshConfig);
+					if (!result.success) {
+						throw new Error(result.error || 'Failed to write remote file');
+					}
+					return { success: true };
+				}
+
+				await fs.writeFile(filePath, buffer);
+				return { success: true };
+			} catch (error) {
+				throw new Error(`Failed to write image file: ${error}`);
+			}
+		}
+	);
+
+	// Create a directory (supports SSH remote). Recursive so intermediate
+	// parents are created as needed.
+	ipcMain.handle('fs:mkdir', async (_, dirPath: string, sshRemoteId?: string) => {
+		try {
+			// SSH remote: dispatch to remote fs operations
+			if (sshRemoteId) {
+				const sshConfig = getSshRemoteById(sshRemoteId);
+				if (!sshConfig) {
+					throw new Error(`SSH remote not found: ${sshRemoteId}`);
+				}
+				const result = await mkdirRemote(dirPath, sshConfig, true);
+				if (!result.success) {
+					throw new Error(result.error || 'Failed to create remote directory');
+				}
+				return { success: true };
+			}
+
+			// Local: standard fs mkdir
+			await fs.mkdir(dirPath, { recursive: true });
+			return { success: true };
+		} catch (error) {
+			throw new Error(`Failed to create directory: ${error}`);
+		}
+	});
+
 	// Rename a file or folder (supports SSH remote)
 	ipcMain.handle('fs:rename', async (_, oldPath: string, newPath: string, sshRemoteId?: string) => {
 		try {
@@ -473,6 +599,29 @@ export function registerFilesystemHandlers(): void {
 			throw new Error(`Failed to rename: ${error}`);
 		}
 	});
+
+	// Copy a file or folder from an arbitrary source path into a destination path.
+	// Local only: used by drag-and-drop import of OS files/folders into the file
+	// tree. SSH remotes are intentionally unsupported (the source lives on the
+	// local machine, so there is nothing sensible to copy on the remote host).
+	ipcMain.handle(
+		'fs:copyPath',
+		async (_, sourcePath: string, destPath: string, options?: { overwrite?: boolean }) => {
+			try {
+				const overwrite = options?.overwrite ?? false;
+				// `recursive: true` copies folders wholesale; for plain files it is a no-op.
+				// `force`/`errorOnExist` encode the conflict decision the renderer already made.
+				await fs.cp(sourcePath, destPath, {
+					recursive: true,
+					force: overwrite,
+					errorOnExist: !overwrite,
+				});
+				return { success: true };
+			} catch (error) {
+				throw new Error(`Failed to copy: ${error}`);
+			}
+		}
+	);
 
 	// Delete a file or folder (with recursive option for folders, supports SSH remote)
 	ipcMain.handle(

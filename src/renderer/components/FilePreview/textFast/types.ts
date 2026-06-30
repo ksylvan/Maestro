@@ -1,5 +1,5 @@
 import type { Theme } from '../../../constants/themes';
-import type { SearchHit } from '../search/types';
+import type { SearchHit, SearchHitOptions } from '../search/types';
 
 /**
  * One paginated chunk of text content emitted by the Fast tier text preview.
@@ -33,9 +33,13 @@ export interface TextPreviewFastHandle {
 	/** Total page count for the currently-loaded document. */
 	getPageCount(): number;
 	/** Find every match of `query` in the source, tagged with the page index it lives in. */
-	findInContent(query: string): SearchHit[];
+	findInContent(query: string, options?: SearchHitOptions): SearchHit[];
 	/** Scroll the virtualizer to the matched page AND the matched text within it. */
 	scrollToMatch(hit: SearchHit): void;
+	/** 1-based source line currently at the top of the viewport. */
+	getTopLine(): number;
+	/** Scroll the given 1-based source line to the top of the viewport. */
+	scrollToLine(line: number): void;
 }
 
 /**

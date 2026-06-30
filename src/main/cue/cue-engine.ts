@@ -31,6 +31,7 @@ import {
 	type AgentCompletionData,
 	type CueCommand,
 	type CueConfig,
+	type CueNotifyConfig,
 	type CueEventType,
 	type CueRunResult,
 	type CueRunStatus,
@@ -63,6 +64,7 @@ import { createCueQueuePersistence, type CueQueuePersistence } from './cue-queue
 import { countCueEvents, getRecentCueEvents, type CueEventRecord } from './cue-db';
 import { loadCueConfigDetailed } from './cue-yaml-loader';
 import { readCueConfigFile, writeCueConfigFile } from './config/cue-config-repository';
+import { removeSubscriptionFromYaml, type SelfDestructResult } from './cue-self-destruct';
 import * as yaml from 'js-yaml';
 import { cueDebugLog } from '../../shared/cueDebug';
 import { captureException } from '../utils/sentry';
@@ -125,6 +127,7 @@ export interface CueEngineDeps {
 		timeoutMs: number;
 		action?: CueSubscription['action'];
 		command?: CueCommand;
+		notify?: CueNotifyConfig;
 	}) => Promise<CueRunResult>;
 	onStopCueRun?: (runId: string) => boolean;
 	onLog: (level: MainLogLevel, message: string, data?: unknown) => void;
@@ -217,6 +220,12 @@ export class CueEngine {
 			onLog: meteredOnLog,
 			onRunCompleted: (sessionId, result, subscriptionName, chainDepth, chainRootId) => {
 				this.pushActivityLog(result);
+				// `time.once` subscriptions are one-shot: rewrite cue.yaml to drop
+				// the sub on terminal status. `stopped` (manual abort) routes
+				// through `onRunStopped` instead and never self-destructs — the
+				// user explicitly cancelled and may want to reschedule. The YAML
+				// watcher reloads the config naturally after the rewrite.
+				this.maybeSelfDestructOnce(sessionId, result, subscriptionName);
 				// Telemetry: emit `run_completed` once per natural completion.
 				// task_kind is derived here rather than inside the run manager
 				// so the engine remains the sole authority on telemetry shape.
@@ -317,7 +326,8 @@ export class CueEngine {
 				action,
 				command,
 				chainRootId,
-				parentEventId
+				parentEventId,
+				notify
 			) => {
 				this.runManager.execute(
 					sessionId,
@@ -332,7 +342,8 @@ export class CueEngine {
 					undefined, // queuedAtOverride — fresh dispatch, not a restore
 					pipelineName,
 					chainRootId,
-					parentEventId
+					parentEventId,
+					notify
 				);
 			},
 			onLog: meteredOnLog,
@@ -362,6 +373,11 @@ export class CueEngine {
 			clearFanInState: (sessionId) => {
 				this.fanInTracker.clearForSession(sessionId);
 			},
+			// Route trigger-source self-destructs (missed-grace / filtered) through
+			// the engine's per-root write chain so they serialise against toggles
+			// and run-completion self-destructs on the same cue.yaml.
+			selfDestruct: (projectRoot, subscriptionName) =>
+				this.selfDestructSubscription(projectRoot, subscriptionName),
 		});
 		this.completionService = createCueCompletionService({
 			enabled: () => this.enabled,
@@ -687,27 +703,49 @@ export class CueEngine {
 		const projectRoot = session.projectRoot;
 		if (!projectRoot) return false;
 
-		// Serialise per projectRoot so concurrent toggles (and other engine-
-		// driven YAML writes once they thread through this chain) can't trample
-		// each other. `prev` resolves before our work starts; any thrown error
-		// in `prev` is intentionally swallowed here so a failed earlier write
-		// doesn't poison later writes — each toggle reports its own pass/fail.
-		const prev = this.yamlWriteChains.get(projectRoot) ?? Promise.resolve();
-		const next = prev.then(
-			() =>
-				this.runSubscriptionEnabledWrite(sessionId, projectRoot, targetPipeline, subName, enabled),
-			() =>
-				this.runSubscriptionEnabledWrite(sessionId, projectRoot, targetPipeline, subName, enabled)
+		// Serialise per projectRoot so concurrent toggles and `time.once`
+		// self-destructs can't trample each other's read-modify-write cycle.
+		return await this.enqueueYamlWrite(projectRoot, () =>
+			this.runSubscriptionEnabledWrite(sessionId, projectRoot, targetPipeline, subName, enabled)
 		);
-		// Track the chain so the next call for this projectRoot waits on us.
+	}
+
+	/**
+	 * Serialise a cue.yaml mutation for `projectRoot` against the per-root write
+	 * chain. Both `setSubscriptionEnabled` (remote toggle) and `time.once`
+	 * self-destruct route through here, so a self-destruct can't race a toggle
+	 * (or another self-destruct) on the same file and silently clobber the other
+	 * write. A rejected earlier job does not poison later ones - each runs
+	 * regardless of how the previous settled and reports its own pass/fail.
+	 */
+	private async enqueueYamlWrite<T>(projectRoot: string, work: () => T | Promise<T>): Promise<T> {
+		const prev = this.yamlWriteChains.get(projectRoot) ?? Promise.resolve();
+		const next = prev.then(work, work);
 		this.yamlWriteChains.set(projectRoot, next);
-		const result = await next;
-		// Drop the entry when the chain has settled to ours — guard against
-		// dropping a later writer's promise that already replaced ours.
-		if (this.yamlWriteChains.get(projectRoot) === next) {
-			this.yamlWriteChains.delete(projectRoot);
+		try {
+			return await next;
+		} finally {
+			// Drop the entry once the chain has settled to ours — guard against
+			// dropping a later writer's promise that already replaced ours.
+			if (this.yamlWriteChains.get(projectRoot) === next) {
+				this.yamlWriteChains.delete(projectRoot);
+			}
 		}
-		return result;
+	}
+
+	/**
+	 * Remove a subscription from cue.yaml, serialised against the per-root write
+	 * chain (see {@link enqueueYamlWrite}). The single serialised entry point for
+	 * both the run-completion self-destruct path and the trigger-source
+	 * `requestSelfDestruct` callback wired into the runtime service.
+	 */
+	private selfDestructSubscription(
+		projectRoot: string,
+		subscriptionName: string
+	): Promise<SelfDestructResult> {
+		return this.enqueueYamlWrite(projectRoot, () =>
+			removeSubscriptionFromYaml(projectRoot, subscriptionName)
+		);
 	}
 
 	private runSubscriptionEnabledWrite(
@@ -861,6 +899,14 @@ export class CueEngine {
 	 * this state by inspecting the returned `writtenRoots` array.
 	 */
 	saveSettings(settings: import('./cue-types').CueSettings): { writtenRoots: string[] } {
+		// Strip `owner_agent_id` — it is a PER-ROOT field (it pins ownership to an
+		// agent that lives at one specific projectRoot) and must never propagate
+		// across roots. Merging it into every cue.yaml here is exactly how every
+		// single-agent project ended up with a bogus
+		// "settings.owner_agent_id ... does not match any agent" warning: one
+		// root's owner leaked through getSettings() and got broadcast to all.
+		// Each file keeps its OWN existing owner_agent_id via the merge below.
+		const { owner_agent_id: _perRootOwner, ...globalSettings } = settings;
 		// Dedupe by config root so two sessions sharing the same cue.yaml don't
 		// cause a double-write race. Prefer `configRoot` (config-from-ancestor
 		// case) over the session's own projectRoot.
@@ -880,7 +926,7 @@ export class CueEngine {
 				if (!file) continue;
 				const parsed = (yaml.load(file.raw) ?? {}) as Record<string, unknown>;
 				const existingSettings = (parsed.settings ?? {}) as Record<string, unknown>;
-				parsed.settings = { ...existingSettings, ...settings };
+				parsed.settings = { ...existingSettings, ...globalSettings };
 				const dumped = yaml.dump(parsed, {
 					indent: 2,
 					lineWidth: 120,
@@ -901,7 +947,7 @@ export class CueEngine {
 		// Mirror the new settings into in-memory state so getSettings() returns
 		// the updated values immediately (without waiting for a YAML re-read).
 		for (const state of states.values()) {
-			state.config.settings = { ...state.config.settings, ...settings };
+			state.config.settings = { ...state.config.settings, ...globalSettings };
 		}
 
 		return { writtenRoots };
@@ -1158,6 +1204,78 @@ export class CueEngine {
 	}
 
 	/**
+	 * If `result` finalized a `time.once` subscription, rewrite cue.yaml to drop
+	 * it so the one-shot task does not fire again on a future engine cycle.
+	 *
+	 *  - `completed`  → always self-destruct.
+	 *  - `failed` / `timeout` → self-destruct unless the sub set
+	 *                  `self_destruct_on_failure: false` (default true).
+	 *  - `stopped`    → never; the manual-stop callback never reaches here.
+	 *
+	 * No-op for non-`time.once` runs and when the sub is already absent from
+	 * the in-memory config (e.g. removed by a hot-reload between fire and
+	 * finalize). The YAML watcher reloads the config naturally after a
+	 * successful rewrite — callers must not refresh the session manually.
+	 */
+	private maybeSelfDestructOnce(
+		sessionId: string,
+		result: CueRunResult,
+		subscriptionName: string
+	): void {
+		if (result.event.type !== 'time.once') return;
+
+		const state = this.registry.get(sessionId);
+		const sub = state?.config.subscriptions.find((s) => s.name === subscriptionName);
+		if (!sub) return;
+
+		let reason: 'completed' | 'failed';
+		if (result.status === 'completed') {
+			reason = 'completed';
+		} else if (
+			(result.status === 'failed' || result.status === 'timeout') &&
+			sub.self_destruct_on_failure !== false
+		) {
+			reason = 'failed';
+		} else {
+			return;
+		}
+
+		const session = this.deps.getSessions().find((s) => s.id === sessionId);
+		if (!session) return;
+
+		void this.selfDestructSubscription(session.projectRoot, subscriptionName)
+			.then((res) => {
+				if (res.removed) {
+					this.meteredOnLog(
+						'cue',
+						`[CUE] self-destruct removed "${subscriptionName}" from cue.yaml (${reason})`
+					);
+				} else {
+					this.meteredOnLog(
+						'warn',
+						`[CUE] self-destruct could not remove "${subscriptionName}" (${reason}): ${res.reason ?? 'unknown'}`
+					);
+				}
+			})
+			.catch((err) => {
+				const message = err instanceof Error ? err.message : String(err);
+				this.meteredOnLog(
+					'warn',
+					`[CUE] self-destruct threw for "${subscriptionName}" (${reason}): ${message}`
+				);
+				// removeSubscriptionFromYaml resolves expected file errors via its
+				// structured { removed: false } result, so reaching this catch means
+				// an unexpected throw - surface it to Sentry rather than only logging.
+				void captureException(err, {
+					operation: 'maybeSelfDestructOnce',
+					sessionId,
+					subscriptionName,
+					reason,
+				});
+			});
+	}
+
+	/**
 	 * Load recent cue_events from sqlite and seed the in-memory activity log.
 	 * stdout/stderr/exitCode are not persisted, so the rehydrated entries show
 	 * the metadata + status + timing only — sufficient for the activity panel.
@@ -1167,7 +1285,7 @@ export class CueEngine {
 	 */
 	private hydrateActivityLogFromDb(): void {
 		try {
-			const records = getRecentCueEvents(0, 500);
+			const records = getRecentCueEvents(0, 1000);
 			if (records.length === 0) return;
 			const sessionNamesById = new Map(this.deps.getSessions().map((s) => [s.id, s.name]));
 			// getRecentCueEvents returns newest-first; reverse so the ring buffer

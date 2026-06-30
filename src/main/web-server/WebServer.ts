@@ -98,9 +98,13 @@ import type {
 	DeleteGroupCallback,
 	MoveSessionToGroupCallback,
 	CreateSessionCallback,
+	CreateWorktreeSessionCallback,
 	CreateSessionConfig,
 	DeleteSessionCallback,
 	RenameSessionCallback,
+	UpdateSessionCwdCallback,
+	UpdateSessionSshCallback,
+	UpdateSessionConfigCallback,
 	GetGitStatusCallback,
 	GetGitDiffCallback,
 	GetGitBranchesForSessionCallback,
@@ -154,6 +158,15 @@ export class WebServer {
 	private webClients: Map<string, WebClient> = new Map();
 	private rateLimitConfig: RateLimitConfig = { ...DEFAULT_RATE_LIMIT_CONFIG };
 	private webAssetsPath: string | null = null;
+	// Cached on first hit so we don't existsSync 3 candidate paths on every
+	// desktop page load. The HTML itself is intentionally NOT cached: Vite
+	// changes the asset hash on every rebuild, so a long-lived cache would
+	// keep serving stale `<script src="assets/main-OLD.js">` references that
+	// 404 against the new bundle.
+	private webDesktopPathCache: string | null = null;
+	// Resolved web-desktop bundle root (or null if not built). Set once in the
+	// constructor; shared by StaticRoutes (index.html) and the asset mount.
+	private webDesktopPath: string | null = null;
 
 	// Security token - persistent or regenerated per startup
 	private securityToken: string;
@@ -196,6 +209,10 @@ export class WebServer {
 
 		// Determine web assets path (production vs development)
 		this.webAssetsPath = this.resolveWebAssetsPath();
+		// Resolve the web-desktop bundle once. It is now the default interface
+		// served at the token root, so StaticRoutes needs the path to serve its
+		// index.html and the asset mount needs it to expose /<token>/desktop/assets/.
+		this.webDesktopPath = this.resolveWebDesktopAssetsPath();
 
 		// Initialize managers
 		this.liveSessionManager = new LiveSessionManager();
@@ -220,7 +237,11 @@ export class WebServer {
 
 		// Initialize route handlers
 		this.apiRoutes = new ApiRoutes(this.securityToken, this.rateLimitConfig);
-		this.staticRoutes = new StaticRoutes(this.securityToken, this.webAssetsPath);
+		this.staticRoutes = new StaticRoutes(
+			this.securityToken,
+			this.webAssetsPath,
+			this.webDesktopPath
+		);
 		this.wsRoute = new WsRoute(this.securityToken);
 
 		// Note: setupMiddleware and setupRoutes are called in start() to handle async properly
@@ -562,12 +583,28 @@ export class WebServer {
 		this.callbackRegistry.setCreateSessionCallback(callback);
 	}
 
+	setCreateWorktreeSessionCallback(callback: CreateWorktreeSessionCallback): void {
+		this.callbackRegistry.setCreateWorktreeSessionCallback(callback);
+	}
+
 	setDeleteSessionCallback(callback: DeleteSessionCallback): void {
 		this.callbackRegistry.setDeleteSessionCallback(callback);
 	}
 
 	setRenameSessionCallback(callback: RenameSessionCallback): void {
 		this.callbackRegistry.setRenameSessionCallback(callback);
+	}
+
+	setUpdateSessionCwdCallback(callback: UpdateSessionCwdCallback): void {
+		this.callbackRegistry.setUpdateSessionCwdCallback(callback);
+	}
+
+	setUpdateSessionSshCallback(callback: UpdateSessionSshCallback): void {
+		this.callbackRegistry.setUpdateSessionSshCallback(callback);
+	}
+
+	setUpdateSessionConfigCallback(callback: UpdateSessionConfigCallback): void {
+		this.callbackRegistry.setUpdateSessionConfigCallback(callback);
 	}
 
 	setGetGitStatusCallback(callback: GetGitStatusCallback): void {
@@ -755,10 +792,43 @@ export class WebServer {
 				});
 			}
 		}
+
+		// Web-Desktop bundle assets — the default interface. Served at
+		// /<token>/desktop/assets/ to match the absolute asset references the
+		// desktop index.html is rewritten to use, regardless of the URL the HTML
+		// itself was served from. Mounted whenever the bundle has been built.
+		if (this.webDesktopPath) {
+			const wdAssets = path.join(this.webDesktopPath, 'assets');
+			if (existsSync(wdAssets)) {
+				await this.server.register(fastifyStatic, {
+					root: wdAssets,
+					prefix: `/${this.securityToken}/desktop/assets/`,
+					decorateReply: false,
+				});
+			}
+		}
+	}
+
+	private resolveWebDesktopAssetsPath(): string | null {
+		if (this.webDesktopPathCache) return this.webDesktopPathCache;
+		const candidates = [
+			path.join(process.cwd(), 'dist', 'web-desktop'),
+			path.join(__dirname, '..', '..', 'web-desktop'),
+			path.join(__dirname, '..', 'web-desktop'),
+		];
+		for (const p of candidates) {
+			if (existsSync(path.join(p, 'index.html'))) {
+				this.webDesktopPathCache = p;
+				return p;
+			}
+		}
+		return null;
 	}
 
 	private setupRoutes(): void {
-		// Setup static routes (dashboard, PWA files, health check)
+		// Setup static routes (web-desktop SPA, PWA files, health check). The
+		// desktop bundle is served at the token root and at /<token>/desktop —
+		// see StaticRoutes.registerRoutes.
 		this.staticRoutes.registerRoutes(this.server);
 
 		// Setup API routes callbacks and register routes
@@ -918,9 +988,19 @@ export class WebServer {
 				groupId?: string,
 				config?: CreateSessionConfig
 			) => this.callbackRegistry.createSession(name, toolType, cwd, groupId, config),
+			createWorktreeSession: async (
+				parentSessionId: string,
+				config: Parameters<CallbackRegistry['createWorktreeSession']>[1]
+			) => this.callbackRegistry.createWorktreeSession(parentSessionId, config),
 			deleteSession: async (sessionId: string) => this.callbackRegistry.deleteSession(sessionId),
 			renameSession: async (sessionId: string, newName: string) =>
 				this.callbackRegistry.renameSession(sessionId, newName),
+			updateSessionCwd: async (sessionId: string, newCwd: string) =>
+				this.callbackRegistry.updateSessionCwd(sessionId, newCwd),
+			updateSessionSsh: async (sessionId: string, sshPatch: Record<string, unknown>) =>
+				this.callbackRegistry.updateSessionSsh(sessionId, sshPatch),
+			updateSessionConfig: async (sessionId: string, configPatch: Record<string, unknown>) =>
+				this.callbackRegistry.updateSessionConfig(sessionId, configPatch),
 			getGitStatus: async (sessionId: string) => this.callbackRegistry.getGitStatus(sessionId),
 			getGitDiff: async (sessionId: string, filePath?: string) =>
 				this.callbackRegistry.getGitDiff(sessionId, filePath),
@@ -1161,6 +1241,13 @@ export class WebServer {
 			// Wire up message handler callbacks
 			this.setupMessageHandlerCallbacks();
 
+			// Install IPC-bridge fanout so every webContents.send is also
+			// broadcast to web clients as a bridge.event. The web-desktop bundle
+			// is the default interface and relies on this fanout to mirror the
+			// desktop renderer 1:1.
+			const { installWebContentsBridgeHook } = await import('./handlers/bridgeHandlers');
+			installWebContentsBridgeHook(this.broadcastService);
+
 			await this.server.listen({ port: this.port, host: '0.0.0.0' });
 
 			// Get the actual port (important when using port 0 for random assignment)
@@ -1189,6 +1276,15 @@ export class WebServer {
 
 		// Clear all session state (handles live sessions and autorun states)
 		this.liveSessionManager.clearAll();
+
+		// Restore WebContents.prototype.send so the now-defunct BroadcastService
+		// isn't called the next time main pushes a renderer event.
+		try {
+			const { uninstallWebContentsBridgeHook } = await import('./handlers/bridgeHandlers');
+			uninstallWebContentsBridgeHook();
+		} catch (err) {
+			logger.warn(`Failed to uninstall bridge hook: ${(err as Error).message}`, LOG_CONTEXT);
+		}
 
 		try {
 			await this.server.close();

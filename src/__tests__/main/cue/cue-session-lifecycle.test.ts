@@ -389,24 +389,24 @@ describe('CueEngine session lifecycle', () => {
 		// Refresh the session (tears down old timers, re-inits)
 		engine.refreshSession('session-1', '/projects/test');
 
-		// The immediate heartbeat during refresh is dispatched directly because
-		// the session is registered before trigger sources start, so maxConcurrent=2
-		// is read and activeRunCount=1 < 2 allows immediate dispatch.
-		expect(onCueRun).toHaveBeenCalledTimes(2);
+		// The orphaned in-flight 'heartbeat' run is still active, so the
+		// self-overlap guard queues the refresh's immediate same-subscription
+		// heartbeat rather than dispatching a second concurrent copy of it (even
+		// though a slot is free at max_concurrent=2). It dispatched directly
+		// before the guard existed; queueing is the correct behavior now.
+		expect(onCueRun).toHaveBeenCalledTimes(1);
 
-		// Nothing in the queue — the heartbeat was dispatched, not queued
-		expect(engine.getQueueStatus().get('session-1') ?? 0).toBe(0);
+		// The refresh heartbeat is held in the queue behind the in-flight run.
+		expect(engine.getQueueStatus().get('session-1') ?? 0).toBe(1);
 
-		// Advance timer to trigger the interval heartbeat (60 min).
-		// Now the session state IS in the map, so max_concurrent=2 is read.
-		// activeRunCount=1 (orphaned) < max_concurrent=2, so it dispatches.
+		// Advance timer to trigger the interval heartbeat (60 min). The orphaned
+		// run never resolves, so its rootKey stays active and the interval
+		// heartbeat is also queued rather than overlapping itself.
 		vi.advanceTimersByTime(60 * 60 * 1000);
 
-		// We should have exactly 2 dispatched calls total: initial + interval
-		// (the queued immediate fire from refresh was drained when the interval fired
-		// or may remain queued depending on ordering — but no infinite loop or double-count)
-		expect(onCueRun.mock.calls.length).toBeGreaterThanOrEqual(1);
-		expect(onCueRun.mock.calls.length).toBeLessThanOrEqual(3);
+		// onCueRun is never called again while the orphaned same-root run holds
+		// the guard: no double-count, no infinite dispatch loop.
+		expect(onCueRun).toHaveBeenCalledTimes(1);
 
 		engine.stop();
 	});
@@ -650,6 +650,50 @@ describe('CueEngine session lifecycle', () => {
 
 			// teardownSession was invoked (clearFanInState is called by teardown)
 			expect(clearFanInState).toHaveBeenCalledWith(session.id);
+		});
+
+		it('routes a time.once self-destruct through the injected serialised writer', async () => {
+			// #8: trigger-source self-destructs must go through the engine's
+			// per-root YAML write chain (deps.selfDestruct) so they serialise
+			// against toggles, not write cue.yaml directly. A past-grace
+			// time.once fires `requestSelfDestruct('...', 'missed-grace')` on
+			// start; assert the injected writer is what handles it.
+			const config = createMockConfig({
+				subscriptions: [
+					{
+						name: 'once-doomed',
+						event: 'time.once',
+						enabled: true,
+						prompt: 'too late',
+						// Far past + grace 0 → missed-grace self-destruct on start,
+						// deterministic regardless of the fake-timer clock.
+						fire_at: '2000-01-01T00:00:00Z',
+						grace_minutes: 0,
+					},
+				],
+			});
+			mockLoadCueConfig.mockReturnValue(config);
+			mockWatchCueYaml.mockReturnValue(vi.fn());
+
+			const registry = createCueSessionRegistry();
+			const selfDestruct = vi.fn().mockResolvedValue({ removed: true });
+			const session = createMockSession();
+
+			const service = createCueSessionRuntimeService({
+				enabled: () => true,
+				getSessions: () => [session],
+				onRefreshRequested: vi.fn(),
+				onLog: vi.fn(),
+				registry,
+				dispatchSubscription: vi.fn(),
+				clearQueue: vi.fn(),
+				clearFanInState: vi.fn(),
+				selfDestruct,
+			});
+
+			service.initSession(session, { reason: 'system-boot' });
+
+			expect(selfDestruct).toHaveBeenCalledWith(session.projectRoot, 'once-doomed');
 		});
 
 		it('initSession idempotency guard — does not double-register the session in the registry', async () => {

@@ -10,6 +10,7 @@ import type {
 	Theme,
 } from '../../types';
 import type { WizardStep } from '../Wizard/WizardContext';
+import type { MainPanelHandle } from '../MainPanel/types';
 
 export type QuickActionMode = 'main' | 'move-to-group' | 'agents';
 
@@ -42,6 +43,13 @@ export interface ActiveTabInfo {
 	hasActiveTab: boolean;
 	activeUnifiedIndex: number;
 	unifiedTabCount: number;
+	/**
+	 * Resolved type of the currently-visible tab (browser > terminal > file > ai
+	 * precedence). Null only when there is no active session. Drives which
+	 * noun the Command K palette uses: Context (ai) / Buffer (terminal) /
+	 * Content (browser) / none (file).
+	 */
+	activeTabType: 'ai' | 'file' | 'terminal' | 'browser' | null;
 }
 
 export interface QuickActionsModalProps {
@@ -96,7 +104,6 @@ export interface QuickActionsModalProps {
 	setUpdateCheckModalOpen?: (open: boolean) => void;
 	openWizard?: () => void;
 	wizardGoToStep?: (step: WizardStep) => void;
-	setDebugWizardModalOpen?: (open: boolean) => void;
 	setDebugPackageModalOpen?: (open: boolean) => void;
 	setDebugApplicationStatsOpen?: (open: boolean) => void;
 	startTour?: () => void;
@@ -138,12 +145,21 @@ export interface QuickActionsModalProps {
 	onCopyTabContext?: (tabId: string) => void;
 	onExportTabHtml?: (tabId: string) => void;
 	onPublishTabGist?: (tabId: string) => void;
+	/**
+	 * Imperative handle to MainPanel, used to run terminal "Buffer" and browser
+	 * "Content" actions on the active tab (the underlying scrollback / page text
+	 * lives behind refs that only MainPanel can reach).
+	 */
+	mainPanelRef?: React.RefObject<MainPanelHandle | null>;
 	isFilePreviewOpen?: boolean;
 	ghCliAvailable?: boolean;
 	onPublishGist?: () => void;
 	onOpenPlaybookExchange?: () => void;
 	lastGraphFocusFile?: string;
 	onOpenLastDocumentGraph?: () => void;
+	/** Name of the active markdown file, set only when one is open in the preview. */
+	currentGraphFile?: string;
+	onOpenCurrentFileInGraph?: () => void;
 	onOpenSymphony?: () => void;
 	onOpenDirectorNotes?: () => void;
 	onOpenMaestroCue?: () => void;
@@ -153,4 +169,17 @@ export interface QuickActionsModalProps {
 	onNewFileTab?: () => void;
 	onNewBrowserTab?: () => void;
 	onNewTerminalTab?: () => void;
+	/**
+	 * Shared "Next Unread / Draft Tab" action — same callback bound to the
+	 * Alt+Cmd+Down keyboard shortcut in App.tsx so both invocation paths use
+	 * the sidebar's visible ordering.
+	 */
+	onGoToNextUnread?: () => void;
+	/**
+	 * Shared session/tab history navigation — same callbacks bound to the
+	 * Cmd+Shift+, / Cmd+Shift+. keyboard shortcuts in App.tsx so the palette and
+	 * keyboard walk the same navigation history.
+	 */
+	onNavBack?: () => void;
+	onNavForward?: () => void;
 }

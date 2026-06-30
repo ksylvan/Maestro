@@ -18,6 +18,9 @@ import {
 	ArrowDownToLine,
 	Globe,
 	StopCircle,
+	Layers,
+	Target,
+	Brain,
 } from 'lucide-react';
 import type { Theme } from '../../types';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
@@ -29,19 +32,25 @@ import { buildMaestroUrl } from '../../utils/buildMaestroUrl';
 interface AutoRunnerHelpModalProps {
 	theme: Theme;
 	onClose: () => void;
+	/**
+	 * Visual stacking z-index. Defaults to 50 for the standalone Auto Run panel.
+	 * When opened on top of another modal (e.g. the Maestro Auto Run config
+	 * modal at z-9999), pass a higher value so the guide renders above it.
+	 */
+	zIndex?: number;
 }
 
-export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps) {
+export function AutoRunnerHelpModal({ theme, onClose, zIndex = 50 }: AutoRunnerHelpModalProps) {
 	return (
 		<Modal
 			theme={theme}
 			title="Auto Run Guide"
 			priority={MODAL_PRIORITIES.CONFIRM}
 			onClose={onClose}
-			width={672}
+			width={1008}
 			maxHeight="85vh"
 			closeOnBackdropClick
-			zIndex={50}
+			zIndex={zIndex}
 			footer={
 				<button
 					onClick={onClose}
@@ -56,14 +65,55 @@ export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps
 			}
 		>
 			<div className="space-y-6" style={{ color: theme.colors.textMain }}>
-				{/* Introduction */}
+				{/* Introduction - the two modes, up front */}
 				<section>
-					<p className="text-sm leading-relaxed" style={{ color: theme.colors.textDim }}>
-						Auto Run is a file-system-based document runner that automates AI-driven task execution.
-						Create markdown documents with checkbox tasks, and let AI agents work through them one
-						by one, each with a fresh context window. Run single documents or chain multiple
-						documents together for complex workflows—a collection of Auto Run documents is called a{' '}
-						<strong style={{ color: theme.colors.textMain }}>Playbook</strong>.
+					<p className="text-sm leading-relaxed mb-3" style={{ color: theme.colors.textDim }}>
+						Auto Run automates AI-driven work in one of two modes. Choose the one that fits your
+						task with the <strong style={{ color: theme.colors.textMain }}>Spec-Driven</strong> /{' '}
+						<strong style={{ color: theme.colors.textMain }}>Goal-Driven</strong> toggle at the top
+						of the Run dialog.
+					</p>
+					<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+						<div
+							className="rounded-lg border p-3"
+							style={{ backgroundColor: theme.colors.bgActivity, borderColor: theme.colors.border }}
+						>
+							<div className="flex items-center gap-2 mb-1.5">
+								<FileText className="w-4 h-4 shrink-0" style={{ color: theme.colors.accent }} />
+								<strong className="text-sm" style={{ color: theme.colors.textMain }}>
+									Spec-Driven
+								</strong>
+							</div>
+							<p className="text-xs leading-relaxed" style={{ color: theme.colors.textDim }}>
+								Run markdown checklist documents to completion. You spell out the work as checkbox
+								tasks; agents work through them one by one, each with a fresh context window - per
+								task or per document. A reusable collection of these documents is a{' '}
+								<strong style={{ color: theme.colors.textMain }}>Playbook</strong>. Best when you
+								know the steps up front.
+							</p>
+						</div>
+						<div
+							className="rounded-lg border p-3"
+							style={{ backgroundColor: theme.colors.bgActivity, borderColor: theme.colors.border }}
+						>
+							<div className="flex items-center gap-2 mb-1.5">
+								<Target className="w-4 h-4 shrink-0" style={{ color: theme.colors.accent }} />
+								<strong className="text-sm" style={{ color: theme.colors.textMain }}>
+									Goal-Driven
+								</strong>
+							</div>
+							<p className="text-xs leading-relaxed" style={{ color: theme.colors.textDim }}>
+								Pursue a single free-text objective with no checklist. Each iteration spawns a fresh
+								agent that makes one increment of progress, reports how far along it is, and exits -
+								repeating until the goal is reached or the run stops. Best for open-ended work where
+								you can't list the steps ahead of time.
+							</p>
+						</div>
+					</div>
+					<p className="text-sm leading-relaxed mt-3" style={{ color: theme.colors.textDim }}>
+						The sections below cover Spec-Driven documents and Playbooks in depth. Jump to{' '}
+						<strong style={{ color: theme.colors.textMain }}>Goal-Driven Mode</strong> for that
+						workflow.
 					</p>
 				</section>
 
@@ -77,7 +127,7 @@ export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps
 						<p>
 							A single Auto Run document handles one phase of work. Group multiple documents
 							together and you have a{' '}
-							<strong style={{ color: theme.colors.textMain }}>Playbook</strong>—a reusable,
+							<strong style={{ color: theme.colors.textMain }}>Playbook</strong> - a reusable,
 							shareable workflow that can be run with one click.
 						</p>
 						<p>
@@ -103,7 +153,7 @@ export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps
 							<div className="flex items-start gap-2">
 								<Wand2 className="w-4 h-4 mt-0.5 shrink-0" style={{ color: theme.colors.accent }} />
 								<div>
-									<strong style={{ color: theme.colors.textMain }}>Wizard</strong> — The easiest
+									<strong style={{ color: theme.colors.textMain }}>Wizard</strong> - The easiest
 									path. Click <strong style={{ color: theme.colors.textMain }}>Wizard</strong> in
 									the toolbar to start a guided conversation that discovers your project, then
 									generates a multi-phase playbook tailored to your goals. Great for first-time
@@ -116,7 +166,7 @@ export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps
 									style={{ color: theme.colors.accent }}
 								/>
 								<div>
-									<strong style={{ color: theme.colors.textMain }}>Slash Commands</strong> —
+									<strong style={{ color: theme.colors.textMain }}>Slash Commands</strong> -
 									Built-in modules that generate playbooks from structured specifications. Type a
 									command in the AI terminal to kick off planning:
 									<div
@@ -127,15 +177,15 @@ export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps
 										}}
 									>
 										<div>
-											<code style={{ color: theme.colors.accent }}>/speckit</code> — Spec-driven
+											<code style={{ color: theme.colors.accent }}>/speckit</code> - Spec-driven
 											development workflow
 										</div>
 										<div>
-											<code style={{ color: theme.colors.accent }}>/openspec</code> — Change
+											<code style={{ color: theme.colors.accent }}>/openspec</code> - Change
 											management workflow
 										</div>
 										<div>
-											<code style={{ color: theme.colors.accent }}>/bmad</code> — Business analysis
+											<code style={{ color: theme.colors.accent }}>/bmad</code> - Business analysis
 											& design method
 										</div>
 									</div>
@@ -147,7 +197,7 @@ export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps
 									style={{ color: theme.colors.accent }}
 								/>
 								<div>
-									<strong style={{ color: theme.colors.textMain }}>Manual</strong> — Write markdown
+									<strong style={{ color: theme.colors.textMain }}>Manual</strong> - Write markdown
 									documents directly in your Runner Docs folder. Full control over task structure
 									and ordering. See the sections below for format details.
 								</div>
@@ -155,7 +205,7 @@ export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps
 							<div className="flex items-start gap-2">
 								<Globe className="w-4 h-4 mt-0.5 shrink-0" style={{ color: theme.colors.accent }} />
 								<div>
-									<strong style={{ color: theme.colors.textMain }}>PlayBooks</strong> — Browse
+									<strong style={{ color: theme.colors.textMain }}>PlayBooks</strong> - Browse
 									community playbooks and import them as starting points. Customize to fit your
 									project.
 								</div>
@@ -247,8 +297,8 @@ export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps
 							</span>
 						</div>
 						<p>
-							Write clear, specific task descriptions. Each task should be independently
-							completable—the AI starts fresh for each one without context from previous tasks.
+							Write clear, specific task descriptions. Each task should be independently completable
+							- the AI starts fresh for each one without context from previous tasks.
 						</p>
 						<p>
 							<strong style={{ color: theme.colors.textMain }}>Tip:</strong> Prefix tasks with
@@ -269,7 +319,7 @@ export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps
 							Images are saved to an <code>images/</code> subfolder and linked with relative paths.
 						</p>
 						<p>
-							Use images to provide visual context—screenshots of bugs, UI mockups, diagrams, or
+							Use images to provide visual context - screenshots of bugs, UI mockups, diagrams, or
 							reference materials that help the AI understand the task.
 						</p>
 					</div>
@@ -298,6 +348,60 @@ export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps
 					</div>
 				</section>
 
+				{/* Fresh Context: Task vs Document */}
+				<section>
+					<div className="flex items-center gap-2 mb-3">
+						<Layers className="w-5 h-5" style={{ color: theme.colors.accent }} />
+						<h3 className="font-bold">Fresh Context: Task vs Document</h3>
+					</div>
+					<div className="text-sm space-y-2 pl-7" style={{ color: theme.colors.textDim }}>
+						<p>
+							The <strong style={{ color: theme.colors.textMain }}>Fresh context per</strong> toggle
+							in the run configuration controls how context is scoped as the runner works through a
+							document:
+						</p>
+						<div className="space-y-3">
+							<div className="flex items-start gap-2">
+								<CheckSquare
+									className="w-4 h-4 mt-0.5 shrink-0"
+									style={{ color: theme.colors.accent }}
+								/>
+								<div>
+									<strong style={{ color: theme.colors.textMain }}>Task</strong> - A new agent is
+									spawned for each unchecked task with a clean context every time. Maximum
+									isolation; no drift between tasks. Each task must be fully self-contained, since
+									the agent sees nothing from previous tasks except what's written in the document.
+								</div>
+							</div>
+							<div className="flex items-start gap-2">
+								<FileText
+									className="w-4 h-4 mt-0.5 shrink-0"
+									style={{ color: theme.colors.accent }}
+								/>
+								<div>
+									<strong style={{ color: theme.colors.textMain }}>Document</strong> - A single
+									agent walks every unchecked task in the document in one continuous session,
+									carrying context forward between tasks. Best for large-context agents and work
+									where later tasks build on earlier ones.
+								</div>
+							</div>
+						</div>
+						<p>
+							Maestro <strong style={{ color: theme.colors.textMain }}>auto-selects</strong> the
+							mode from the running agent's context window -
+							<strong style={{ color: theme.colors.textMain }}>Document</strong> at 1M tokens or
+							more (e.g. Claude's 1M window),{' '}
+							<strong style={{ color: theme.colors.textMain }}>Task</strong> below that - and you
+							can override it per run. A loaded Playbook's saved mode always takes precedence.
+						</p>
+						<p>
+							<strong style={{ color: theme.colors.textMain }}>Tip:</strong> Author tasks to be
+							self-contained either way. Document mode is an optimization, not a license to write
+							tasks that depend on chat memory.
+						</p>
+					</div>
+				</section>
+
 				{/* Running Multiple Documents */}
 				<section>
 					<div className="flex items-center gap-2 mb-3">
@@ -315,6 +419,149 @@ export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps
 							grip handle to rearrange documents in the queue.
 						</p>
 						<p>Documents with zero unchecked tasks are automatically skipped.</p>
+					</div>
+				</section>
+
+				{/* Goal-Driven Mode */}
+				<section>
+					<div className="flex items-center gap-2 mb-3">
+						<Target className="w-5 h-5" style={{ color: theme.colors.accent }} />
+						<h3 className="font-bold">Goal-Driven Mode</h3>
+					</div>
+					<div className="text-sm space-y-2 pl-7" style={{ color: theme.colors.textDim }}>
+						<p>
+							Switch to the <strong style={{ color: theme.colors.textMain }}>Goal-Driven</strong>{' '}
+							tab in the Run dialog to chase a free-text objective instead of a document of
+							checkboxes. Each iteration spawns a fresh agent that makes one increment of real
+							progress toward the goal, reports how far along it is, and exits - the next iteration
+							picks up where it left off until the goal is reached or the run stops.
+						</p>
+						<p>
+							<strong style={{ color: theme.colors.textMain }}>
+								Three inputs configure a run:
+							</strong>
+						</p>
+						<ul className="list-disc ml-4 space-y-1">
+							<li>
+								<strong style={{ color: theme.colors.textMain }}>Goal</strong> - what you want
+								accomplished, in plain language.
+							</li>
+							<li>
+								<strong style={{ color: theme.colors.textMain }}>Exit Criteria</strong> - what
+								"done" looks like and when to declare a deadlock. This guides the agent; it isn't
+								matched automatically.
+							</li>
+							<li>
+								<strong style={{ color: theme.colors.textMain }}>Iteration Limit</strong> - a cap on
+								how many iterations may run, or{' '}
+								<strong style={{ color: theme.colors.textMain }}>Infinite</strong> to run until the
+								goal is reached or a deadlock is detected.
+							</li>
+						</ul>
+						<p>
+							<strong style={{ color: theme.colors.textMain }}>Progress marker.</strong> At the end
+							of every iteration the agent reports its honest 0-100 self-assessment on its own line.
+							The engine reads this to drive the progress bar and decide whether to run again:
+						</p>
+						<div
+							className="font-mono text-xs p-2 rounded border"
+							style={{
+								backgroundColor: theme.colors.bgActivity,
+								borderColor: theme.colors.border,
+							}}
+						>
+							{'<!-- maestro:progress 45 | refactored auth, tests still pending -->'}
+						</div>
+						<p>
+							The <code>| rationale</code> note is optional but shows up in the progress UI. A
+							response with <em>no</em> progress marker is treated as zero progress and counts
+							toward a stall.
+						</p>
+						<p>
+							<strong style={{ color: theme.colors.textMain }}>
+								A goal run stops on any of four conditions:
+							</strong>
+						</p>
+						<ul className="list-disc ml-4 space-y-1">
+							<li>
+								<strong style={{ color: theme.colors.textMain }}>Completed</strong> - the agent
+								reports <code>progress 100</code>, or emits the explicit marker:
+								<div
+									className="font-mono text-xs p-2 mt-1.5 rounded border"
+									style={{
+										backgroundColor: theme.colors.bgActivity,
+										borderColor: theme.colors.border,
+									}}
+								>
+									{'<!-- maestro:goal-complete -->'}
+								</div>
+							</li>
+							<li>
+								<strong style={{ color: theme.colors.textMain }}>Deadlock</strong> - the agent hits
+								a true blocker it cannot work around and declares it:
+								<div
+									className="font-mono text-xs p-2 mt-1.5 rounded border"
+									style={{
+										backgroundColor: theme.colors.bgActivity,
+										borderColor: theme.colors.border,
+									}}
+								>
+									{'<!-- maestro:deadlock: brief reason you cannot proceed -->'}
+								</div>
+							</li>
+							<li>
+								<strong style={{ color: theme.colors.textMain }}>Max iterations</strong> - a finite
+								iteration limit is reached.
+							</li>
+							<li>
+								<strong style={{ color: theme.colors.textMain }}>Stalled</strong> - progress doesn't
+								move upward for three iterations in a row, so the run stops instead of spinning.
+							</li>
+						</ul>
+						<p>
+							The stop reason and final progress are recorded in the{' '}
+							<strong style={{ color: theme.colors.textMain }}>History</strong> panel.
+						</p>
+					</div>
+				</section>
+
+				{/* Thought Stream */}
+				<section>
+					<div className="flex items-center gap-2 mb-3">
+						<Brain className="w-5 h-5" style={{ color: theme.colors.accent }} />
+						<h3 className="font-bold">Thought Stream</h3>
+					</div>
+					<div className="text-sm space-y-2 pl-7" style={{ color: theme.colors.textDim }}>
+						<p>
+							While a run is active, click{' '}
+							<strong style={{ color: theme.colors.textMain }}>View Thoughts</strong> (the brain
+							icon) in the Auto Run card to watch the agent's live reasoning in a floating,
+							searchable panel. It works the same for Spec-Driven and Goal-Driven runs, and captures
+							the reasoning stream directly - so it shows thoughts even when an AI tab's "show
+							thinking" display is off.
+						</p>
+						<ul className="list-disc pl-5 space-y-1">
+							<li>
+								<strong style={{ color: theme.colors.textMain }}>Newest on top</strong> - the live
+								thought sits at the top and grows; scroll down for the run's history.
+							</li>
+							<li>
+								<strong style={{ color: theme.colors.textMain }}>Timestamped blocks</strong> - a
+								continuous burst of thinking is grouped into one time-stamped block; a pause starts
+								a new one.
+							</li>
+							<li>
+								<strong style={{ color: theme.colors.textMain }}>Search</strong> - filter captured
+								thoughts; matches are highlighted.
+							</li>
+						</ul>
+						<p>
+							<strong style={{ color: theme.colors.textMain }}>Minimize</strong> keeps capturing in
+							the background (the button pulses and reads "Capturing"); reopen to review everything
+							since you opened it. <strong style={{ color: theme.colors.textMain }}>Close</strong>{' '}
+							stops capturing and clears that agent's buffer. Capture is in-memory only and each
+							agent captures into its own independent stream, so parallel runs never mix.
+						</p>
 					</div>
 				</section>
 
@@ -356,30 +603,30 @@ export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps
 							}}
 						>
 							<div>
-								<code style={{ color: theme.colors.accent }}>{'{{AGENT_NAME}}'}</code> — Agent name
+								<code style={{ color: theme.colors.accent }}>{'{{AGENT_NAME}}'}</code> - Agent name
 							</div>
 							<div>
-								<code style={{ color: theme.colors.accent }}>{'{{AGENT_PATH}}'}</code> — Agent home
+								<code style={{ color: theme.colors.accent }}>{'{{AGENT_PATH}}'}</code> - Agent home
 								directory path
 							</div>
 							<div>
-								<code style={{ color: theme.colors.accent }}>{'{{TAB_NAME}}'}</code> — Custom tab
+								<code style={{ color: theme.colors.accent }}>{'{{TAB_NAME}}'}</code> - Custom tab
 								name
 							</div>
 							<div>
-								<code style={{ color: theme.colors.accent }}>{'{{GIT_BRANCH}}'}</code> — Current git
+								<code style={{ color: theme.colors.accent }}>{'{{GIT_BRANCH}}'}</code> - Current git
 								branch
 							</div>
 							<div>
-								<code style={{ color: theme.colors.accent }}>{'{{DATE}}'}</code> — Current date
+								<code style={{ color: theme.colors.accent }}>{'{{DATE}}'}</code> - Current date
 								(YYYY-MM-DD)
 							</div>
 							<div>
-								<code style={{ color: theme.colors.accent }}>{'{{LOOP_NUMBER}}'}</code> — Current
+								<code style={{ color: theme.colors.accent }}>{'{{LOOP_NUMBER}}'}</code> - Current
 								loop iteration
 							</div>
 							<div>
-								<code style={{ color: theme.colors.accent }}>{'{{DOCUMENT_NAME}}'}</code> — Current
+								<code style={{ color: theme.colors.accent }}>{'{{DOCUMENT_NAME}}'}</code> - Current
 								document name
 							</div>
 							<div style={{ color: theme.colors.textDim }}>...and more</div>
@@ -405,7 +652,7 @@ export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps
 							Enable the reset toggle (<RotateCcw className="w-3 h-3 inline" />) on any document to
 							keep it available for repeated runs. When enabled, Auto Run creates a{' '}
 							<strong style={{ color: theme.colors.textMain }}>working copy</strong> in the{' '}
-							<code>Runs/</code> subfolder and processes that copy—
+							<code>Runs/</code> subfolder and processes that copy -
 							<em>the original document is never modified</em>.
 						</p>
 						<p>
@@ -434,7 +681,7 @@ export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps
 							through the document queue until all documents have zero tasks remaining.
 						</p>
 						<p>
-							Combined with reset-on-completion, this creates perpetual workflows—perfect for
+							Combined with reset-on-completion, this creates perpetual workflows - perfect for
 							monitoring tasks, recurring maintenance, or continuous integration scenarios.
 						</p>
 					</div>
@@ -455,11 +702,12 @@ export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps
 							<li>Document selection and order</li>
 							<li>Reset-on-completion settings per document</li>
 							<li>Loop mode preference</li>
+							<li>Fresh-context mode (Task or Document)</li>
 							<li>Custom agent prompt</li>
 						</ul>
 						<p>
-							Load a saved playbook with one click and modify it as needed—changes can be saved back
-							or discarded.
+							Load a saved playbook with one click and modify it as needed - changes can be saved
+							back or discarded.
 						</p>
 						<p>
 							Export playbooks as ZIP files to share with teammates, or import ZIPs you've received.
@@ -520,8 +768,8 @@ export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps
 					<div className="text-sm space-y-2 pl-7" style={{ color: theme.colors.textDim }}>
 						<p>
 							Click <strong style={{ color: theme.colors.error }}>Stop</strong> in the header or
-							Auto Run panel to gracefully stop. The current task completes before stopping—no work
-							is left incomplete.
+							Auto Run panel to gracefully stop. The current task completes before stopping - no
+							work is left incomplete.
 						</p>
 						<p>Completed tasks remain checked. Resume anytime by clicking Run again.</p>
 					</div>
@@ -536,7 +784,7 @@ export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps
 					<div className="text-sm space-y-2 pl-7" style={{ color: theme.colors.textDim }}>
 						<p>
 							An executing agent can abort an entire playbook mid-flight by writing a halt marker
-							into the current document. Useful for blockers an agent uncovers while working —
+							into the current document. Useful for blockers an agent uncovers while working -
 							missing dependencies, broken preconditions, ambiguous specs, or destructive changes it
 							refuses to make.
 						</p>
@@ -550,12 +798,12 @@ export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps
 							{'<!-- maestro:halt: brief reason here -->'}
 						</div>
 						<p>
-							When the engine sees this marker after a task, it stops immediately — no further tasks
+							When the engine sees this marker after a task, it stops immediately - no further tasks
 							in the current document, no further documents in the playbook. The reason is recorded
 							in the History panel and surfaced as a <code>halt</code> event in the JSONL stream.
 						</p>
 						<p>
-							A stale halt marker left in a document will block re-runs until removed — Auto Run
+							A stale halt marker left in a document will block re-runs until removed - Auto Run
 							refuses to start so previously-halted work isn't silently replayed.
 						</p>
 					</div>

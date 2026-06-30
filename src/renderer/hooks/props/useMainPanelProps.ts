@@ -161,6 +161,8 @@ export interface UseMainPanelPropsDeps {
 	handleStopBatchRun: (sessionId?: string) => void;
 	handleDeleteLog: (logId: string) => number | null;
 	handleRemoveQueuedItem: (itemId: string) => void;
+	handleToggleQueuedItemPause: (itemId: string) => void;
+	handleReorderQueuedItem: (fromIndex: number, toIndex: number, tabId?: string) => void;
 	handleForceSendQueuedItem: (itemId: string) => void;
 	forcedParallelEnabled: boolean;
 	getForceSendContext: (
@@ -205,6 +207,8 @@ export interface UseMainPanelPropsDeps {
 	handleNewBrowserTab: () => void;
 	handleBrowserTabSelect: (tabId: string) => void;
 	handleBrowserTabClose: (tabId: string) => void;
+	handleBrowserTabRename: (tabId: string) => void;
+	handleBrowserTabResetName: (tabId: string) => void;
 	handleBrowserTabUpdate: (
 		sessionId: string,
 		tabId: string,
@@ -233,6 +237,14 @@ export interface UseMainPanelPropsDeps {
 	handleOpenPromptComposer: () => void;
 	handleReplayMessage: (text: string, images?: string[]) => void;
 	handleForkConversation: (logId: string) => void;
+	handleSessionRecover: (opts: {
+		sessionId: string;
+		tabId: string;
+		lastUserPrompt: string;
+		groomContext: boolean;
+	}) => void;
+	isRecoveringSession: boolean;
+	sessionRecoveryError: string | null;
 	handleMainPanelFileClick: (relativePath: string) => void;
 	handleNavigateBack: () => void;
 	handleNavigateForward: () => void;
@@ -383,6 +395,8 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			onStopBatchRun: deps.handleStopBatchRun,
 			onDeleteLog: deps.handleDeleteLog,
 			onRemoveQueuedItem: deps.handleRemoveQueuedItem,
+			onTogglePauseQueuedItem: deps.handleToggleQueuedItemPause,
+			onReorderQueuedItem: deps.handleReorderQueuedItem,
 			onForceSendQueuedItem: deps.handleForceSendQueuedItem,
 			forcedParallelEnabled: deps.forcedParallelEnabled,
 			getForceSendContext: deps.getForceSendContext,
@@ -417,6 +431,8 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			onNewBrowserTab: deps.handleNewBrowserTab,
 			onBrowserTabSelect: deps.handleBrowserTabSelect,
 			onBrowserTabClose: deps.handleBrowserTabClose,
+			onBrowserTabRename: deps.handleBrowserTabRename,
+			onBrowserTabResetName: deps.handleBrowserTabResetName,
 			onBrowserTabUpdate: deps.handleBrowserTabUpdate,
 			// Terminal tab callbacks (Phase 8)
 			onNewTerminalTab: deps.handleOpenTerminalTab,
@@ -438,6 +454,9 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			onOpenPromptComposer: deps.handleOpenPromptComposer,
 			onReplayMessage: deps.handleReplayMessage,
 			onForkConversation: deps.handleForkConversation,
+			onSessionRecover: deps.handleSessionRecover,
+			isRecoveringSession: deps.isRecoveringSession,
+			sessionRecoveryError: deps.sessionRecoveryError,
 			fileTree: deps.fileTree,
 			onFileClick: deps.handleMainPanelFileClick,
 			canGoBack: deps.canGoBack,
@@ -629,6 +648,8 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.handleStopBatchRun,
 			deps.handleDeleteLog,
 			deps.handleRemoveQueuedItem,
+			deps.handleToggleQueuedItemPause,
+			deps.handleReorderQueuedItem,
 			deps.handleForceSendQueuedItem,
 			deps.forcedParallelEnabled,
 			deps.getForceSendContext,
@@ -665,6 +686,8 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.handleNewBrowserTab,
 			deps.handleBrowserTabSelect,
 			deps.handleBrowserTabClose,
+			deps.handleBrowserTabRename,
+			deps.handleBrowserTabResetName,
 			deps.handleBrowserTabUpdate,
 			// Terminal tab (Phase 8)
 			deps.handleOpenTerminalTab,
@@ -683,6 +706,9 @@ export function useMainPanelProps(deps: UseMainPanelPropsDeps) {
 			deps.handleOpenPromptComposer,
 			deps.handleReplayMessage,
 			deps.handleForkConversation,
+			deps.handleSessionRecover,
+			deps.isRecoveringSession,
+			deps.sessionRecoveryError,
 			deps.handleMainPanelFileClick,
 			deps.handleNavigateBack,
 			deps.handleNavigateForward,

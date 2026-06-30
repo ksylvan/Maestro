@@ -90,9 +90,17 @@ describe('AutoRunnerHelpModal', () => {
 			render(<AutoRunnerHelpModal theme={mockTheme} onClose={mockOnClose} />);
 		});
 
-		it('should render Introduction section', () => {
+		it('should render Introduction section explaining both run modes up front', () => {
 			expect(
-				screen.getByText(/Auto Run is a file-system-based document runner/)
+				screen.getByText(/Auto Run automates AI-driven work in one of two modes/)
+			).toBeInTheDocument();
+			// Both modes are introduced side by side at the top of the guide. The
+			// labels themselves appear several times, so assert the unique blurbs.
+			expect(
+				screen.getByText(/Run markdown checklist documents to completion/)
+			).toBeInTheDocument();
+			expect(
+				screen.getByText(/Pursue a single free-text objective with no checklist/)
 			).toBeInTheDocument();
 		});
 
@@ -240,7 +248,7 @@ describe('AutoRunnerHelpModal', () => {
 			render(<AutoRunnerHelpModal theme={mockTheme} onClose={mockOnClose} />);
 
 			// Modal component uses inline width style
-			const modal = document.querySelector('[style*="width: 672px"]');
+			const modal = document.querySelector('[style*="width: min(calc(1008px"]');
 			expect(modal).toHaveStyle({ backgroundColor: mockTheme.colors.bgSidebar });
 		});
 
@@ -445,7 +453,7 @@ describe('AutoRunnerHelpModal', () => {
 			render(<AutoRunnerHelpModal theme={mockTheme} onClose={mockOnClose} />);
 
 			// Modal component uses inline width style
-			const modal = document.querySelector('[style*="width: 672px"]');
+			const modal = document.querySelector('[style*="width: min(calc(1008px"]');
 			expect(modal).toBeInTheDocument();
 		});
 

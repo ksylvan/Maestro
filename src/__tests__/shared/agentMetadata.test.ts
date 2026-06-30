@@ -28,9 +28,12 @@ describe('agentMetadata', () => {
 			expect(AGENT_DISPLAY_NAMES['codex']).toBe('Codex');
 			expect(AGENT_DISPLAY_NAMES['opencode']).toBe('OpenCode');
 			expect(AGENT_DISPLAY_NAMES['factory-droid']).toBe('Factory Droid');
+			expect(AGENT_DISPLAY_NAMES['hermes']).toBe('Hermes');
+			expect(AGENT_DISPLAY_NAMES['pi']).toBe('Pi');
 			expect(AGENT_DISPLAY_NAMES['gemini-cli']).toBe('Gemini CLI');
 			expect(AGENT_DISPLAY_NAMES['qwen3-coder']).toBe('Qwen3 Coder');
 			expect(AGENT_DISPLAY_NAMES['copilot-cli']).toBe('Copilot-CLI');
+			expect(AGENT_DISPLAY_NAMES['omp']).toBe('Oh My Pi');
 			expect(AGENT_DISPLAY_NAMES['terminal']).toBe('Terminal');
 		});
 
@@ -76,7 +79,11 @@ describe('agentMetadata', () => {
 		it('should contain the expected beta agents', () => {
 			expect(BETA_AGENTS.has('opencode')).toBe(true);
 			expect(BETA_AGENTS.has('factory-droid')).toBe(true);
+			expect(BETA_AGENTS.has('hermes')).toBe(true);
+			expect(BETA_AGENTS.has('pi')).toBe(true);
 			expect(BETA_AGENTS.has('copilot-cli')).toBe(true);
+			expect(BETA_AGENTS.has('qwen3-coder')).toBe(true);
+			expect(BETA_AGENTS.has('omp')).toBe(true);
 		});
 
 		it('should not contain non-beta agents', () => {
@@ -84,7 +91,6 @@ describe('agentMetadata', () => {
 			expect(BETA_AGENTS.has('claude-code')).toBe(false);
 			expect(BETA_AGENTS.has('terminal')).toBe(false);
 			expect(BETA_AGENTS.has('gemini-cli')).toBe(false);
-			expect(BETA_AGENTS.has('qwen3-coder')).toBe(false);
 		});
 
 		it('should only contain valid agent IDs', () => {
@@ -98,7 +104,11 @@ describe('agentMetadata', () => {
 		it('should return true for beta agents', () => {
 			expect(isBetaAgent('opencode')).toBe(true);
 			expect(isBetaAgent('factory-droid')).toBe(true);
+			expect(isBetaAgent('hermes')).toBe(true);
+			expect(isBetaAgent('pi')).toBe(true);
 			expect(isBetaAgent('copilot-cli')).toBe(true);
+			expect(isBetaAgent('qwen3-coder')).toBe(true);
+			expect(isBetaAgent('omp')).toBe(true);
 		});
 
 		it('should return false for non-beta agents', () => {
@@ -106,7 +116,6 @@ describe('agentMetadata', () => {
 			expect(isBetaAgent('codex')).toBe(false);
 			expect(isBetaAgent('terminal')).toBe(false);
 			expect(isBetaAgent('gemini-cli')).toBe(false);
-			expect(isBetaAgent('qwen3-coder')).toBe(false);
 		});
 
 		it('should return false for unknown agents', () => {

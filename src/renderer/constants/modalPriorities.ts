@@ -201,6 +201,12 @@ export const MODAL_PRIORITIES = {
 	/** Debug: View Application Stats modal */
 	DEBUG_APPLICATION_STATS: 604,
 
+	/** Debug: Re-Probe Agents modal */
+	DEBUG_AGENT_PROBE: 603,
+
+	/** Debug: Widget Gallery (shared widget-library preview) */
+	DEBUG_WIDGET_GALLERY: 602,
+
 	/** Windows warning modal - shown on startup for Windows users */
 	WINDOWS_WARNING: 615,
 
@@ -246,8 +252,16 @@ export const MODAL_PRIORITIES = {
 	/** SSH Remote configuration modal (above settings) */
 	SSH_REMOTE: 458,
 
+	/** Custom theme base-theme picker dropdown (above settings so Escape closes
+	 * the dropdown first, leaving the Settings modal open for a second Esc). */
+	CUSTOM_THEME_BASE_SELECTOR: 451,
+
 	/** Settings modal */
 	SETTINGS: 450,
+
+	/** Thought Stream introspection panel - floating, non-blocking; sits below
+	 * real modals so they take Escape/focus first, above git overlays. */
+	THOUGHT_STREAM: 210,
 
 	/** Git diff preview overlay */
 	GIT_DIFF: 200,
@@ -257,6 +271,10 @@ export const MODAL_PRIORITIES = {
 
 	/** Save markdown modal */
 	SAVE_MARKDOWN: 160,
+
+	/** Image save destination modal (overwrite vs save-as) - above the annotator
+	 * so it layers correctly if the annotator is still settling closed. */
+	IMAGE_SAVE: 168,
 
 	/** Image annotator modal - above lightbox so Escape closes annotator first */
 	IMAGE_ANNOTATOR: 165,

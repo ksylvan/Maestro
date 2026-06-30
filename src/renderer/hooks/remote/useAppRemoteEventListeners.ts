@@ -572,6 +572,69 @@ export function useAppRemoteEventListeners(deps: UseAppRemoteEventListenersDeps)
 		}
 	});
 
+	// Handle remote create-worktree-agent from the CLI. Creates a new agent in a
+	// git worktree branched off a parent agent, without an Auto Run playbook.
+	// Reuses spawnWorktreeAgentAndDispatch (the same helper the Auto Run launch
+	// path uses) but skips the batch dispatch: the new agent is left idle, and
+	// the CLI optionally follows up with `dispatch` to send an initial prompt.
+	useEventListener('maestro:createWorktreeSession', async (e: Event) => {
+		const { parentSessionId, config, responseChannel } = (e as CustomEvent).detail;
+
+		try {
+			const parent = sessionsRef.current.find((s) => s.id === parentSessionId);
+			if (!parent) {
+				window.maestro.process.sendRemoteCreateWorktreeSessionResponse(responseChannel, {
+					success: false,
+					error: `Parent agent ${parentSessionId} not found`,
+				});
+				return;
+			}
+
+			// If the addressed agent is itself a worktree child, resolve to its
+			// parent so the new worktree branches off the main repo (mirrors the
+			// desktop and remote Auto Run launch paths).
+			let parentForSpawn = parent;
+			if (parent.parentSessionId) {
+				const grandparent = selectSessionById(parent.parentSessionId)(useSessionStore.getState());
+				if (grandparent) parentForSpawn = grandparent;
+			}
+
+			const spawnConfig: BatchRunConfig = {
+				documents: [],
+				prompt: '',
+				loopEnabled: false,
+				worktreeTarget: {
+					mode: 'create-new',
+					newBranchName: config.branchName,
+					baseBranch: config.baseBranch || undefined,
+					createPROnCompletion: false,
+				},
+			};
+
+			const newSessionId = await spawnWorktreeAgentAndDispatch(parentForSpawn, spawnConfig);
+			if (!newSessionId) {
+				// spawnWorktreeAgentAndDispatch already surfaced a toast describing why.
+				window.maestro.process.sendRemoteCreateWorktreeSessionResponse(responseChannel, {
+					success: false,
+					error: 'Failed to create worktree agent',
+				});
+				return;
+			}
+
+			window.maestro.process.sendRemoteCreateWorktreeSessionResponse(responseChannel, {
+				success: true,
+				sessionId: newSessionId,
+			});
+		} catch (error) {
+			captureException(error, { extra: { parentSessionId, responseChannel } });
+			logger.error('[Remote] Failed to create worktree agent:', undefined, error);
+			window.maestro.process.sendRemoteCreateWorktreeSessionResponse(responseChannel, {
+				success: false,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
+	});
+
 	// Handle remote get auto-run docs from web interface
 	useEventListener('maestro:getAutoRunDocs', async (e: Event) => {
 		const { sessionId, responseChannel } = (e as CustomEvent).detail;
@@ -1021,6 +1084,20 @@ export function useAppRemoteEventListeners(deps: UseAppRemoteEventListenersDeps)
 				isRemote: false,
 			});
 
+			// Persist the new agent to disk synchronously before responding. The
+			// renderer's debounced persistence path (useDebouncedPersistence) is
+			// driven by React render cycles and a 2s timer, so a CLI consumer that
+			// runs `create-agent` and then immediately `list agents` / `send` would
+			// otherwise hit the disk-backed CLI storage layer before the in-memory
+			// session has been flushed — surfacing as `AGENT_NOT_FOUND` (issue #1013).
+			// `setMany` is incremental and idempotent: the debounced flush that
+			// follows simply rewrites the same row.
+			try {
+				await window.maestro.sessions.setMany([newSession], []);
+			} catch (persistErr) {
+				logger.error('[Remote] Failed to persist new CLI-created session:', undefined, persistErr);
+			}
+
 			window.maestro.process.sendRemoteCreateSessionResponse(responseChannel, {
 				sessionId: newId,
 			});
@@ -1063,10 +1140,238 @@ export function useAppRemoteEventListeners(deps: UseAppRemoteEventListenersDeps)
 			}
 			return filtered;
 		});
+
+		// Flush the removal to disk synchronously: useDebouncedPersistence
+		// runs on a 2s timer, so a CLI consumer that hits the disk-backed
+		// session store between this event and the next debounce window
+		// would otherwise read the pre-removal state. setMany is incremental
+		// and idempotent with the subsequent debounced flush.
+		try {
+			await window.maestro.sessions.setMany([], [sessionId]);
+		} catch (persistErr) {
+			logger.error('[Remote] Failed to persist session removal:', undefined, persistErr);
+		}
+	});
+
+	// Handle remote update session cwd from CLI/web. Mutates the UI-facing
+	// cwd/fullPath only; projectRoot is intentionally preserved so historical
+	// provider sessions (stored under the original project root) remain
+	// addressable. The PTY's cwd is fixed at spawn time, so we refuse the
+	// update when an agent process is alive.
+	useEventListener('maestro:remoteUpdateSessionCwd', (e: Event) => {
+		const { sessionId, newCwd, responseChannel } = (e as CustomEvent).detail;
+		const session = sessionsRef.current.find((s) => s.id === sessionId);
+		if (!session) {
+			window.maestro.process.sendRemoteUpdateSessionCwdResponse(responseChannel, {
+				success: false,
+				error: 'Agent not found',
+			});
+			return;
+		}
+		if (session.aiPid && session.aiPid > 0) {
+			window.maestro.process.sendRemoteUpdateSessionCwdResponse(responseChannel, {
+				success: false,
+				error: 'Agent process is running; stop it before changing cwd',
+			});
+			return;
+		}
+		setSessions((prev: Session[]) =>
+			prev.map((s) =>
+				s.id === sessionId ? { ...s, cwd: newCwd, fullPath: newCwd, shellCwd: newCwd } : s
+			)
+		);
+		window.maestro.process.sendRemoteUpdateSessionCwdResponse(responseChannel, { success: true });
+	});
+
+	// Handle remote update of an agent's SSH execution config. Merges the
+	// partial patch onto the existing sessionSshRemoteConfig and flushes to disk
+	// so a follow-up CLI read sees the new config (the renderer owns the
+	// authoritative in-memory state; offline JSON edits get clobbered). Refused
+	// while the agent process is alive because the spawn target is fixed at launch.
+	useEventListener('maestro:remoteUpdateSessionSsh', async (e: Event) => {
+		const { sessionId, sshPatch, responseChannel } = (e as CustomEvent).detail;
+		const session = sessionsRef.current.find((s) => s.id === sessionId);
+		if (!session) {
+			window.maestro.process.sendRemoteUpdateSessionSshResponse(responseChannel, {
+				success: false,
+				error: 'Agent not found',
+			});
+			return;
+		}
+		if (session.aiPid && session.aiPid > 0) {
+			window.maestro.process.sendRemoteUpdateSessionSshResponse(responseChannel, {
+				success: false,
+				error: 'Agent process is running; stop it before changing SSH config',
+			});
+			return;
+		}
+
+		// Merge the patch onto the existing config, then normalize the two
+		// always-required fields so the persisted config is well-formed even when
+		// the caller only touched an optional flag (e.g. syncHistory) on an agent
+		// that never had SSH config.
+		const existing = session.sessionSshRemoteConfig ?? {};
+		const merged = { ...existing, ...sshPatch };
+		const normalized = {
+			...merged,
+			enabled: merged.enabled ?? false,
+			remoteId: merged.remoteId ?? null,
+		};
+
+		setSessions((prev: Session[]) =>
+			prev.map((s) => (s.id === sessionId ? { ...s, sessionSshRemoteConfig: normalized } : s))
+		);
+
+		// Flush to disk before signaling success so a follow-up CLI read sees the
+		// new config instead of the 2s-debounced stale value (mirrors rename).
+		try {
+			await window.maestro.sessions.setMany(
+				[{ ...session, sessionSshRemoteConfig: normalized } as any],
+				[]
+			);
+		} catch (persistErr) {
+			logger.error('[Remote] Failed to persist session SSH config:', undefined, persistErr);
+		}
+
+		window.maestro.process.sendRemoteUpdateSessionSshResponse(responseChannel, { success: true });
+	});
+
+	// Handle remote update of an agent's editable per-session config from the CLI
+	// (nudge / new-session message, custom path / args / env vars, model, effort,
+	// context window, Claude token-source tri-state). Only the keys present in the
+	// patch are applied; a key whose value is `null` clears that field to
+	// undefined. These are spawn-time settings (they take effect on the next
+	// launch), so unlike cwd/SSH they are applied even while the agent runs. The
+	// new config is flushed to disk before signaling success so a follow-up CLI
+	// read sees it rather than the 2s-debounced stale value.
+	useEventListener('maestro:remoteUpdateSessionConfig', async (e: Event) => {
+		const { sessionId, configPatch, responseChannel } = (e as CustomEvent).detail;
+		const session = sessionsRef.current.find((s) => s.id === sessionId);
+		if (!session) {
+			window.maestro.process.sendRemoteUpdateSessionConfigResponse(responseChannel, {
+				success: false,
+				error: 'Agent not found',
+			});
+			return;
+		}
+
+		const patchObj = configPatch as Record<string, unknown>;
+
+		// Provider switch (toolType change) is destructive and handled separately
+		// from plain settings edits: it resets tabs, clears provider-specific
+		// config, and kills the running agent process - mirroring the Edit Agent
+		// modal's toolType-change branch. The CLI gates this behind --force. When a
+		// toolType is present and actually differs, do the switch and ignore any
+		// other keys in the same patch (the CLI sends it exclusively).
+		const requestedToolType =
+			typeof patchObj.toolType === 'string' ? (patchObj.toolType as ToolType) : undefined;
+		if (requestedToolType && requestedToolType !== session.toolType) {
+			const newTabId = generateId();
+			const freshTab: AITab = {
+				id: newTabId,
+				agentSessionId: null,
+				name: null,
+				starred: false,
+				logs: [],
+				inputValue: '',
+				stagedImages: [],
+				createdAt: Date.now(),
+				state: 'idle',
+				saveToHistory: true,
+			};
+			const providerSwitch: Partial<Session> = {
+				toolType: requestedToolType,
+				aiTabs: [freshTab],
+				activeTabId: newTabId,
+				closedTabHistory: [],
+				// Clear provider-specific overrides - they don't carry across providers.
+				customPath: undefined,
+				customArgs: undefined,
+				customEnvVars: undefined,
+				customModel: undefined,
+				customContextWindow: undefined,
+				enableMaestroP: undefined,
+				maestroPPath: undefined,
+				maestroPMode: undefined,
+				// Reset file preview tabs and unified tab order to just the new AI tab.
+				filePreviewTabs: [],
+				activeFileTabId: null,
+				unifiedTabOrder: [{ type: 'ai' as const, id: newTabId }],
+				unifiedClosedTabHistory: [],
+				// Reset runtime state.
+				state: 'idle' as const,
+				aiPid: 0,
+				executionQueue: [],
+			};
+
+			// Kill the existing AI process for the old provider (no-op if none).
+			window.maestro.process.kill(`${sessionId}-ai`).catch(() => {});
+
+			setSessions((prev: Session[]) =>
+				prev.map((s) => (s.id === sessionId ? { ...s, ...providerSwitch } : s))
+			);
+			try {
+				await window.maestro.sessions.setMany([{ ...session, ...providerSwitch } as any], []);
+			} catch (persistErr) {
+				logger.error('[Remote] Failed to persist provider switch:', undefined, persistErr);
+			}
+			window.maestro.process.sendRemoteUpdateSessionConfigResponse(responseChannel, {
+				success: true,
+			});
+			return;
+		}
+
+		// Allowlist of editable session config keys. Anything else in the patch is
+		// ignored so the CLI can't write arbitrary Session internals.
+		const EDITABLE_KEYS = new Set([
+			'nudgeMessage',
+			'newSessionMessage',
+			'customPath',
+			'customArgs',
+			'customEnvVars',
+			'customModel',
+			'customEffort',
+			'customContextWindow',
+			'enableMaestroP',
+			'maestroPMode',
+			'maestroPPath',
+		]);
+
+		// Build the field patch. A `null` value clears the field (sets undefined);
+		// any other provided value is written through as-is.
+		const patch = patchObj;
+		const updated: Partial<Session> = {};
+		for (const key of Object.keys(patch)) {
+			if (!EDITABLE_KEYS.has(key)) continue;
+			const value = patch[key];
+			(updated as Record<string, unknown>)[key] = value === null ? undefined : value;
+		}
+
+		if (Object.keys(updated).length === 0) {
+			window.maestro.process.sendRemoteUpdateSessionConfigResponse(responseChannel, {
+				success: false,
+				error: 'No editable config fields in patch',
+			});
+			return;
+		}
+
+		setSessions((prev: Session[]) =>
+			prev.map((s) => (s.id === sessionId ? { ...s, ...updated } : s))
+		);
+
+		try {
+			await window.maestro.sessions.setMany([{ ...session, ...updated } as any], []);
+		} catch (persistErr) {
+			logger.error('[Remote] Failed to persist session config:', undefined, persistErr);
+		}
+
+		window.maestro.process.sendRemoteUpdateSessionConfigResponse(responseChannel, {
+			success: true,
+		});
 	});
 
 	// Handle remote rename session from web interface
-	useEventListener('maestro:remoteRenameSession', (e: Event) => {
+	useEventListener('maestro:remoteRenameSession', async (e: Event) => {
 		const { sessionId, newName, responseChannel } = (e as CustomEvent).detail;
 		const session = sessionsRef.current.find((s) => s.id === sessionId);
 		if (!session) {
@@ -1096,6 +1401,16 @@ export function useAppRemoteEventListeners(deps: UseAppRemoteEventListenersDeps)
 			}
 			return updated;
 		});
+
+		// Flush the rename to disk before signaling success: the renderer's
+		// 2s debounced persistence path would otherwise let a follow-up CLI
+		// read see the stale name. setMany merges incrementally so the next
+		// debounced flush is idempotent.
+		try {
+			await window.maestro.sessions.setMany([{ ...session, name: newName } as any], []);
+		} catch (persistErr) {
+			logger.error('[Remote] Failed to persist session rename:', undefined, persistErr);
+		}
 
 		window.maestro.process.sendRemoteRenameSessionResponse(responseChannel, true);
 	});

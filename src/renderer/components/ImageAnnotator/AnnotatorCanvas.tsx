@@ -114,11 +114,25 @@ function bboxOf(shape: Pick<Shape, 'x1' | 'y1' | 'x2' | 'y2'>): Bbox {
 	return { x, y, w, h };
 }
 
-function arrowHeadPoints(x1: number, y1: number, x2: number, y2: number, size: number): string {
+interface ArrowGeometry {
+	/** Polygon points string for the arrowhead triangle. */
+	points: string;
+	/** Where the visible shaft should stop so it doesn't poke past the tip. */
+	shaftEndX: number;
+	shaftEndY: number;
+}
+
+function arrowHeadPoints(
+	x1: number,
+	y1: number,
+	x2: number,
+	y2: number,
+	size: number
+): ArrowGeometry | null {
 	const dx = x2 - x1;
 	const dy = y2 - y1;
 	const len = Math.sqrt(dx * dx + dy * dy);
-	if (len < 0.5) return '';
+	if (len < 0.5) return null;
 	const ux = dx / len;
 	const uy = dy / len;
 	const px = -uy;
@@ -131,7 +145,15 @@ function arrowHeadPoints(x1: number, y1: number, x2: number, y2: number, size: n
 	const leftY = baseY + py * headWidth;
 	const rightX = baseX - px * headWidth;
 	const rightY = baseY - py * headWidth;
-	return `${x2},${y2} ${leftX},${leftY} ${rightX},${rightY}`;
+	// End the shaft slightly inside the head's base so the round line cap
+	// can't protrude past the arrow tip.
+	const shaftEndX = x2 - ux * Math.min(headLen, len);
+	const shaftEndY = y2 - uy * Math.min(headLen, len);
+	return {
+		points: `${x2},${y2} ${leftX},${leftY} ${rightX},${rightY}`,
+		shaftEndX,
+		shaftEndY,
+	};
 }
 
 export const AnnotatorCanvas = forwardRef<SVGSVGElement, AnnotatorCanvasProps>(
@@ -150,6 +172,7 @@ export const AnnotatorCanvas = forwardRef<SVGSVGElement, AnnotatorCanvasProps>(
 			setView,
 			beginStroke,
 			extendStroke,
+			extendStrokeStraight,
 			endStroke,
 			eraseStrokeAt,
 			beginShape,
@@ -186,7 +209,9 @@ export const AnnotatorCanvas = forwardRef<SVGSVGElement, AnnotatorCanvasProps>(
 
 		const [isSpaceHeld, setIsSpaceHeld] = useState(false);
 		const [isShiftHeld, setIsShiftHeld] = useState(false);
-		const panEnabled = isSpaceHeld || isShiftHeld || tool === 'pan';
+		// Shift pans for every tool except the pen — there, shift constrains the
+		// freehand stroke to a straight line (handled in the pointermove path).
+		const panEnabled = isSpaceHeld || tool === 'pan' || (isShiftHeld && tool !== 'pen');
 
 		// Latest view in a ref — the wheel handler is attached imperatively
 		// (see below) and needs the current view without re-binding.
@@ -437,7 +462,11 @@ export const AnnotatorCanvas = forwardRef<SVGSVGElement, AnnotatorCanvasProps>(
 			const interaction = interactionRef.current;
 			if (!interaction) return;
 			if (interaction.kind === 'pen') {
-				extendStroke([pt[0], pt[1], e.pressure || 0.5]);
+				if (isShiftHeld) {
+					extendStrokeStraight([pt[0], pt[1], e.pressure || 0.5]);
+				} else {
+					extendStroke([pt[0], pt[1], e.pressure || 0.5]);
+				}
 				return;
 			}
 			if (interaction.kind === 'shape-draw') {
@@ -714,13 +743,13 @@ export const AnnotatorCanvas = forwardRef<SVGSVGElement, AnnotatorCanvasProps>(
 					<line
 						x1={shape.x1}
 						y1={shape.y1}
-						x2={shape.x2}
-						y2={shape.y2}
+						x2={head ? head.shaftEndX : shape.x2}
+						y2={head ? head.shaftEndY : shape.y2}
 						stroke={stroke}
 						strokeWidth={strokeWidth}
 						strokeLinecap="round"
 					/>
-					{head && <polygon points={head} fill={stroke} stroke={stroke} strokeWidth={1} />}
+					{head && <polygon points={head.points} fill={stroke} stroke={stroke} strokeWidth={1} />}
 					{/* Wider invisible hit-line so the user doesn't have to click
 					    pixel-perfect on a thin arrow shaft. */}
 					<line

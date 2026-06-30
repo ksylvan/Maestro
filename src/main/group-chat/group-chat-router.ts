@@ -21,8 +21,12 @@ import {
 import { appendToLog, readLog, saveImage } from './group-chat-log';
 import {
 	type GroupChatMessage,
-	mentionMatches,
-	normalizeMentionName,
+	type GroupChatHistoryEntry,
+	cleanMentionName,
+	findUniqueMentionMatch,
+	getMentionNameForContext,
+	getMentionMatchPriority,
+	stripUnmatchedTrailingClosers,
 } from '../../shared/group-chat-types';
 import {
 	IProcessManager,
@@ -45,6 +49,7 @@ import { getPrompt } from '../prompt-manager';
 import type { SshRemoteSettingsStore } from '../utils/ssh-remote-resolver';
 import { setGetCustomShellPathCallback } from './group-chat-config';
 import { spawnGroupChatAgent } from './spawnGroupChatAgent';
+import { getClaudeTokenMode } from '../../shared/claudeTokenMode';
 
 // Import emitters from IPC handlers (will be populated after handlers are registered)
 import { groupChatEmitters } from '../ipc/handlers/groupChat';
@@ -73,6 +78,12 @@ export interface GroupChatSessionInfo {
 	customArgs?: string;
 	customEnvVars?: Record<string, string>;
 	customModel?: string;
+	/** Claude token-source opt-in (Claude Code participants only). See getClaudeTokenMode. */
+	enableMaestroP?: boolean;
+	/** Refines enableMaestroP: 'interactive' (always TUI) vs 'dynamic' (auto-switch). */
+	maestroPMode?: 'interactive' | 'dynamic';
+	/** Optional maestro-p script override. */
+	maestroPPath?: string;
 	/** SSH remote name for display in participant card */
 	sshRemoteName?: string;
 	/** Full SSH remote config for remote execution */
@@ -118,6 +129,45 @@ let sshStore: SshRemoteSettingsStore | null = null;
  * Maps groupChatId -> Set<participantName>
  */
 const pendingParticipantResponses = new Map<string, Set<string>>();
+
+/**
+ * Tracks group chats whose next moderator turn is a synthesis round (the moderator
+ * summarizing participant responses). Set when a synthesis process is spawned and
+ * consumed when its output routes back through routeModeratorResponse, so that turn's
+ * history entry is classified as 'synthesis' rather than a regular moderator response.
+ * The moderator runs single-threaded per chat, so a plain groupChatId flag is safe.
+ */
+const pendingSynthesisRounds = new Set<string>();
+
+/**
+ * Writes a group chat history entry and emits it to the renderer. Centralizes the
+ * add + emit + failure-handling pattern shared by the moderator, participant, and
+ * error history-record sites. History logging is best-effort: a failure here is
+ * reported but never thrown, so it can't break the message flow.
+ */
+async function recordGroupChatHistory(
+	groupChatId: string,
+	entry: Omit<GroupChatHistoryEntry, 'id'>
+): Promise<void> {
+	try {
+		const historyEntry = await addGroupChatHistoryEntry(groupChatId, entry);
+		groupChatEmitters.emitHistoryEntry?.(groupChatId, historyEntry);
+		logger.debug(
+			`[GroupChatRouter] Added ${entry.type} history entry for ${entry.participantName}: ${entry.summary.substring(0, 50)}...`
+		);
+	} catch (error) {
+		logger.error(`Failed to add history entry for ${entry.participantName}`, LOG_CONTEXT, {
+			error,
+			groupChatId,
+		});
+		captureException(error, {
+			operation: 'groupChat:addHistory',
+			participantName: entry.participantName,
+			groupChatId,
+		});
+		// Don't throw - history logging failure shouldn't break the message flow
+	}
+}
 
 /**
  * Tracks which participants in each group chat were triggered via !autorun directives.
@@ -409,7 +459,7 @@ export function setSshStore(store: SshRemoteSettingsStore): void {
  * attached to the extracted name and breaks participant matching.
  */
 function stripMarkdownFormatting(name: string): string {
-	return name.replace(/^[*_`~]+|[*_`~]+$/g, '');
+	return cleanMentionName(name);
 }
 
 /**
@@ -426,23 +476,80 @@ export function extractMentions(text: string, participants: GroupChatParticipant
 
 	// Match @Name patterns - captures characters after @ excluding:
 	// - Whitespace and @
-	// - Common punctuation that typically follows mentions: :,;!?()[]{}'"<>
-	// This supports names with emojis, Unicode characters, dots, hyphens, underscores, etc.
-	// Examples: @RunMaestro.ai, @my-agent, @✅-autorun-wizard, @日本語
-	const mentionPattern = /@([^\s@:,;!?()\[\]{}'"<>]+)/g;
+	// - Common punctuation that typically follows mentions: :,;!?'"<>
+	// This supports names with emojis, Unicode characters, dots, hyphens, underscores,
+	// and bracket punctuation from legacy normalized display names.
+	// Examples: @RunMaestro.ai, @my-agent, @CIA-Agent-(Super-Cool), @日本語
+	const mentionPattern = /@([^\s@:,;!?'"<>]+)/g;
 	let match;
 
 	while ((match = mentionPattern.exec(text)) !== null) {
 		const mentionedName = stripMarkdownFormatting(match[1]);
 		if (!mentionedName) continue;
-		// Find participant that matches (either exact or normalized)
-		const matchingParticipant = participants.find((p) => mentionMatches(mentionedName, p.name));
+		const matchingParticipant = findUniqueMentionMatch(mentionedName, participants, (p) => p.name);
 		if (matchingParticipant && !mentions.includes(matchingParticipant.name)) {
 			mentions.push(matchingParticipant.name);
 		}
 	}
 
 	return mentions;
+}
+
+function findSessionForParticipantName(
+	participantName: string,
+	sessions: readonly GroupChatSessionInfo[]
+): GroupChatSessionInfo | undefined {
+	// This receives a persisted participant name, not a user-typed mention, so it
+	// must match the originating session conservatively. Priority-1 ("safe folded")
+	// matches collapse bracket styles (e.g. "Review Bot [Linux]" vs
+	// "Review Bot (Linux)") and could borrow the wrong session's cwd / custom args /
+	// SSH config. Only accept exact (4), legacy (3), or safe-normalized (2) matches,
+	// and bail on ties so an ambiguous lookup never silently picks one.
+	let bestPriority = 0;
+	let bestMatches: GroupChatSessionInfo[] = [];
+
+	for (const session of sessions) {
+		const priority = getMentionMatchPriority(participantName, session.name);
+		if (priority < 2) continue;
+
+		if (priority > bestPriority) {
+			bestPriority = priority;
+			bestMatches = [session];
+			continue;
+		}
+
+		if (priority === bestPriority) {
+			bestMatches.push(session);
+		}
+	}
+
+	return bestMatches.length === 1 ? bestMatches[0] : undefined;
+}
+
+/**
+ * Resolve a moderator/user @mention to the session that should be auto-added.
+ *
+ * Resolves against existing participants AND available (non-terminal) sessions
+ * together so a weak (safe-folded) participant match can't shadow a stronger
+ * (exact/legacy) session match, e.g. an existing "Review Bot [Linux]"
+ * participant must not block auto-adding a mentioned "Review Bot (Linux)"
+ * session. Returns the session to add, or undefined when the mention is already
+ * an existing participant or resolves ambiguously (a tie refuses to route).
+ */
+function resolveSessionToAutoAdd(
+	mentionedName: string,
+	existingParticipantNames: ReadonlySet<string>,
+	sessions: readonly GroupChatSessionInfo[]
+): GroupChatSessionInfo | undefined {
+	type Candidate = { name: string; session: GroupChatSessionInfo | null };
+	const candidates: Candidate[] = [
+		...Array.from(existingParticipantNames, (name): Candidate => ({ name, session: null })),
+		...sessions
+			.filter((s) => s.toolType !== 'terminal')
+			.map((s): Candidate => ({ name: s.name, session: s })),
+	];
+	const best = findUniqueMentionMatch(mentionedName, candidates, (c) => c.name);
+	return best?.session ?? undefined;
 }
 
 /**
@@ -457,10 +564,11 @@ export function extractAllMentions(text: string): string[] {
 
 	// Match @Name patterns - captures characters after @ excluding:
 	// - Whitespace and @
-	// - Common punctuation that typically follows mentions: :,;!?()[]{}'"<>
-	// This supports names with emojis, Unicode characters, dots, hyphens, underscores, etc.
-	// Examples: @RunMaestro.ai, @my-agent, @✅-autorun-wizard, @日本語
-	const mentionPattern = /@([^\s@:,;!?()\[\]{}'"<>]+)/g;
+	// - Common punctuation that typically follows mentions: :,;!?'"<>
+	// This supports names with emojis, Unicode characters, dots, hyphens, underscores,
+	// and bracket punctuation from legacy normalized display names.
+	// Examples: @RunMaestro.ai, @my-agent, @CIA-Agent-(Super-Cool), @日本語
+	const mentionPattern = /@([^\s@:,;!?'"<>]+)/g;
 	let match;
 
 	while ((match = mentionPattern.exec(text)) !== null) {
@@ -496,13 +604,16 @@ export function extractAutoRunDirectives(text: string): {
 } {
 	const autoRunDirectives: AutoRunDirective[] = [];
 	// Matches: !autorun @AgentName  OR  !autorun @AgentName:filename.md
-	const autoRunPattern = /!autorun\s+@([^\s@:,;!?()\[\]{}'"<>]+)(?::([^\s,;!?()\[\]{}'"<>]+))?/g;
+	const autoRunPattern = /!autorun\s+@([^\s@:,;!?'"<>]+)(?::([^\s,;!?'"<>]+))?/g;
 	let match;
 
 	while ((match = autoRunPattern.exec(text)) !== null) {
 		const participantName = stripMarkdownFormatting(match[1]);
 		if (!participantName) continue;
-		const filename = match[2]; // undefined when no :filename suffix
+		// Trim unmatched trailing closers so a directive wrapped in punctuation,
+		// e.g. "(!autorun @Agent:plan.md)", yields "plan.md" not "plan.md)" while
+		// balanced brackets in names like "Phase-01-(Setup).md" are preserved.
+		const filename = match[2] ? stripUnmatchedTrailingClosers(match[2]) || undefined : undefined;
 		if (!autoRunDirectives.some((d) => d.participantName === participantName)) {
 			autoRunDirectives.push({ participantName, filename });
 		}
@@ -510,7 +621,7 @@ export function extractAutoRunDirectives(text: string): {
 
 	// Remove !autorun lines from the message for display
 	const cleanedText = text
-		.replace(/^.*!autorun\s+@[^\s@:,;!?()\[\]{}'"<>]+.*$/gm, '')
+		.replace(/^.*!autorun\s+@[^\s@:,;!?'"<>]+.*$/gm, '')
 		.replace(/\n{3,}/g, '\n\n')
 		.trim();
 
@@ -574,17 +685,14 @@ export async function routeUserMessage(
 		const existingParticipantNames = new Set(chat.participants.map((p) => p.name));
 
 		for (const mentionedName of userMentions) {
-			// Skip if already a participant (check both exact and normalized names)
-			const alreadyParticipant = Array.from(existingParticipantNames).some((existingName) =>
-				mentionMatches(mentionedName, existingName)
-			);
-			if (alreadyParticipant) {
-				continue;
-			}
-
-			// Find matching session by name (supports both exact and hyphenated names)
-			const matchingSession = sessions.find(
-				(s) => mentionMatches(mentionedName, s.name) && s.toolType !== 'terminal'
+			// Resolve against existing participants AND available sessions together
+			// so a weak participant match can't shadow a stronger session match.
+			// Returns undefined when the mention is already a participant or
+			// resolves ambiguously.
+			const matchingSession = resolveSessionToAutoAdd(
+				mentionedName,
+				existingParticipantNames,
+				sessions
 			);
 
 			if (matchingSession) {
@@ -718,11 +826,15 @@ export async function routeUserMessage(
 
 			// Build participant context
 			// Use normalized names (spaces → hyphens) so moderator can @mention them properly
+			const participantNamesForMentions = chat.participants.map((p) => p.name);
 			const participantContext =
 				chat.participants.length > 0
 					? chat.participants
 							.map((p) => {
-								return `- @${normalizeMentionName(p.name)} (${p.agentId} session)`;
+								return `- @${getMentionNameForContext(
+									p.name,
+									participantNamesForMentions
+								)} (${p.agentId} session)`;
 							})
 							.join('\n')
 					: '(No agents currently in this group chat)';
@@ -740,7 +852,11 @@ export async function routeUserMessage(
 				);
 				if (availableSessions.length > 0) {
 					// Use normalized names (spaces → hyphens) so moderator can @mention them properly
-					availableSessionsContext = `\n\n## Available Maestro Sessions (can be added via @mention):\n${availableSessions.map((s) => `- @${normalizeMentionName(s.name)} (${s.toolType})`).join('\n')}`;
+					const availableSessionNamesForMentions = [
+						...chat.participants.map((p) => p.name),
+						...availableSessions.map((s) => s.name),
+					];
+					availableSessionsContext = `\n\n## Available Maestro Sessions (can be added via @mention):\n${availableSessions.map((s) => `- @${getMentionNameForContext(s.name, availableSessionNamesForMentions)} (${s.toolType})`).join('\n')}`;
 				}
 			}
 
@@ -849,10 +965,17 @@ ${readOnly ? 'READ-ONLY MODE is active. You and all participants can only inspec
 						getCustomEnvVarsCallback?.(chat.moderatorAgentId),
 					agentConfigValues,
 					sshRemoteConfig: chat.moderatorConfig?.sshRemoteConfig,
+					tokenMode: getClaudeTokenMode(chat.moderatorConfig, {
+						sshEnabled: !!chat.moderatorConfig?.sshRemoteConfig?.enabled,
+					}),
+					maestroPPath: chat.moderatorConfig?.maestroPPath,
 					sshStore,
 					processManager,
 					readOnlyMode: true,
 					debugLabel: 'moderator',
+					// Match maestro-p's idle budget to the moderator supervising timeout
+					// so a still-working moderator isn't killed at maestro-p's 300s default.
+					maxWaitSeconds: Math.ceil(MODERATOR_RESPONSE_TIMEOUT_MS / 1000),
 				});
 
 				logger.debug(`[GroupChat:Debug] Spawn result: ${JSON.stringify(spawnResult)}`);
@@ -910,6 +1033,10 @@ export async function routeModeratorResponse(
 	);
 	logger.debug(`[GroupChat:Debug] Read-only: ${readOnly ?? false}`);
 
+	// Consume the synthesis flag set by spawnModeratorSynthesis. If set, this moderator
+	// turn is the post-round summary and its history entry is classified as 'synthesis'.
+	const isSynthesisRound = pendingSynthesisRounds.delete(groupChatId);
+
 	const chat = await loadGroupChat(groupChatId);
 	if (!chat) {
 		// Benign race: the group chat was deleted while a moderator process was still
@@ -926,11 +1053,7 @@ export async function routeModeratorResponse(
 	// Strip internal !autorun directives from the message before logging/display.
 	// These are machine-to-machine commands; storing them in the chat log causes
 	// the synthesis moderator to see them in history and potentially re-trigger them.
-	const {
-		autoRunDirectives,
-		autoRunParticipants,
-		cleanedText: displayMessage,
-	} = extractAutoRunDirectives(message);
+	const { autoRunDirectives, cleanedText: displayMessage } = extractAutoRunDirectives(message);
 
 	// Only persist/emit the moderator message if it has visible content after stripping directives
 	const shouldPersistModeratorMessage = displayMessage.trim().length > 0;
@@ -950,33 +1073,9 @@ export async function routeModeratorResponse(
 		logger.debug(`[GroupChat:Debug] Emitted moderator message to renderer`);
 	}
 
-	// Add history entry for moderator response
-	if (shouldPersistModeratorMessage) {
-		try {
-			const summary = extractFirstSentence(displayMessage);
-			const historyEntry = await addGroupChatHistoryEntry(groupChatId, {
-				timestamp: Date.now(),
-				summary,
-				participantName: 'Moderator',
-				participantColor: '#808080', // Gray for moderator
-				type: 'response',
-				fullResponse: displayMessage,
-			});
-
-			// Emit history entry event to renderer
-			groupChatEmitters.emitHistoryEntry?.(groupChatId, historyEntry);
-			logger.debug(
-				`[GroupChatRouter] Added history entry for Moderator: ${summary.substring(0, 50)}...`
-			);
-		} catch (error) {
-			logger.error('Failed to add history entry for Moderator', LOG_CONTEXT, {
-				error,
-				groupChatId,
-			});
-			captureException(error, { operation: 'groupChat:addModeratorHistory', groupChatId });
-			// Don't throw - history logging failure shouldn't break the message flow
-		}
-	}
+	// The moderator history entry is written at the end of this function, once we know
+	// whether this turn delegated work to participants ('delegation'), was a synthesis
+	// summary ('synthesis'), or was a plain final response ('response').
 
 	// Extract ALL mentions from the message
 	const allMentions = extractAllMentions(message);
@@ -995,17 +1094,14 @@ export async function routeModeratorResponse(
 		);
 
 		for (const mentionedName of allMentions) {
-			// Skip if already a participant (check both exact and normalized names)
-			const alreadyParticipant = Array.from(existingParticipantNames).some((existingName) =>
-				mentionMatches(mentionedName, existingName)
-			);
-			if (alreadyParticipant) {
-				continue;
-			}
-
-			// Find matching session by name (supports both exact and hyphenated names)
-			const matchingSession = sessions.find(
-				(s) => mentionMatches(mentionedName, s.name) && s.toolType !== 'terminal'
+			// Resolve against existing participants AND available sessions together
+			// so a weak participant match can't shadow a stronger session match.
+			// Returns undefined when the mention is already a participant or
+			// resolves ambiguously.
+			const matchingSession = resolveSessionToAutoAdd(
+				mentionedName,
+				existingParticipantNames,
+				sessions
 			);
 
 			if (matchingSession) {
@@ -1087,6 +1183,7 @@ export async function routeModeratorResponse(
 
 	// Track participants that will need to respond for synthesis round
 	const participantsToRespond = new Set<string>();
+	const autoRunParticipantNames = new Set<string>();
 
 	// Use the !autorun directives already extracted above (same `message` input)
 	if (autoRunDirectives.length > 0) {
@@ -1104,7 +1201,11 @@ export async function routeModeratorResponse(
 
 		for (const directive of autoRunDirectives) {
 			const { participantName: autoRunName, filename: targetFilename } = directive;
-			const participant = updatedChat.participants.find((p) => mentionMatches(autoRunName, p.name));
+			const participant = findUniqueMentionMatch(
+				autoRunName,
+				updatedChat.participants,
+				(p) => p.name
+			);
 			if (!participant) {
 				console.warn(
 					`[GroupChat:Debug] Autorun participant ${autoRunName} not found in chat - skipping`
@@ -1117,9 +1218,16 @@ export async function routeModeratorResponse(
 				continue;
 			}
 
-			const matchingSession = sessions.find(
-				(s) => mentionMatches(s.name, participant.name) || s.name === participant.name
-			);
+			// Multiple aliases can resolve to the same canonical participant
+			// (e.g. "@CIA-Agent-Super-Cool" and "@CIA-Agent-(Super-Cool)").
+			// extractAutoRunDirectives only dedupes raw aliases, so guard here to
+			// avoid emitting duplicate autoRunTriggered events for one agent.
+			if (autoRunParticipantNames.has(participant.name)) {
+				continue;
+			}
+			autoRunParticipantNames.add(participant.name);
+
+			const matchingSession = findSessionForParticipantName(participant.name, sessions);
 
 			if (!matchingSession?.autoRunFolderPath) {
 				console.warn(
@@ -1168,9 +1276,7 @@ export async function routeModeratorResponse(
 	}
 
 	// Spawn batch processes for each mentioned participant (exclude autorun participants)
-	const mentionsToSpawn = mentions.filter(
-		(name) => !autoRunParticipants.some((arName) => mentionMatches(arName, name))
-	);
+	const mentionsToSpawn = mentions.filter((name) => !autoRunParticipantNames.has(name));
 	if (processManager && agentDetector && mentionsToSpawn.length > 0) {
 		logger.debug(`[GroupChat:Debug] ========== SPAWNING PARTICIPANT AGENTS ==========`);
 		logger.debug(`[GroupChat:Debug] Will spawn ${mentionsToSpawn.length} participant agent(s)`);
@@ -1202,9 +1308,7 @@ export async function routeModeratorResponse(
 			logger.debug(`[GroupChat:Debug] Participant agent ID: ${participant.agentId}`);
 
 			// Find matching session to get cwd
-			const matchingSession = sessions.find(
-				(s) => mentionMatches(s.name, participantName) || s.name === participantName
-			);
+			const matchingSession = findSessionForParticipantName(participantName, sessions);
 			const cwd = matchingSession?.cwd || os.homedir();
 			logger.debug(`[GroupChat:Debug] CWD for participant: ${cwd}`);
 
@@ -1309,10 +1413,17 @@ export async function routeModeratorResponse(
 						getCustomEnvVarsCallback?.(participant.agentId),
 					agentConfigValues,
 					sshRemoteConfig: matchingSession?.sshRemoteConfig,
+					tokenMode: getClaudeTokenMode(matchingSession, {
+						sshEnabled: !!matchingSession?.sshRemoteConfig?.enabled,
+					}),
+					maestroPPath: matchingSession?.maestroPPath,
 					sshStore,
 					processManager,
 					readOnlyMode: readOnly ?? false, // Propagate read-only mode from caller
 					debugLabel: `participant: ${participantName}`,
+					// Match maestro-p's idle budget to the participant supervising timeout
+					// so a still-working participant isn't killed at maestro-p's 300s default.
+					maxWaitSeconds: Math.ceil(PARTICIPANT_RESPONSE_TIMEOUT_MS / 1000),
 				});
 
 				logger.debug(
@@ -1352,6 +1463,13 @@ export async function routeModeratorResponse(
 					participantName,
 					groupChatId,
 				});
+				await recordGroupChatHistory(groupChatId, {
+					timestamp: Date.now(),
+					summary: `Failed to start ${participantName}.`,
+					participantName,
+					participantColor: participant.color || '#808080',
+					type: 'error',
+				});
 				// Continue with other participants even if one fails
 			}
 		}
@@ -1380,6 +1498,26 @@ export async function routeModeratorResponse(
 		groupChatEmitters.emitStateChange?.(groupChatId, 'idle');
 		logger.debug(`[GroupChat:Debug] Emitted state change: idle`);
 		powerManager.removeBlockReason(`groupchat:${groupChatId}`);
+	}
+
+	// Add history entry for the moderator turn now that delegation is known.
+	// - synthesis round  -> 'synthesis'
+	// - forwarded work to participant(s) -> 'delegation'
+	// - otherwise (plain/final response) -> 'response'
+	if (shouldPersistModeratorMessage) {
+		const moderatorEntryType = isSynthesisRound
+			? 'synthesis'
+			: participantsToRespond.size > 0
+				? 'delegation'
+				: 'response';
+		await recordGroupChatHistory(groupChatId, {
+			timestamp: Date.now(),
+			summary: extractFirstSentence(displayMessage),
+			participantName: 'Moderator',
+			participantColor: '#808080', // Gray for moderator
+			type: moderatorEntryType,
+			fullResponse: displayMessage,
+		});
 	}
 
 	// Log final pending state (registration now happens incrementally per-participant above)
@@ -1478,33 +1616,14 @@ export async function routeAgentResponse(
 	}
 
 	// Add history entry for this response
-	try {
-		const historyEntry = await addGroupChatHistoryEntry(groupChatId, {
-			timestamp: Date.now(),
-			summary,
-			participantName,
-			participantColor: participant.color || '#808080', // Default gray if no color assigned
-			type: 'response',
-			fullResponse: message,
-		});
-
-		// Emit history entry event to renderer
-		groupChatEmitters.emitHistoryEntry?.(groupChatId, historyEntry);
-		logger.debug(
-			`[GroupChatRouter] Added history entry for ${participantName}: ${summary.substring(0, 50)}...`
-		);
-	} catch (error) {
-		logger.error(`Failed to add history entry for ${participantName}`, LOG_CONTEXT, {
-			error,
-			groupChatId,
-		});
-		captureException(error, {
-			operation: 'groupChat:addParticipantHistory',
-			participantName,
-			groupChatId,
-		});
-		// Don't throw - history logging failure shouldn't break the message flow
-	}
+	await recordGroupChatHistory(groupChatId, {
+		timestamp: Date.now(),
+		summary,
+		participantName,
+		participantColor: participant.color || '#808080', // Default gray if no color assigned
+		type: 'response',
+		fullResponse: message,
+	});
 
 	// Note: The moderator runs in batch mode (one-shot per message), so we can't write to it.
 	// Instead, we track pending responses and spawn a synthesis round after all participants respond.
@@ -1598,11 +1717,15 @@ export async function spawnModeratorSynthesis(
 
 	// Build participant context for potential follow-up @mentions
 	// Use normalized names (spaces → hyphens) so moderator can @mention them properly
+	const participantNamesForMentions = chat.participants.map((p) => p.name);
 	const participantContext =
 		chat.participants.length > 0
 			? chat.participants
 					.map((p) => {
-						return `- @${normalizeMentionName(p.name)} (${p.agentId} session)`;
+						return `- @${getMentionNameForContext(
+							p.name,
+							participantNamesForMentions
+						)} (${p.agentId} session)`;
 					})
 					.join('\n')
 			: '(No agents currently in this group chat)';
@@ -1667,6 +1790,10 @@ Review the agent responses above. Either:
 		// Start moderator timeout to prevent indefinite hanging
 		setModeratorResponseTimeout(groupChatId);
 
+		// Mark this turn so routeModeratorResponse classifies its history entry as
+		// 'synthesis'. Cleared in the catch below if the spawn never gets off the ground.
+		pendingSynthesisRounds.add(groupChatId);
+
 		const spawnResult = await spawnGroupChatAgent({
 			sessionId,
 			agentId: chat.moderatorAgentId,
@@ -1680,10 +1807,17 @@ Review the agent responses above. Either:
 				getCustomEnvVarsCallback?.(chat.moderatorAgentId),
 			agentConfigValues,
 			sshRemoteConfig: chat.moderatorConfig?.sshRemoteConfig,
+			tokenMode: getClaudeTokenMode(chat.moderatorConfig, {
+				sshEnabled: !!chat.moderatorConfig?.sshRemoteConfig?.enabled,
+			}),
+			maestroPPath: chat.moderatorConfig?.maestroPPath,
 			sshStore,
 			processManager,
 			readOnlyMode: true,
 			debugLabel: 'synthesis moderator',
+			// Match maestro-p's idle budget to the moderator supervising timeout
+			// so a still-working synthesis turn isn't killed at maestro-p's 300s default.
+			maxWaitSeconds: Math.ceil(MODERATOR_RESPONSE_TIMEOUT_MS / 1000),
 		});
 
 		logger.debug(`[GroupChat:Debug] Synthesis spawn result: ${JSON.stringify(spawnResult)}`);
@@ -1694,6 +1828,16 @@ Review the agent responses above. Either:
 	} catch (error) {
 		logger.error(`Failed to spawn moderator synthesis for ${groupChatId}`, LOG_CONTEXT, { error });
 		captureException(error, { operation: 'groupChat:spawnSynthesis', groupChatId });
+		// Spawn failed before producing output, so no synthesis turn will route back -
+		// drop the flag so the next moderator turn isn't mis-tagged as synthesis.
+		pendingSynthesisRounds.delete(groupChatId);
+		await recordGroupChatHistory(groupChatId, {
+			timestamp: Date.now(),
+			summary: 'Synthesis round failed to start.',
+			participantName: 'Moderator',
+			participantColor: '#808080',
+			type: 'error',
+		});
 		groupChatEmitters.emitStateChange?.(groupChatId, 'idle');
 		// Remove power block reason on synthesis error since we're going idle
 		powerManager.removeBlockReason(`groupchat:${groupChatId}`);
@@ -1758,9 +1902,7 @@ export async function respawnParticipantWithRecovery(
 
 	// Find matching session for cwd
 	const sessions = getSessionsCallback?.() || [];
-	const matchingSession = sessions.find(
-		(s) => mentionMatches(s.name, participantName) || s.name === participantName
-	);
+	const matchingSession = findSessionForParticipantName(participantName, sessions);
 	const cwd = matchingSession?.cwd || os.homedir();
 
 	// Build the prompt with recovery context
@@ -1831,10 +1973,17 @@ export async function respawnParticipantWithRecovery(
 			configResolution.effectiveCustomEnvVars ?? getCustomEnvVarsCallback?.(participant.agentId),
 		agentConfigValues,
 		sshRemoteConfig: matchingSession?.sshRemoteConfig,
+		tokenMode: getClaudeTokenMode(matchingSession, {
+			sshEnabled: !!matchingSession?.sshRemoteConfig?.enabled,
+		}),
+		maestroPPath: matchingSession?.maestroPPath,
 		sshStore,
 		processManager,
 		readOnlyMode: readOnly ?? false,
 		debugLabel: `recovery of ${participantName}`,
+		// Match maestro-p's idle budget to the participant supervising timeout
+		// so a still-working recovery turn isn't killed at maestro-p's 300s default.
+		maxWaitSeconds: Math.ceil(PARTICIPANT_RESPONSE_TIMEOUT_MS / 1000),
 	});
 
 	logger.debug(`[GroupChat:Debug] Recovery spawn result: ${JSON.stringify(spawnResult)}`);

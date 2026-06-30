@@ -26,6 +26,8 @@ import { buildSessionDeepLink, buildGroupDeepLink } from './deep-link-urls';
  *   {{DOCUMENT_NAME}}     - Current Auto Run document name (without .md)
  *   {{DOCUMENT_PATH}}     - Full path to current Auto Run document
  *   {{LOOP_NUMBER}}       - Current loop iteration (5-digit padded, e.g., 00001)
+ *   {{GOAL}}              - Goal-Driven Auto Run: the free-text objective the agent pursues
+ *   {{GOAL_EXIT_CRITERIA}} - Goal-Driven Auto Run: free-text description of what "done" looks like
  *
  * Date/Time Variables:
  *   {{DATE}}              - Current date (YYYY-MM-DD)
@@ -94,6 +96,8 @@ import { buildSessionDeepLink, buildGroupDeepLink } from './deep-link-urls';
  *   {{CUE_CLI_PROMPT}}      - Prompt text passed via --prompt flag (cli.trigger events)
  *   {{CUE_SOURCE_AGENT_ID}} - Source agent ID passed via --source-agent-id (cli.trigger events)
  *   {{CUE_FROM_AGENT}}      - Triggering upstream agent ID or session ID — populated from sourceSessionId (agent.completed) or sourceAgentId (cli.trigger)
+ *
+ *   {{CUE_FIRE_AT}}         - Originally-scheduled fire timestamp (ISO-8601 with timezone) for time.once events
  */
 
 /**
@@ -160,6 +164,14 @@ export interface TemplateContext {
 	// Auto Run document context
 	documentName?: string;
 	documentPath?: string;
+	// Goal-Driven Auto Run context (only set for goal-driven runs)
+	goal?: string;
+	goalExitCriteria?: string;
+	/**
+	 * Pre-formatted handoff block from the previous goal iteration (see
+	 * src/shared/goalDriven/goalHandoff.ts). Empty on the first iteration.
+	 */
+	predecessorHandoff?: string;
 	// History file path for task recall
 	historyFilePath?: string;
 	// Conductor profile (user's About Me from settings)
@@ -219,6 +231,8 @@ export interface TemplateContext {
 		// Unified upstream-agent session ID — `sourceSessionId` for agent.completed,
 		// `sourceAgentId` for cli.trigger. Surfaced as {{CUE_FROM_AGENT}}.
 		fromAgent?: string;
+		// time.once fields — originally-scheduled fire timestamp (ISO-8601 with TZ).
+		fireAt?: string;
 	};
 }
 
@@ -311,6 +325,11 @@ export const TEMPLATE_VARIABLES = [
 	{ variable: '{{CUE_FILE_EXT}}', description: 'Changed file extension', cueOnly: true },
 	{ variable: '{{CUE_FILE_NAME}}', description: 'Changed file name', cueOnly: true },
 	{ variable: '{{CUE_FILE_PATH}}', description: 'Changed file path', cueOnly: true },
+	{
+		variable: '{{CUE_FIRE_AT}}',
+		description: 'Originally-scheduled fire timestamp (time.once events)',
+		cueOnly: true,
+	},
 	{ variable: '{{CUE_RUN_ID}}', description: 'Cue run UUID', cueOnly: true },
 	{
 		variable: '{{CUE_SOURCE_DURATION}}',
@@ -343,12 +362,32 @@ export const TEMPLATE_VARIABLES = [
 	{ variable: '{{DOCUMENT_NAME}}', description: 'Current document name', autoRunOnly: true },
 	{ variable: '{{DOCUMENT_PATH}}', description: 'Current document path', autoRunOnly: true },
 	{ variable: '{{GIT_BRANCH}}', description: 'Git branch name' },
+	{
+		variable: '{{GOAL}}',
+		description: 'Goal-Driven Auto Run objective',
+		autoRunOnly: true,
+	},
+	{
+		variable: '{{GOAL_EXIT_CRITERIA}}',
+		description: 'Goal-Driven Auto Run exit criteria',
+		autoRunOnly: true,
+	},
+	{
+		variable: '{{PREDECESSOR_HANDOFF}}',
+		description: "Goal-Driven Auto Run: previous iteration's handoff note (empty on the first)",
+		autoRunOnly: true,
+	},
 	{ variable: '{{GROUP_DEEP_LINK}}', description: 'Deep link to agent group (maestro://)' },
 	{ variable: '{{IS_GIT_REPO}}', description: 'Is git repo (true/false)' },
 	{ variable: '{{MAESTRO_CLI_PATH}}', description: 'Path to maestro-cli' },
 	{
 		variable: '{{LOOP_NUMBER}}',
 		description: 'Loop iteration (00001, 00002...)',
+		autoRunOnly: true,
+	},
+	{
+		variable: '{{LOOP_NUMBER_HUMAN}}',
+		description: 'Loop iteration, unpadded (1, 2, 3...)',
 		autoRunOnly: true,
 	},
 	{ variable: '{{MONTH}}', description: 'Month (01-12)' },
@@ -381,6 +420,9 @@ export function substituteTemplateVariables(template: string, context: TemplateC
 		loopNumber,
 		documentName,
 		documentPath,
+		goal,
+		goalExitCriteria,
+		predecessorHandoff,
 		historyFilePath,
 		conductorProfile,
 	} = context;
@@ -422,8 +464,17 @@ export function substituteTemplateVariables(template: string, context: TemplateC
 		DOCUMENT_NAME: documentName || '',
 		DOCUMENT_PATH: documentPath || '',
 
+		// Goal-Driven Auto Run variables
+		GOAL: goal || '',
+		GOAL_EXIT_CRITERIA: goalExitCriteria || '',
+		// Pre-formatted handoff from the prior iteration; empty when there is none.
+		PREDECESSOR_HANDOFF: predecessorHandoff || '',
+
 		// Loop tracking (1-indexed, defaults to 1 if not in loop mode, 5-digit padded)
 		LOOP_NUMBER: String(loopNumber ?? 1).padStart(5, '0'),
+		// Same iteration counter without zero-padding, for human-readable display
+		// (e.g. the Goal-Driven prompt's "Iteration: 3").
+		LOOP_NUMBER_HUMAN: String(loopNumber ?? 1),
 
 		// Date/Time variables
 		DATE: now.toISOString().split('T')[0],
@@ -497,6 +548,9 @@ export function substituteTemplateVariables(template: string, context: TemplateC
 		CUE_CLI_PROMPT: context.cue?.cliPrompt || '',
 		CUE_SOURCE_AGENT_ID: context.cue?.sourceAgentId || '',
 		CUE_FROM_AGENT: context.cue?.fromAgent || '',
+
+		// Cue time.once variables
+		CUE_FIRE_AT: context.cue?.fireAt || '',
 	};
 
 	// Add dynamic per-source output variables from the Cue context.

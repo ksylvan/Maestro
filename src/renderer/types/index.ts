@@ -24,6 +24,7 @@ export type {
 	BatchDocumentEntry,
 	PlaybookDocumentEntry,
 	Playbook,
+	TaskSelectionMode,
 	ThinkingMode,
 	WorktreeRunTarget,
 } from '../../shared/types';
@@ -41,6 +42,7 @@ import type {
 	UsageStats,
 	ToolType,
 	ThinkingMode,
+	TaskSelectionMode,
 } from '../../shared/types';
 
 // Re-export group chat types from shared location
@@ -59,6 +61,20 @@ import type { AgentError, SessionCliActivity } from '../../shared/types';
 export type SessionState = 'idle' | 'busy' | 'waiting_input' | 'connecting' | 'error';
 export type FileChangeType = 'modified' | 'added' | 'deleted';
 export type RightPanelTab = 'files' | 'history' | 'autorun';
+/**
+ * Tabs in the Usage Dashboard modal. Shared so the in-memory uiStore can
+ * remember the last-selected tab across dashboard opens (resets on restart).
+ */
+export type UsageDashboardViewMode =
+	| 'overview'
+	| 'agents'
+	| 'agent-overview'
+	| 'activity'
+	| 'autorun'
+	| 'anthropic-usage'
+	| 'codex-usage'
+	| 'cue'
+	| 'shortcuts';
 export type SettingsTab =
 	| 'general'
 	| 'shortcuts'
@@ -122,6 +138,8 @@ export interface WizardGeneratedDocument {
 export interface SessionWizardState {
 	/** Whether wizard is currently active */
 	isActive: boolean;
+	/** Whether the wizard is performing first-load initialization (fetching docs, parsing intent) */
+	isInitializing?: boolean;
 	/** Whether waiting for AI response */
 	isWaiting?: boolean;
 	/** Current wizard mode: 'new' for creating documents, 'iterate' for modifying existing */
@@ -225,6 +243,15 @@ export interface LogEntry {
 	// "Captured via interactive TUI" footer pill on non-user entries. Exists as
 	// forward-compatible metadata for any future divergence.
 	renderStyle?: 'structured' | 'text-stream';
+	// For session_not_found system entries — payload for the inline "Create new
+	// session from prior context" action. The button on the entry opens
+	// SessionRecoveryModal which re-spawns the agent in place on `tabId`,
+	// carrying the prior conversation as merged context and re-sending
+	// `lastUserPrompt` (the message that hit the dead session).
+	recoveryAction?: {
+		lastUserPrompt: string;
+		tabId: string;
+	};
 }
 
 // Queued item for the session-level execution queue
@@ -249,6 +276,9 @@ export interface QueuedItem {
 	readOnlyMode?: boolean; // True if queued from a read-only tab
 	// Force parallel: dispatches immediately when this tab finishes, skipping cross-tab wait
 	forceParallel?: boolean;
+	// Held/paused: kept in the queue (preserving order) but skipped by every
+	// dispatch path until the user resumes it. See utils/executionQueue.ts.
+	paused?: boolean;
 }
 
 export interface WorkLogItem {
@@ -300,8 +330,13 @@ export interface BatchRunConfig {
 	prompt: string;
 	loopEnabled: boolean; // Loop back to first doc when done
 	maxLoops?: number | null; // Max loop iterations (null/undefined = infinite)
+	taskSelectionMode?: TaskSelectionMode; // 'task' (default) or 'document' — controls {{TASK_SELECTION_BLOCK}}
 	worktree?: WorktreeConfig; // Optional worktree configuration
 	worktreeTarget?: WorktreeRunTarget; // Optional target for dispatching to a worktree agent
+	// Goal-Driven mode. Its presence is the discriminator that selects goal mode
+	// over the document/task-driven spec mode. When set, the run pursues a free-text
+	// goal instead of checking off `- [ ]` tasks. See src/shared/goalDriven/types.ts.
+	goalConfig?: import('../../shared/goalDriven/types').GoalRunConfig;
 }
 
 // Import BatchProcessingState for state machine integration
@@ -362,6 +397,15 @@ export interface BatchRunState {
 	errorPaused?: boolean; // True if batch is paused waiting for error resolution
 	errorDocumentIndex?: number; // Which document had the error (for skip functionality)
 	errorTaskDescription?: string; // Description of the task that failed (for UI display)
+
+	// Goal-Driven mode (Goal-Driven Auto Run). The following fields are only
+	// meaningful when `goalMode` is true; in document/task mode they stay at their
+	// defaults and are ignored. See src/shared/goalDriven/types.ts.
+	goalMode?: boolean; // True when this run is pursuing a free-text goal (not documents)
+	goalProgress?: number; // Latest self-reported progress toward the goal (0–100)
+	goalRationale?: string; // One-line rationale accompanying the latest progress report
+	goalIteration?: number; // 1-based iteration number the goal loop is on
+	goalExitReason?: import('../../shared/goalDriven/types').GoalExitReason; // Why the goal run stopped
 }
 
 // Badge unlock record for history tracking
@@ -557,6 +601,9 @@ export interface BrowserTab {
 	id: string; // Unique tab ID (UUID)
 	url: string; // Current URL shown in the address bar
 	title: string; // Last known document title (falls back to URL)
+	// User-assigned tab name. When set, it locks the displayed label and overrides
+	// page-set titles (the website can no longer rename the tab) until the user clears it.
+	customTitle?: string;
 	createdAt: number; // Timestamp for ordering
 	partition?: string; // Persisted Electron partition so browser tabs share session data per agent
 	canGoBack: boolean; // Navigation state for toolbar back button
@@ -703,6 +750,13 @@ export interface Session {
 	batchRunnerPrompt?: string;
 	// Timestamp when the batch runner prompt was last modified
 	batchRunnerPromptModifiedAt?: number;
+	// Goal-Driven Auto Run: which Auto Run tab the user last used and the goal
+	// config they entered, persisted so the modal reopens in the same mode with
+	// the same inputs (NOT a playbook .md file). See src/shared/goalDriven/types.ts.
+	// NOTE: named `autoRunDriveMode` (not `autoRunMode`) because `autoRunMode`
+	// already exists above for the document editor's edit/preview state.
+	autoRunDriveMode?: 'spec' | 'goal';
+	autoRunGoalConfig?: import('../../shared/goalDriven/types').GoalRunConfig;
 	// CLI activity - present when CLI is running a playbook on this session.
 	// Shape lives in shared/types.ts (SessionCliActivity) so the persistence
 	// diff comparator stays in lock-step with this producer's contract.
@@ -828,10 +882,16 @@ export interface Session {
 	// Symphony contribution metadata (only set for Symphony sessions)
 	symphonyMetadata?: SymphonySessionMetadata;
 
-	// Per-session Batch Mode opt-in (Claude Code only). When true, the spawner
-	// auto-switches between maestro-p (Time Limits / Max plan) and `claude
-	// --print` (API Limits / per-token) based on the latest usage snapshot.
+	// Per-session token-source opt-in (Claude Code only). When true, the spawner
+	// runs through maestro-p (Time Limits / Max plan) instead of `claude --print`
+	// (API Limits / per-token). The exact behavior is refined by `maestroPMode`.
 	enableMaestroP?: boolean;
+	// Refines `enableMaestroP`: 'interactive' always drives the maestro-p TUI,
+	// 'dynamic' (default when absent) auto-switches between maestro-p and `claude
+	// --print` based on the latest usage snapshot. Together the pair encodes the
+	// three user-facing modes: API (enableMaestroP off), TUI (on + interactive),
+	// Dynamic (on + dynamic). See `getClaudeTokenMode` in shared/claudeTokenMode.
+	maestroPMode?: 'interactive' | 'dynamic';
 	// Optional override for the maestro-p binary path. When empty/undefined,
 	// the spawner uses the bundled script (`process.resourcesPath/maestro-p.js`
 	// in packaged builds, `dist/cli/maestro-p.js` in dev).
@@ -1025,6 +1085,8 @@ export interface DirectorNotesSettings {
 	provider: ToolType;
 	/** Default lookback period in days (1-90) */
 	defaultLookbackDays: number;
+	/** Default AI Overview reading mode (Rich widget dashboard vs Plain markdown). Defaults to 'rich'. */
+	defaultMode?: 'rich' | 'plain';
 	/** Custom path to the agent binary */
 	customPath?: string;
 	/** Custom arguments for the agent */

@@ -14,6 +14,13 @@
  *   the binary's node-script-with-shebang packaging stays valid on Windows
  *   where shebangs aren't honored.
  *
+ * - SSH limitation: this spawn is always LOCAL - it does NOT honor a session's
+ *   `sshRemoteConfig` / `wrapSpawnWithSsh`, so the snapshot reflects the local
+ *   account keyed by `CLAUDE_CONFIG_DIR`, never a remote host's Claude account.
+ *   Consumers that act per remote session (notably Auto-Resume On Limit's
+ *   `probeAvailability`) must NOT trust this snapshot for an SSH-backed session;
+ *   they fall back to a resume-as-probe interval attempt instead.
+ *
  * - Env precedence: `process.env` < `customEnvVars` < explicit `configDir`.
  *   Explicit `configDir` wins so a caller cannot accidentally smuggle a
  *   `CLAUDE_CONFIG_DIR` through `customEnvVars` that contradicts the path the
@@ -114,6 +121,49 @@ export async function sampleUsage(opts: SampleUsageOptions): Promise<UsageSnapsh
 	const childEnv: NodeJS.ProcessEnv = { ...process.env, ...(opts.customEnvVars ?? {}) };
 	if (opts.configDir !== undefined) {
 		childEnv.CLAUDE_CONFIG_DIR = opts.configDir;
+	}
+
+	// `process.execPath` is the Electron binary in a packaged app. Running it
+	// against a `.js` script without this flag launches a second GUI instance
+	// instead of executing the script as Node - so `maestro-p --status` would
+	// never run and the snapshot would always be null. Every other execPath
+	// node-script spawn in the app sets this (see `cue-cli-executor.ts`,
+	// `maestro-cli-manager.ts`); the sampler was missing it.
+	childEnv.ELECTRON_RUN_AS_NODE = '1';
+
+	// Hard guarantee: this read-only `/usage` probe must never be able to launch
+	// the Claude OAuth browser. When a config dir holds an expired / needs-consent
+	// token (distinct from fully-logged-out, which claude renders inline as
+	// "Not logged in · Run /login"), launching the TUI kicks off the OAuth consent
+	// flow and opens a browser window - intolerable on an unattended background
+	// refresh tick. claude's URL opener uses `$BROWSER` as the launch command when
+	// set and does NOT fall back to the system opener, so pointing it at a no-op
+	// (`/usr/bin/true` on unix; a nonexistent path on Windows fails closed the same
+	// way) makes the consent flow open nothing. The sampler then just times out and
+	// skips that account. Login still happens normally in real interactive Claude
+	// sessions - those spawn through the process manager, not this sampler.
+	childEnv.BROWSER = '/usr/bin/true';
+
+	// `maestro-p.js` is shipped via `extraResources` at the resources root and
+	// `require('node-pty')` (left external by its esbuild bundle). From outside
+	// the asar, Node can't find node-pty without help. Point NODE_PATH at the
+	// IN-ASAR node_modules (`<resources>/app.asar/node_modules`), NOT the
+	// unpacked copy: node-pty's JS loads from the asar (Electron's patched fs
+	// reads it; the native `pty.node` is auto-redirected to app.asar.unpacked),
+	// and critically node-pty computes its `spawn-helper` path by doing
+	// `helperPath.replace('app.asar', 'app.asar.unpacked')`. If we hand it the
+	// already-unpacked path, that replace double-applies to
+	// `app.asar.unpacked.unpacked` and the helper exec fails with
+	// "posix_spawn failed: No such file or directory" - which silently broke
+	// every Claude usage sample in packaged builds (empty store, no dashboard
+	// tab). Feeding the asar path lets node-pty rewrite it once, correctly.
+	// Mirrors resolveClaudeSpawnMode.ts. Only applies to the packaged app; in
+	// dev `resourcesPath` is empty and node-pty resolves from the project tree.
+	if (typeof process.resourcesPath === 'string' && process.resourcesPath.length > 0) {
+		const asarModules = path.join(process.resourcesPath, 'app.asar', 'node_modules');
+		childEnv.NODE_PATH = childEnv.NODE_PATH
+			? `${asarModules}${path.delimiter}${childEnv.NODE_PATH}`
+			: asarModules;
 	}
 
 	let stdout: string;

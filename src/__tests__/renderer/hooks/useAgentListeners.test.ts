@@ -20,6 +20,7 @@ import { useGroupChatStore } from '../../../renderer/stores/groupChatStore';
 import type { Session, AITab, AgentError } from '../../../renderer/types';
 import { createMockAITab } from '../../helpers/mockTab';
 import { createMockSession as baseCreateMockSession } from '../../helpers/mockSession';
+import { getInputBroadcastOriginId } from '../../../renderer/utils/ids';
 
 // ============================================================================
 // Helpers
@@ -63,6 +64,7 @@ let onAgentErrorHandler: ListenerCallback | undefined;
 let onThinkingChunkHandler: ListenerCallback | undefined;
 let onSshRemoteHandler: ListenerCallback | undefined;
 let onToolExecutionHandler: ListenerCallback | undefined;
+let onUserInputHandler: ListenerCallback | undefined;
 
 const mockUnsubscribeData = vi.fn();
 const mockUnsubscribeExit = vi.fn();
@@ -75,6 +77,7 @@ const mockUnsubscribeAgentError = vi.fn();
 const mockUnsubscribeThinkingChunk = vi.fn();
 const mockUnsubscribeSshRemote = vi.fn();
 const mockUnsubscribeToolExecution = vi.fn();
+const mockUnsubscribeUserInput = vi.fn();
 
 const mockProcess = {
 	onData: vi.fn((handler: ListenerCallback) => {
@@ -121,6 +124,10 @@ const mockProcess = {
 		onToolExecutionHandler = handler;
 		return mockUnsubscribeToolExecution;
 	}),
+	onUserInput: vi.fn((handler: ListenerCallback) => {
+		onUserInputHandler = handler;
+		return mockUnsubscribeUserInput;
+	}),
 	getActiveProcesses: vi.fn().mockResolvedValue([]),
 	spawn: vi.fn(),
 	kill: vi.fn(),
@@ -140,6 +147,7 @@ function createMockBatchedUpdater(): BatchedUpdater {
 		updateContextUsage: vi.fn(),
 		updateCycleBytes: vi.fn(),
 		updateCycleTokens: vi.fn(),
+		flushNow: vi.fn(),
 	};
 }
 
@@ -244,7 +252,11 @@ describe('getErrorTitleForType', () => {
 
 describe('useAgentListeners', () => {
 	describe('listener registration', () => {
-		it('registers all 11 IPC listeners on mount', () => {
+		// onThinkingChunk has TWO subscribers: useAgentThinkingListener (records to
+		// tab logs, gated by showThinking) and useThoughtStreamCaptureListener (feeds
+		// the Thought Stream panel, independent of showThinking). So 11 channels but
+		// 12 subscriptions, with thinking-chunk subscribed twice.
+		it('registers all IPC listeners on mount (thinking-chunk subscribed twice)', () => {
 			const deps = createMockDeps();
 			renderHook(() => useAgentListeners(deps));
 
@@ -256,12 +268,12 @@ describe('useAgentListeners', () => {
 			expect(mockProcess.onCommandExit).toHaveBeenCalledTimes(1);
 			expect(mockProcess.onUsage).toHaveBeenCalledTimes(1);
 			expect(mockProcess.onAgentError).toHaveBeenCalledTimes(1);
-			expect(mockProcess.onThinkingChunk).toHaveBeenCalledTimes(1);
+			expect(mockProcess.onThinkingChunk).toHaveBeenCalledTimes(2);
 			expect(mockProcess.onSshRemote).toHaveBeenCalledTimes(1);
 			expect(mockProcess.onToolExecution).toHaveBeenCalledTimes(1);
 		});
 
-		it('unsubscribes all 11 listeners on unmount', () => {
+		it('unsubscribes all listeners on unmount (thinking-chunk twice)', () => {
 			const deps = createMockDeps();
 			const { unmount } = renderHook(() => useAgentListeners(deps));
 
@@ -275,7 +287,7 @@ describe('useAgentListeners', () => {
 			expect(mockUnsubscribeCommandExit).toHaveBeenCalledTimes(1);
 			expect(mockUnsubscribeUsage).toHaveBeenCalledTimes(1);
 			expect(mockUnsubscribeAgentError).toHaveBeenCalledTimes(1);
-			expect(mockUnsubscribeThinkingChunk).toHaveBeenCalledTimes(1);
+			expect(mockUnsubscribeThinkingChunk).toHaveBeenCalledTimes(2);
 			expect(mockUnsubscribeSshRemote).toHaveBeenCalledTimes(1);
 			expect(mockUnsubscribeToolExecution).toHaveBeenCalledTimes(1);
 		});
@@ -1291,6 +1303,117 @@ describe('useAgentListeners', () => {
 	});
 
 	// ========================================================================
+	// onUserInput handler (cross-renderer busy mirroring for web-desktop peers)
+	// ========================================================================
+
+	describe('onUserInput', () => {
+		it('marks the session/tab busy even when the entry already exists (no log dup)', () => {
+			// Regression: an observer renderer (web-desktop peer / sharing host)
+			// can receive the user-input log via a session sync that races the
+			// broadcast. The busy state must still be applied; coupling it to the
+			// log append left thoughts streaming with no thinking pill.
+			const deps = createMockDeps();
+			const existingEntry = {
+				id: 'entry-1',
+				timestamp: 1700000000000,
+				source: 'user' as const,
+				text: 'hello from the peer',
+			};
+			const session = createMockSession({
+				id: 'sess-1',
+				state: 'idle',
+				busySource: undefined,
+				aiTabs: [createMockTab({ id: 'tab-1', state: 'idle', logs: [existingEntry] })],
+				activeTabId: 'tab-1',
+			});
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'sess-1' });
+
+			renderHook(() => useAgentListeners(deps));
+
+			onUserInputHandler?.({
+				originId: 'remote-peer-origin',
+				sessionId: 'sess-1',
+				tabId: 'tab-1',
+				inputMode: 'ai',
+				entry: existingEntry,
+			});
+
+			const updated = useSessionStore.getState().sessions.find((s) => s.id === 'sess-1');
+			expect(updated?.state).toBe('busy');
+			expect(updated?.busySource).toBe('ai');
+			expect(updated?.aiTabs[0]?.state).toBe('busy');
+			// The duplicate entry must not be appended twice.
+			expect(updated?.aiTabs[0]?.logs).toHaveLength(1);
+		});
+
+		it('appends the entry and marks busy when the entry is new', () => {
+			const deps = createMockDeps();
+			const session = createMockSession({
+				id: 'sess-1',
+				state: 'idle',
+				busySource: undefined,
+				aiTabs: [createMockTab({ id: 'tab-1', state: 'idle', logs: [] })],
+				activeTabId: 'tab-1',
+			});
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'sess-1' });
+
+			renderHook(() => useAgentListeners(deps));
+
+			onUserInputHandler?.({
+				originId: 'remote-peer-origin',
+				sessionId: 'sess-1',
+				tabId: 'tab-1',
+				inputMode: 'ai',
+				entry: {
+					id: 'entry-new',
+					timestamp: 1700000001000,
+					source: 'user' as const,
+					text: 'fresh message',
+				},
+			});
+
+			const updated = useSessionStore.getState().sessions.find((s) => s.id === 'sess-1');
+			expect(updated?.state).toBe('busy');
+			expect(updated?.aiTabs[0]?.logs).toHaveLength(1);
+			expect(updated?.aiTabs[0]?.logs[0]?.id).toBe('entry-new');
+		});
+
+		it('ignores broadcasts that originated from this same renderer', () => {
+			const deps = createMockDeps();
+			const session = createMockSession({
+				id: 'sess-1',
+				state: 'idle',
+				busySource: undefined,
+				aiTabs: [createMockTab({ id: 'tab-1', state: 'idle', logs: [] })],
+				activeTabId: 'tab-1',
+			});
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'sess-1' });
+
+			renderHook(() => useAgentListeners(deps));
+
+			// Local origin id is generated lazily and memoized; read it so the
+			// payload matches and the listener early-returns.
+			const localOriginId = getInputBroadcastOriginId();
+			onUserInputHandler?.({
+				originId: localOriginId,
+				sessionId: 'sess-1',
+				tabId: 'tab-1',
+				inputMode: 'ai',
+				entry: {
+					id: 'entry-self',
+					timestamp: 1700000002000,
+					source: 'user' as const,
+					text: 'typed locally',
+				},
+			});
+
+			const updated = useSessionStore.getState().sessions.find((s) => s.id === 'sess-1');
+			expect(updated?.state).toBe('idle');
+			expect(updated?.aiTabs[0]?.logs).toHaveLength(0);
+		});
+	});
+
+	// ========================================================================
 	// onToolExecution handler
 	// ========================================================================
 
@@ -1831,6 +1954,58 @@ describe('useAgentListeners', () => {
 			expect(processQueuedItem).toHaveBeenCalledWith('sess-1', queueItem);
 		});
 
+		// Regression: Cmd+T -> type -> Enter -> Cmd+W. The new tab is closed while its
+		// message is still queued, so it moves to orphanedThinkingTabs. When a DIFFERENT
+		// tab's turn exits and dequeues that item, the queued message must route to the
+		// orphan (fire-and-forget background send), NOT leak onto the active tab.
+		it('routes a queued item for a closed (orphaned) tab to the orphan, not the active tab', async () => {
+			const processQueuedItem = vi.fn().mockResolvedValue(undefined);
+			const deps = createMockDeps({
+				processQueuedItemRef: { current: processQueuedItem },
+			});
+			// tab-a is the visible/active tab whose turn is finishing.
+			const tabA = createMockTab({ id: 'tab-a', state: 'busy' });
+			// tab-new was created via Cmd+T, had a message queued, then was closed (Cmd+W).
+			// It now lives in orphanedThinkingTabs.
+			const orphanTab = createMockTab({ id: 'tab-new', state: 'busy', logs: [] });
+			const queueItem = {
+				id: 'q1',
+				tabId: 'tab-new',
+				type: 'message' as const,
+				text: 'background message',
+				timestamp: Date.now(),
+			};
+			const session = createMockSession({
+				id: 'sess-1',
+				state: 'busy',
+				busySource: 'ai',
+				aiTabs: [tabA],
+				activeTabId: 'tab-a',
+				orphanedThinkingTabs: [orphanTab],
+				executionQueue: [queueItem],
+			});
+			useSessionStore.setState({ sessions: [session], activeSessionId: 'sess-1' });
+
+			renderHook(() => useAgentListeners(deps));
+
+			await onExitHandler?.('sess-1-ai-tab-a');
+			await new Promise((r) => setTimeout(r, 50));
+
+			const updated = useSessionStore.getState().sessions.find((s) => s.id === 'sess-1');
+			const activeTab = updated?.aiTabs.find((t) => t.id === 'tab-a');
+			const orphan = updated?.orphanedThinkingTabs?.find((t) => t.id === 'tab-new');
+
+			// The message must NOT appear on the active tab.
+			expect(activeTab?.logs.some((l) => l.text === 'background message')).toBe(false);
+			// The message DOES land on the orphaned tab, which is marked thinking again.
+			expect(orphan?.logs.some((l) => l.source === 'user' && l.text === 'background message')).toBe(
+				true
+			);
+			expect(orphan?.state).toBe('busy');
+			// And the spawn is dispatched for the orphan's item.
+			expect(processQueuedItem).toHaveBeenCalledWith('sess-1', queueItem);
+		});
+
 		it('does NOT dequeue write-mode item when another tab is still busy', async () => {
 			const processQueuedItem = vi.fn().mockResolvedValue(undefined);
 			const deps = createMockDeps({
@@ -2077,6 +2252,93 @@ describe('useAgentListeners', () => {
 			const updatedTabB = updated?.aiTabs.find((t) => t.id === 'tab-b');
 			expect(updatedTabB?.state).toBe('busy');
 			expect(updatedTabB?.agentSessionId).toBe('tab-b-session');
+		});
+
+		it('drains a queued message in the background after its tab was closed (fire-and-forget)', async () => {
+			const processQueuedItem = vi.fn().mockResolvedValue(undefined);
+			const deps = createMockDeps({
+				processQueuedItemRef: { current: processQueuedItem },
+			});
+			// Tab A was closed while its agent ran, so it lives in
+			// orphanedThinkingTabs - NOT in aiTabs - and a fresh idle tab replaced it.
+			const orphan = createMockTab({
+				id: 'tab-a',
+				state: 'busy',
+				agentSessionId: 'sess-a',
+			});
+			const freshTab = createMockTab({ id: 'tab-fresh', state: 'idle' });
+			const queueItem = {
+				id: 'q1',
+				tabId: 'tab-a',
+				type: 'message' as const,
+				text: 'finish the refactor',
+				timestamp: Date.now(),
+			};
+			const session = createMockSession({
+				id: 'sess-1',
+				state: 'busy',
+				busySource: 'ai',
+				aiTabs: [freshTab],
+				activeTabId: 'tab-fresh',
+				orphanedThinkingTabs: [orphan],
+				executionQueue: [queueItem],
+			});
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'sess-1',
+			});
+
+			renderHook(() => useAgentListeners(deps));
+
+			// The orphan's current turn finishes.
+			await onExitHandler?.('sess-1-ai-tab-a');
+			await new Promise((r) => setTimeout(r, 50));
+
+			// The queued follow-up dispatches against the orphan, even though its
+			// tab is no longer visible.
+			expect(processQueuedItem).toHaveBeenCalledWith('sess-1', queueItem);
+			const updated = useSessionStore.getState().sessions.find((s) => s.id === 'sess-1');
+			// Item dequeued, session still busy, orphan kept alive for the new turn.
+			expect(updated?.executionQueue).toHaveLength(0);
+			expect(updated?.state).toBe('busy');
+			expect(updated?.orphanedThinkingTabs?.map((t) => t.id)).toContain('tab-a');
+			// The queued user message is recorded on the orphan's own log so a later
+			// restore shows the background conversation.
+			const updatedOrphan = updated?.orphanedThinkingTabs?.find((t) => t.id === 'tab-a');
+			expect(updatedOrphan?.logs.some((l) => l.text === 'finish the refactor')).toBe(true);
+		});
+
+		it('retires a closed orphan once its queue is empty', async () => {
+			const processQueuedItem = vi.fn().mockResolvedValue(undefined);
+			const deps = createMockDeps({
+				processQueuedItemRef: { current: processQueuedItem },
+			});
+			const orphan = createMockTab({ id: 'tab-a', state: 'busy', agentSessionId: 'sess-a' });
+			const freshTab = createMockTab({ id: 'tab-fresh', state: 'idle' });
+			const session = createMockSession({
+				id: 'sess-1',
+				state: 'busy',
+				busySource: 'ai',
+				aiTabs: [freshTab],
+				activeTabId: 'tab-fresh',
+				orphanedThinkingTabs: [orphan],
+				executionQueue: [],
+			});
+			useSessionStore.setState({
+				sessions: [session],
+				activeSessionId: 'sess-1',
+			});
+
+			renderHook(() => useAgentListeners(deps));
+
+			await onExitHandler?.('sess-1-ai-tab-a');
+			await new Promise((r) => setTimeout(r, 50));
+
+			// No queued work remained, so the orphan is retired and nothing dispatches.
+			expect(processQueuedItem).not.toHaveBeenCalled();
+			const updated = useSessionStore.getState().sessions.find((s) => s.id === 'sess-1');
+			expect(updated?.orphanedThinkingTabs ?? []).toHaveLength(0);
+			expect(updated?.state).toBe('idle');
 		});
 	});
 

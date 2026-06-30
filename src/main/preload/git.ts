@@ -131,6 +131,32 @@ export function createGitApi() {
 			ipcRenderer.invoke('git:isRepo', cwd, sshRemoteId, remoteCwd),
 
 		/**
+		 * Initialize a new git repository at the given directory.
+		 */
+		init: (
+			cwd: string,
+			sshRemoteId?: string,
+			remoteCwd?: string
+		): Promise<{ success: boolean; error?: string }> =>
+			ipcRenderer.invoke('git:init', cwd, sshRemoteId, remoteCwd),
+
+		/**
+		 * Stage all changes and commit them. A clean tree returns
+		 * { success: true, committed: false } (not an error).
+		 */
+		commitAll: (
+			cwd: string,
+			message: string,
+			sshRemoteId?: string,
+			remoteCwd?: string
+		): Promise<{
+			success: boolean;
+			committed: boolean;
+			commitHash?: string;
+			error?: string;
+		}> => ipcRenderer.invoke('git:commitAll', cwd, message, sshRemoteId, remoteCwd),
+
+		/**
 		 * Get git diff numstat
 		 */
 		numstat: (

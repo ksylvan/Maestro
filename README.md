@@ -12,7 +12,7 @@ Maestro is a cross-platform desktop app for orchestrating your fleet of AI agent
 
 Collaborate with AI to create detailed specification documents, then let Auto Run execute them automatically, each task in a fresh session with clean context. Allowing for long-running unattended sessions, my current record is nearly 24 hours of continuous runtime.
 
-Run multiple agents in parallel with a Linear/Superhuman-level responsive interface. Currently supporting **Claude Code**, **OpenAI Codex**, **OpenCode**, **Factory Droid**, and **Copilot-CLI** (beta) with plans for additional agentic coding tools (Gemini CLI) based on user demand.
+Run multiple agents in parallel with a Linear/Superhuman-level responsive interface. Currently supporting **Claude Code**, **OpenAI Codex**, **OpenCode**, **Factory Droid**, **Copilot-CLI** (beta), **Qwen3 Coder** (beta), and **Oh My Pi** (beta) with plans for additional agentic coding tools (Gemini CLI) based on user demand.
 
 > **How It Works:** Maestro is a pass-through to your AI provider. Whatever MCP tools, skills, permissions, or authentication you have configured in Claude Code, Codex, or OpenCode works identically in Maestro. The only difference is we're not running interactively—each task gets a prompt and returns a response, whether it's a new session or resuming a prior one.
 
@@ -35,7 +35,7 @@ Run multiple agents in parallel with a Linear/Superhuman-level responsive interf
 ### Power Features
 
 - 🌳 **[Git Worktrees](https://docs.runmaestro.ai/git-worktrees)** - Run AI agents in parallel on isolated branches. Create worktree sub-agents from the git branch menu, each operating in their own directory. Work interactively in the main repo while sub-agents process tasks independently—then create PRs with one click. True parallel development without conflicts.
-- 🤖 **[Auto Run & Playbooks](https://docs.runmaestro.ai/autorun-playbooks)** - File-system-based task runner that batch-processes markdown checklists through AI agents. Create playbooks for repeatable workflows, run in loops, and track progress with full history. Each task gets its own AI session for clean conversation context.
+- 🤖 **[Auto Run & Playbooks](https://docs.runmaestro.ai/autorun-playbooks)** - File-system-based task runner that batch-processes markdown checklists (Spec-Driven) or pursues a free-text objective (Goal-Driven) through AI agents. Create playbooks for repeatable workflows, run in loops, and track progress with full history. Each task gets its own AI session for clean conversation context, and you can open the live Thought Stream to watch the agent's reasoning as it works.
 - 💬 **[Group Chat](https://docs.runmaestro.ai/group-chat)** - Coordinate multiple AI agents in a single conversation. A moderator AI orchestrates discussions, routing questions to the right agents and synthesizing their responses for cross-project questions and architecture discussions.
 - 🌐 **[Mobile Remote Control](https://docs.runmaestro.ai/remote-access)** - Built-in web server with QR code access. Monitor and control all your agents from your phone. Supports local network access and remote tunneling via Cloudflare for access from anywhere.
 - 💻 **[Command Line Interface](https://docs.runmaestro.ai/cli)** - Full CLI (`maestro-cli`) for headless operation. List agents/groups, run playbooks from cron jobs or CI/CD pipelines, with human-readable or JSONL output for scripting.
@@ -83,7 +83,7 @@ Run multiple agents in parallel with a Linear/Superhuman-level responsive interf
 
 Additional interactions: Drag nodes to reposition, scroll to zoom, use mini-map for overview.
 
-> **Note**: Maestro supports Claude Code, OpenAI Codex, OpenCode, Factory Droid, and Copilot-CLI (beta). Support for additional agents (Gemini CLI) may be added in future releases based on community demand.
+> **Note**: Maestro supports Claude Code, OpenAI Codex, OpenCode, Factory Droid, Copilot-CLI (beta), Qwen3 Coder (beta), and Oh My Pi (beta). Support for additional agents (Gemini CLI) may be added in future releases based on community demand.
 
 ## Quick Start
 
@@ -107,6 +107,8 @@ npm run dev
   - [OpenAI Codex](https://github.com/openai/codex) - OpenAI's coding agent
   - [OpenCode](https://github.com/sst/opencode) - Open-source AI coding assistant
   - [Copilot-CLI](https://docs.github.com/copilot/how-tos/copilot-cli) - GitHub's terminal coding agent (beta, multi-model via [models.dev](https://models.dev))
+  - [Qwen3 Coder](https://github.com/QwenLM/qwen-code) - Alibaba's Qwen Code agent, a Gemini CLI fork (beta)
+  - [Oh My Pi](https://www.npmjs.com/package/@oh-my-pi/pi-coding-agent) - Multi-model coding agent (beta, `omp` CLI)
 - Git (optional, for git-aware features)
 
 ### Essential Keyboard Shortcuts

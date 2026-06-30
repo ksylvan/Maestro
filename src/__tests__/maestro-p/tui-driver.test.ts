@@ -66,6 +66,8 @@ import {
 	READY_TAP_INTERVAL_MS,
 	READY_TIMEOUT_MS,
 	SEND_ENTER_DELAY_MS,
+	SUBMIT_ENTER_RETRIES,
+	SUBMIT_ENTER_RETRY_INTERVAL_MS,
 	TuiDriver,
 } from '../../maestro-p/tui-driver';
 
@@ -284,6 +286,63 @@ describe('TuiDriver', () => {
 		});
 	});
 
+	describe("'bypass-accepted' event (--dangerously-skip-permissions gate)", () => {
+		beforeEach(() => {
+			vi.useFakeTimers();
+		});
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it('selects "Yes, I accept" (Down then Enter) instead of the "No, exit" default', async () => {
+			const driver = await makeDriver();
+			const bypassHandler = vi.fn();
+			driver.on('bypass-accepted', bypassHandler);
+			// ANSI-stripped bypass dialog. Default highlight is `❯ 1. No, exit`.
+			feed('WARNING:ClaudeCoderunninginBypassPermissionsmode\n\n❯1.No,exit\n2.Yes,Iaccept\n');
+			// Down arrow goes out immediately to move off the "No, exit" default.
+			expect(mockPtyProcess.write).toHaveBeenCalledWith('\x1b[B');
+			expect(bypassHandler).toHaveBeenCalledTimes(1);
+			// The confirming Enter is split from the Down keystroke by SEND_ENTER_DELAY_MS.
+			expect(mockPtyProcess.write).not.toHaveBeenCalledWith('\r');
+			vi.advanceTimersByTime(SEND_ENTER_DELAY_MS);
+			expect(mockPtyProcess.write).toHaveBeenCalledWith('\r');
+		});
+
+		it("does NOT prematurely fire ready on the dialog's own ❯ selector glyph", async () => {
+			const driver = await makeDriver();
+			const readyHandler = vi.fn();
+			driver.on('ready', readyHandler);
+			// The dialog renders `❯ 1. No, exit`, whose `❯ ` would satisfy
+			// READY_REGEX; the handler clears the rolling buffer so it can't.
+			feed('Bypass Permissions mode\n❯ 1. No, exit\n2. Yes, I accept\n');
+			expect(readyHandler).not.toHaveBeenCalled();
+			// Real editor prompt re-paints after acceptance -> ready fires now.
+			feed('\r❯ Try "edit <filepath>"\n');
+			expect(readyHandler).toHaveBeenCalledTimes(1);
+		});
+
+		it('fires at most once even if the dialog redraws', async () => {
+			const driver = await makeDriver();
+			const bypassHandler = vi.fn();
+			driver.on('bypass-accepted', bypassHandler);
+			feed('❯1.No,exit\n2.Yes,Iaccept\n');
+			feed('❯1.No,exit\n2.Yes,Iaccept\n');
+			expect(bypassHandler).toHaveBeenCalledTimes(1);
+			// Exactly one Down written despite the redraw.
+			expect(mockPtyProcess.write.mock.calls.filter((c) => c[0] === '\x1b[B')).toHaveLength(1);
+		});
+
+		it('does NOT fire on unrelated lines mentioning permissions in passing', async () => {
+			const driver = await makeDriver();
+			const bypassHandler = vi.fn();
+			driver.on('bypass-accepted', bypassHandler);
+			feed('Checking file permissions...\n');
+			feed('Accepted the changes.\n');
+			expect(bypassHandler).not.toHaveBeenCalled();
+		});
+	});
+
 	describe('blind-tap fallback + ready-timeout (g)', () => {
 		beforeEach(() => {
 			vi.useFakeTimers();
@@ -416,6 +475,59 @@ describe('TuiDriver', () => {
 			feed('weekly status report\n');
 			expect(limitHandler).not.toHaveBeenCalled();
 		});
+
+		// Real Max-plan banners Claude actually paints. The match is ANCHORED to
+		// these literal wordings on purpose (see LIMIT_REGEX comment): the regex
+		// runs against every line of rendered TUI output, so it must catch the
+		// genuine banner without matching the assistant's own prose.
+		it.each([
+			'5-hour limit reached',
+			'Your 5-hour limit exceeded for this account.',
+			'weekly limit reached',
+			'weekly limit exceeded',
+			'Claude Opus weekly limit reached',
+			'Claude AI usage limit reached|1781551200',
+			'Claude usage limit reached',
+		])('fires on a real plan-quota banner: %s', async (msg) => {
+			const driver = await makeDriver();
+			const limitHandler = vi.fn();
+			driver.on('limit-hit', limitHandler);
+			feed(`${msg}\n`);
+			expect(limitHandler).toHaveBeenCalledTimes(1);
+		});
+
+		// CRITICAL false-positive guard. The agent's own conversational text and
+		// tool output stream through the SAME line scanner. A broad "limit +
+		// reached/hit/exceeded" match silently aborts a good turn and swaps it for
+		// an API replay (the user sees a no-response "dead in the water" turn).
+		// This is exactly what regressed when an agent deployed Maestro's own
+		// token-mode feature copy. None of these benign lines may fire limit-hit.
+		it.each([
+			// Assistant prose that merely DISCUSSES limits.
+			'we hit the limit of 4 feature cards, so I trimmed the list',
+			'When your usage limit is reached, Maestro falls back to API.',
+			'Done. The chat interface limit was reached for free-tier users.',
+			'the message "usage limit reached" appears in the feature box',
+			"You've reached your usage limit",
+			// Quota/credit prose that isn't Claude's banner.
+			'Your quota has been exceeded',
+			'You are out of credits',
+			'Monthly limit reached',
+			// Non-quota resource limits: switching the token source wouldn't help.
+			'Maximum token limit reached. Start a new session.',
+			'Context limit exceeded. Start a new session.',
+			'Rate limit exceeded. Please wait.',
+			'Limit reached on disk usage',
+			// Capacity warnings (no reached/exceeded word in the banner form).
+			'Approaching your weekly limit',
+			'Upgrade to raise your usage limit',
+		])('does not fire on benign line: %s', async (msg) => {
+			const driver = await makeDriver();
+			const limitHandler = vi.fn();
+			driver.on('limit-hit', limitHandler);
+			feed(`${msg}\n`);
+			expect(limitHandler).not.toHaveBeenCalled();
+		});
 	});
 
 	describe('send()', () => {
@@ -426,8 +538,13 @@ describe('TuiDriver', () => {
 			vi.useRealTimers();
 		});
 
-		it('writes text first and \\r after SEND_ENTER_DELAY_MS', async () => {
+		it('writes text first, then \\r at SEND_ENTER_DELAY_MS, then retry taps', async () => {
 			const driver = await makeDriver();
+			// Reach 'ready' first so the blind-tap ready loop is cleared; otherwise
+			// advancing fake time past READY_TAP_INTERVAL_MS below would inject
+			// unrelated taps and pollute the write count. Feeding the ❯ indicator
+			// emits ready without writing.
+			feed('❯ \n');
 			mockPtyProcess.write.mockClear();
 			driver.send('hello world');
 			// First write is the text body alone — no trailing \r, because
@@ -435,10 +552,22 @@ describe('TuiDriver', () => {
 			// multi-line input editor and the prompt sits unsubmitted.
 			expect(mockPtyProcess.write).toHaveBeenCalledTimes(1);
 			expect(mockPtyProcess.write).toHaveBeenNthCalledWith(1, 'hello world');
-			// Enter arrives as a separate write after the delay.
+			// First Enter arrives as a separate write after the delay.
 			vi.advanceTimersByTime(SEND_ENTER_DELAY_MS);
 			expect(mockPtyProcess.write).toHaveBeenCalledTimes(2);
 			expect(mockPtyProcess.write).toHaveBeenNthCalledWith(2, '\r');
+			// A single Enter is unreliable on a cold TUI (the input editor may not
+			// accept a submit yet), so send() re-taps Enter SUBMIT_ENTER_RETRIES
+			// more times at SUBMIT_ENTER_RETRY_INTERVAL_MS spacing. After all
+			// retries fire, total writes = 1 (text) + 1 (first Enter) + retries.
+			for (let i = 0; i < SUBMIT_ENTER_RETRIES; i += 1) {
+				vi.advanceTimersByTime(SUBMIT_ENTER_RETRY_INTERVAL_MS);
+			}
+			expect(mockPtyProcess.write).toHaveBeenCalledTimes(2 + SUBMIT_ENTER_RETRIES);
+			// Every retry write is a bare carriage return.
+			for (let n = 3; n <= 2 + SUBMIT_ENTER_RETRIES; n += 1) {
+				expect(mockPtyProcess.write).toHaveBeenNthCalledWith(n, '\r');
+			}
 		});
 
 		it('throws if called before start()', () => {
@@ -465,6 +594,56 @@ describe('TuiDriver', () => {
 			vi.advanceTimersByTime(SEND_ENTER_DELAY_MS);
 			// No second write — we'd otherwise be writing to a dead PTY.
 			expect(mockPtyProcess.write).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	describe('resubmit()', () => {
+		it('writes a bare \\r so a parked prompt gets re-submitted', async () => {
+			const driver = await makeDriver();
+			feed('❯ \n');
+			mockPtyProcess.write.mockClear();
+			driver.resubmit();
+			expect(mockPtyProcess.write).toHaveBeenCalledTimes(1);
+			expect(mockPtyProcess.write).toHaveBeenCalledWith('\r');
+		});
+
+		it('never re-types the prompt body (avoids a double prompt)', async () => {
+			const driver = await makeDriver();
+			feed('❯ \n');
+			mockPtyProcess.write.mockClear();
+			driver.resubmit();
+			driver.resubmit();
+			// Every write is a bare carriage return, never any text.
+			for (const call of mockPtyProcess.write.mock.calls) {
+				expect(call[0]).toBe('\r');
+			}
+		});
+
+		it('is a no-op before start() and after exit', async () => {
+			const notStarted = new TuiDriver({ binPath: 'claude', args: [], cwd: '/tmp', env: {} });
+			expect(() => notStarted.resubmit()).not.toThrow();
+
+			const driver = await makeDriver();
+			triggerExit(0);
+			mockPtyProcess.write.mockClear();
+			driver.resubmit();
+			expect(mockPtyProcess.write).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('getScreenTail()', () => {
+		it('returns the ANSI-stripped rolling buffer, capped to maxBytes', async () => {
+			const driver = await makeDriver();
+			feed('\x1b[1mhello\x1b[0m world');
+			// ANSI escapes are stripped before buffering.
+			expect(driver.getScreenTail()).toBe('hello world');
+			// Cap keeps only the trailing bytes.
+			expect(driver.getScreenTail(5)).toBe('world');
+		});
+
+		it('returns empty string before any data', async () => {
+			const driver = await makeDriver();
+			expect(driver.getScreenTail()).toBe('');
 		});
 	});
 

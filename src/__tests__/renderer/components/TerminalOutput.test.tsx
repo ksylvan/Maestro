@@ -1461,7 +1461,7 @@ describe('TerminalOutput', () => {
 			expect(setMarkdownEditMode).toHaveBeenCalledWith(false);
 		});
 
-		it('does not show markdown toggle button for user messages', () => {
+		it('shows markdown toggle button for user messages in AI mode (#622 consistency)', () => {
 			const logs: LogEntry[] = [
 				createLogEntry({ text: 'User message with **markdown**', source: 'user' }),
 			];
@@ -1478,8 +1478,10 @@ describe('TerminalOutput', () => {
 
 			render(<TerminalOutput {...props} />);
 
-			expect(screen.queryByTitle(/Show plain text/)).not.toBeInTheDocument();
-			expect(screen.queryByTitle(/Show formatted/)).not.toBeInTheDocument();
+			// Toggle is now exposed on user messages too — consistent with
+			// assistant messages so the user can flip between formatted and
+			// raw text views of their own input.
+			expect(screen.queryByTitle(/Show plain text/)).toBeInTheDocument();
 		});
 
 		it('does not show markdown toggle button in terminal mode', () => {
@@ -2531,6 +2533,38 @@ describe('TerminalOutput', () => {
 			expect(screen.getByText('TUI')).toBeInTheDocument();
 		});
 
+		it('labels an interactive turn as TUI even when a system banner leads its response group', () => {
+			// Regression: Dynamic mode (and, before the fix, plain TUI) inserts an
+			// "Adaptive Mode: switched ..." system entry just before the streamed
+			// response. `collapsedLogs` merges the consecutive non-user entries into
+			// one block; basing the merged entry only on `[0]` inherited the banner's
+			// missing renderStyle and mislabeled the maestro-p turn as "API".
+			const logs: LogEntry[] = [
+				createLogEntry({ id: 'user-1', text: 'prompt', source: 'user' }),
+				createLogEntry({
+					id: 'banner',
+					text: 'Adaptive Mode: switched from API Limits to Time Limits. Quota windows reset.',
+					source: 'system',
+				}),
+				createLogEntry({
+					id: 'interactive-resp',
+					text: 'response captured from interactive TUI',
+					source: 'stdout',
+					renderStyle: 'text-stream',
+				}),
+			];
+
+			const session = createDefaultSession({
+				tabs: [{ id: 'tab-1', agentSessionId: 'claude-123', logs, isUnread: false }],
+				activeTabId: 'tab-1',
+			});
+
+			render(<TerminalOutput {...createDefaultProps({ session })} />);
+
+			expect(screen.getByText('TUI')).toBeInTheDocument();
+			expect(screen.queryByText('API')).not.toBeInTheDocument();
+		});
+
 		it('uses the "Adaptive" prefix when the session has Adaptive Mode enabled', () => {
 			const logs: LogEntry[] = [
 				createLogEntry({ id: 'user-1', text: 'first prompt', source: 'user' }),
@@ -2561,6 +2595,41 @@ describe('TerminalOutput', () => {
 			expect(screen.getByText('Adaptive API')).toBeInTheDocument();
 			expect(screen.queryByText('TUI')).not.toBeInTheDocument();
 			expect(screen.queryByText('API')).not.toBeInTheDocument();
+		});
+
+		it('omits the "Adaptive" prefix when the session pins maestro-p mode (forced TUI / API)', () => {
+			const logs: LogEntry[] = [
+				createLogEntry({ id: 'user-1', text: 'first prompt', source: 'user' }),
+				createLogEntry({
+					id: 'resp-tui',
+					text: 'tui response',
+					source: 'stdout',
+					renderStyle: 'text-stream',
+				}),
+				createLogEntry({ id: 'user-2', text: 'second prompt', source: 'user' }),
+				createLogEntry({
+					id: 'resp-api',
+					text: 'api response',
+					source: 'stdout',
+					renderStyle: 'structured',
+				}),
+			];
+
+			// Forced TUI: enableMaestroP on + maestroPMode 'interactive' is NOT
+			// adaptive — only Dynamic mode auto-switches, so the prefix must drop.
+			const session = createDefaultSession({
+				enableMaestroP: true,
+				maestroPMode: 'interactive',
+				tabs: [{ id: 'tab-1', agentSessionId: 'claude-123', logs, isUnread: false }],
+				activeTabId: 'tab-1',
+			});
+
+			render(<TerminalOutput {...createDefaultProps({ session })} />);
+
+			expect(screen.getByText('TUI')).toBeInTheDocument();
+			expect(screen.getByText('API')).toBeInTheDocument();
+			expect(screen.queryByText('Adaptive TUI')).not.toBeInTheDocument();
+			expect(screen.queryByText('Adaptive API')).not.toBeInTheDocument();
 		});
 
 		it('does not render the pill on user messages even when tagged text-stream', () => {

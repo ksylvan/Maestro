@@ -202,6 +202,20 @@ export interface SessionInfo {
 	customArgs?: string;
 	/** Per-session env vars merged over agent-level customEnvVars and agent defaults. */
 	customEnvVars?: Record<string, string>;
+	/** Prefixed to the first message of every new session (not shown in chat). */
+	newSessionMessage?: string;
+	/** Appended to every message sent to the agent (not shown in chat). */
+	nudgeMessage?: string;
+	/** Per-session override of the agent binary path. */
+	customPath?: string;
+	/** Per-session context window size in tokens. */
+	customContextWindow?: number;
+	/** Claude token-source opt-in: drives the maestro-p TUI (Max quota) when on. */
+	enableMaestroP?: boolean;
+	/** Refines {@link enableMaestroP}: 'interactive' = always TUI, 'dynamic' = TUI then API fallback. */
+	maestroPMode?: 'interactive' | 'dynamic';
+	/** Per-session override of the maestro-p binary path. */
+	maestroPPath?: string;
 	/** Per-session SSH remote config — when enabled, CLI spawns via SSH. */
 	sessionSshRemoteConfig?: AgentSshRemoteConfig;
 }
@@ -239,12 +253,24 @@ export interface HistoryEntry {
 	usageStats?: UsageStats;
 	success?: boolean;
 	elapsedTimeMs?: number;
+	completedTaskCount?: number;
 	validated?: boolean;
 	cueTriggerName?: string;
 	cueEventType?: string;
 	cueSourceSession?: string;
 	/** Hostname of the machine that created this entry (for shared history) */
 	hostname?: string;
+	/**
+	 * Claude-only, per-turn: which interface spent the quota for this turn.
+	 * `interactive` = maestro-p TUI (Max plan), `api` = `claude --print` (per-token).
+	 * Captured per entry because a Dynamic-mode agent flips between the two across turns.
+	 */
+	tokenSource?: 'interactive' | 'api';
+	/**
+	 * Claude-only, per-turn: why the token source was chosen. `auto` = user/usage
+	 * selected, `limit` = forced API fallback because the Max plan quota was exhausted.
+	 */
+	tokenSourceReason?: 'auto' | 'limit';
 }
 
 // Document entry within a playbook
@@ -252,6 +278,11 @@ export interface PlaybookDocumentEntry {
 	filename: string;
 	resetOnCompletion: boolean;
 }
+
+// Controls whether each Auto Run agent invocation processes a single task or the
+// whole document. Resolves `{{TASK_SELECTION_BLOCK}}` inside the autorun prompt.
+// Omitted on legacy playbooks → treated as 'task' (the historical behavior).
+export type TaskSelectionMode = 'task' | 'document';
 
 // A saved Playbook configuration
 export interface Playbook {
@@ -263,6 +294,7 @@ export interface Playbook {
 	loopEnabled: boolean;
 	maxLoops?: number | null;
 	prompt: string;
+	taskSelectionMode?: TaskSelectionMode;
 	worktreeSettings?: {
 		branchNameTemplate: string;
 		createPROnCompletion: boolean;
@@ -304,6 +336,7 @@ export interface BatchRunConfig {
 	prompt: string;
 	loopEnabled: boolean;
 	maxLoops?: number | null;
+	taskSelectionMode?: TaskSelectionMode;
 	worktree?: WorktreeConfig;
 	worktreeTarget?: WorktreeRunTarget;
 }
@@ -407,6 +440,13 @@ export interface AgentConfig {
 	capabilities?: AgentCapabilities;
 	yoloModeArgs?: string[];
 	readOnlyCliEnforced?: boolean;
+	/**
+	 * Latest persisted capability snapshot for this agent in the requested
+	 * environment (local or per-SSH-remote). Attached by the IPC handlers
+	 * after stripping non-serializable agent fields. May be absent on first
+	 * boot before any detection has run.
+	 */
+	snapshot?: import('./agentCapabilities').AgentCapabilitiesSnapshot;
 }
 
 // ============================================================================
@@ -425,6 +465,7 @@ export type AgentErrorType =
 	| 'agent_crashed' // Process exited unexpectedly
 	| 'permission_denied' // Agent lacks required permissions
 	| 'session_not_found' // Session was deleted or doesn't exist
+	| 'hitl_gate' // Playbook reached a human-in-the-loop review marker
 	| 'unknown'; // Unrecognized error
 
 /**
@@ -447,6 +488,14 @@ export interface AgentError {
 	/** The session ID where the error occurred (if applicable) */
 	sessionId?: string;
 
+	/**
+	 * Stable UUID of the SSH remote this error fired against, when the
+	 * spawning session was an SSH-backed session. Used by listeners (notably
+	 * `capabilitySnapshots.markAuthRequired`) so that per-remote status pills
+	 * flip independently of the local snapshot. Absent on local-spawn errors.
+	 */
+	sshRemoteId?: string;
+
 	/** Timestamp when the error occurred */
 	timestamp: number;
 
@@ -460,6 +509,39 @@ export interface AgentError {
 
 	/** Parsed JSON error details (if the error contains structured JSON) */
 	parsedJson?: unknown;
+
+	/**
+	 * For limit/credit/rate-limit errors: epoch ms when the provider window is
+	 * expected to reopen. Used by auto-resume to schedule the next probe. May be
+	 * undefined when the reset time is unknown (probe on the fixed interval instead).
+	 */
+	limitResetAt?: number;
+
+	/**
+	 * Number of resume attempts made for this paused agent so far. Used for
+	 * backoff and to enforce the give-up window after repeated limits.
+	 */
+	resumeAttemptCount?: number;
+
+	/**
+	 * Epoch ms marking when auto-resume first observed this limit pause. The
+	 * coordinator stamps it once (seeded from `timestamp`, the moment the limit
+	 * fired) and never overwrites it while the pause persists. Phase 4's give-up
+	 * decision is time-based off this stamp and the `autoResumeGiveUpDays`
+	 * setting, NOT a raw attempt count.
+	 */
+	limitPausedAt?: number;
+}
+
+/**
+ * True when an agent error is a provider "limit pause" - a token/API/credit or
+ * rate limit the agent can resume from once the window reopens. Both
+ * `rate_limited` and `token_exhaustion` count (some providers surface credit
+ * exhaustion as the latter). Single source of truth so every call site (error
+ * listener, goal runner, auto-resume coordinator) agrees on what to pause on.
+ */
+export function isLimitError(err: AgentError): boolean {
+	return err.type === 'rate_limited' || err.type === 'token_exhaustion';
 }
 
 /**

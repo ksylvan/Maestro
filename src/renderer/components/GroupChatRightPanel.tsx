@@ -194,8 +194,62 @@ export function GroupChatRightPanel({
 
 	// Handle removing a participant from the group chat
 	const handleRemoveParticipant = useCallback(
-		async (participantName: string) => {
-			await window.maestro.groupChat.removeParticipant(groupChatId, participantName);
+		async (participantName: string): Promise<boolean> => {
+			const updatedChat = await window.maestro.groupChat.removeParticipant(
+				groupChatId,
+				participantName
+			);
+			if (!updatedChat) {
+				throw new Error(`Group chat not found: ${groupChatId}`);
+			}
+
+			const store = useGroupChatStore.getState();
+			store.setGroupChats((prev) =>
+				prev.map((chat) => {
+					if (chat.id !== groupChatId) return chat;
+					// Merge only the removed participant out of the current store
+					// state. A concurrent participantsChanged event (for example a
+					// participant added while this removal IPC was in flight) may
+					// have already written a newer participant list; replacing the
+					// whole chat with the older removal snapshot would drop that
+					// addition until the chat is reloaded.
+					return {
+						...chat,
+						participants: chat.participants.filter(
+							(participant) => participant.name !== participantName
+						),
+					};
+				})
+			);
+
+			const removed = !updatedChat.participants.some(
+				(participant) => participant.name === participantName
+			);
+			if (removed) {
+				// Proactively clear the removed participant's transient state. The
+				// participantsChanged event also clears it, but if this optimistic
+				// local update lands first the event sees the participant already
+				// gone, computes no removedNames, and skips cleanup, leaving a
+				// removed working participant stuck marked busy in the sidebar.
+				store.setAllGroupChatParticipantStates((prev) => {
+					const chatStates = prev.get(groupChatId);
+					if (!chatStates) return prev;
+					const nextChatStates = new Map(chatStates);
+					nextChatStates.delete(participantName);
+					const next = new Map(prev);
+					next.set(groupChatId, nextChatStates);
+					return next;
+				});
+				if (groupChatId === store.activeGroupChatId) {
+					store.setParticipantStates((prev) => {
+						const next = new Map(prev);
+						next.delete(participantName);
+						return next;
+					});
+				}
+				store.clearParticipantLiveOutput(`${groupChatId}:${participantName}`);
+			}
+			return removed;
 		},
 		[groupChatId]
 	);

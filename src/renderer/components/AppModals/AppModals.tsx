@@ -1,4 +1,6 @@
 import { memo, useMemo } from 'react';
+import type React from 'react';
+import type { MainPanelHandle } from '../MainPanel/types';
 import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore, selectActiveSession } from '../../stores/sessionStore';
 import { useGroupChatStore } from '../../stores/groupChatStore';
@@ -84,6 +86,7 @@ export interface AppModalsProps {
 	onCloseConfirmModal: () => void;
 	onConfirmQuit: () => void;
 	onCancelQuit: () => void;
+	onQuitWhenIdle: () => void;
 	/** Session IDs with active auto-runs (batch processing) */
 	activeBatchSessionIds?: string[];
 
@@ -109,7 +112,8 @@ export interface AppModalsProps {
 		customEffort?: string,
 		groupId?: string,
 		enableMaestroP?: boolean,
-		maestroPPath?: string
+		maestroPPath?: string,
+		maestroPMode?: 'interactive' | 'dynamic'
 	) => void;
 	existingSessions: Session[];
 	duplicatingSessionId?: string | null; // Session ID to duplicate from
@@ -132,7 +136,8 @@ export interface AppModalsProps {
 			workingDirOverride?: string;
 		},
 		enableMaestroP?: boolean,
-		maestroPPath?: string
+		maestroPPath?: string,
+		maestroPMode?: 'interactive' | 'dynamic'
 	) => void;
 	editAgentSession: Session | null;
 	renameSessionValue: string;
@@ -211,9 +216,9 @@ export interface AppModalsProps {
 	onQuickActionsOpenTabSwitcher: () => void;
 	// Bulk tab close operations (for QuickActionsModal)
 	onCloseAllTabs?: () => void;
-	onCloseOtherTabs?: () => void;
-	onCloseTabsLeft?: () => void;
-	onCloseTabsRight?: () => void;
+	onCloseOtherTabs?: (pivotTabId?: string) => void;
+	onCloseTabsLeft?: (pivotTabId?: string) => void;
+	onCloseTabsRight?: (pivotTabId?: string) => void;
 	setPlaygroundOpen?: (open: boolean) => void;
 	onQuickActionsRefreshGitFileState: () => Promise<void>;
 	onQuickActionsDebugReleaseQueuedItem: () => void;
@@ -222,7 +227,6 @@ export interface AppModalsProps {
 	setUpdateCheckModalOpenForQuickActions?: (open: boolean) => void;
 	openWizard: () => void;
 	wizardGoToStep: (step: WizardStep) => void;
-	setDebugWizardModalOpen?: (open: boolean) => void;
 	setDebugPackageModalOpen?: (open: boolean) => void;
 	setDebugApplicationStatsOpen?: (open: boolean) => void;
 	startTour: () => void;
@@ -260,6 +264,7 @@ export interface AppModalsProps {
 	onCopyTabContext?: (tabId: string) => void;
 	onExportTabHtml?: (tabId: string) => void;
 	onPublishTabGist?: (tabId: string) => void;
+	mainPanelRef?: React.RefObject<MainPanelHandle | null>;
 	// Gist publishing
 	isFilePreviewOpen: boolean;
 	ghCliAvailable: boolean;
@@ -267,6 +272,9 @@ export interface AppModalsProps {
 	// Document Graph - quick re-open last graph
 	lastGraphFocusFile?: string;
 	onOpenLastDocumentGraph?: () => void;
+	// Document Graph - view the active markdown file
+	currentGraphFile?: string;
+	onOpenCurrentFileInGraph?: () => void;
 	lightboxImage: string | null;
 	lightboxImages: string[];
 	stagedImages: string[];
@@ -277,6 +285,8 @@ export interface AppModalsProps {
 	gitDiffPreview: string | null;
 	gitViewerCwd: string;
 	onCloseGitDiff: () => void;
+	/** Open a file clicked in either git viewer as a preview tab. */
+	onOpenGitFile?: (absolutePath: string, fileName: string) => void;
 	onCloseGitLog: () => void;
 	onCloseAutoRunSetup: () => void;
 	onAutoRunFolderSelected: (folderPath: string) => void;
@@ -344,11 +354,17 @@ export interface AppModalsProps {
 	onRemoveQueueItem: (sessionId: string, itemId: string) => void;
 	onSwitchQueueSession: (sessionId: string, tabId?: string) => void;
 	onReorderQueueItems: (sessionId: string, fromIndex: number, toIndex: number) => void;
+	onTogglePauseQueueItem: (sessionId: string, itemId: string) => void;
 	// New tab creation (for QuickActionsModal)
 	onQuickActionsNewTab?: () => void;
 	onQuickActionsNewFileTab?: () => void;
 	onQuickActionsNewBrowserTab?: () => void;
 	onQuickActionsNewTerminalTab?: () => void;
+	// Next unread / draft tab navigation (shared with Alt+Cmd+Down)
+	onGoToNextUnread?: () => void;
+	// Session/tab history navigation (shared with Cmd+Shift+, / Cmd+Shift+.)
+	onNavBack?: () => void;
+	onNavForward?: () => void;
 
 	// --- AppGroupChatModals props ---
 	onCloseNewGroupChatModal: () => void;
@@ -454,6 +470,8 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		confirmModalOpen,
 		quitConfirmModalOpen,
 		activeTerminalTasks,
+		activeCueRunCount,
+		activeGroupChatCount,
 		hasFeedbackDraft,
 		newInstanceModalOpen,
 		editAgentModalOpen,
@@ -488,13 +506,45 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 			quitConfirmModalOpen: s.modals.get('quitConfirm')?.open ?? false,
 			activeTerminalTasks: (
 				s.modals.get('quitConfirm')?.data as
-					| { activeTerminalTasks?: string[]; hasFeedbackDraft?: boolean }
+					| {
+							activeTerminalTasks?: string[];
+							activeCueRunCount?: number;
+							activeGroupChatCount?: number;
+							hasFeedbackDraft?: boolean;
+					  }
 					| undefined
 			)?.activeTerminalTasks,
+			activeCueRunCount:
+				(
+					s.modals.get('quitConfirm')?.data as
+						| {
+								activeTerminalTasks?: string[];
+								activeCueRunCount?: number;
+								activeGroupChatCount?: number;
+								hasFeedbackDraft?: boolean;
+						  }
+						| undefined
+				)?.activeCueRunCount ?? 0,
+			activeGroupChatCount:
+				(
+					s.modals.get('quitConfirm')?.data as
+						| {
+								activeTerminalTasks?: string[];
+								activeCueRunCount?: number;
+								activeGroupChatCount?: number;
+								hasFeedbackDraft?: boolean;
+						  }
+						| undefined
+				)?.activeGroupChatCount ?? 0,
 			hasFeedbackDraft:
 				(
 					s.modals.get('quitConfirm')?.data as
-						| { activeTerminalTasks?: string[]; hasFeedbackDraft?: boolean }
+						| {
+								activeTerminalTasks?: string[];
+								activeCueRunCount?: number;
+								activeGroupChatCount?: number;
+								hasFeedbackDraft?: boolean;
+						  }
 						| undefined
 				)?.hasFeedbackDraft ?? false,
 			newInstanceModalOpen: s.modals.get('newInstance')?.open ?? false,
@@ -556,6 +606,7 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		onCloseConfirmModal,
 		onConfirmQuit,
 		onCancelQuit,
+		onQuitWhenIdle,
 		activeBatchSessionIds,
 		// Session modals
 		onCloseNewInstanceModal,
@@ -650,7 +701,6 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		setUpdateCheckModalOpenForQuickActions,
 		openWizard,
 		wizardGoToStep,
-		setDebugWizardModalOpen,
 		setDebugPackageModalOpen,
 		setDebugApplicationStatsOpen,
 		startTour,
@@ -681,6 +731,7 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		onCopyTabContext,
 		onExportTabHtml,
 		onPublishTabGist,
+		mainPanelRef,
 		// Gist publishing
 		isFilePreviewOpen,
 		ghCliAvailable,
@@ -688,6 +739,9 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		// Document Graph - quick re-open last graph
 		lastGraphFocusFile,
 		onOpenLastDocumentGraph,
+		// Document Graph - view the active markdown file
+		currentGraphFile,
+		onOpenCurrentFileInGraph,
 		lightboxImage,
 		lightboxImages,
 		stagedImages,
@@ -699,6 +753,7 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		gitViewerCwd,
 		onCloseGitDiff,
 		onCloseGitLog,
+		onOpenGitFile,
 		onCloseAutoRunSetup,
 		onAutoRunFolderSelected,
 		onCloseBatchRunner,
@@ -751,10 +806,14 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		onRemoveQueueItem,
 		onSwitchQueueSession,
 		onReorderQueueItems,
+		onTogglePauseQueueItem,
 		onQuickActionsNewTab,
 		onQuickActionsNewFileTab,
 		onQuickActionsNewBrowserTab,
 		onQuickActionsNewTerminalTab,
+		onGoToNextUnread,
+		onNavBack,
+		onNavForward,
 		// Group Chat modals
 		onCloseNewGroupChatModal,
 		onCreateGroupChat,
@@ -851,8 +910,11 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 				quitConfirmModalOpen={quitConfirmModalOpen}
 				onConfirmQuit={onConfirmQuit}
 				onCancelQuit={onCancelQuit}
+				onQuitWhenIdle={onQuitWhenIdle}
 				activeBatchSessionIds={activeBatchSessionIds}
 				activeTerminalTasks={activeTerminalTasks ?? []}
+				activeCueRunCount={activeCueRunCount}
+				activeGroupChatCount={activeGroupChatCount}
 				hasFeedbackDraft={hasFeedbackDraft}
 			/>
 
@@ -992,7 +1054,6 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 				setUpdateCheckModalOpen={setUpdateCheckModalOpenForQuickActions}
 				openWizard={openWizard}
 				wizardGoToStep={wizardGoToStep}
-				setDebugWizardModalOpen={setDebugWizardModalOpen}
 				setDebugPackageModalOpen={setDebugPackageModalOpen}
 				setDebugApplicationStatsOpen={setDebugApplicationStatsOpen}
 				startTour={startTour}
@@ -1024,11 +1085,14 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 				onCopyTabContext={onCopyTabContext}
 				onExportTabHtml={onExportTabHtml}
 				onPublishTabGist={onPublishTabGist}
+				mainPanelRef={mainPanelRef}
 				isFilePreviewOpen={isFilePreviewOpen}
 				ghCliAvailable={ghCliAvailable}
 				onPublishGist={onPublishGist}
 				lastGraphFocusFile={lastGraphFocusFile}
 				onOpenLastDocumentGraph={onOpenLastDocumentGraph}
+				currentGraphFile={currentGraphFile}
+				onOpenCurrentFileInGraph={onOpenCurrentFileInGraph}
 				onOpenSymphony={onOpenSymphony}
 				onOpenDirectorNotes={onOpenDirectorNotes}
 				onOpenMaestroCue={onOpenMaestroCue}
@@ -1045,6 +1109,7 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 				onCloseGitDiff={onCloseGitDiff}
 				gitLogOpen={gitLogOpen}
 				onCloseGitLog={onCloseGitLog}
+				onOpenGitFile={onOpenGitFile}
 				autoRunSetupModalOpen={autoRunSetupModalOpen}
 				onCloseAutoRunSetup={onCloseAutoRunSetup}
 				onAutoRunFolderSelected={onAutoRunFolderSelected}
@@ -1098,9 +1163,13 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 				onQuickActionsNewFileTab={onQuickActionsNewFileTab}
 				onQuickActionsNewBrowserTab={onQuickActionsNewBrowserTab}
 				onQuickActionsNewTerminalTab={onQuickActionsNewTerminalTab}
+				onGoToNextUnread={onGoToNextUnread}
+				onNavBack={onNavBack}
+				onNavForward={onNavForward}
 				onRemoveQueueItem={onRemoveQueueItem}
 				onSwitchQueueSession={onSwitchQueueSession}
 				onReorderQueueItems={onReorderQueueItems}
+				onTogglePauseQueueItem={onTogglePauseQueueItem}
 			/>
 
 			{/* Group Chat Modals */}

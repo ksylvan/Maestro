@@ -19,7 +19,6 @@ import {
 	HistoryStatsBar,
 	ESTIMATED_ROW_HEIGHT,
 	estimateHistoryRowHeight,
-	LOOKBACK_OPTIONS,
 } from '../History';
 import type { GraphBucket } from '../History/ActivityGraph';
 import type { HistoryStats } from '../History';
@@ -30,7 +29,7 @@ import type { PaginatedPage } from '../../hooks/history/useHistoryPagination';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import type { TabFocusHandle } from './OverviewTab';
-import { lookbackHoursToDays } from './lookback';
+import { lookbackHoursToDays, bucketCountForLookback } from './lookback';
 import { logger } from '../../utils/logger';
 import { trackShortcutUsage } from '../../utils/shortcutTracking';
 
@@ -39,16 +38,6 @@ const PAGE_SIZE = 100;
 
 /** Distance from bottom (in px) at which to trigger loading the next page */
 const SCROLL_LOAD_THRESHOLD = 500;
-
-/**
- * Resolve the bucket count for a given lookback selection. Each lookback
- * option carries its own preferred resolution (24 for short windows, 28
- * for "1 week", 30 for "1 month", etc.).
- */
-function bucketCountForLookback(hours: number | null): number {
-	const config = LOOKBACK_OPTIONS.find((o) => o.hours === hours);
-	return config?.bucketCount ?? 24;
-}
 
 interface UnifiedHistoryEntry extends HistoryEntry {
 	agentName?: string;
@@ -72,12 +61,25 @@ export const UnifiedHistoryTab = forwardRef<TabFocusHandle, UnifiedHistoryTabPro
 		ref
 	) {
 		const maestroCueEnabled = useSettingsStore((s) => s.encoreFeatures.maestroCue);
-		const visibleTypes: HistoryEntryType[] = maestroCueEnabled
-			? ['USER', 'AUTO', 'CUE']
-			: ['USER', 'AUTO'];
+		const visibleTypes = useMemo<HistoryEntryType[]>(
+			() => (maestroCueEnabled ? ['USER', 'AUTO', 'CUE'] : ['USER', 'AUTO']),
+			[maestroCueEnabled]
+		);
 
 		const [activeFilters, setActiveFilters] = useState<Set<HistoryEntryType>>(
 			() => new Set(maestroCueEnabled ? ['USER', 'AUTO', 'CUE'] : ['USER', 'AUTO'])
+		);
+
+		// Stable, ordered array of the active types. Pushed to the server so
+		// pagination operates over the *filtered* dataset — otherwise the
+		// 100-entry page can be all one type (e.g. CUE heartbeats), and
+		// deselecting that type would empty the visible list even though
+		// thousands of other-typed entries exist deeper in history. Memoized
+		// so its identity only changes when the selection actually changes,
+		// which is what resets the pagination window below.
+		const activeFilterArray = useMemo<HistoryEntryType[]>(
+			() => visibleTypes.filter((t) => activeFilters.has(t)),
+			[visibleTypes, activeFilters]
 		);
 		const [detailModalEntry, setDetailModalEntry] = useState<HistoryEntry | null>(null);
 		const [historyStats, setHistoryStats] = useState<HistoryStats | null>(null);
@@ -109,7 +111,7 @@ export const UnifiedHistoryTab = forwardRef<TabFocusHandle, UnifiedHistoryTabPro
 			async (offset: number, limit: number): Promise<PaginatedPage<UnifiedHistoryEntry>> => {
 				const result = await window.maestro.directorNotes.getUnifiedHistory({
 					lookbackDays: lookbackHoursToDays(lookbackHours),
-					filter: null,
+					filter: activeFilterArray,
 					limit,
 					offset,
 				});
@@ -122,7 +124,7 @@ export const UnifiedHistoryTab = forwardRef<TabFocusHandle, UnifiedHistoryTabPro
 					total: result.total,
 				};
 			},
-			[lookbackHours]
+			[lookbackHours, activeFilterArray]
 		);
 
 		const getEntryId = useCallback((entry: UnifiedHistoryEntry) => entry.id, []);
@@ -198,21 +200,24 @@ export const UnifiedHistoryTab = forwardRef<TabFocusHandle, UnifiedHistoryTabPro
 				// actually lands (it only lands when the window is at top).
 				let newAuto = 0;
 				let newUser = 0;
+				let newCue = 0;
 				let prepended = 0;
 				for (const entry of uniqueBatch) {
 					if (entry.type === 'AUTO') newAuto++;
 					else if (entry.type === 'USER') newUser++;
+					else if (entry.type === 'CUE') newCue++;
 					if (prependLiveEntry(entry)) prepended++;
 				}
 
-				if (newAuto > 0 || newUser > 0) {
+				if (newAuto > 0 || newUser > 0 || newCue > 0) {
 					setHistoryStats((prevStats) => {
 						if (!prevStats) return prevStats;
 						return {
 							...prevStats,
 							autoCount: prevStats.autoCount + newAuto,
 							userCount: prevStats.userCount + newUser,
-							totalCount: prevStats.totalCount + newAuto + newUser,
+							cueCount: (prevStats.cueCount ?? 0) + newCue,
+							totalCount: prevStats.totalCount + newAuto + newUser + newCue,
 						};
 					});
 				}
@@ -492,7 +497,7 @@ export const UnifiedHistoryTab = forwardRef<TabFocusHandle, UnifiedHistoryTabPro
 				try {
 					const targetOffset = await window.maestro.directorNotes.getOffsetForTimestamp(
 						bucketEnd - 1,
-						{ lookbackDays: lookbackHoursToDays(lookbackHours), filter: null }
+						{ lookbackDays: lookbackHoursToDays(lookbackHours), filter: activeFilterArray }
 					);
 					await jumpToOffset(targetOffset);
 					// After the window slides, the virtualizer's bookkeeping
@@ -506,7 +511,14 @@ export const UnifiedHistoryTab = forwardRef<TabFocusHandle, UnifiedHistoryTabPro
 					logger.error('Failed to jump to graph bucket:', undefined, error);
 				}
 			},
-			[filteredEntries, lookbackHours, jumpToOffset, setSelectedIndex, virtualizer]
+			[
+				filteredEntries,
+				lookbackHours,
+				activeFilterArray,
+				jumpToOffset,
+				setSelectedIndex,
+				virtualizer,
+			]
 		);
 
 		// Search toggle
@@ -666,6 +678,7 @@ export const UnifiedHistoryTab = forwardRef<TabFocusHandle, UnifiedHistoryTabPro
 						viewportRange={graphViewportRange}
 						alwaysShowViewportLabel
 						onBarClick={handleGraphBarClick}
+						activeFilters={activeFilters}
 					/>
 					{/* Entry count badge — shows window position when jumped, total otherwise */}
 					{!isLoading && totalEntries > 0 && (
@@ -714,11 +727,13 @@ export const UnifiedHistoryTab = forwardRef<TabFocusHandle, UnifiedHistoryTabPro
 						<div className="text-center py-8 text-xs" style={{ color: theme.colors.textDim }}>
 							{searchQuery
 								? `No entries matching "${searchQuery}".`
-								: entries.length === 0
-									? lookbackHours !== null
-										? 'No history entries in this time range. Try expanding the lookback period.'
-										: 'No history entries found across any agents.'
-									: 'No entries match the current filters.'}
+								: activeFilters.size === 0
+									? 'No entry types selected. Enable a filter above.'
+									: entries.length === 0
+										? lookbackHours !== null
+											? 'No history entries in this time range. Try expanding the lookback period.'
+											: 'No history entries found across any agents.'
+										: 'No entries match the current filters.'}
 						</div>
 					) : (
 						<div

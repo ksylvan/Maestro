@@ -56,9 +56,13 @@ import type {
 	DeleteGroupCallback,
 	MoveSessionToGroupCallback,
 	CreateSessionCallback,
+	CreateWorktreeSessionCallback,
 	CreateSessionConfig,
 	DeleteSessionCallback,
 	RenameSessionCallback,
+	UpdateSessionCwdCallback,
+	UpdateSessionSshCallback,
+	UpdateSessionConfigCallback,
 	WebSettings,
 	SettingValue,
 	GroupData,
@@ -161,8 +165,12 @@ export interface WebServerCallbacks {
 	deleteGroup: DeleteGroupCallback | null;
 	moveSessionToGroup: MoveSessionToGroupCallback | null;
 	createSession: CreateSessionCallback | null;
+	createWorktreeSession: CreateWorktreeSessionCallback | null;
 	deleteSession: DeleteSessionCallback | null;
 	renameSession: RenameSessionCallback | null;
+	updateSessionCwd: UpdateSessionCwdCallback | null;
+	updateSessionSsh: UpdateSessionSshCallback | null;
+	updateSessionConfig: UpdateSessionConfigCallback | null;
 	getGitStatus: GetGitStatusCallback | null;
 	getGitDiff: GetGitDiffCallback | null;
 	getGitBranchesForSession: GetGitBranchesForSessionCallback | null;
@@ -241,8 +249,12 @@ export class CallbackRegistry {
 		deleteGroup: null,
 		moveSessionToGroup: null,
 		createSession: null,
+		createWorktreeSession: null,
 		deleteSession: null,
 		renameSession: null,
+		updateSessionCwd: null,
+		updateSessionSsh: null,
+		updateSessionConfig: null,
 		getGitStatus: null,
 		getGitDiff: null,
 		getGitBranchesForSession: null,
@@ -566,6 +578,17 @@ export class CallbackRegistry {
 		return this.callbacks.createSession(name, toolType, cwd, groupId, config);
 	}
 
+	async createWorktreeSession(
+		parentSessionId: string,
+		config: {
+			branchName: string;
+			baseBranch?: string;
+		}
+	): Promise<{ success: boolean; sessionId?: string; error?: string }> {
+		if (!this.callbacks.createWorktreeSession) return { success: false, error: 'Not configured' };
+		return this.callbacks.createWorktreeSession(parentSessionId, config);
+	}
+
 	async deleteSession(sessionId: string): Promise<boolean> {
 		if (!this.callbacks.deleteSession) return false;
 		return this.callbacks.deleteSession(sessionId);
@@ -574,6 +597,36 @@ export class CallbackRegistry {
 	async renameSession(sessionId: string, newName: string): Promise<boolean> {
 		if (!this.callbacks.renameSession) return false;
 		return this.callbacks.renameSession(sessionId, newName);
+	}
+
+	async updateSessionCwd(
+		sessionId: string,
+		newCwd: string
+	): Promise<{ success: boolean; error?: string }> {
+		if (!this.callbacks.updateSessionCwd) {
+			return { success: false, error: 'Session cwd updates not configured' };
+		}
+		return this.callbacks.updateSessionCwd(sessionId, newCwd);
+	}
+
+	async updateSessionSsh(
+		sessionId: string,
+		sshPatch: Record<string, unknown>
+	): Promise<{ success: boolean; error?: string }> {
+		if (!this.callbacks.updateSessionSsh) {
+			return { success: false, error: 'Session SSH updates not configured' };
+		}
+		return this.callbacks.updateSessionSsh(sessionId, sshPatch);
+	}
+
+	async updateSessionConfig(
+		sessionId: string,
+		configPatch: Record<string, unknown>
+	): Promise<{ success: boolean; error?: string }> {
+		if (!this.callbacks.updateSessionConfig) {
+			return { success: false, error: 'Session config updates not configured' };
+		}
+		return this.callbacks.updateSessionConfig(sessionId, configPatch);
 	}
 
 	async getGitStatus(sessionId: string): Promise<GitStatusResult> {
@@ -948,12 +1001,28 @@ export class CallbackRegistry {
 		this.callbacks.createSession = callback;
 	}
 
+	setCreateWorktreeSessionCallback(callback: CreateWorktreeSessionCallback): void {
+		this.callbacks.createWorktreeSession = callback;
+	}
+
 	setDeleteSessionCallback(callback: DeleteSessionCallback): void {
 		this.callbacks.deleteSession = callback;
 	}
 
 	setRenameSessionCallback(callback: RenameSessionCallback): void {
 		this.callbacks.renameSession = callback;
+	}
+
+	setUpdateSessionCwdCallback(callback: UpdateSessionCwdCallback): void {
+		this.callbacks.updateSessionCwd = callback;
+	}
+
+	setUpdateSessionSshCallback(callback: UpdateSessionSshCallback): void {
+		this.callbacks.updateSessionSsh = callback;
+	}
+
+	setUpdateSessionConfigCallback(callback: UpdateSessionConfigCallback): void {
+		this.callbacks.updateSessionConfig = callback;
 	}
 
 	setGetGitStatusCallback(callback: GetGitStatusCallback): void {

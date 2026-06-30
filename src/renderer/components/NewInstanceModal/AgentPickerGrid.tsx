@@ -3,6 +3,7 @@ import { RefreshCw, ChevronRight, AlertTriangle } from 'lucide-react';
 import { GhostIconButton } from '../ui/GhostIconButton';
 import { AgentConfigPanel } from '../shared/AgentConfigPanel';
 import { isBetaAgent } from '../../../shared/agentMetadata';
+import { isAdaptiveModeDefaultOn } from '../../../shared/agentConstants';
 import { buildMaestroUrl } from '../../utils/buildMaestroUrl';
 import { SUPPORTED_AGENTS } from './types';
 import type { AgentPickerGridProps } from './types';
@@ -21,6 +22,7 @@ export const AgentPickerGrid = React.memo(function AgentPickerGrid({
 	customAgentArgs,
 	customAgentEnvVars,
 	enableMaestroPByAgent,
+	maestroPModeByAgent,
 	maestroPPathByAgent,
 	detectedMaestroPPath,
 	agentConfigs,
@@ -33,6 +35,7 @@ export const AgentPickerGrid = React.memo(function AgentPickerGrid({
 	onCustomPathChange,
 	onCustomArgsChange,
 	onEnableMaestroPChange,
+	onMaestroPModeChange,
 	onMaestroPPathChange,
 	onEnvVarKeyChange,
 	onEnvVarValueChange,
@@ -255,10 +258,18 @@ export const AgentPickerGrid = React.memo(function AgentPickerGrid({
 											onRefreshAgent={() => onRefreshAgent(agent.id)}
 											refreshingAgent={refreshingAgent === agent.id}
 											showBuiltInEnvVars
-											enableMaestroP={enableMaestroPByAgent?.[agent.id] ?? false}
+											enableMaestroP={
+												enableMaestroPByAgent?.[agent.id] ?? isAdaptiveModeDefaultOn(agent.id)
+											}
 											onEnableMaestroPChange={
 												onEnableMaestroPChange
 													? (value) => onEnableMaestroPChange(agent.id, value)
+													: undefined
+											}
+											maestroPMode={maestroPModeByAgent?.[agent.id] ?? 'dynamic'}
+											onMaestroPModeChange={
+												onMaestroPModeChange
+													? (mode) => onMaestroPModeChange(agent.id, mode)
 													: undefined
 											}
 											maestroPPath={maestroPPathByAgent?.[agent.id] ?? ''}

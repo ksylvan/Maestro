@@ -22,6 +22,12 @@ import { fuzzyMatchWithScore } from '../../utils/search';
 import { useModalLayer } from '../../hooks/ui/useModalLayer';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
 
+// Module-level cache so the user's expand/collapse choices survive the dropdown
+// closing/reopening and the component remounting (e.g. switching agents) until
+// the app restarts. Folders start collapsed; only paths the user explicitly
+// expands land here.
+const persistedExpandedFolders = new Set<string>();
+
 // Tree node type for folder structure
 export interface DocTreeNode {
 	name: string;
@@ -76,7 +82,9 @@ export const AutoRunDocumentSelector = forwardRef<
 	const [newDocName, setNewDocName] = useState('');
 	const [isCreating, setIsCreating] = useState(false);
 	const [selectedCreateFolder, setSelectedCreateFolder] = useState<string>(''); // For creating in subfolder
-	const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+	const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
+		() => new Set(persistedExpandedFolders)
+	);
 	const dropdownRef = useRef<HTMLDivElement>(null);
 	const buttonRef = useRef<HTMLButtonElement>(null);
 	const createInputRef = useRef<HTMLInputElement>(null);
@@ -175,6 +183,9 @@ export const AutoRunDocumentSelector = forwardRef<
 			const next = new Set(prev);
 			if (next.has(folderPath)) next.delete(folderPath);
 			else next.add(folderPath);
+			// Mirror into the module-level cache so the choice survives reopen/remount.
+			persistedExpandedFolders.clear();
+			for (const f of next) persistedExpandedFolders.add(f);
 			return next;
 		});
 	};
@@ -185,20 +196,8 @@ export const AutoRunDocumentSelector = forwardRef<
 	useEffect(() => {
 		if (isOpen) {
 			setFilterQuery('');
-			// Auto-expand ancestor folders of the selected doc so it's revealed
-			// in the tree (mirrors the pre-flatten behavior).
-			if (selectedDocument && selectedDocument.includes('/')) {
-				const parts = selectedDocument.split('/');
-				const ancestors: string[] = [];
-				for (let i = 1; i < parts.length; i++) {
-					ancestors.push(parts.slice(0, i).join('/'));
-				}
-				setExpandedFolders((prev) => {
-					const next = new Set(prev);
-					for (const a of ancestors) next.add(a);
-					return next;
-				});
-			}
+			// Folders start collapsed and only open when the user expands them;
+			// their state is remembered across reopens via persistedExpandedFolders.
 			// Focus the filter input shortly after open so keystrokes flow into it.
 			requestAnimationFrame(() => {
 				filterInputRef.current?.focus();
@@ -259,16 +258,30 @@ export const AutoRunDocumentSelector = forwardRef<
 		: normalizedNewName;
 	const isDuplicate = !!fullNewPath && documents.some((doc) => doc.toLowerCase() === fullNewPath);
 
-	// Get percentage display for a document's task completion
-	const getTaskPercentage = (docPath: string): number | null => {
+	// Get percentage and total task count for a document
+	const getTaskStats = (docPath: string): { pct: number; total: number } | null => {
 		if (!documentTaskCounts) return null;
 		const counts = documentTaskCounts.get(docPath);
 		if (!counts || counts.total === 0) return null;
-		return Math.round((counts.completed / counts.total) * 100);
+		return {
+			pct: Math.round((counts.completed / counts.total) * 100),
+			total: counts.total,
+		};
 	};
 
-	// Get the selected document's task percentage for the button
-	const selectedTaskPercentage = selectedDocument ? getTaskPercentage(selectedDocument) : null;
+	// Pill badge showing "{pct}% ({total})" — rendered next to file entries in
+	// the dropdown list. Green when 100% complete, dim accent otherwise.
+	const renderTaskBadge = (stats: { pct: number; total: number }, extraClass = '') => (
+		<span
+			className={`shrink-0 text-xs px-1.5 py-0.5 rounded ${extraClass}`.trim()}
+			style={{
+				backgroundColor: stats.pct === 100 ? theme.colors.success : theme.colors.accentDim,
+				color: stats.pct === 100 ? '#000' : theme.colors.textDim,
+			}}
+		>
+			{stats.pct}% ({stats.total})
+		</span>
+	);
 
 	// Render a tree node recursively. File nodes participate in arrow-key
 	// highlight via `highlightedPath`; folder nodes toggle their own expansion
@@ -304,7 +317,7 @@ export const AutoRunDocumentSelector = forwardRef<
 		// File node
 		const isSelected = node.path === selectedDocument;
 		const isHighlighted = node.path === highlightedPath;
-		const taskPct = getTaskPercentage(node.path);
+		const taskStats = getTaskStats(node.path);
 		return (
 			<button
 				key={node.path}
@@ -335,17 +348,7 @@ export const AutoRunDocumentSelector = forwardRef<
 					{getExplorerFileIcon(`${node.name}.md`, theme)}
 				</span>
 				<span className="truncate">{node.name}.md</span>
-				{taskPct !== null && (
-					<span
-						className="shrink-0 text-xs ml-auto px-1.5 py-0.5 rounded"
-						style={{
-							backgroundColor: taskPct === 100 ? theme.colors.success : theme.colors.accentDim,
-							color: taskPct === 100 ? '#000' : theme.colors.textDim,
-						}}
-					>
-						{taskPct}%
-					</span>
-				)}
+				{taskStats && renderTaskBadge(taskStats, 'ml-auto')}
 			</button>
 		);
 	};
@@ -452,24 +455,8 @@ export const AutoRunDocumentSelector = forwardRef<
 							border: `1px solid ${theme.colors.border}`,
 						}}
 					>
-						<span className="truncate min-w-0 flex-1 flex items-center gap-2">
-							{selectedTaskPercentage !== null && (
-								<span
-									className="shrink-0 text-xs px-1.5 py-0.5 rounded"
-									style={{
-										backgroundColor:
-											selectedTaskPercentage === 100
-												? theme.colors.success
-												: theme.colors.accentDim,
-										color: selectedTaskPercentage === 100 ? '#000' : theme.colors.textDim,
-									}}
-								>
-									{selectedTaskPercentage}%
-								</span>
-							)}
-							<span className="truncate">
-								{selectedDocument ? `${selectedDocument}.md` : 'Select a document...'}
-							</span>
+						<span className="truncate min-w-0 flex-1">
+							{selectedDocument ? `${selectedDocument}.md` : 'Select a document...'}
 						</span>
 						<ChevronDown
 							className={`w-4 h-4 ml-2 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
@@ -484,7 +471,7 @@ export const AutoRunDocumentSelector = forwardRef<
 							style={{
 								backgroundColor: theme.colors.bgSidebar,
 								border: `1px solid ${theme.colors.border}`,
-								maxHeight: '450px',
+								maxHeight: '562px',
 								minWidth: '100%',
 								width: 'calc(100% + 120px)', // Extend under the +, refresh, and folder buttons
 							}}
@@ -542,7 +529,7 @@ export const AutoRunDocumentSelector = forwardRef<
 									<div className="px-3 py-2 text-sm" style={{ color: theme.colors.textDim }}>
 										No markdown files found
 									</div>
-								) : visibleFiles.length === 0 ? (
+								) : visibleFiles.length === 0 && filterQuery.trim() ? (
 									<div className="px-3 py-2 text-sm" style={{ color: theme.colors.textDim }}>
 										No matches for &ldquo;{filterQuery}&rdquo;
 									</div>
@@ -554,7 +541,7 @@ export const AutoRunDocumentSelector = forwardRef<
 								) : (
 									// Flat fallback (no documentTree provided) — still keyboard-navigable.
 									visibleFiles.map((doc) => {
-										const taskPct = getTaskPercentage(doc);
+										const taskStats = getTaskStats(doc);
 										const isDocSelected = doc === selectedDocument;
 										const isHighlighted = doc === highlightedPath;
 										return (
@@ -584,18 +571,7 @@ export const AutoRunDocumentSelector = forwardRef<
 													{getExplorerFileIcon(`${doc}.md`, theme)}
 												</span>
 												<span className="truncate">{doc}.md</span>
-												{taskPct !== null && (
-													<span
-														className="shrink-0 text-xs ml-auto px-1.5 py-0.5 rounded"
-														style={{
-															backgroundColor:
-																taskPct === 100 ? theme.colors.success : theme.colors.accentDim,
-															color: taskPct === 100 ? '#000' : theme.colors.textDim,
-														}}
-													>
-														{taskPct}%
-													</span>
-												)}
+												{taskStats && renderTaskBadge(taskStats, 'ml-auto')}
 											</button>
 										);
 									})

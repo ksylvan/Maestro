@@ -4,6 +4,7 @@ import {
 	AgentConfig,
 	AgentConfigOption,
 	AgentCapabilities,
+	getAgentIds,
 } from '../../../main/agents';
 
 // Mock dependencies
@@ -322,8 +323,7 @@ describe('agent-detector', () => {
 
 			const agents = await detector.detectAgents();
 
-			// Should have all 8 agents (terminal, claude-code, codex, gemini-cli, qwen3-coder, opencode, factory-droid, copilot-cli)
-			expect(agents.length).toBe(8);
+			expect(agents.length).toBe(getAgentIds().length);
 
 			const agentIds = agents.map((a) => a.id);
 			expect(agentIds).toContain('terminal');
@@ -331,6 +331,8 @@ describe('agent-detector', () => {
 			expect(agentIds).toContain('codex');
 			expect(agentIds).toContain('gemini-cli');
 			expect(agentIds).toContain('qwen3-coder');
+			expect(agentIds).toContain('hermes');
+			expect(agentIds).toContain('pi');
 			expect(agentIds).toContain('opencode');
 			expect(agentIds).toContain('factory-droid');
 			expect(agentIds).toContain('copilot-cli');
@@ -364,7 +366,7 @@ describe('agent-detector', () => {
 			mockExecFileNoThrow.mockImplementation(async (cmd, args) => {
 				const binaryName = args[0];
 				const terminalBinary = process.platform === 'win32' ? 'powershell.exe' : 'bash';
-				if (binaryName === terminalBinary || binaryName === 'claude') {
+				if (binaryName === terminalBinary || binaryName === 'claude' || binaryName === 'hermes') {
 					return { stdout: `/usr/bin/${binaryName}\n`, stderr: '', exitCode: 0 };
 				}
 				return { stdout: '', stderr: 'not found', exitCode: 1 };
@@ -374,7 +376,56 @@ describe('agent-detector', () => {
 
 			expect(agents.find((a) => a.id === 'terminal')?.available).toBe(true);
 			expect(agents.find((a) => a.id === 'claude-code')?.available).toBe(true);
+			expect(agents.find((a) => a.id === 'hermes')?.available).toBe(true);
 			expect(agents.find((a) => a.id === 'codex')?.available).toBe(false);
+			expect(agents.find((a) => a.id === 'pi')?.available).toBe(false);
+		});
+
+		it('should detect Hermes using the shared CLI metadata', async () => {
+			mockExecFileNoThrow.mockImplementation(async (cmd, args) => {
+				const binaryName = args[0];
+				if (binaryName === 'hermes') {
+					return { stdout: '/usr/local/bin/hermes\n', stderr: '', exitCode: 0 };
+				}
+				return { stdout: '', stderr: 'not found', exitCode: 1 };
+			});
+
+			const agents = await detector.detectAgents();
+			const hermesAgent = agents.find((a) => a.id === 'hermes');
+
+			expect(hermesAgent?.available).toBe(true);
+			expect(hermesAgent?.path).toBe('/usr/local/bin/hermes');
+			expect(hermesAgent?.name).toBe('Hermes');
+			expect(hermesAgent?.binaryName).toBe('hermes');
+		});
+
+		it('should keep Pi unavailable when its binary is missing', async () => {
+			mockExecFileNoThrow.mockResolvedValue({ stdout: '', stderr: 'not found', exitCode: 1 });
+
+			const agents = await detector.detectAgents();
+			const piAgent = agents.find((a) => a.id === 'pi');
+
+			expect(piAgent?.available).toBe(false);
+			expect(piAgent?.path).toBeUndefined();
+			expect(piAgent?.name).toBe('Pi');
+			expect(piAgent?.binaryName).toBe('pi');
+		});
+
+		it('should detect Pi using the shared CLI metadata', async () => {
+			mockExecFileNoThrow.mockImplementation(async (cmd, args) => {
+				if (args[0] === 'pi') {
+					return { stdout: '/usr/local/bin/pi\n', stderr: '', exitCode: 0 };
+				}
+				return { stdout: '', stderr: 'not found', exitCode: 1 };
+			});
+
+			const agents = await detector.detectAgents();
+			const piAgent = agents.find((a) => a.id === 'pi');
+
+			expect(piAgent?.available).toBe(true);
+			expect(piAgent?.path).toBe('/usr/local/bin/pi');
+			expect(piAgent?.name).toBe('Pi');
+			expect(piAgent?.binaryName).toBe('pi');
 		});
 
 		it('should use deduplication for parallel calls', async () => {
@@ -968,8 +1019,8 @@ describe('agent-detector', () => {
 
 			const result = await detectPromise;
 			expect(result).toBeDefined();
-			// Should have all 8 agents (terminal, claude-code, codex, gemini-cli, qwen3-coder, opencode, factory-droid, copilot-cli)
-			expect(result.length).toBe(8);
+			// Should stay aligned with the live agent catalog, even as new agents are added.
+			expect(result.length).toBe(getAgentIds().length);
 		});
 
 		it('should handle very long PATH', async () => {
@@ -1082,6 +1133,7 @@ describe('agent-detector', () => {
 
 			const models = await detector.discoverModels('claude-code');
 			// Should include aliases + [1m] variants + historical models
+			expect(models).toContain('fable');
 			expect(models).toContain('sonnet');
 			expect(models).toContain('opus');
 			expect(models).toContain('haiku');
@@ -1090,7 +1142,7 @@ describe('agent-detector', () => {
 			expect(models).toContain('claude-opus-4-6');
 			expect(models).toContain('claude-sonnet-4-6');
 			expect(logger.info).toHaveBeenCalledWith(
-				expect.stringContaining('Discovered 7 models'),
+				expect.stringContaining('Discovered 8 models'),
 				'AgentDetector',
 				expect.any(Object)
 			);
@@ -1116,7 +1168,7 @@ describe('agent-detector', () => {
 			await detector.detectAgents();
 
 			const models = await detector.discoverModels('claude-code');
-			expect(models).toEqual(['sonnet', 'opus', 'haiku', 'opus[1m]', 'sonnet[1m]']);
+			expect(models).toEqual(['fable', 'sonnet', 'opus', 'haiku', 'opus[1m]', 'sonnet[1m]']);
 		});
 
 		it('should discover models for Codex from models_cache.json', async () => {
@@ -1330,6 +1382,70 @@ describe('agent-detector', () => {
 			const models = await detector.discoverModels('opencode');
 
 			expect(models).toEqual(['model1', 'model2']);
+		});
+
+		it('should discover models for Oh My Pi from omp models --json', async () => {
+			mockExecFileNoThrow.mockImplementation(async (cmd, args) => {
+				if (cmd === '/usr/bin/omp' && args[0] === 'models' && args[1] === '--json') {
+					return {
+						stdout: JSON.stringify({
+							models: [
+								{ id: 'claude-opus-4-8', selector: 'anthropic/claude-opus-4-8' },
+								{ id: 'gpt-5.2', selector: 'openai-codex/gpt-5.2' },
+								{ id: 'gpt-5.2', selector: 'openai-codex/gpt-5.2' },
+							],
+						}),
+						stderr: '',
+						exitCode: 0,
+					};
+				}
+				if (args[0] === 'omp') {
+					return { stdout: '/usr/bin/omp\n', stderr: '', exitCode: 0 };
+				}
+				return { stdout: '', stderr: '', exitCode: 1 };
+			});
+
+			detector.clearCache();
+			detector.clearModelCache();
+			await detector.detectAgents();
+
+			const models = await detector.discoverModels('omp');
+
+			// Prefers the provider-qualified selector and de-duplicates entries
+			expect(models).toEqual(['anthropic/claude-opus-4-8', 'openai-codex/gpt-5.2']);
+		});
+
+		it('does not cache a transient empty omp discovery failure', async () => {
+			let attempt = 0;
+			mockExecFileNoThrow.mockImplementation(async (cmd, args) => {
+				if (cmd === '/usr/bin/omp' && args[0] === 'models' && args[1] === '--json') {
+					attempt += 1;
+					if (attempt === 1) {
+						return { stdout: '', stderr: 'transient failure', exitCode: 1 };
+					}
+					return {
+						stdout: JSON.stringify({ models: [{ selector: 'anthropic/claude-opus-4-8' }] }),
+						stderr: '',
+						exitCode: 0,
+					};
+				}
+				if (args[0] === 'omp') {
+					return { stdout: '/usr/bin/omp\n', stderr: '', exitCode: 0 };
+				}
+				return { stdout: '', stderr: '', exitCode: 1 };
+			});
+
+			detector.clearCache();
+			detector.clearModelCache();
+			await detector.detectAgents();
+
+			const first = await detector.discoverModels('omp');
+			expect(first).toEqual([]);
+
+			// The empty failure must NOT be cached: a second call (no forceRefresh)
+			// re-runs discovery and now succeeds.
+			const second = await detector.discoverModels('omp');
+			expect(second).toEqual(['anthropic/claude-opus-4-8']);
 		});
 	});
 
@@ -1563,6 +1679,125 @@ describe('agent-detector', () => {
 
 			const options = await detector.discoverConfigOptions('claude-code', 'effort');
 			expect(options).toEqual(['', 'low', 'medium', 'high', 'max']);
+		});
+
+		it('should discover Claude effort levels from the validation probe when --help drops the parenthetical', async () => {
+			// Newer Claude CLI builds print `--effort <level>  Effort level for the current session`
+			// with no inline `(low, medium, ...)` list, so the --help regex no longer matches and
+			// the effort dropdown renders empty. Fall back to probing the flag's validation error.
+			mockExecFileNoThrow.mockImplementation(async (cmd, args) => {
+				const binaryName = args[0];
+				if (binaryName === 'claude') {
+					return { stdout: '/usr/bin/claude\n', stderr: '', exitCode: 0 };
+				}
+				if (binaryName === 'bash') {
+					return { stdout: '/bin/bash\n', stderr: '', exitCode: 0 };
+				}
+				if (cmd === '/usr/bin/claude' && args[0] === '--help') {
+					return {
+						stdout:
+							'  --effort <level>                                  Effort level for the current session\n',
+						stderr: '',
+						exitCode: 0,
+					};
+				}
+				if (cmd === '/usr/bin/claude' && args[0] === '--effort') {
+					return {
+						stdout: '',
+						stderr:
+							"error: option '--effort <level>' argument '__maestro_probe__' is invalid. It must be one of: low, medium, high, xhigh, max\n",
+						exitCode: 1,
+					};
+				}
+				return { stdout: '', stderr: 'not found', exitCode: 1 };
+			});
+
+			detector.clearCache();
+			await detector.detectAgents();
+
+			const options = await detector.discoverConfigOptions('claude-code', 'effort');
+			expect(options).toEqual(['', 'low', 'medium', 'high', 'xhigh', 'max']);
+		});
+
+		it('should discover Claude effort levels from the probe warning (exit 0, no parenthetical in --help)', async () => {
+			// Regression guard: a later Claude CLI build no longer rejects an invalid
+			// --effort value. It prints a soft warning on stderr, exits 0, and still runs
+			// --version. The warning names the valid set as `Valid values: ...` (not the
+			// commander `It must be one of: ...`). Both --help and the old probe regex miss
+			// this, so the effort dropdown/pill silently vanishes unless we parse it. See
+			// the discoverConfigOptions probe fallback in detector.ts.
+			mockExecFileNoThrow.mockImplementation(async (cmd, args) => {
+				const binaryName = args[0];
+				if (binaryName === 'claude') {
+					return { stdout: '/usr/bin/claude\n', stderr: '', exitCode: 0 };
+				}
+				if (binaryName === 'bash') {
+					return { stdout: '/bin/bash\n', stderr: '', exitCode: 0 };
+				}
+				if (cmd === '/usr/bin/claude' && args[0] === '--help') {
+					return {
+						stdout:
+							'  --effort <level>                                  Effort level for the current session\n',
+						stderr: '',
+						exitCode: 0,
+					};
+				}
+				if (cmd === '/usr/bin/claude' && args[0] === '--effort') {
+					return {
+						stdout: 'claude-code/2.0.0\n',
+						stderr:
+							"Warning: Unknown --effort value '__maestro_probe__' - ignoring it and using the default effort. Valid values: low, medium, high, xhigh, max.\n",
+						exitCode: 0,
+					};
+				}
+				return { stdout: '', stderr: 'not found', exitCode: 1 };
+			});
+
+			detector.clearCache();
+			await detector.detectAgents();
+
+			const options = await detector.discoverConfigOptions('claude-code', 'effort');
+			expect(options).toEqual(['', 'low', 'medium', 'high', 'xhigh', 'max']);
+		});
+
+		it('falls back to static Claude effort levels when every discovery path fails', async () => {
+			// Durability guard: the CLI scraping is inherently fragile (Anthropic has
+			// reworded --help and the validation message more than once). If a future
+			// build defeats both the --help regex AND the probe regex, discovery must
+			// still return the static list from definitions.ts so the effort pill and
+			// dropdown never silently vanish - not [].
+			mockExecFileNoThrow.mockImplementation(async (cmd, args) => {
+				const binaryName = args[0];
+				if (binaryName === 'claude') {
+					return { stdout: '/usr/bin/claude\n', stderr: '', exitCode: 0 };
+				}
+				if (binaryName === 'bash') {
+					return { stdout: '/bin/bash\n', stderr: '', exitCode: 0 };
+				}
+				if (cmd === '/usr/bin/claude' && args[0] === '--help') {
+					// No parenthetical, and reworded so the --effort regex misses entirely.
+					return {
+						stdout: '  --effort <level>   Set the reasoning budget for this run\n',
+						stderr: '',
+						exitCode: 0,
+					};
+				}
+				if (cmd === '/usr/bin/claude' && args[0] === '--effort') {
+					// Probe output the regex can't parse (hypothetical future phrasing).
+					return {
+						stdout: 'claude-code/3.0.0\n',
+						stderr: "Ignoring unrecognized --effort '__maestro_probe__'.\n",
+						exitCode: 0,
+					};
+				}
+				return { stdout: '', stderr: 'not found', exitCode: 1 };
+			});
+
+			detector.clearCache();
+			await detector.detectAgents();
+
+			const options = await detector.discoverConfigOptions('claude-code', 'effort');
+			expect(options).toEqual(['', 'low', 'medium', 'high', 'xhigh', 'max']);
 		});
 
 		it('should discover reasoning levels for Codex from models_cache.json', async () => {

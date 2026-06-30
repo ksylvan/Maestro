@@ -13,9 +13,10 @@
  */
 
 import { useCallback } from 'react';
-import type { Session, UsageStats } from '../../types';
+import type { Session, TaskSelectionMode, UsageStats } from '../../types';
 import { substituteTemplateVariables, TemplateContext } from '../../utils/templateVariables';
-import { countMarkdownTasks } from './batchUtils';
+import { prependNewSessionMessage } from '../../../shared/newSessionMessage';
+import { countMarkdownTasks, getTaskSelectionBlock } from './batchUtils';
 import type { AgentSpawnErrorKind } from '../agent/useAgentExecution';
 import { logger } from '../../utils/logger';
 
@@ -57,6 +58,12 @@ export interface DocumentProcessorConfig {
 	 * Custom prompt to use for task processing
 	 */
 	customPrompt: string;
+
+	/**
+	 * Selection mode used to resolve {{TASK_SELECTION_BLOCK}} inside customPrompt.
+	 * Omitted → 'task' (legacy behavior).
+	 */
+	taskSelectionMode?: TaskSelectionMode;
 
 	/**
 	 * SSH remote ID for remote file operations (when session is SSH-enabled)
@@ -301,6 +308,7 @@ export function useDocumentProcessor(): UseDocumentProcessorReturn {
 				loopIteration,
 				effectiveCwd,
 				customPrompt,
+				taskSelectionMode,
 				sshRemoteId,
 			} = config;
 
@@ -344,8 +352,21 @@ export function useDocumentProcessor(): UseDocumentProcessorReturn {
 				}
 			}
 
-			// Substitute template variables in the prompt
-			const finalPrompt = substituteTemplateVariables(customPrompt, templateContext);
+			// Resolve the task-selection block placeholder before the generic template
+			// substitution pass so any variables inside the swapped-in block are also
+			// expanded. No-op if the user has removed the placeholder from their prompt.
+			const promptWithSelectionBlock = customPrompt.replace(
+				/\{\{TASK_SELECTION_BLOCK\}\}/gi,
+				getTaskSelectionBlock(taskSelectionMode)
+			);
+
+			// Substitute template variables in the prompt. Each task spawns a fresh
+			// provider session, so prefix the agent's New Session Message onto every
+			// spawn (matches interactive behavior).
+			const finalPrompt = prependNewSessionMessage(
+				substituteTemplateVariables(promptWithSelectionBlock, templateContext),
+				session.newSessionMessage
+			);
 
 			// Capture start time for elapsed time tracking
 			const taskStartTime = Date.now();

@@ -2,6 +2,7 @@ import type React from 'react';
 import type { Session } from '../../../types';
 import type { NotifyToastInput } from '../../../stores/notificationStore';
 import { captureException } from '../../../utils/sentry';
+import { useModalStore } from '../../../stores/modalStore';
 import type { QuickAction } from '../types';
 
 interface BuildDebugCommandsArgs {
@@ -12,8 +13,12 @@ interface BuildDebugCommandsArgs {
 	setQuickActionOpen: (open: boolean) => void;
 	setPlaygroundOpen?: (open: boolean) => void;
 	setDebugApplicationStatsOpen?: (open: boolean) => void;
-	setDebugWizardModalOpen?: (open: boolean) => void;
+	setDebugAgentProbeOpen?: (open: boolean) => void;
 	onDebugReleaseQueuedItem?: () => void;
+	/** Whether a performance-profiling recording is currently in flight. */
+	profilingActive: boolean;
+	onStartProfiling: () => void;
+	onStopProfiling: () => void;
 	getInstallationId: () => Promise<string | null | undefined>;
 	safeClipboardWrite: (text: string) => Promise<boolean>;
 	flashCopiedToClipboard: (value: string, message?: string) => void;
@@ -49,8 +54,11 @@ export function buildDebugCommands({
 	setQuickActionOpen,
 	setPlaygroundOpen,
 	setDebugApplicationStatsOpen,
-	setDebugWizardModalOpen,
+	setDebugAgentProbeOpen,
 	onDebugReleaseQueuedItem,
+	profilingActive,
+	onStartProfiling,
+	onStopProfiling,
 	getInstallationId,
 	safeClipboardWrite,
 	flashCopiedToClipboard,
@@ -89,6 +97,15 @@ export function buildDebugCommands({
 						})),
 					}))
 				);
+				setQuickActionOpen(false);
+			},
+		},
+		{
+			id: 'debugWidgetGallery',
+			label: 'Debug: Widget Gallery',
+			subtext: 'Preview the shared output/input widget library (theme-aware, no Encore flag)',
+			action: () => {
+				useModalStore.getState().openModal('widgetGallery');
 				setQuickActionOpen(false);
 			},
 		},
@@ -175,6 +192,18 @@ export function buildDebugCommands({
 		});
 	}
 
+	if (setDebugAgentProbeOpen) {
+		commands.push({
+			id: 'debugAgentProbe',
+			label: 'Debug: Re-Probe Agents',
+			subtext: 'Re-detect each agent binary and refresh readiness',
+			action: () => {
+				setDebugAgentProbeOpen(true);
+				setQuickActionOpen(false);
+			},
+		});
+	}
+
 	if (activeSession && activeSession.executionQueue?.length > 0 && onDebugReleaseQueuedItem) {
 		commands.push({
 			id: 'debugReleaseQueued',
@@ -187,13 +216,25 @@ export function buildDebugCommands({
 		});
 	}
 
-	if (setDebugWizardModalOpen) {
+	// Performance profiling: a Start/End toggle. "End" only surfaces while a
+	// recording is in flight (main process is the source of truth for `active`).
+	if (profilingActive) {
 		commands.push({
-			id: 'debugWizardPhaseReview',
-			label: 'Debug: Wizard → Review Playbooks',
-			subtext: 'Jump directly to Phase Review step (requires existing Auto Run docs)',
+			id: 'debugEndProfiling',
+			label: 'Debug: End Performance Profiling',
+			subtext: 'Stop, analyze, and save the trace bundle',
 			action: () => {
-				setDebugWizardModalOpen(true);
+				onStopProfiling();
+				setQuickActionOpen(false);
+			},
+		});
+	} else {
+		commands.push({
+			id: 'debugStartProfiling',
+			label: 'Debug: Start Performance Profiling',
+			subtext: 'Capture a Chromium trace to diagnose UI lag',
+			action: () => {
+				onStartProfiling();
 				setQuickActionOpen(false);
 			},
 		});

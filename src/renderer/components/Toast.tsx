@@ -2,8 +2,10 @@ import React, { memo, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Theme } from '../types';
 import { useNotificationStore, type Toast as ToastType } from '../stores/notificationStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import { openUrl } from '../utils/openUrl';
 import { formatDurationParts as formatDuration } from '../../shared/formatters';
+import { getToastWidthDimensions } from '../../shared/toastWidth';
 
 interface ToastContainerProps {
 	theme: Theme;
@@ -15,11 +17,13 @@ const ToastItem = memo(function ToastItem({
 	theme,
 	onRemove,
 	onSessionClick,
+	widthDimensions,
 }: {
 	toast: ToastType;
 	theme: Theme;
 	onRemove: (toastId: string) => void;
 	onSessionClick?: (sessionId: string, tabId?: string) => void;
+	widthDimensions: { minWidth: number; maxWidth: number };
 }) {
 	const [isExiting, setIsExiting] = useState(false);
 	const [isEntering, setIsEntering] = useState(true);
@@ -97,13 +101,14 @@ const ToastItem = memo(function ToastItem({
 					</svg>
 				);
 			case 'red':
+				// XCircle — error. Circled so it's not mistaken for the bare close (X) button.
 				return (
 					<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 						<path
 							strokeLinecap="round"
 							strokeLinejoin="round"
 							strokeWidth={2}
-							d="M6 18L18 6M6 6l12 12"
+							d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
 						/>
 					</svg>
 				);
@@ -184,8 +189,8 @@ const ToastItem = memo(function ToastItem({
 				style={{
 					backgroundColor: theme.colors.bgSidebar,
 					border: `1px solid ${theme.colors.border}`,
-					minWidth: '320px',
-					maxWidth: '400px',
+					minWidth: `${widthDimensions.minWidth}px`,
+					maxWidth: `${widthDimensions.maxWidth}px`,
 				}}
 				onClick={isClickable ? handleToastClick : undefined}
 			>
@@ -349,12 +354,17 @@ export const ToastContainer = memo(function ToastContainer({
 }: ToastContainerProps) {
 	const toasts = useNotificationStore((s) => s.toasts);
 	const removeToast = useNotificationStore((s) => s.removeToast);
+	const toastWidth = useSettingsStore((s) => s.toastWidth);
+	// Subscribed so 'dynamic' toasts re-render (and re-resize) live as the user
+	// drags the Right Bar; ignored by the fixed presets.
+	const rightPanelWidth = useSettingsStore((s) => s.rightPanelWidth);
+	const widthDimensions = getToastWidthDimensions(toastWidth, rightPanelWidth);
 
 	if (toasts.length === 0) return null;
 
 	return createPortal(
 		<div
-			className="fixed bottom-4 right-4 flex flex-col-reverse"
+			className="fixed bottom-0 right-4 flex flex-col-reverse"
 			style={{ pointerEvents: 'none', zIndex: 100000 }}
 		>
 			<div style={{ pointerEvents: 'auto' }}>
@@ -365,6 +375,7 @@ export const ToastContainer = memo(function ToastContainer({
 						theme={theme}
 						onRemove={removeToast}
 						onSessionClick={onSessionClick}
+						widthDimensions={widthDimensions}
 					/>
 				))}
 			</div>

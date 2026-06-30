@@ -13,6 +13,7 @@ import type {
 	SessionsData,
 	GroupsData,
 	AgentConfigsData,
+	AgentCapabilitiesData,
 	WindowState,
 	ClaudeSessionOriginsData,
 	AgentSessionOriginsData,
@@ -74,6 +75,7 @@ export const SETTINGS_DEFAULTS: MaestroSettings = {
 	totalActiveTimeMs: 0,
 	lastSelectedPromptId: null,
 	spellCheck: false,
+	usageRefreshIntervals: {},
 	annotatorPenColor: '#9146FF',
 	annotatorPenSize: 10,
 	annotatorThinning: 0.5,
@@ -86,6 +88,10 @@ export const SETTINGS_DEFAULTS: MaestroSettings = {
 	annotatorTextFont: 'sans-serif',
 	annotatorTextBgColor: '',
 	globalShowHotkey: [],
+	// Auto-resume agents that paused on a token/API/credit limit
+	autoResumeOnLimit: true,
+	autoResumeCheckIntervalHours: 2,
+	autoResumeGiveUpDays: 7,
 };
 
 export const SESSIONS_DEFAULTS: SessionsData = {
@@ -98,6 +104,10 @@ export const GROUPS_DEFAULTS: GroupsData = {
 
 export const AGENT_CONFIGS_DEFAULTS: AgentConfigsData = {
 	configs: {},
+};
+
+export const AGENT_CAPABILITIES_DEFAULTS: AgentCapabilitiesData = {
+	snapshots: {},
 };
 
 export const WINDOW_STATE_DEFAULTS: WindowState = {

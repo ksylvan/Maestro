@@ -40,6 +40,10 @@ import { safeClipboardWrite } from '../utils/clipboard';
 import { flashCopiedToClipboard } from '../utils/flashCopiedToClipboard';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useMessageGistStore } from '../stores/messageGistStore';
+import { useSessionStore } from '../stores/sessionStore';
+import { SessionRecoveryCard } from './SessionRecoveryCard';
+import { getTokenSourcePill } from '../../shared/claudeTokenModeLabel';
+import { getClaudeTokenMode } from '../../shared/claudeTokenMode';
 
 // ============================================================================
 // Tool display helpers (pure functions, hoisted out of render path)
@@ -134,8 +138,75 @@ const summarizeToolInput = (input: unknown): ToolSummary | null => {
 	return { description, detail: detail ?? '' };
 };
 
+/** Max lines of tool output to preview inline before truncating. */
+const TOOL_OUTPUT_PREVIEW_LINES = 8;
+
+/**
+ * Summarize tool output for inline display. MCP tools (and others) return their
+ * result in `toolState.output`; without this the compact tool log shows only the
+ * name + status icon and drops the result entirely. Strings render as-is, objects
+ * are JSON-stringified. Output is capped to a short preview so large results don't
+ * flood the chat.
+ */
+const summarizeToolOutput = (output: unknown): string | null => {
+	if (output === undefined || output === null) return null;
+	let text: string;
+	if (typeof output === 'string') {
+		text = output;
+	} else {
+		try {
+			text = JSON.stringify(output, null, 2);
+		} catch {
+			return null;
+		}
+	}
+	text = text.trim();
+	if (!text) return null;
+	const lines = text.split('\n');
+	if (lines.length > TOOL_OUTPUT_PREVIEW_LINES) {
+		return lines.slice(0, TOOL_OUTPUT_PREVIEW_LINES).join('\n') + '\n…';
+	}
+	return text;
+};
+
 const isHiddenProgressEntry = (log: LogEntry): boolean =>
 	log.source === 'system' && log.id.startsWith('hidden-progress:');
+
+/**
+ * Connector that reads the live tab from the session store and renders the
+ * SessionRecoveryCard. Keeps LogItem's prop surface narrow (just sessionId)
+ * instead of passing the full Session object through every log entry.
+ */
+function SessionRecoveryCardConnector(props: {
+	theme: Theme;
+	sessionId: string;
+	recoveryAction: NonNullable<LogEntry['recoveryAction']>;
+	isRecovering: boolean;
+	recoveryError: string | null;
+	onRecover: (opts: {
+		sessionId: string;
+		tabId: string;
+		lastUserPrompt: string;
+		groomContext: boolean;
+	}) => void;
+}) {
+	const tab = useSessionStore((s) => {
+		const session = s.sessions.find((sess) => sess.id === props.sessionId);
+		return session?.aiTabs.find((t) => t.id === props.recoveryAction.tabId);
+	});
+	if (!tab) return null;
+	return (
+		<SessionRecoveryCard
+			theme={props.theme}
+			sessionId={props.sessionId}
+			tab={tab}
+			lastUserPrompt={props.recoveryAction.lastUserPrompt}
+			isRecovering={props.isRecovering}
+			recoveryError={props.recoveryError}
+			onRecover={props.onRecover}
+		/>
+	);
+}
 
 // ============================================================================
 // LogItem - Memoized component for individual log entries
@@ -191,6 +262,10 @@ interface LogItemProps {
 	cwd?: string;
 	projectRoot?: string;
 	onFileClick?: (path: string) => void;
+	// SSH remote ID for resolving image/file paths emitted by an agent running
+	// on a remote host. Without it, LocalImage reads the path from the local
+	// filesystem (which doesn't have the remote file) and the image fails.
+	sshRemoteId?: string;
 	// Error details callback - receives the specific AgentError from the log entry
 	onShowErrorDetails?: (error: AgentError) => void;
 	// Save to file callback (AI mode only, non-user messages)
@@ -209,6 +284,17 @@ interface LogItemProps {
 	// Claude mode pill — both passed as primitives so LogItem memo equality stays cheap.
 	isClaudeCode: boolean;
 	isAdaptiveMode: boolean;
+	// Session recovery (session_not_found inline card). Only consumed when
+	// log.recoveryAction is set; otherwise these props are ignored.
+	sessionId: string;
+	onSessionRecover?: (opts: {
+		sessionId: string;
+		tabId: string;
+		lastUserPrompt: string;
+		groomContext: boolean;
+	}) => void;
+	isRecoveringSession?: boolean;
+	sessionRecoveryError?: string | null;
 }
 
 const LogItemComponent = memo(
@@ -244,6 +330,7 @@ const LogItemComponent = memo(
 		cwd,
 		projectRoot,
 		onFileClick,
+		sshRemoteId,
 		onShowErrorDetails,
 		onSaveToFile,
 		ghCliAvailable,
@@ -256,6 +343,10 @@ const LogItemComponent = memo(
 		userMessageAlignment,
 		isClaudeCode,
 		isAdaptiveMode,
+		sessionId,
+		onSessionRecover,
+		isRecoveringSession,
+		sessionRecoveryError,
 	}: LogItemProps) => {
 		// Ref for the log item container - used for scroll-into-view on expand
 		const logItemRef = useRef<HTMLDivElement>(null);
@@ -496,7 +587,9 @@ const LogItemComponent = memo(
 									cwd={cwd}
 									projectRoot={projectRoot}
 									onFileClick={onFileClick}
+									sshRemoteId={sshRemoteId}
 									chatLineBreaks
+									chatMath
 								/>
 							</div>
 							{!!log.agentError?.parsedJson && onShowErrorDetails && (
@@ -548,7 +641,9 @@ const LogItemComponent = memo(
 										cwd={cwd}
 										projectRoot={projectRoot}
 										onFileClick={onFileClick}
+										sshRemoteId={sshRemoteId}
 										chatLineBreaks
+										chatMath
 									/>
 								) : (
 									log.text
@@ -611,6 +706,14 @@ const LogItemComponent = memo(
 								toolInput !== undefined && toolInput !== null
 									? summarizeToolInput(toolInput)
 									: null;
+							// Show the tool result once it has finished. Without this the
+							// compact tool log drops the output entirely (e.g. MCP calls
+							// like squash_repos that take no args render as a bare name).
+							const toolStatus = log.metadata?.toolState?.status;
+							const outputSummary =
+								toolStatus === 'completed' || toolStatus === 'failed' || toolStatus === 'error'
+									? summarizeToolOutput(log.metadata?.toolState?.output)
+									: null;
 
 							return (
 								<div
@@ -668,6 +771,17 @@ const LogItemComponent = memo(
 											{toolSummary.detail}
 										</div>
 									)}
+									{outputSummary && (
+										<div
+											className="mt-1 ml-1 pl-2 opacity-60 break-words whitespace-pre-wrap border-l"
+											style={{
+												color: theme.colors.textMain,
+												borderColor: `${theme.colors.success}40`,
+											}}
+										>
+											{outputSummary}
+										</div>
+									)}
 								</div>
 							);
 						})()}
@@ -714,7 +828,9 @@ const LogItemComponent = memo(
 											cwd={cwd}
 											projectRoot={projectRoot}
 											onFileClick={onFileClick}
+											sshRemoteId={sshRemoteId}
 											chatLineBreaks
+											chatMath
 										/>
 									) : (
 										displayText
@@ -801,7 +917,9 @@ const LogItemComponent = memo(
 											cwd={cwd}
 											projectRoot={projectRoot}
 											onFileClick={onFileClick}
+											sshRemoteId={sshRemoteId}
 											chatLineBreaks
+											chatMath
 										/>
 									) : (
 										<div>{filteredText}</div>
@@ -880,7 +998,9 @@ const LogItemComponent = memo(
 										cwd={cwd}
 										projectRoot={projectRoot}
 										onFileClick={onFileClick}
+										sshRemoteId={sshRemoteId}
 										chatLineBreaks
+										chatMath
 									/>
 								) : (
 									// Raw markdown source mode (show original text with markdown syntax visible)
@@ -893,17 +1013,30 @@ const LogItemComponent = memo(
 								)}
 							</>
 						))}
+					{/* Session-not-found recovery card. Rendered inline directly
+					    under the system message that announced the dead session. The
+					    card reads the tab from the store so we don't have to pass the
+					    full Session through LogItem (would defeat memoization). */}
+					{log.recoveryAction && (
+						<SessionRecoveryCardConnector
+							theme={theme}
+							sessionId={sessionId}
+							recoveryAction={log.recoveryAction}
+							isRecovering={!!isRecoveringSession}
+							recoveryError={sessionRecoveryError ?? null}
+							onRecover={(opts) => onSessionRecover?.(opts)}
+						/>
+					)}
 					{/* Mode pill — shows which CLI captured this Claude turn (TUI = maestro-p,
 					    API = claude --print). "Adaptive " prefix indicates the session has
 					    Adaptive Mode enabled (auto-switching between the two). */}
 					{isClaudeCode &&
 						log.source !== 'user' &&
 						(() => {
-							const isTui = log.renderStyle === 'text-stream';
-							const label = `${isAdaptiveMode ? 'Adaptive ' : ''}${isTui ? 'TUI' : 'API'}`;
-							const title = isTui
-								? `Captured via maestro-p driving the Claude TUI${isAdaptiveMode ? ' (Adaptive Mode enabled)' : ''}`
-								: `Captured via claude --print${isAdaptiveMode ? ' (Adaptive Mode enabled — fell back to API)' : ''}`;
+							const { label, title } = getTokenSourcePill({
+								mode: log.renderStyle === 'text-stream' ? 'interactive' : 'api',
+								adaptive: isAdaptiveMode,
+							});
 							return (
 								<span
 									className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[10px] px-1.5 py-0.5 rounded pointer-events-none select-none"
@@ -929,8 +1062,9 @@ const LogItemComponent = memo(
 						className="absolute bottom-2 right-2 flex items-center gap-1"
 						style={{ transition: 'opacity 0.15s ease-in-out' }}
 					>
-						{/* Markdown toggle button for AI responses */}
-						{log.source !== 'user' && isAIMode && (
+						{/* Markdown toggle button — available on both user and assistant
+						    messages in AI mode for consistent UX (#622). */}
+						{isAIMode && (
 							<button
 								onClick={onToggleMarkdownEditMode}
 								className="p-1.5 rounded opacity-0 group-hover:opacity-50 hover:!opacity-100"
@@ -1151,6 +1285,8 @@ interface TerminalOutputProps {
 	maxOutputLines: number;
 	onDeleteLog?: (logId: string) => number | null; // Returns the index to scroll to after deletion
 	onRemoveQueuedItem?: (itemId: string) => void; // Callback to remove a queued item from execution queue
+	onTogglePauseQueuedItem?: (itemId: string) => void; // Callback to toggle held/paused state of a queued item
+	onReorderQueuedItem?: (fromIndex: number, toIndex: number, tabId?: string) => void; // Reorder a queued item within the active tab's queue
 	onForceSendQueuedItem?: (itemId: string) => void; // Callback to Force Send a queued item (parallel execution)
 	forcedParallelEnabled?: boolean; // Whether forcedParallelExecution setting is on (gates Force Send button)
 	getForceSendContext?: (
@@ -1179,6 +1315,17 @@ interface TerminalOutputProps {
 		content: string;
 		sshRemoteId?: string;
 	}) => void; // Callback to open saved file in a tab
+	// In-place recovery from session_not_found errors. Invoked by the
+	// SessionRecoveryCard that renders inside system log entries carrying a
+	// `recoveryAction` payload.
+	onSessionRecover?: (opts: {
+		sessionId: string;
+		tabId: string;
+		lastUserPrompt: string;
+		groomContext: boolean;
+	}) => void;
+	isRecoveringSession?: boolean;
+	sessionRecoveryError?: string | null;
 }
 
 // PERFORMANCE: Wrap in React.memo to prevent re-renders when parent re-renders
@@ -1204,6 +1351,8 @@ export const TerminalOutput = memo(
 			maxOutputLines,
 			onDeleteLog,
 			onRemoveQueuedItem,
+			onTogglePauseQueuedItem,
+			onReorderQueuedItem,
 			onForceSendQueuedItem,
 			forcedParallelEnabled,
 			getForceSendContext,
@@ -1225,6 +1374,9 @@ export const TerminalOutput = memo(
 			onOpenInTab,
 			ghCliAvailable,
 			onPublishMessageGist,
+			onSessionRecover,
+			isRecoveringSession,
+			sessionRecoveryError,
 		} = props;
 		const globalBionifyReadingMode = useSettingsStore((s) => s.bionifyReadingMode);
 		const globalBionifyIntensity = useSettingsStore((s) => s.bionifyIntensity);
@@ -1286,6 +1438,11 @@ export const TerminalOutput = memo(
 		isAtBottomRef.current = isAtBottom;
 		// Track whether auto-scroll is paused because user scrolled up (state so button re-renders)
 		const [autoScrollPaused, setAutoScrollPaused] = useState(false);
+		// Ref mirror of autoScrollPaused for the MutationObserver closure so a freshly
+		// restored scroll position can suppress auto-scroll synchronously, before the
+		// state-driven re-render re-runs the observer effect (avoids a one-frame yank).
+		const autoScrollPausedRef = useRef(false);
+		autoScrollPausedRef.current = autoScrollPaused;
 		// Guard flag: prevents the scroll handler from pausing auto-scroll
 		// during programmatic scrollTo() calls from the MutationObserver effect.
 		const isProgrammaticScrollRef = useRef(false);
@@ -1486,10 +1643,18 @@ export const TerminalOutput = memo(
 				if (currentResponseGroup.length > 0) {
 					// Combine all response entries into one
 					const combinedText = currentResponseGroup.map((l) => l.text).join('');
+					// The token-source pill keys off `renderStyle === 'text-stream'`
+					// (maestro-p TUI capture). A response group can lead with a
+					// non-stream entry — e.g. the "Adaptive Mode: switched ..." system
+					// banner — and basing the combined entry only on `[0]` would inherit
+					// that entry's missing renderStyle and mislabel an interactive turn
+					// as "API". Preserve text-stream if ANY grouped entry carries it.
+					const hasTextStream = currentResponseGroup.some((l) => l.renderStyle === 'text-stream');
 					result.push({
 						...currentResponseGroup[0],
 						text: combinedText,
 						// Keep the first entry's timestamp and id
+						...(hasTextStream ? { renderStyle: 'text-stream' as const } : {}),
 					});
 					currentResponseGroup = [];
 				}
@@ -1785,7 +1950,7 @@ export const TerminalOutput = memo(
 			const container = scrollContainerRef.current;
 			if (!container) return;
 
-			const shouldAutoScroll = () => !autoScrollPaused || isAtBottomRef.current;
+			const shouldAutoScroll = () => !autoScrollPausedRef.current || isAtBottomRef.current;
 
 			const scrollToBottom = () => {
 				if (!scrollContainerRef.current) return;
@@ -1843,6 +2008,17 @@ export const TerminalOutput = memo(
 						// Clamp to max scrollable area
 						const maxScroll = Math.max(0, scrollHeight - clientHeight);
 						const targetScroll = Math.min(initialScrollTop, maxScroll);
+						// If the saved position is not at the bottom, pause auto-scroll so the
+						// MutationObserver doesn't immediately yank the view back down (uses the
+						// same 50px bottom threshold as handleScrollInner). Flip the refs first
+						// so the observer's live shouldAutoScroll() sees the pause this frame,
+						// before the state update re-renders.
+						if (targetScroll < maxScroll - 50) {
+							autoScrollPausedRef.current = true;
+							isAtBottomRef.current = false;
+							setAutoScrollPaused(true);
+							setIsAtBottom(false);
+						}
 						scrollContainerRef.current.scrollTop = targetScroll;
 					}
 				});
@@ -2156,10 +2332,19 @@ export const TerminalOutput = memo(
 							onToggleMarkdownEditMode={toggleMarkdownEditMode}
 							onReplayMessage={onReplayMessage}
 							onForkConversation={onForkConversation}
+							sessionId={session.id}
+							onSessionRecover={onSessionRecover}
+							isRecoveringSession={isRecoveringSession}
+							sessionRecoveryError={sessionRecoveryError}
 							fileTree={fileTree}
 							cwd={cwd}
 							projectRoot={projectRoot}
 							onFileClick={onFileClick}
+							sshRemoteId={
+								session.sessionSshRemoteConfig?.enabled
+									? (session.sessionSshRemoteConfig?.remoteId ?? undefined)
+									: undefined
+							}
 							onShowErrorDetails={onShowErrorDetails}
 							onSaveToFile={handleSaveToFile}
 							ghCliAvailable={ghCliAvailable}
@@ -2170,7 +2355,7 @@ export const TerminalOutput = memo(
 							bionifyAlgorithm={globalBionifyAlgorithm}
 							userMessageAlignment={userMessageAlignment}
 							isClaudeCode={session.toolType === 'claude-code'}
-							isAdaptiveMode={session.enableMaestroP === true}
+							isAdaptiveMode={getClaudeTokenMode(session) === 'dynamic'}
 						/>
 					))}
 
@@ -2180,10 +2365,18 @@ export const TerminalOutput = memo(
 							executionQueue={session.executionQueue}
 							theme={theme}
 							onRemoveQueuedItem={onRemoveQueuedItem}
+							onTogglePauseQueuedItem={onTogglePauseQueuedItem}
+							onReorderItems={
+								onReorderQueuedItem
+									? (fromIndex, toIndex) =>
+											onReorderQueuedItem(fromIndex, toIndex, activeTabId || undefined)
+									: undefined
+							}
 							onForceSendQueuedItem={onForceSendQueuedItem}
 							forcedParallelEnabled={forcedParallelEnabled}
 							getForceSendContext={getForceSendContext}
 							activeTabId={activeTabId || undefined}
+							onOpenLightbox={setLightboxImage}
 						/>
 					)}
 

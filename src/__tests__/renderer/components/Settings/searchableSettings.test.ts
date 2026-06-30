@@ -129,11 +129,15 @@ describe('searchableSettings', () => {
 		// Each query below is a string a user would naturally type after seeing it
 		// rendered in the Settings UI (section headings, sub-headings, button
 		// labels). When you add a new setting, add the visible strings here so
-		// they remain findable — keyword drift from UI text is silent otherwise.
+		// they remain findable - keyword drift from UI text is silent otherwise.
 		it.each([
 			// General tab
 			['Auto Run Inactivity Timeout', 'general-autorun-inactivity-timeout'],
 			['refactor', 'general-autorun-inactivity-timeout'],
+			['resume paused', 'general-auto-resume'],
+			['rate limit', 'general-auto-resume'],
+			['quota', 'general-auto-resume'],
+			['give up', 'general-auto-resume-interval'],
 			['forced parallel execution', 'general-input-behavior'],
 			['shift+enter', 'general-input-behavior'],
 			['prompt composer', 'general-input-behavior'],
@@ -190,14 +194,22 @@ describe('searchableSettings', () => {
 			// Encore tab
 			['lookback', 'encore-usage-stats'],
 			['coding activity', 'encore-usage-stats'],
+			['wakatime', 'encore-usage-stats'],
+			['registry sources', 'encore-symphony'],
 			['github pr', 'encore-cue'],
 			['cron', 'encore-cue'],
+			['global cue settings', 'encore-cue'],
 			['playbook registry', 'encore-symphony'],
+			['synopsis provider', 'encore-director-notes'],
 
 			// Prompts tab
 			['wizard prompt', 'prompts-editor'],
 			['group chat', 'prompts-editor'],
 			['inline wizard', 'prompts-editor'],
+
+			// About tab
+			['about maestro', 'about-maestro'],
+			['version', 'about-maestro'],
 		])('should find "%s" and return id %s', (query, expectedId) => {
 			const results = searchSettings(query);
 			expect(

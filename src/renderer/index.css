@@ -308,6 +308,34 @@ textarea::placeholder {
 	pointer-events: none;
 }
 
+/*
+ * Theme-aware, keyboard-only focus ring.
+ *
+ * Pairs with the CLAUDE.md focus pattern ("outline-none + custom ring"): the
+ * default `:focus` outline is suppressed so mouse clicks stay quiet, while
+ * keyboard `:focus-visible` paints an accent-colored ring. Color resolves from
+ * a local `--focus-ring-color` override (set inline when an element needs a
+ * higher-contrast ring on a filled background) and otherwise falls back to the
+ * app accent (`--accent-color`, kept in sync with the active theme by
+ * useThemeStyles). Use `.focus-ring` for standalone controls and
+ * `.focus-ring-inset` for controls inside an `overflow-hidden` / rounded
+ * container that would clip an outset ring (e.g. a segmented toggle).
+ */
+.focus-ring:focus,
+.focus-ring-inset:focus {
+	outline: none;
+}
+
+.focus-ring:focus-visible {
+	outline: 2px solid var(--focus-ring-color, var(--accent-color, rgba(99, 102, 241, 0.9)));
+	outline-offset: 2px;
+}
+
+.focus-ring-inset:focus-visible {
+	outline: 2px solid var(--focus-ring-color, var(--accent-color, rgba(99, 102, 241, 0.9)));
+	outline-offset: -2px;
+}
+
 @keyframes check-pop {
 	0% {
 		transform: scale(0);
@@ -383,7 +411,8 @@ textarea::placeholder {
 	}
 }
 
-.claude-plan-refresh-sweep {
+.claude-plan-refresh-sweep,
+.codex-plan-refresh-sweep {
 	animation: claude-plan-refresh-sweep 1.2s ease-in-out infinite;
 }
 
@@ -832,6 +861,59 @@ svg.wand-sparkle-active path:nth-child(8) {
 	}
 }
 
+/* Performance-profiling indicator: while a trace is being captured the wand
+   glows recording-red so it's unmistakable that profiling is on. The red is
+   forced over the inline theme accent for this debug-only state. A slow (1.5s)
+   pulse is deliberate - it keeps the indicator's own paint cost low and out of
+   the trace it is helping to capture. */
+@keyframes wand-profiling-pulse {
+	0%,
+	100% {
+		filter: drop-shadow(0 0 1px rgba(239, 68, 68, 0.6));
+	}
+	50% {
+		filter: drop-shadow(0 0 5px rgba(239, 68, 68, 0.95));
+	}
+}
+
+svg.wand-profiling-active {
+	color: #ef4444 !important;
+	animation: wand-profiling-pulse 1.5s ease-in-out infinite;
+}
+
+/* Keep the sparkles dancing during profiling even when nothing else is busy */
+svg.wand-profiling-active path:nth-child(n + 3) {
+	animation: wand-sparkle 1.6s ease-in-out infinite;
+}
+svg.wand-profiling-active path:nth-child(3) {
+	animation-delay: 0s;
+}
+svg.wand-profiling-active path:nth-child(4) {
+	animation-delay: 0.25s;
+}
+svg.wand-profiling-active path:nth-child(5) {
+	animation-delay: 0.5s;
+}
+svg.wand-profiling-active path:nth-child(6) {
+	animation-delay: 0.75s;
+}
+svg.wand-profiling-active path:nth-child(7) {
+	animation-delay: 0.35s;
+}
+svg.wand-profiling-active path:nth-child(8) {
+	animation-delay: 0.6s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	svg.wand-profiling-active {
+		animation: none;
+		filter: drop-shadow(0 0 3px rgba(239, 68, 68, 0.9));
+	}
+	svg.wand-profiling-active path:nth-child(n + 3) {
+		animation: none;
+	}
+}
+
 /* React Flow - Document Graph edge hover styling */
 /* Subtle glow effect on edge hover */
 .react-flow__edge-path {
@@ -952,6 +1034,25 @@ svg.wand-sparkle-active path:nth-child(8) {
 }
 
 /* Below 300px: Hide session name */
+@container header (max-width: 480px) {
+	/* Drop secondary header buttons (Memory Viewer + Agent Sessions) so the
+	 * right group fits — both are still reachable via the Menu drawer. */
+	.header-secondary-btn {
+		display: none !important;
+	}
+}
+
+/*
+ * Tighten the MainPanel header padding on narrow viewports. The container
+ * query above can't restyle its own container, so we drive padding off the
+ * `data-bp` attribute that useViewportBreakpoint writes on <html>.
+ */
+:root[data-bp='xs'] .header-container,
+:root[data-bp='sm'] .header-container {
+	padding-left: 0.5rem !important;
+	padding-right: 0.5rem !important;
+}
+
 @container header (max-width: 300px) {
 	.header-session-name {
 		display: none;
@@ -1128,5 +1229,132 @@ svg.wand-sparkle-active path:nth-child(8) {
 	.animate-status-pulse,
 	.animate-status-glow {
 		animation: none !important;
+	}
+}
+
+/* Shiki-highlighted code fences. The highlighter emits its own <pre class="shiki">
+ * with a theme-driven background and inline token styles. We override padding /
+ * radius / overflow to match the surrounding chat bubble, and force `color:
+ * unset` on the structural elements so prose styles (e.g. `.terminal-output
+ * code { color: ... }` in markdownConfig) don't cascade past Shiki's per-token
+ * inline colors via the `<code>` element. */
+/* `.code-fence` scope raises specificity above the runtime-injected prose
+ * styles (`.prose pre { padding: 1em }` in markdownConfig.ts). Those <style>
+ * tags load after this file, so an equal-specificity selector would lose the
+ * cascade tie and the extra padding below would be clobbered back to 1em. */
+.code-fence .shiki-host pre.shiki {
+	margin: 0;
+	/* Extra top padding reserves room for the language picker (top-left) and
+	 * copy button (top-right) overlaid by CodeFence so the first line never
+	 * renders underneath them. Kept in sync with the plain-<pre> fallback
+	 * (fallbackPreStyle in CodeFence.tsx). */
+	padding: 2.75em 1em 1em !important;
+	border-radius: 0;
+	overflow-x: auto;
+	white-space: pre;
+	font-family: inherit;
+}
+
+.code-fence .shiki-host pre.shiki code {
+	font-family: inherit;
+	background: transparent !important;
+	color: unset !important;
+	padding: 0 !important;
+}
+
+.code-fence .shiki-host pre.shiki .line {
+	color: unset;
+}
+
+/*
+ * Narrow-viewport (xs / sm) overlay behavior.
+ *
+ * The desktop layout assumes a 3-column flex row. Below 768px the inline
+ * widths squeeze MainPanel to nothing. These rules turn the left and right
+ * sidebars into fixed-position drawers (full height, fixed width, transform
+ * to hide). data-bp is set by useViewportBreakpoint on <html>. data-panel
+ * is set by SessionList / RightPanel root divs. Inline width is overridden
+ * with !important because the components set it via the style prop.
+ */
+/*
+ * App shell height: use dynamic viewport so iOS Safari's collapsible URL bar
+ * and bottom toolbar don't occlude the input area. Falls back to 100vh on
+ * older browsers. The bottom safe-area inset (iPhone home indicator + Safari
+ * bottom bar where it overlays) is reserved as padding so toolbar pills stay
+ * tappable.
+ */
+.maestro-app-shell {
+	height: 100vh;
+	height: 100dvh;
+	padding-bottom: env(safe-area-inset-bottom);
+}
+
+/*
+ * Tri-state left sidebar.
+ *
+ * Closed (data-collapsed='true') keeps the inline 64px status-dot strip so
+ * users can see all sessions at a glance. Hidden (data-hidden='true') drops
+ * the panel entirely — used when the user wants maximum room for the main
+ * content. Hidden state applies at every breakpoint, including desktop.
+ */
+[data-panel='left'][data-hidden='true'] {
+	display: none !important;
+}
+
+/*
+ * Left sidebar on narrow viewports: only the OPEN state floats as a drawer.
+ * Closed state stays inline at its natural 64px width so the collapsed-mode
+ * status-dot strip is always visible.
+ */
+:root[data-bp='xs'] [data-panel='left'][data-collapsed='false'][data-hidden='false'],
+:root[data-bp='sm'] [data-panel='left'][data-collapsed='false'][data-hidden='false'] {
+	position: fixed !important;
+	top: 0;
+	bottom: 0;
+	left: 0;
+	width: min(85vw, 320px) !important;
+	max-width: 85vw;
+	z-index: 50;
+	transform: translateX(0);
+	transition: transform 200ms ease;
+	box-shadow: 4px 0 20px rgba(0, 0, 0, 0.4);
+}
+
+:root[data-bp='xs'] [data-panel='right'],
+:root[data-bp='sm'] [data-panel='right'] {
+	position: fixed !important;
+	top: 0;
+	bottom: 0;
+	right: 0;
+	width: min(85vw, 320px) !important;
+	max-width: 85vw;
+	z-index: 50;
+	transform: translateX(0);
+	transition: transform 200ms ease;
+	box-shadow: -4px 0 20px rgba(0, 0, 0, 0.4);
+	opacity: 1 !important;
+}
+
+:root[data-bp='xs'] [data-panel='right'][data-open='false'],
+:root[data-bp='sm'] [data-panel='right'][data-open='false'] {
+	transform: translateX(100%);
+	box-shadow: none;
+	pointer-events: none;
+}
+
+.maestro-mobile-backdrop {
+	position: fixed;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.55);
+	z-index: 40;
+	animation: maestro-fade-in 150ms ease;
+}
+
+@keyframes maestro-fade-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
 	}
 }

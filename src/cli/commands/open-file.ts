@@ -9,6 +9,7 @@ import { getSessionById, getSessionHistoryMtimeMs, readSessions } from '../servi
 interface OpenFileOptions {
 	agent?: string;
 	switch?: boolean;
+	json?: boolean;
 }
 
 interface ResolvedTarget {
@@ -40,13 +41,25 @@ export async function openFile(filePath: string, options: OpenFileOptions): Prom
 		});
 
 		if (result.success) {
-			console.log(`Opened ${path.basename(target.absolutePath)} in Maestro`);
+			if (options.json)
+				console.log(
+					JSON.stringify({
+						success: true,
+						sessionId: target.sessionId,
+						path: target.absolutePath,
+					})
+				);
+			else console.log(`Opened ${path.basename(target.absolutePath)} in Maestro`);
 		} else {
-			console.error(`Error: ${result.error || 'Failed to open file'}`);
+			const error = result.error || 'Failed to open file';
+			if (options.json) console.log(JSON.stringify({ success: false, error }));
+			else console.error(`Error: ${error}`);
 			process.exit(1);
 		}
 	} catch (error) {
-		console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+		const msg = error instanceof Error ? error.message : String(error);
+		if (options.json) console.log(JSON.stringify({ success: false, error: msg }));
+		else console.error(`Error: ${msg}`);
 		process.exit(1);
 	}
 }
@@ -55,11 +68,11 @@ export async function openFile(filePath: string, options: OpenFileOptions): Prom
  * Resolve the file path and the target agent.
  *
  * - Relative paths are resolved against the shell's CWD (process.cwd()).
- * - With `--agent`, the file must live inside that agent's cwd; otherwise we
- *   error out (strict — explicit flag means the user is asserting ownership).
+ * - With `--agent`, the file opens in that agent regardless of where it lives —
+ *   the explicit flag means the user is asserting which agent they want.
  * - Without `--agent`, we auto-detect the owning agent by longest cwd-prefix
  *   match. On tie, we pick the most-recently-active candidate by history-file
- *   mtime. With zero owners, we error.
+ *   mtime. With zero owners, we error and tell the user to pass `--agent`.
  */
 function resolveTarget(filePath: string, options: OpenFileOptions): ResolvedTarget {
 	const absolutePath = path.isAbsolute(filePath)
@@ -70,12 +83,6 @@ function resolveTarget(filePath: string, options: OpenFileOptions): ResolvedTarg
 		const session = getSessionById(options.agent);
 		if (!session) {
 			console.error(`Error: Agent not found: ${options.agent}`);
-			process.exit(1);
-		}
-		if (!isPathInside(absolutePath, session.cwd)) {
-			console.error(
-				`Error: ${absolutePath} is outside the working directory of agent ${session.name} (${session.cwd})`
-			);
 			process.exit(1);
 		}
 		return { sessionId: session.id, absolutePath };

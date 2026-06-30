@@ -14,6 +14,7 @@ import {
 	UsageStats,
 	ToolType,
 	ThinkingMode,
+	QueuedItem,
 } from '../types';
 import { generateId } from './ids';
 import { getAutoRunFolderPath } from './existingDocsDetector';
@@ -437,6 +438,73 @@ export function getActiveTab(session: Session): AITab | undefined {
 }
 
 /**
+ * Where a dequeued execution-queue item should run.
+ *
+ * - `'aiTab'`  - the tab it was queued against is still open (normal foreground send).
+ * - `'orphan'` - the user closed that tab while the message was still queued, so it now
+ *   lives in `orphanedThinkingTabs` and the send is fire-and-forget. Busy state and the
+ *   user log MUST route there, never onto whatever tab happens to be active.
+ * - `'active'` - the item has no resolvable tabId (legacy item, or the tab was
+ *   hard-deleted) so we fall back to the active tab.
+ */
+export interface QueuedItemTarget {
+	tabId: string;
+	location: 'aiTab' | 'orphan' | 'active';
+}
+
+/**
+ * Resolve which tab a dequeued {@link QueuedItem} runs on.
+ *
+ * Every dispatch path (onExit, interrupt, kill, queue recovery, debug release) shares
+ * this resolver so a message queued on a since-closed tab can never leak into the
+ * foreground conversation. The item carries the tabId it was queued against; we look in
+ * `aiTabs` first, then `orphanedThinkingTabs` (closed-but-still-draining tabs), and only
+ * fall back to the active tab when the item truly has nowhere else to go.
+ *
+ * Returns `null` only when the session has no aiTabs at all (caller decides what to do).
+ */
+export function resolveQueuedItemTarget(
+	session: Session,
+	item: Pick<QueuedItem, 'tabId'>
+): QueuedItemTarget | null {
+	if (item.tabId) {
+		if (session.aiTabs?.some((tab) => tab.id === item.tabId)) {
+			return { tabId: item.tabId, location: 'aiTab' };
+		}
+		const orphan = session.orphanedThinkingTabs?.find((tab) => tab.id === item.tabId);
+		if (orphan) {
+			return { tabId: orphan.id, location: 'orphan' };
+		}
+	}
+	const active = getActiveTab(session);
+	return active ? { tabId: active.id, location: 'active' } : null;
+}
+
+/**
+ * Mark a tab as running a dequeued queue item: set it busy/thinking and, for message
+ * items, append the user-visible log entry. Shared by every dispatch path so the
+ * busy-state + log construction stays identical (and lands on the resolved target tab,
+ * which may be an orphan - see {@link resolveQueuedItemTarget}).
+ */
+export function markTabRunningQueuedItem(tab: AITab, item: QueuedItem): AITab {
+	const now = Date.now();
+	const next: AITab = { ...tab, state: 'busy', thinkingStartTime: now };
+	if (item.type === 'message' && item.text) {
+		const logEntry: LogEntry = {
+			id: generateId(),
+			timestamp: now,
+			source: 'user',
+			text: item.text,
+			images: item.images,
+			...(item.forceParallel && { forceParallel: true }),
+			...(item.readOnlyMode && { readOnly: true }),
+		};
+		next.logs = [...tab.logs, logEntry];
+	}
+	return next;
+}
+
+/**
  * Options for creating a new AI tab.
  */
 export interface CreateTabOptions {
@@ -745,13 +813,21 @@ export function closeTab(
 								unifiedTabOrder: finalUnifiedTabOrder,
 							};
 
-	// If the closed tab was busy, keep tracking it in orphanedThinkingTabs so the
-	// thinking pill stays visible until the underlying agent process actually finishes.
-	// The pill picks these up alongside busy aiTabs. The agent exit/error listeners
-	// drop the orphan once the process is gone.
+	// Keep tracking the closed tab in orphanedThinkingTabs when it still has work
+	// in flight, so the thinking pill stays visible and the tab survives as a
+	// dispatch target until that work finishes. Two cases qualify:
+	//   1. It was busy (an agent turn is mid-flight).
+	//   2. It has queued items waiting (a message the user already sent that should
+	//      still fire in the background - fire-and-forget).
+	// The pill picks orphans up alongside busy aiTabs. The agent exit/error
+	// listeners drop the orphan once its process is gone and its queue is drained.
 	const closedTabWasBusy = tabToClose.state === 'busy';
+	const closedTabHasQueuedItems = (session.executionQueue ?? []).some(
+		(item) => item.tabId === tabId
+	);
+	const shouldOrphanClosedTab = closedTabWasBusy || closedTabHasQueuedItems;
 	const anyRemainingTabBusy = updatedTabs.some((tab) => tab.state === 'busy');
-	const updatedOrphans: AITab[] | undefined = closedTabWasBusy
+	const updatedOrphans: AITab[] | undefined = shouldOrphanClosedTab
 		? [...(session.orphanedThinkingTabs ?? []), tabToClose]
 		: session.orphanedThinkingTabs;
 	const hasOrphans = (updatedOrphans?.length ?? 0) > 0;
@@ -774,6 +850,11 @@ export function closeTab(
 				}
 			: sessionWithOrphans;
 
+	// Queued items targeting the just-closed tab are intentionally preserved. A
+	// message the user already sent fires in the background against the now-orphaned
+	// tab (see the orphan-drain path in useAgentExitListener), so closing the tab is
+	// fire-and-forget rather than a discard. The tab survives in orphanedThinkingTabs
+	// to carry its agent session id for continuity and to be a valid dispatch target.
 	return {
 		closedTab,
 		session: finalSession,
@@ -1214,6 +1295,166 @@ export interface ReopenUnifiedClosedTabResult {
 }
 
 /**
+ * Restore a closed AI tab into a session, handling orphan re-attach and
+ * duplicate detection. Does NOT mutate either closed-tab history list - the
+ * caller is responsible for popping/removing the entry it pulled this tab from
+ * and patching the appropriate history field on the returned session. This is
+ * the shared core behind both `reopenUnifiedClosedTab` (most-recent) and
+ * `reopenClosedAiTabById` (targeted, e.g. clicking a notification toast whose
+ * tab was since closed).
+ *
+ * @param session - The Maestro session
+ * @param tabToRestore - The closed AI tab to restore
+ * @param unifiedIndex - Original position in the unified tab order
+ */
+function restoreClosedAiTab(
+	session: Session,
+	tabToRestore: AITab,
+	unifiedIndex: number
+): ReopenUnifiedClosedTabResult {
+	// If this closed tab is still tracked as an orphan, restore the orphan
+	// (preserving its original ID so the still-running agent re-attaches)
+	// instead of creating a duplicate tab with a fresh ID.
+	const matchingOrphan = session.orphanedThinkingTabs?.find(
+		(t) =>
+			t.id === tabToRestore.id ||
+			(t.agentSessionId !== null && t.agentSessionId === tabToRestore.agentSessionId)
+	);
+	if (matchingOrphan) {
+		const restored = restoreOrphanedTab(session, matchingOrphan.id);
+		if (restored) {
+			return {
+				tabType: 'ai',
+				tabId: restored.tab.id,
+				session: restored.session,
+				wasDuplicate: false,
+			};
+		}
+	}
+
+	// Check for duplicate: does a tab with the same agentSessionId already exist?
+	if (tabToRestore.agentSessionId !== null) {
+		const existingTab = session.aiTabs.find(
+			(tab) => tab.agentSessionId === tabToRestore.agentSessionId
+		);
+
+		if (existingTab) {
+			// Duplicate found - switch to existing tab instead of restoring
+			return {
+				tabType: 'ai',
+				tabId: existingTab.id,
+				session: {
+					...session,
+					activeTabId: existingTab.id,
+					activeFileTabId: null,
+					unifiedTabOrder: ensureInUnifiedTabOrder(session.unifiedTabOrder, 'ai', existingTab.id),
+				},
+				wasDuplicate: true,
+			};
+		}
+	}
+
+	// No duplicate - restore the tab
+	const restoredTab: AITab = {
+		...tabToRestore,
+		id: generateId(),
+	};
+
+	// Calculate insert position in aiTabs based on unified index
+	// Find where this tab should go in unifiedTabOrder
+	const targetUnifiedIndex = Math.min(unifiedIndex, session.unifiedTabOrder.length);
+
+	// Count how many AI tabs come before this position
+	let aiTabsBeforeIndex = 0;
+	for (let i = 0; i < targetUnifiedIndex && i < session.unifiedTabOrder.length; i++) {
+		if (session.unifiedTabOrder[i].type === 'ai') {
+			aiTabsBeforeIndex++;
+		}
+	}
+	const insertIndex = Math.min(aiTabsBeforeIndex, session.aiTabs.length);
+
+	const updatedAiTabs = [
+		...session.aiTabs.slice(0, insertIndex),
+		restoredTab,
+		...session.aiTabs.slice(insertIndex),
+	];
+
+	// Insert into unifiedTabOrder at the original position
+	const newTabRef: UnifiedTabRef = { type: 'ai', id: restoredTab.id };
+	const updatedUnifiedTabOrder = [
+		...session.unifiedTabOrder.slice(0, targetUnifiedIndex),
+		newTabRef,
+		...session.unifiedTabOrder.slice(targetUnifiedIndex),
+	];
+
+	return {
+		tabType: 'ai',
+		tabId: restoredTab.id,
+		session: {
+			...session,
+			aiTabs: updatedAiTabs,
+			activeTabId: restoredTab.id,
+			activeFileTabId: null,
+			unifiedTabOrder: updatedUnifiedTabOrder,
+		},
+		wasDuplicate: false,
+	};
+}
+
+/**
+ * Reopen a specific closed AI tab by its original tab ID, restoring it from
+ * whichever closed-tab history list it lives in (unified first, legacy as a
+ * fallback). Returns null when no closed AI tab with that ID is on record (it
+ * was never closed, or has aged out of both histories).
+ *
+ * Used by the notification toast click path: a toast can carry the AI tab it
+ * fired from, and if the user closed that tab before clicking the toast we
+ * reopen it rather than silently landing on whatever tab happens to be active.
+ *
+ * @param session - The Maestro session that owned the tab
+ * @param tabId - The original AITab.id recorded on the toast
+ */
+export function reopenClosedAiTabById(
+	session: Session,
+	tabId: string
+): ReopenUnifiedClosedTabResult | null {
+	// Prefer the unified history (the current closed-tab store).
+	const unifiedHistory = session.unifiedClosedTabHistory || [];
+	const unifiedIdx = unifiedHistory.findIndex((e) => e.type === 'ai' && e.tab.id === tabId);
+	if (unifiedIdx !== -1) {
+		const entry = unifiedHistory[unifiedIdx] as Extract<ClosedTabEntry, { type: 'ai' }>;
+		const remainingHistory = [
+			...unifiedHistory.slice(0, unifiedIdx),
+			...unifiedHistory.slice(unifiedIdx + 1),
+		];
+		const result = restoreClosedAiTab(session, entry.tab, entry.unifiedIndex);
+		return {
+			...result,
+			session: { ...result.session, unifiedClosedTabHistory: remainingHistory },
+		};
+	}
+
+	// Fall back to the legacy AI-only history for older sessions. Legacy entries
+	// predate unified ordering, so restore at the end of the unified order.
+	const legacyHistory = session.closedTabHistory || [];
+	const legacyIdx = legacyHistory.findIndex((e) => e.tab.id === tabId);
+	if (legacyIdx !== -1) {
+		const entry = legacyHistory[legacyIdx];
+		const remainingLegacy = [
+			...legacyHistory.slice(0, legacyIdx),
+			...legacyHistory.slice(legacyIdx + 1),
+		];
+		const result = restoreClosedAiTab(session, entry.tab, session.unifiedTabOrder.length);
+		return {
+			...result,
+			session: { ...result.session, closedTabHistory: remainingLegacy },
+		};
+	}
+
+	return null;
+}
+
+/**
  * Reopen the most recently closed tab from the unified closed tab history.
  * Handles both AI tabs and file preview tabs with appropriate duplicate detection:
  * - For AI tabs: checks if a tab with the same agentSessionId already exists
@@ -1256,97 +1497,12 @@ export function reopenUnifiedClosedTab(session: Session): ReopenUnifiedClosedTab
 	const [closedEntry, ...remainingHistory] = session.unifiedClosedTabHistory;
 
 	if (closedEntry.type === 'ai') {
-		// Restoring an AI tab
-		const tabToRestore = closedEntry.tab;
-
-		// If this closed tab is still tracked as an orphan, restore the orphan
-		// (preserving its original ID so the still-running agent re-attaches)
-		// instead of creating a duplicate tab with a fresh ID.
-		const matchingOrphan = session.orphanedThinkingTabs?.find(
-			(t) =>
-				t.id === tabToRestore.id ||
-				(t.agentSessionId !== null && t.agentSessionId === tabToRestore.agentSessionId)
-		);
-		if (matchingOrphan) {
-			const restored = restoreOrphanedTab(session, matchingOrphan.id);
-			if (restored) {
-				return {
-					tabType: 'ai',
-					tabId: restored.tab.id,
-					session: { ...restored.session, unifiedClosedTabHistory: remainingHistory },
-					wasDuplicate: false,
-				};
-			}
-		}
-
-		// Check for duplicate: does a tab with the same agentSessionId already exist?
-		if (tabToRestore.agentSessionId !== null) {
-			const existingTab = session.aiTabs.find(
-				(tab) => tab.agentSessionId === tabToRestore.agentSessionId
-			);
-
-			if (existingTab) {
-				// Duplicate found - switch to existing tab instead of restoring
-				return {
-					tabType: 'ai',
-					tabId: existingTab.id,
-					session: {
-						...session,
-						activeTabId: existingTab.id,
-						activeFileTabId: null,
-						unifiedTabOrder: ensureInUnifiedTabOrder(session.unifiedTabOrder, 'ai', existingTab.id),
-						unifiedClosedTabHistory: remainingHistory,
-					},
-					wasDuplicate: true,
-				};
-			}
-		}
-
-		// No duplicate - restore the tab
-		const restoredTab: AITab = {
-			...tabToRestore,
-			id: generateId(),
-		};
-
-		// Calculate insert position in aiTabs based on unified index
-		// Find where this tab should go in unifiedTabOrder
-		const targetUnifiedIndex = Math.min(closedEntry.unifiedIndex, session.unifiedTabOrder.length);
-
-		// Count how many AI tabs come before this position
-		let aiTabsBeforeIndex = 0;
-		for (let i = 0; i < targetUnifiedIndex && i < session.unifiedTabOrder.length; i++) {
-			if (session.unifiedTabOrder[i].type === 'ai') {
-				aiTabsBeforeIndex++;
-			}
-		}
-		const insertIndex = Math.min(aiTabsBeforeIndex, session.aiTabs.length);
-
-		const updatedAiTabs = [
-			...session.aiTabs.slice(0, insertIndex),
-			restoredTab,
-			...session.aiTabs.slice(insertIndex),
-		];
-
-		// Insert into unifiedTabOrder at the original position
-		const newTabRef: UnifiedTabRef = { type: 'ai', id: restoredTab.id };
-		const updatedUnifiedTabOrder = [
-			...session.unifiedTabOrder.slice(0, targetUnifiedIndex),
-			newTabRef,
-			...session.unifiedTabOrder.slice(targetUnifiedIndex),
-		];
-
+		// Restoring an AI tab. The shared helper handles orphan re-attach and
+		// duplicate detection; we layer on the popped history afterward.
+		const result = restoreClosedAiTab(session, closedEntry.tab, closedEntry.unifiedIndex);
 		return {
-			tabType: 'ai',
-			tabId: restoredTab.id,
-			session: {
-				...session,
-				aiTabs: updatedAiTabs,
-				activeTabId: restoredTab.id,
-				activeFileTabId: null,
-				unifiedTabOrder: updatedUnifiedTabOrder,
-				unifiedClosedTabHistory: remainingHistory,
-			},
-			wasDuplicate: false,
+			...result,
+			session: { ...result.session, unifiedClosedTabHistory: remainingHistory },
 		};
 	} else if (closedEntry.type === 'file') {
 		// Restoring a file tab
@@ -1486,6 +1642,61 @@ export function reopenUnifiedClosedTab(session: Session): ReopenUnifiedClosedTab
 /**
  * Result of setting the active tab.
  */
+/**
+ * The session-state patch that focuses an agent's AI tab area.
+ *
+ * The main window renders exactly one tab type using this precedence:
+ *   terminal (inputMode==='terminal') > file (activeFileTabId) > browser
+ *   (activeBrowserTabId, while inputMode==='ai') > ai (activeTabId).
+ * See findActiveUnifiedTabIndex in unifiedTabOrderUtils.ts. Because browser, file,
+ * and terminal all outrank the AI tab, ANY code that wants to land the user on an
+ * AI tab must clear all three active-tab ids as well as set inputMode:'ai'. Leaving
+ * even one dangling keeps the previous view on screen (e.g. clicking a toast while a
+ * browser tab is active silently leaves the user on the browser tab).
+ *
+ * Spread this into a session update instead of hand-rolling the literal, so the
+ * invariant lives in one place:
+ *   updateSession(id, (s) => ({ ...s, ...aiTabFocusFields(tabId) }))
+ *
+ * @param tabId - The AI tab to activate. Omit to clear the non-AI views and force
+ *                AI mode without changing which AI tab is active.
+ */
+export function aiTabFocusFields(tabId?: string): Partial<Session> {
+	return {
+		...(tabId ? { activeTabId: tabId } : {}),
+		activeFileTabId: null,
+		activeTerminalTabId: null,
+		activeBrowserTabId: null,
+		inputMode: 'ai',
+	};
+}
+
+/**
+ * Detects the "closed the last tab" transition produced by closeTab(): when the
+ * sole remaining AI tab is closed, closeTab() replaces it with a brand-new empty
+ * tab, so the session still has exactly one AI tab but its id changed. Callers use
+ * this to land the caret in the chat input on that fresh tab (same as a manual new
+ * tab), without stealing focus on unrelated single-tab states like agent switches.
+ *
+ * @param prevSessionId - The active session id from the previous render.
+ * @param prevAiTabIds  - The active session's AI tab ids from the previous render.
+ * @param session       - The current active session.
+ */
+export function isSoleAiTabReplacement(
+	prevSessionId: string | undefined,
+	prevAiTabIds: readonly string[],
+	session: Session | null | undefined
+): boolean {
+	return (
+		!!session &&
+		session.inputMode === 'ai' &&
+		prevSessionId === session.id &&
+		prevAiTabIds.length === 1 &&
+		session.aiTabs.length === 1 &&
+		session.aiTabs[0].id !== prevAiTabIds[0]
+	);
+}
+
 export interface SetActiveTabResult {
 	tab: AITab; // The newly active tab
 	session: Session; // Updated session with activeTabId changed
@@ -1540,11 +1751,7 @@ export function setActiveTab(session: Session, tabId: string): SetActiveTabResul
 		tab: targetTab,
 		session: {
 			...session,
-			activeTabId: tabId,
-			activeFileTabId: null,
-			activeBrowserTabId: null,
-			activeTerminalTabId: null,
-			inputMode: 'ai' as const,
+			...aiTabFocusFields(tabId),
 		},
 	};
 }
@@ -1580,7 +1787,14 @@ export function getWriteModeTab(session: Session): AITab | undefined {
  * This is useful for the busy tab indicator which needs to show ALL busy tabs,
  * not just the first one found.
  *
+ * Pass `{ includeOrphans: true }` to also count closed-but-still-thinking tabs
+ * (those parked in `orphanedThinkingTabs`). Those tabs keep writing in the
+ * background after the user closes them, so any single-writer gate must treat
+ * them as live writers - excluding them lets a new write spawn concurrently with
+ * an orphan, violating single-writer-per-agent.
+ *
  * @param session - The Maestro session
+ * @param options.includeOrphans - Also include busy orphaned (closed) tabs
  * @returns Array of busy AITabs (empty if none are busy)
  *
  * @example
@@ -1592,12 +1806,16 @@ export function getWriteModeTab(session: Session): AITab | undefined {
  *   });
  * }
  */
-export function getBusyTabs(session: Session): AITab[] {
-	if (!session || !session.aiTabs || session.aiTabs.length === 0) {
+export function getBusyTabs(session: Session, options: { includeOrphans?: boolean } = {}): AITab[] {
+	if (!session) {
 		return [];
 	}
 
-	return session.aiTabs.filter((tab) => tab.state === 'busy');
+	const tabs = options.includeOrphans
+		? [...(session.aiTabs ?? []), ...(session.orphanedThinkingTabs ?? [])]
+		: (session.aiTabs ?? []);
+
+	return tabs.filter((tab) => tab.state === 'busy');
 }
 
 /**
@@ -1999,6 +2217,31 @@ export function navigateToUnifiedTabByIndex(
 			},
 		};
 	}
+}
+
+/**
+ * Activate a specific tab by its kind and id, reusing the per-kind field logic
+ * in navigateToUnifiedTabByIndex. Returns null when the tab no longer exists.
+ *
+ * Used by breadcrumb navigation (back/forward) to restore a previously-visited
+ * tab of any kind (ai, file, browser, terminal).
+ *
+ * @param session - The Maestro session
+ * @param tabKind - The kind of tab to activate
+ * @param tabId - The id of the tab to activate
+ */
+export function navigateToUnifiedTabById(
+	session: Session,
+	tabKind: UnifiedTabRef['type'],
+	tabId: string
+): NavigateToUnifiedTabResult | null {
+	const order = getRepairedUnifiedTabOrder(session);
+	const index = order.findIndex((ref) => ref.type === tabKind && ref.id === tabId);
+	if (index === -1) return null;
+	// Pass showUnreadOnly=false: breadcrumb restore must reach the exact tab
+	// regardless of the unread filter, and index is taken from the same
+	// repaired order navigateToUnifiedTabByIndex uses in that mode.
+	return navigateToUnifiedTabByIndex(session, index, false);
 }
 
 /**
@@ -2405,21 +2648,47 @@ export interface GoToNextUnreadResult {
 }
 
 /**
- * Compute the next unread session to jump to (relative to the current session
- * in the ordered session list), and return instructions for the caller to apply.
+ * Compute the next unread/draft tab to jump to. Prefers a non-active actionable
+ * tab in the current session (tab-level jump, no session change); otherwise
+ * searches forward through other sessions in the ordered list, wrapping around.
+ *
+ * A tab with an active inline wizard counts as actionable: an unfinished wizard
+ * is effectively a draft (it's meant to be completed into an Auto Run doc), so
+ * the navigation should stop on it. Pass `isWizardActive` to opt into that.
  *
  * Does NOT mutate state — the caller applies the result via setSessions/setActiveSessionId.
  */
 export function findNextUnreadSession(
 	orderedSessions: Session[],
-	activeSessionId: string
+	activeSessionId: string,
+	isWizardActive?: (tabId: string) => boolean
 ): GoToNextUnreadResult {
 	const currentIndex = orderedSessions.findIndex((s) => s.id === activeSessionId);
 	const currentSession = orderedSessions.find((s) => s.id === activeSessionId);
-	const isActionable = (tab: AITab) => tab.hasUnread || hasDraft(tab);
+	const isActionable = (tab: AITab) =>
+		tab.hasUnread || hasDraft(tab) || (isWizardActive?.(tab.id) ?? false);
+
+	// 1) Tab-level jump within the current session: if there's an unread/draft
+	//    tab here that isn't already active, switch to it without changing
+	//    sessions. The shortcut is called "Next Unread / Draft *Tab*" — staying
+	//    in the same session is the closest "next" when one exists.
+	if (currentSession) {
+		const inSessionTarget = currentSession.aiTabs?.find(
+			(t) => t.id !== currentSession.activeTabId && isActionable(t)
+		);
+		if (inSessionTarget) {
+			return {
+				jumped: true,
+				clearedCurrent: false,
+				targetSessionId: currentSession.id,
+				targetTabId: inSessionTarget.id,
+			};
+		}
+	}
+
 	const currentHasUnread = currentSession?.aiTabs?.some(isActionable) ?? false;
 
-	// Search forward from current position, wrapping around
+	// 2) Search forward through other sessions, wrapping around.
 	for (let i = 1; i <= orderedSessions.length; i++) {
 		const candidate = orderedSessions[(currentIndex + i) % orderedSessions.length];
 		if (candidate.id !== activeSessionId && candidate.aiTabs?.some(isActionable)) {
@@ -2433,9 +2702,11 @@ export function findNextUnreadSession(
 		}
 	}
 
-	// No other session has unread tabs
+	// Nothing actionable elsewhere. Don't silently clear the current session's
+	// unread flags — if the user can see an unread badge here, they should be
+	// able to find it (it would have been handled by step 1 above when present).
 	return {
 		jumped: false,
-		clearedCurrent: currentHasUnread,
+		clearedCurrent: false,
 	};
 }

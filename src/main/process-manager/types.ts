@@ -42,10 +42,29 @@ export interface ProcessConfig {
 	promptAlreadyInArgs?: boolean;
 	/** Script to send via stdin for SSH execution (bypasses shell escaping) */
 	sshStdinScript?: string;
+	/** Human-readable remote command line (the actual agent invocation running on the
+	 *  remote host). Surfaced in Process Details above the local SSH command. */
+	sshRemoteCommand?: string;
 	/** PTY terminal width in columns (default 80) */
 	cols?: number;
 	/** PTY terminal height in rows (default 24) */
 	rows?: number;
+	/** Extra directories to prepend to the spawn-time PATH. Typically the
+	 *  parent directory of the detected agent binary, so co-located runtimes
+	 *  (e.g. the `node` next to an npm-installed `codex`) resolve via the
+	 *  script's `#!/usr/bin/env node` shebang. Local spawn only — SSH builds
+	 *  its remote PATH separately. */
+	extraPathDirs?: string[];
+	/** Agent-reported session id when this spawn is resuming a prior session
+	 *  (e.g. Copilot's `--resume=<id>`, Claude's `--resume <id>`). The spawner
+	 *  uses it to seed `ManagedProcess.agentSessionId` so post-exit work that
+	 *  needs to inspect on-disk session state (Copilot's events.jsonl) can run
+	 *  even when the resumed stream never re-announces the sessionId — Copilot
+	 *  in particular emits `session.resume` (no sessionId) on resume rather
+	 *  than `session.start`, so without this seed the disk reconciliation
+	 *  never runs and the renderer falls back to streamed commentary instead
+	 *  of the authoritative final answer / context window snapshot. */
+	agentSessionId?: string;
 }
 
 /**
@@ -90,6 +109,9 @@ export interface ManagedProcess {
 	projectPath?: string;
 	sshRemoteId?: string;
 	sshRemoteHost?: string;
+	/** Human-readable remote command line for SSH spawns (the agent invocation that
+	 *  runs on the remote host). Shown in Process Details above the local SSH command. */
+	sshRemoteCommand?: string;
 	dataBuffer?: string;
 	dataBufferTimeout?: NodeJS.Timeout;
 	/** Env vars Maestro explicitly set on this process (global + agent + session overrides),

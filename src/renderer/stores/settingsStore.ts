@@ -38,7 +38,10 @@ import { getLevelIndex } from '../constants/keyboardMastery';
 import { RIGHT_PANEL_MIN_WIDTH, RIGHT_PANEL_MAX_WIDTH } from '../constants/rightPanel';
 import type { FileExplorerIconTheme } from '../utils/fileExplorerIcons/shared';
 import { isFileExplorerIconTheme } from '../utils/fileExplorerIcons/shared';
+import type { ToastWidth } from '../../shared/toastWidth';
+import { isToastWidth } from '../../shared/toastWidth';
 import { logger } from '../utils/logger';
+import { useUIStore } from './uiStore';
 
 // ============================================================================
 // Prompt cache (loaded via IPC at startup)
@@ -221,6 +224,7 @@ export const FILE_PREVIEW_TOOLBAR_BUTTON_KEYS = [
 	'htmlRender',
 	'previewTier',
 	'editToggle',
+	'editImage',
 	'copyContent',
 	'publishGist',
 	'documentGraph',
@@ -242,6 +246,7 @@ export const DEFAULT_FILE_PREVIEW_TOOLBAR_VISIBILITY: FilePreviewToolbarVisibili
 const DEFAULT_DIRECTOR_NOTES_SETTINGS: DirectorNotesSettings = {
 	provider: 'claude-code',
 	defaultLookbackDays: 7,
+	defaultMode: 'rich',
 };
 
 // Uses `let` so the binding updates after loadSettingsStorePrompts() populates the cache
@@ -317,16 +322,19 @@ export interface SettingsStoreState {
 	forcedParallelExecution: boolean;
 	forcedParallelAcknowledged: boolean;
 	defaultSaveToHistory: boolean;
+	synopsisDebounceSeconds: number;
 	defaultShowThinking: ThinkingMode;
 	leftSidebarWidth: number;
 	rightPanelWidth: number;
 	markdownEditMode: boolean;
 	chatRawTextMode: boolean;
+	groupChatAutoScroll: boolean;
 	bionifyReadingMode: boolean;
 	bionifyIntensity: number;
 	bionifyAlgorithm: string;
 	showHiddenFiles: boolean;
 	fileExplorerIconTheme: FileExplorerIconTheme;
+	toastWidth: ToastWidth;
 	terminalWidth: number;
 	logLevel: string;
 	maxLogBuffer: number;
@@ -338,6 +346,9 @@ export interface SettingsStoreState {
 	idleNotificationEnabled: boolean;
 	idleNotificationCommand: string;
 	checkForUpdatesOnStartup: boolean;
+	autoResumeOnLimit: boolean;
+	autoResumeCheckIntervalHours: number;
+	autoResumeGiveUpDays: number;
 	enableBetaUpdates: boolean;
 	crashReportingEnabled: boolean;
 	logViewerSelectedLevels: string[];
@@ -349,6 +360,8 @@ export interface SettingsStoreState {
 	usageStats: MaestroUsageStats;
 	ungroupedCollapsed: boolean;
 	groupChatsExpanded: boolean;
+	groupChatSortAlphabetical: boolean;
+	starredSessionsCollapsed: boolean;
 	tourCompleted: boolean;
 	firstAutoRunCompleted: boolean;
 	onboardingStats: OnboardingStats;
@@ -362,6 +375,7 @@ export interface SettingsStoreState {
 	showStarredInUnreadFilter: boolean;
 	showFilePreviewsInUnreadFilter: boolean;
 	useCmd0AsLastTab: boolean;
+	showBrowserTabDomain: boolean;
 	documentGraphShowExternalLinks: boolean;
 	documentGraphMaxNodes: number;
 	documentGraphPreviewCharLimit: number;
@@ -382,6 +396,8 @@ export interface SettingsStoreState {
 	useSystemBrowser: boolean;
 	browserHomeUrl: string;
 	htmlDoubleClickOpensInBrowser: boolean;
+	browserTabKeepAlive: 'off' | 'recent' | 'all';
+	browserTabKeepAliveLimit: number;
 	automaticTabNamingEnabled: boolean;
 	newTabPlacement: 'end' | 'after-current';
 	newBrowserTabPlacement: 'end' | 'after-current';
@@ -403,11 +419,15 @@ export interface SettingsStoreState {
 	showSessionCostPill: boolean;
 	showWorktreePill: boolean;
 	showWorktreeBranchName: boolean;
+	showStarredSessionsSection: boolean;
 	showLeftPanelGroupMemberCount: boolean;
+	leftPanelCollapsedPillsPerRow: number;
 	showLeftPanelLocationPills: boolean;
 	showLeftPanelGitIndicator: boolean;
 	showLeftPanelCueIndicator: boolean;
 	showLeftPanelStartupCommandIndicator: boolean;
+	showGroupLabelInBookmarks: boolean;
+	showFullGroupLabelInBookmarks: boolean;
 	// File Edit & Preview
 	fileEditWordWrap: boolean;
 	fileEditShowLineNumbers: boolean;
@@ -456,16 +476,19 @@ export interface SettingsStoreActions {
 	setForcedParallelExecution: (value: boolean) => void;
 	setForcedParallelAcknowledged: (value: boolean) => void;
 	setDefaultSaveToHistory: (value: boolean) => void;
+	setSynopsisDebounceSeconds: (value: number) => void;
 	setDefaultShowThinking: (value: ThinkingMode) => void;
 	setLeftSidebarWidth: (value: number) => void;
 	setRightPanelWidth: (value: number) => void;
 	setMarkdownEditMode: (value: boolean) => void;
 	setChatRawTextMode: (value: boolean) => void;
+	setGroupChatAutoScroll: (value: boolean) => void;
 	setBionifyReadingMode: (value: boolean) => void;
 	setBionifyIntensity: (value: number) => void;
 	setBionifyAlgorithm: (value: string) => void;
 	setShowHiddenFiles: (value: boolean) => void;
 	setFileExplorerIconTheme: (value: FileExplorerIconTheme) => void;
+	setToastWidth: (value: ToastWidth) => void;
 	setTerminalWidth: (value: number) => void;
 	setMaxOutputLines: (value: number) => void;
 	setOsNotificationsEnabled: (value: boolean) => void;
@@ -475,6 +498,9 @@ export interface SettingsStoreActions {
 	setIdleNotificationEnabled: (value: boolean) => void;
 	setIdleNotificationCommand: (value: string) => void;
 	setCheckForUpdatesOnStartup: (value: boolean) => void;
+	setAutoResumeOnLimit: (value: boolean) => void;
+	setAutoResumeCheckIntervalHours: (value: number) => void;
+	setAutoResumeGiveUpDays: (value: number) => void;
 	setEnableBetaUpdates: (value: boolean) => void;
 	setCrashReportingEnabled: (value: boolean) => void;
 	setLogViewerSelectedLevels: (value: string[]) => void;
@@ -483,6 +509,8 @@ export interface SettingsStoreActions {
 	setCustomAICommands: (value: CustomAICommand[]) => void;
 	setUngroupedCollapsed: (value: boolean) => void;
 	setGroupChatsExpanded: (value: boolean) => void;
+	setGroupChatSortAlphabetical: (value: boolean) => void;
+	setStarredSessionsCollapsed: (value: boolean) => void;
 	setTourCompleted: (value: boolean) => void;
 	setFirstAutoRunCompleted: (value: boolean) => void;
 	setLeaderboardRegistration: (value: LeaderboardRegistration | null) => void;
@@ -493,6 +521,7 @@ export interface SettingsStoreActions {
 	setShowStarredInUnreadFilter: (value: boolean) => void;
 	setShowFilePreviewsInUnreadFilter: (value: boolean) => void;
 	setUseCmd0AsLastTab: (value: boolean) => void;
+	setShowBrowserTabDomain: (value: boolean) => void;
 	setDocumentGraphShowExternalLinks: (value: boolean) => void;
 	setDocumentGraphMaxNodes: (value: number) => void;
 	setDocumentGraphPreviewCharLimit: (value: number) => void;
@@ -512,6 +541,8 @@ export interface SettingsStoreActions {
 	setUseSystemBrowser: (value: boolean) => void;
 	setBrowserHomeUrl: (value: string) => void;
 	setHtmlDoubleClickOpensInBrowser: (value: boolean) => void;
+	setBrowserTabKeepAlive: (value: 'off' | 'recent' | 'all') => void;
+	setBrowserTabKeepAliveLimit: (value: number) => void;
 	setAutomaticTabNamingEnabled: (value: boolean) => void;
 	setNewTabPlacement: (value: 'end' | 'after-current') => void;
 	setNewBrowserTabPlacement: (value: 'end' | 'after-current') => void;
@@ -533,11 +564,15 @@ export interface SettingsStoreActions {
 	setShowSessionCostPill: (value: boolean) => void;
 	setShowWorktreePill: (value: boolean) => void;
 	setShowWorktreeBranchName: (value: boolean) => void;
+	setShowStarredSessionsSection: (value: boolean) => void;
 	setShowLeftPanelGroupMemberCount: (value: boolean) => void;
+	setLeftPanelCollapsedPillsPerRow: (value: number) => void;
 	setShowLeftPanelLocationPills: (value: boolean) => void;
 	setShowLeftPanelGitIndicator: (value: boolean) => void;
 	setShowLeftPanelCueIndicator: (value: boolean) => void;
 	setShowLeftPanelStartupCommandIndicator: (value: boolean) => void;
+	setShowGroupLabelInBookmarks: (value: boolean) => void;
+	setShowFullGroupLabelInBookmarks: (value: boolean) => void;
 	setFileEditWordWrap: (value: boolean) => void;
 	setFileEditShowLineNumbers: (value: boolean) => void;
 	setFilePreviewToolbarButtonVisibility: (button: FilePreviewToolbarButton, value: boolean) => void;
@@ -656,20 +691,23 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		forcedParallelExecution: false,
 		forcedParallelAcknowledged: false,
 		defaultSaveToHistory: true,
+		synopsisDebounceSeconds: 0,
 		defaultShowThinking: 'off',
 		leftSidebarWidth: 256,
 		rightPanelWidth: 384,
 		markdownEditMode: false,
 		chatRawTextMode: false,
+		groupChatAutoScroll: true,
 		bionifyReadingMode: false,
 		bionifyIntensity: 1,
 		bionifyAlgorithm: '- 0 1 1 2 0.4',
 		showHiddenFiles: true,
 		fileExplorerIconTheme: 'default',
+		toastWidth: 'dynamic',
 		terminalWidth: 100,
 		logLevel: 'info',
 		maxLogBuffer: 5000,
-		maxOutputLines: 25,
+		maxOutputLines: Infinity,
 		osNotificationsEnabled: true,
 		audioFeedbackEnabled: false,
 		audioFeedbackCommand: 'say',
@@ -677,6 +715,9 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		idleNotificationEnabled: false,
 		idleNotificationCommand: 'say Maestro is idle',
 		checkForUpdatesOnStartup: true,
+		autoResumeOnLimit: true,
+		autoResumeCheckIntervalHours: 2,
+		autoResumeGiveUpDays: 7,
 		enableBetaUpdates: false,
 		crashReportingEnabled: true,
 		logViewerSelectedLevels: ['debug', 'info', 'warn', 'error', 'toast'],
@@ -688,6 +729,8 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		usageStats: DEFAULT_USAGE_STATS,
 		ungroupedCollapsed: false,
 		groupChatsExpanded: true,
+		groupChatSortAlphabetical: false,
+		starredSessionsCollapsed: false,
 		tourCompleted: false,
 		firstAutoRunCompleted: false,
 		onboardingStats: DEFAULT_ONBOARDING_STATS,
@@ -701,6 +744,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		showStarredInUnreadFilter: false,
 		showFilePreviewsInUnreadFilter: false,
 		useCmd0AsLastTab: true,
+		showBrowserTabDomain: true,
 		documentGraphShowExternalLinks: false,
 		documentGraphMaxNodes: 50,
 		documentGraphPreviewCharLimit: 100,
@@ -721,6 +765,8 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		useSystemBrowser: false,
 		browserHomeUrl: 'https://runmaestro.ai/#leaderboard',
 		htmlDoubleClickOpensInBrowser: false,
+		browserTabKeepAlive: 'off',
+		browserTabKeepAliveLimit: 10,
 		automaticTabNamingEnabled: true,
 		newTabPlacement: 'end',
 		newBrowserTabPlacement: 'after-current',
@@ -742,11 +788,15 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		showSessionCostPill: true,
 		showWorktreePill: false,
 		showWorktreeBranchName: false,
+		showStarredSessionsSection: true,
 		showLeftPanelGroupMemberCount: false,
+		leftPanelCollapsedPillsPerRow: 20,
 		showLeftPanelLocationPills: true,
 		showLeftPanelGitIndicator: true,
 		showLeftPanelCueIndicator: true,
 		showLeftPanelStartupCommandIndicator: true,
+		showGroupLabelInBookmarks: true,
+		showFullGroupLabelInBookmarks: false,
 		fileEditWordWrap: true,
 		fileEditShowLineNumbers: true,
 		filePreviewToolbarVisibility: { ...DEFAULT_FILE_PREVIEW_TOOLBAR_VISIBILITY },
@@ -876,6 +926,12 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 			window.maestro.settings.set('defaultSaveToHistory', value);
 		},
 
+		setSynopsisDebounceSeconds: (value) => {
+			const clamped = Math.max(0, Math.round(value));
+			set({ synopsisDebounceSeconds: clamped });
+			window.maestro.settings.set('synopsisDebounceSeconds', clamped);
+		},
+
 		setDefaultShowThinking: (value) => {
 			set({ defaultShowThinking: value });
 			window.maestro.settings.set('defaultShowThinking', value);
@@ -901,6 +957,10 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		setChatRawTextMode: (value) => {
 			set({ chatRawTextMode: value });
 			window.maestro.settings.set('chatRawTextMode', value);
+		},
+		setGroupChatAutoScroll: (value) => {
+			set({ groupChatAutoScroll: value });
+			window.maestro.settings.set('groupChatAutoScroll', value);
 		},
 
 		setBionifyReadingMode: (value) => {
@@ -930,6 +990,11 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		setFileExplorerIconTheme: (value) => {
 			set({ fileExplorerIconTheme: value });
 			window.maestro.settings.set('fileExplorerIconTheme', value);
+		},
+
+		setToastWidth: (value) => {
+			set({ toastWidth: value });
+			window.maestro.settings.set('toastWidth', value);
 		},
 
 		setTerminalWidth: (value) => {
@@ -977,6 +1042,27 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 			window.maestro.settings.set('checkForUpdatesOnStartup', value);
 		},
 
+		setAutoResumeOnLimit: (value) => {
+			set({ autoResumeOnLimit: value });
+			window.maestro.settings.set('autoResumeOnLimit', value);
+		},
+
+		setAutoResumeCheckIntervalHours: (value) => {
+			// Guard against 0/negative/non-finite values (CLI or manual store edits)
+			// that would destabilize the coordinator cadence.
+			const normalized = Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 2;
+			set({ autoResumeCheckIntervalHours: normalized });
+			window.maestro.settings.set('autoResumeCheckIntervalHours', normalized);
+		},
+
+		setAutoResumeGiveUpDays: (value) => {
+			// Guard against 0/negative/non-finite values that would cause immediate
+			// give-up behavior.
+			const normalized = Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 7;
+			set({ autoResumeGiveUpDays: normalized });
+			window.maestro.settings.set('autoResumeGiveUpDays', normalized);
+		},
+
 		setEnableBetaUpdates: (value) => {
 			set({ enableBetaUpdates: value });
 			window.maestro.settings.set('enableBetaUpdates', value);
@@ -1015,6 +1101,16 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		setGroupChatsExpanded: (value) => {
 			set({ groupChatsExpanded: value });
 			window.maestro.settings.set('groupChatsExpanded', value);
+		},
+
+		setGroupChatSortAlphabetical: (value) => {
+			set({ groupChatSortAlphabetical: value });
+			window.maestro.settings.set('groupChatSortAlphabetical', value);
+		},
+
+		setStarredSessionsCollapsed: (value) => {
+			set({ starredSessionsCollapsed: value });
+			window.maestro.settings.set('starredSessionsCollapsed', value);
 		},
 
 		setTourCompleted: (value) => {
@@ -1137,6 +1233,11 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 			window.maestro.settings.set('useCmd0AsLastTab', value);
 		},
 
+		setShowBrowserTabDomain: (value) => {
+			set({ showBrowserTabDomain: value });
+			window.maestro.settings.set('showBrowserTabDomain', value);
+		},
+
 		setDocumentGraphShowExternalLinks: (value) => {
 			set({ documentGraphShowExternalLinks: value });
 			window.maestro.settings.set('documentGraphShowExternalLinks', value);
@@ -1251,6 +1352,17 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 			window.maestro.settings.set('htmlDoubleClickOpensInBrowser', value);
 		},
 
+		setBrowserTabKeepAlive: (value) => {
+			set({ browserTabKeepAlive: value });
+			window.maestro.settings.set('browserTabKeepAlive', value);
+		},
+
+		setBrowserTabKeepAliveLimit: (value) => {
+			const clamped = Math.max(1, Math.floor(value) || 1);
+			set({ browserTabKeepAliveLimit: clamped });
+			window.maestro.settings.set('browserTabKeepAliveLimit', clamped);
+		},
+
 		setAutomaticTabNamingEnabled: (value) => {
 			set({ automaticTabNamingEnabled: value });
 			window.maestro.settings.set('automaticTabNamingEnabled', value);
@@ -1356,9 +1468,20 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 			window.maestro.settings.set('showWorktreeBranchName', value);
 		},
 
+		setShowStarredSessionsSection: (value) => {
+			set({ showStarredSessionsSection: value });
+			window.maestro.settings.set('showStarredSessionsSection', value);
+		},
+
 		setShowLeftPanelGroupMemberCount: (value) => {
 			set({ showLeftPanelGroupMemberCount: value });
 			window.maestro.settings.set('showLeftPanelGroupMemberCount', value);
+		},
+
+		setLeftPanelCollapsedPillsPerRow: (value) => {
+			const clamped = Math.max(5, Math.min(50, Math.round(value)));
+			set({ leftPanelCollapsedPillsPerRow: clamped });
+			window.maestro.settings.set('leftPanelCollapsedPillsPerRow', clamped);
 		},
 
 		setShowLeftPanelLocationPills: (value) => {
@@ -1379,6 +1502,16 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		setShowLeftPanelStartupCommandIndicator: (value) => {
 			set({ showLeftPanelStartupCommandIndicator: value });
 			window.maestro.settings.set('showLeftPanelStartupCommandIndicator', value);
+		},
+
+		setShowGroupLabelInBookmarks: (value) => {
+			set({ showGroupLabelInBookmarks: value });
+			window.maestro.settings.set('showGroupLabelInBookmarks', value);
+		},
+
+		setShowFullGroupLabelInBookmarks: (value) => {
+			set({ showFullGroupLabelInBookmarks: value });
+			window.maestro.settings.set('showFullGroupLabelInBookmarks', value);
 		},
 
 		setFileEditWordWrap: (value) => {
@@ -1982,6 +2115,11 @@ const SHORTCUT_DEFAULT_REMAPS: Record<string, { fromKeys: string[]; toKeys: stri
 		fromKeys: ['Meta', 'Shift', 'm'],
 		toKeys: ['Alt', 'Meta', 'm'],
 	},
+	// toggleAutoRunExpanded moved off Cmd+Shift+2 to free that combo for openBatchRunner.
+	toggleAutoRunExpanded: {
+		fromKeys: ['Meta', 'Shift', '2'],
+		toKeys: ['Meta', 'Shift', 'e'],
+	},
 };
 
 function keysEqual(a: string[], b: string[]): boolean {
@@ -2121,6 +2259,9 @@ export async function loadAllSettings(): Promise<void> {
 		if (allSettings['defaultSaveToHistory'] !== undefined)
 			patch.defaultSaveToHistory = allSettings['defaultSaveToHistory'] as boolean;
 
+		if (allSettings['synopsisDebounceSeconds'] !== undefined)
+			patch.synopsisDebounceSeconds = allSettings['synopsisDebounceSeconds'] as number;
+
 		// ThinkingMode: support legacy boolean values (true -> 'on', false -> 'off')
 		if (allSettings['defaultShowThinking'] !== undefined) {
 			const raw = allSettings['defaultShowThinking'];
@@ -2146,6 +2287,8 @@ export async function loadAllSettings(): Promise<void> {
 
 		if (allSettings['chatRawTextMode'] !== undefined)
 			patch.chatRawTextMode = allSettings['chatRawTextMode'] as boolean;
+		if (allSettings['groupChatAutoScroll'] !== undefined)
+			patch.groupChatAutoScroll = allSettings['groupChatAutoScroll'] as boolean;
 
 		if (allSettings['bionifyReadingMode'] !== undefined)
 			patch.bionifyReadingMode = allSettings['bionifyReadingMode'] as boolean;
@@ -2167,6 +2310,12 @@ export async function loadAllSettings(): Promise<void> {
 			patch.fileExplorerIconTheme = isFileExplorerIconTheme(allSettings['fileExplorerIconTheme'])
 				? allSettings['fileExplorerIconTheme']
 				: 'default';
+		}
+
+		if (allSettings['toastWidth'] !== undefined) {
+			patch.toastWidth = isToastWidth(allSettings['toastWidth'])
+				? allSettings['toastWidth']
+				: 'small';
 		}
 
 		if (allSettings['terminalWidth'] !== undefined)
@@ -2204,6 +2353,21 @@ export async function loadAllSettings(): Promise<void> {
 
 		if (allSettings['checkForUpdatesOnStartup'] !== undefined)
 			patch.checkForUpdatesOnStartup = allSettings['checkForUpdatesOnStartup'] as boolean;
+
+		if (allSettings['autoResumeOnLimit'] !== undefined)
+			patch.autoResumeOnLimit = allSettings['autoResumeOnLimit'] as boolean;
+
+		if (allSettings['autoResumeCheckIntervalHours'] !== undefined) {
+			const raw = allSettings['autoResumeCheckIntervalHours'];
+			if (typeof raw === 'number' && Number.isFinite(raw))
+				patch.autoResumeCheckIntervalHours = Math.max(1, Math.floor(raw));
+		}
+
+		if (allSettings['autoResumeGiveUpDays'] !== undefined) {
+			const raw = allSettings['autoResumeGiveUpDays'];
+			if (typeof raw === 'number' && Number.isFinite(raw))
+				patch.autoResumeGiveUpDays = Math.max(1, Math.floor(raw));
+		}
 
 		if (allSettings['enableBetaUpdates'] !== undefined)
 			patch.enableBetaUpdates = allSettings['enableBetaUpdates'] as boolean;
@@ -2339,6 +2503,36 @@ export async function loadAllSettings(): Promise<void> {
 		if (allSettings['groupChatsExpanded'] !== undefined)
 			patch.groupChatsExpanded = allSettings['groupChatsExpanded'] as boolean;
 
+		if (allSettings['groupChatSortAlphabetical'] !== undefined)
+			patch.groupChatSortAlphabetical = allSettings['groupChatSortAlphabetical'] as boolean;
+
+		if (allSettings['starredSessionsCollapsed'] !== undefined)
+			patch.starredSessionsCollapsed = allSettings['starredSessionsCollapsed'] as boolean;
+
+		// Bookmarks collapse lives in uiStore (it's transiently toggled by filter
+		// mode at runtime), so its persisted value is hydrated directly into that
+		// store rather than the settings store.
+		if (allSettings['bookmarksCollapsed'] !== undefined)
+			useUIStore.setState({ bookmarksCollapsed: allSettings['bookmarksCollapsed'] as boolean });
+
+		// Hidden quota accounts live in uiStore (toggled at runtime from the Usage
+		// Dashboard provider panels), so its persisted map hydrates directly there.
+		if (allSettings['hiddenQuotaAccounts'] !== undefined)
+			useUIStore.setState({
+				hiddenQuotaAccounts: allSettings['hiddenQuotaAccounts'] as Record<string, string[]>,
+			});
+
+		// Usage Dashboard auto-refresh intervals live in uiStore alongside the
+		// hidden-account map (both are provider-panel state), so the persisted map
+		// hydrates directly there too.
+		if (
+			allSettings['usageRefreshIntervals'] !== undefined &&
+			typeof allSettings['usageRefreshIntervals'] === 'object'
+		)
+			useUIStore.setState({
+				usageRefreshIntervals: allSettings['usageRefreshIntervals'] as Record<string, number>,
+			});
+
 		if (allSettings['tourCompleted'] !== undefined)
 			patch.tourCompleted = allSettings['tourCompleted'] as boolean;
 
@@ -2383,6 +2577,9 @@ export async function loadAllSettings(): Promise<void> {
 
 		if (allSettings['useCmd0AsLastTab'] !== undefined)
 			patch.useCmd0AsLastTab = allSettings['useCmd0AsLastTab'] as boolean;
+
+		if (allSettings['showBrowserTabDomain'] !== undefined)
+			patch.showBrowserTabDomain = allSettings['showBrowserTabDomain'] as boolean;
 
 		// Document Graph settings (with validation)
 		if (allSettings['documentGraphShowExternalLinks'] !== undefined)
@@ -2510,6 +2707,12 @@ export async function loadAllSettings(): Promise<void> {
 		if (allSettings['htmlDoubleClickOpensInBrowser'] !== undefined)
 			patch.htmlDoubleClickOpensInBrowser = allSettings['htmlDoubleClickOpensInBrowser'] as boolean;
 
+		if (allSettings['browserTabKeepAlive'] !== undefined)
+			patch.browserTabKeepAlive = allSettings['browserTabKeepAlive'] as 'off' | 'recent' | 'all';
+
+		if (allSettings['browserTabKeepAliveLimit'] !== undefined)
+			patch.browserTabKeepAliveLimit = allSettings['browserTabKeepAliveLimit'] as number;
+
 		if (allSettings['automaticTabNamingEnabled'] !== undefined)
 			patch.automaticTabNamingEnabled = allSettings['automaticTabNamingEnabled'] as boolean;
 
@@ -2603,8 +2806,18 @@ export async function loadAllSettings(): Promise<void> {
 		if (allSettings['showWorktreeBranchName'] !== undefined)
 			patch.showWorktreeBranchName = allSettings['showWorktreeBranchName'] as boolean;
 
+		if (allSettings['showStarredSessionsSection'] !== undefined)
+			patch.showStarredSessionsSection = allSettings['showStarredSessionsSection'] as boolean;
+
 		if (allSettings['showLeftPanelGroupMemberCount'] !== undefined)
 			patch.showLeftPanelGroupMemberCount = allSettings['showLeftPanelGroupMemberCount'] as boolean;
+
+		if (allSettings['leftPanelCollapsedPillsPerRow'] !== undefined) {
+			const perRow = allSettings['leftPanelCollapsedPillsPerRow'] as number;
+			if (typeof perRow === 'number' && perRow >= 5 && perRow <= 50) {
+				patch.leftPanelCollapsedPillsPerRow = perRow;
+			}
+		}
 
 		if (allSettings['showLeftPanelLocationPills'] !== undefined)
 			patch.showLeftPanelLocationPills = allSettings['showLeftPanelLocationPills'] as boolean;
@@ -2619,6 +2832,12 @@ export async function loadAllSettings(): Promise<void> {
 			patch.showLeftPanelStartupCommandIndicator = allSettings[
 				'showLeftPanelStartupCommandIndicator'
 			] as boolean;
+
+		if (allSettings['showGroupLabelInBookmarks'] !== undefined)
+			patch.showGroupLabelInBookmarks = allSettings['showGroupLabelInBookmarks'] as boolean;
+
+		if (allSettings['showFullGroupLabelInBookmarks'] !== undefined)
+			patch.showFullGroupLabelInBookmarks = allSettings['showFullGroupLabelInBookmarks'] as boolean;
 
 		if (allSettings['fileEditWordWrap'] !== undefined)
 			patch.fileEditWordWrap = allSettings['fileEditWordWrap'] as boolean;
@@ -2733,16 +2952,19 @@ export function getSettingsActions() {
 		setCustomThemeBaseId: state.setCustomThemeBaseId,
 		setEnterToSendAI: state.setEnterToSendAI,
 		setDefaultSaveToHistory: state.setDefaultSaveToHistory,
+		setSynopsisDebounceSeconds: state.setSynopsisDebounceSeconds,
 		setDefaultShowThinking: state.setDefaultShowThinking,
 		setLeftSidebarWidth: state.setLeftSidebarWidth,
 		setRightPanelWidth: state.setRightPanelWidth,
 		setMarkdownEditMode: state.setMarkdownEditMode,
 		setChatRawTextMode: state.setChatRawTextMode,
+		setGroupChatAutoScroll: state.setGroupChatAutoScroll,
 		setBionifyReadingMode: state.setBionifyReadingMode,
 		setBionifyIntensity: state.setBionifyIntensity,
 		setBionifyAlgorithm: state.setBionifyAlgorithm,
 		setShowHiddenFiles: state.setShowHiddenFiles,
 		setFileExplorerIconTheme: state.setFileExplorerIconTheme,
+		setToastWidth: state.setToastWidth,
 		setTerminalWidth: state.setTerminalWidth,
 		setLogLevel: state.setLogLevel,
 		setMaxLogBuffer: state.setMaxLogBuffer,
@@ -2752,6 +2974,9 @@ export function getSettingsActions() {
 		setAudioFeedbackCommand: state.setAudioFeedbackCommand,
 		setToastDuration: state.setToastDuration,
 		setCheckForUpdatesOnStartup: state.setCheckForUpdatesOnStartup,
+		setAutoResumeOnLimit: state.setAutoResumeOnLimit,
+		setAutoResumeCheckIntervalHours: state.setAutoResumeCheckIntervalHours,
+		setAutoResumeGiveUpDays: state.setAutoResumeGiveUpDays,
 		setEnableBetaUpdates: state.setEnableBetaUpdates,
 		setCrashReportingEnabled: state.setCrashReportingEnabled,
 		setLogViewerSelectedLevels: state.setLogViewerSelectedLevels,
@@ -2769,6 +2994,8 @@ export function getSettingsActions() {
 		updateUsageStats: state.updateUsageStats,
 		setUngroupedCollapsed: state.setUngroupedCollapsed,
 		setGroupChatsExpanded: state.setGroupChatsExpanded,
+		setGroupChatSortAlphabetical: state.setGroupChatSortAlphabetical,
+		setStarredSessionsCollapsed: state.setStarredSessionsCollapsed,
 		setTourCompleted: state.setTourCompleted,
 		setFirstAutoRunCompleted: state.setFirstAutoRunCompleted,
 		setOnboardingStats: state.setOnboardingStats,
@@ -2824,6 +3051,9 @@ export function getSettingsActions() {
 		setShowWorktreePill: state.setShowWorktreePill,
 		setShowWorktreeBranchName: state.setShowWorktreeBranchName,
 		setShowLeftPanelGroupMemberCount: state.setShowLeftPanelGroupMemberCount,
+		showStarredSessionsSection: state.showStarredSessionsSection,
+		setShowStarredSessionsSection: state.setShowStarredSessionsSection,
+		setLeftPanelCollapsedPillsPerRow: state.setLeftPanelCollapsedPillsPerRow,
 		setShowLeftPanelLocationPills: state.setShowLeftPanelLocationPills,
 		setShowLeftPanelGitIndicator: state.setShowLeftPanelGitIndicator,
 		setShowLeftPanelCueIndicator: state.setShowLeftPanelCueIndicator,

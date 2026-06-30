@@ -12,6 +12,8 @@ export const SUPPORTED_AGENTS = [
 	'codex',
 	'factory-droid',
 	'copilot-cli',
+	'qwen3-coder',
+	'omp',
 ];
 
 export interface AgentDebugInfo {
@@ -53,7 +55,8 @@ export interface NewInstanceModalProps {
 		customEffort?: string,
 		groupId?: string,
 		enableMaestroP?: boolean,
-		maestroPPath?: string
+		maestroPPath?: string,
+		maestroPMode?: 'interactive' | 'dynamic'
 	) => void;
 	theme: Theme;
 	existingSessions: Session[];
@@ -77,7 +80,8 @@ export interface EditAgentModalProps {
 		customContextWindow?: number,
 		sessionSshRemoteConfig?: SessionSshRemoteConfig,
 		enableMaestroP?: boolean,
-		maestroPPath?: string
+		maestroPPath?: string,
+		maestroPMode?: 'interactive' | 'dynamic'
 	) => void;
 	theme: Theme;
 	session: Session | null;
@@ -121,6 +125,7 @@ export interface AgentPickerGridProps {
 	customAgentArgs: Record<string, string>;
 	customAgentEnvVars: Record<string, Record<string, string>>;
 	enableMaestroPByAgent?: Record<string, boolean>;
+	maestroPModeByAgent?: Record<string, 'interactive' | 'dynamic'>;
 	maestroPPathByAgent?: Record<string, string>;
 	detectedMaestroPPath?: string;
 	agentConfigs: Record<string, Record<string, any>>;
@@ -133,6 +138,7 @@ export interface AgentPickerGridProps {
 	onCustomPathChange: (agentId: string, value: string) => void;
 	onCustomArgsChange: (agentId: string, value: string) => void;
 	onEnableMaestroPChange?: (agentId: string, value: boolean) => void;
+	onMaestroPModeChange?: (agentId: string, value: 'interactive' | 'dynamic') => void;
 	onMaestroPPathChange?: (agentId: string, value: string) => void;
 	onEnvVarKeyChange: (agentId: string, oldKey: string, newKey: string, value: string) => void;
 	onEnvVarValueChange: (agentId: string, key: string, value: string) => void;

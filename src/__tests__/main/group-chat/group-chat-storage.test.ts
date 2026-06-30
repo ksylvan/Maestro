@@ -49,6 +49,7 @@ import {
 	updateGroupChat,
 	addParticipantToChat,
 	removeParticipantFromChat,
+	removeParticipantFromChatWithResult,
 	getParticipant,
 	updateParticipant,
 	addGroupChatHistoryEntry,
@@ -148,6 +149,29 @@ describe('group-chat-storage', () => {
 			const chat = await createGroupChat('Session Test', 'claude-code');
 
 			expect(chat.moderatorSessionId).toBe('');
+
+			// Clean up
+			await deleteGroupChat(chat.id);
+		});
+
+		it('round-trips Claude token-source fields in moderatorConfig', async () => {
+			const chat = await createGroupChat('Token Source Test', 'claude-code', {
+				enableMaestroP: true,
+				maestroPMode: 'interactive',
+				maestroPPath: '/x',
+			});
+
+			// Present on the returned object
+			expect(chat.moderatorConfig?.enableMaestroP).toBe(true);
+			expect(chat.moderatorConfig?.maestroPMode).toBe('interactive');
+			expect(chat.moderatorConfig?.maestroPPath).toBe('/x');
+
+			// Survives a reload from disk (no field stripping in the storage layer)
+			const loaded = await loadGroupChat(chat.id);
+			expect(loaded).not.toBeNull();
+			expect(loaded!.moderatorConfig?.enableMaestroP).toBe(true);
+			expect(loaded!.moderatorConfig?.maestroPMode).toBe('interactive');
+			expect(loaded!.moderatorConfig?.maestroPPath).toBe('/x');
 
 			// Clean up
 			await deleteGroupChat(chat.id);
@@ -643,6 +667,50 @@ describe('group-chat-storage', () => {
 			await deleteGroupChat(chat.id);
 		});
 
+		it('persists removal from a large participant list', async () => {
+			const chat = await createGroupChat('Large Remove Test', 'claude-code');
+			const targetName = 'Agent-137';
+			const participants = Array.from({ length: 250 }, (_, i) => ({
+				name: `Agent-${i}`,
+				agentId: i % 2 === 0 ? 'claude-code' : 'opencode',
+				sessionId: `ses-${i}`,
+				addedAt: Date.now() + i,
+				tokenCount: i * 100,
+				messageCount: i,
+			}));
+			await updateGroupChat(chat.id, { participants });
+
+			const updated = await removeParticipantFromChat(chat.id, targetName);
+			expect(updated.participants).toHaveLength(249);
+			expect(updated.participants.some((p) => p.name === targetName)).toBe(false);
+
+			const loaded = await loadGroupChat(chat.id);
+			expect(loaded).not.toBeNull();
+			expect(loaded!.participants).toHaveLength(249);
+			expect(loaded!.participants.some((p) => p.name === targetName)).toBe(false);
+
+			await deleteGroupChat(chat.id);
+		});
+
+		it('reports large-list removal from the serialized metadata transaction', async () => {
+			const chat = await createGroupChat('Large Remove Result Test', 'claude-code');
+			const targetName = 'Agent-137';
+			const participants = Array.from({ length: 250 }, (_, i) => ({
+				name: `Agent-${i}`,
+				agentId: i % 2 === 0 ? 'claude-code' : 'opencode',
+				sessionId: `ses-${i}`,
+				addedAt: Date.now() + i,
+			}));
+			await updateGroupChat(chat.id, { participants });
+
+			const result = await removeParticipantFromChatWithResult(chat.id, targetName);
+			expect(result.removed).toBe(true);
+			expect(result.chat.participants).toHaveLength(249);
+			expect(result.chat.participants.some((p) => p.name === targetName)).toBe(false);
+
+			await deleteGroupChat(chat.id);
+		});
+
 		it('removing non-existent participant is a no-op (keeps others)', async () => {
 			const chat = await createGroupChat('Remove NoOp', 'claude-code');
 			await addParticipantToChat(chat.id, {
@@ -655,6 +723,24 @@ describe('group-chat-storage', () => {
 			const updated = await removeParticipantFromChat(chat.id, 'NonExistent');
 			expect(updated.participants).toHaveLength(1);
 			expect(updated.participants[0].name).toBe('Alice');
+
+			await deleteGroupChat(chat.id);
+		});
+
+		it('reports no-op removals without rewriting metadata', async () => {
+			const chat = await createGroupChat('Remove NoOp Result', 'claude-code');
+			await addParticipantToChat(chat.id, {
+				name: 'Alice',
+				agentId: 'claude-code',
+				sessionId: 'ses-a',
+				addedAt: Date.now(),
+			});
+			const before = await loadGroupChat(chat.id);
+
+			const result = await removeParticipantFromChatWithResult(chat.id, 'NonExistent');
+			expect(result.removed).toBe(false);
+			expect(result.chat.participants).toHaveLength(1);
+			expect(result.chat.updatedAt).toBe(before!.updatedAt);
 
 			await deleteGroupChat(chat.id);
 		});

@@ -12,6 +12,7 @@ import {
 	Monitor,
 	Globe,
 	Wand2,
+	Info,
 } from 'lucide-react';
 import { useSettings } from '../../hooks';
 import type { Theme, LLMProvider } from '../../types';
@@ -31,6 +32,7 @@ import { EncoreTab } from './tabs/EncoreTab';
 import { ShortcutsTab } from './tabs/ShortcutsTab';
 import { ThemeTab } from './tabs/ThemeTab';
 import { EnvironmentTab } from './tabs/EnvironmentTab';
+import { AboutTab } from './tabs/AboutTab';
 import { useSettingsSearch, SettingsSearchInput, SettingsSearchResults } from './SettingsSearch';
 import type { SearchableSetting } from './searchableSettings';
 
@@ -40,6 +42,7 @@ const FEATURE_FLAGS = {
 };
 
 type SettingsTabId =
+	| 'about'
 	| 'general'
 	| 'display'
 	| 'llm'
@@ -60,6 +63,7 @@ const TAB_ITEMS: Array<{
 	label: string;
 	icon: typeof Settings;
 }> = [
+	{ id: 'about', label: 'About', icon: Info },
 	{ id: 'aicommands', label: 'AI Commands', icon: Cpu },
 	{ id: 'display', label: 'Display', icon: Monitor },
 	{ id: 'encore', label: 'Encore Features', icon: FlaskConical },
@@ -147,6 +151,8 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 		setAudioFeedbackCommand,
 		toastDuration,
 		setToastDuration,
+		toastWidth,
+		setToastWidth,
 		idleNotificationEnabled,
 		setIdleNotificationEnabled,
 		idleNotificationCommand,
@@ -455,14 +461,19 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 
 	return (
 		<div
-			className="fixed inset-0 modal-overlay flex items-center justify-center z-[9999]"
+			className="fixed inset-0 modal-overlay flex items-center justify-center z-[9999] p-4"
 			role="dialog"
 			aria-modal="true"
 			aria-label="Settings"
 		>
 			<div
-				className="modal-w-xl h-[720px] rounded-xl border shadow-2xl overflow-hidden flex flex-col select-none"
-				style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.border }}
+				className="h-[900px] rounded-xl border shadow-2xl overflow-hidden flex flex-col select-none"
+				style={{
+					width: 'min(calc(980px * var(--font-scale, 1)), 95vw)',
+					maxHeight: 'calc(100vh - 2rem)',
+					backgroundColor: theme.colors.bgSidebar,
+					borderColor: theme.colors.border,
+				}}
 			>
 				{/* Search Bar + Close Button */}
 				<div className="flex items-center border-b" style={{ borderColor: theme.colors.border }}>
@@ -498,7 +509,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 				<div className={`flex flex-1 overflow-hidden ${searchActive ? 'hidden' : ''}`}>
 					{/* Left Sidebar Tabs */}
 					<nav
-						className="w-[200px] flex-shrink-0 border-r py-2 overflow-y-auto scrollbar-thin"
+						className="w-[248px] flex-shrink-0 border-r py-2 overflow-y-auto scrollbar-thin"
 						style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgSidebar }}
 						aria-label="Settings tabs"
 					>
@@ -663,6 +674,8 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 								setAudioFeedbackCommand={setAudioFeedbackCommand}
 								toastDuration={toastDuration}
 								setToastDuration={setToastDuration}
+								toastWidth={toastWidth}
+								setToastWidth={setToastWidth}
 								idleNotificationEnabled={idleNotificationEnabled}
 								setIdleNotificationEnabled={setIdleNotificationEnabled}
 								idleNotificationCommand={idleNotificationCommand}
@@ -751,6 +764,8 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 						{activeTab === 'environment' && <EnvironmentTab theme={theme} />}
 
 						{activeTab === 'encore' && <EncoreTab theme={theme} isOpen={isOpen} />}
+
+						{activeTab === 'about' && <AboutTab theme={theme} />}
 					</div>
 				</div>
 			</div>

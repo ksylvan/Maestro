@@ -38,6 +38,15 @@ function c(color: keyof typeof colors, text: string): string {
 	return `${colors[color]}${text}${colors.reset}`;
 }
 
+/**
+ * Public color helper for callers that build their own lines (e.g. the doctor
+ * checklist) and need a colored glyph without the `formatSuccess`/`formatError`
+ * prefix decorations. Respects the same `supportsColor` gate as everything else.
+ */
+export function colorize(color: keyof typeof colors, text: string): string {
+	return c(color, text);
+}
+
 function bold(text: string): string {
 	return c('bold', text);
 }
@@ -420,6 +429,34 @@ export function formatRunEvent(event: RunEvent, options?: { debug?: boolean }): 
 			return `${separator}\n${header}\n${separator}\n${prompt}\n${separator}`;
 		}
 
+		case 'goal_start':
+			return `${timeStr} ${c('cyan', '🎯')} ${bold('Starting Goal-Driven Auto Run')} ${dim(
+				truncate((event.goal as string) || '', 60)
+			)}`;
+
+		case 'goal_iteration_start': {
+			const iteration = event.iteration as number;
+			return `${timeStr} ${c('yellow', '⏳')} Iteration ${iteration}`;
+		}
+
+		case 'goal_iteration_complete': {
+			const iteration = event.iteration as number;
+			const progress = event.progress as number;
+			const summary = truncate((event.summary as string) || '', 70);
+			return `${timeStr}    ${c('green', '✓')} Iteration ${iteration} ${bold(`${progress}%`)} ${dim(summary)}`;
+		}
+
+		case 'goal_complete': {
+			const success = event.success as boolean;
+			const finalProgress = event.finalProgress as number;
+			const iterations = event.iterations as number;
+			const reason = event.exitReason as string;
+			const icon = success ? c('green', '✓') : c('yellow', '■');
+			return `${timeStr} ${icon} ${bold('Goal run finished')} ${dim(
+				`(${reason}, ${finalProgress}%, ${iterations} iteration${iterations === 1 ? '' : 's'})`
+			)}`;
+		}
+
 		default:
 			return `${timeStr} ${dim(event.type)}`;
 	}
@@ -435,6 +472,16 @@ export interface AgentDetailDisplay {
 	groupId?: string;
 	groupName?: string;
 	autoRunFolderPath?: string;
+	// Editable per-agent settings (the Edit Agent modal fields). `null` = unset.
+	nudgeMessage?: string | null;
+	newSessionMessage?: string | null;
+	customPath?: string | null;
+	customArgs?: string | null;
+	customEnvVars?: Record<string, string> | null;
+	customModel?: string | null;
+	customEffort?: string | null;
+	customContextWindow?: number | null;
+	tokenSource?: string | null;
 	stats: {
 		historyEntries: number;
 		successCount: number;
@@ -492,6 +539,41 @@ export function formatAgentDetail(agent: AgentDetailDisplay): string {
 
 	if (agent.autoRunFolderPath) {
 		lines.push(`  ${c('white', 'Auto Run:')}   ${dim(agent.autoRunFolderPath)}`);
+	}
+
+	// Configuration (the Edit Agent modal settings). Only render the rows that
+	// are actually set so an unconfigured agent stays terse.
+	const configRows: string[] = [];
+	const addConfig = (label: string, value: string | null | undefined) => {
+		if (value === null || value === undefined || value === '') return;
+		configRows.push(
+			`  ${c('white', `${label}:`)}${' '.repeat(Math.max(1, 20 - label.length))}${value}`
+		);
+	};
+	addConfig('Nudge', agent.nudgeMessage ? truncate(agent.nudgeMessage, 60) : undefined);
+	addConfig(
+		'New session msg',
+		agent.newSessionMessage ? truncate(agent.newSessionMessage, 60) : undefined
+	);
+	addConfig('Model', agent.customModel);
+	addConfig('Effort', agent.customEffort);
+	addConfig(
+		'Context window',
+		typeof agent.customContextWindow === 'number' ? String(agent.customContextWindow) : undefined
+	);
+	addConfig('Binary path', agent.customPath ? dim(agent.customPath) : undefined);
+	addConfig('Custom args', agent.customArgs);
+	if (agent.customEnvVars && Object.keys(agent.customEnvVars).length > 0) {
+		addConfig('Env vars', Object.keys(agent.customEnvVars).join(', '));
+	}
+	if (agent.toolType === 'claude-code' && agent.tokenSource) {
+		addConfig('Token source', agent.tokenSource);
+	}
+	if (configRows.length > 0) {
+		lines.push('');
+		lines.push(bold(c('cyan', 'CONFIGURATION')));
+		lines.push('');
+		lines.push(...configRows);
 	}
 
 	lines.push('');

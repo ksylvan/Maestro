@@ -12,12 +12,14 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as path from 'path';
 import { ipcMain } from 'electron';
 import {
 	registerProcessHandlers,
 	ProcessHandlerDependencies,
 } from '../../../../main/ipc/handlers/process';
 import { getDefaultShell } from '../../../../main/stores/defaults';
+import { stripThinkingFromTranscript } from '../../../../main/agents/claude-transcript-sanitizer';
 
 // Mock electron's ipcMain
 vi.mock('electron', () => ({
@@ -205,6 +207,10 @@ vi.mock('../../../../shared/platformDetection', () => ({
 	isLinux: vi.fn(() => process.platform === 'linux'),
 }));
 
+vi.mock('../../../../main/process-manager/utils/childProcessInfo', () => ({
+	getChildProcesses: vi.fn().mockResolvedValue([]),
+}));
+
 // Mock fs/promises so the new temp-file tests can assert on writeFile/unlink
 // without touching the real filesystem. Other tests in this file don't use
 // fs/promises, so the module-level mock is safe.
@@ -218,6 +224,27 @@ vi.mock('fs/promises', () => ({
 vi.mock('../../../../main/utils/sentry', () => ({
 	captureException: vi.fn(),
 	addBreadcrumb: vi.fn(),
+}));
+
+// Mock the transcript sanitizer so the API-resume gate can be asserted without
+// touching a real Claude Code transcript on disk.
+vi.mock('../../../../main/agents/claude-transcript-sanitizer', () => ({
+	stripThinkingFromTranscript: vi.fn(() => ({
+		sanitized: false,
+		droppedRows: 0,
+		strippedBlocks: 0,
+		backupPath: null,
+	})),
+}));
+
+// Mock the prompt manager so the copilot-preamble injection has deterministic
+// content without bootstrapping the real prompt cache. Per-test overrides use
+// mockReturnValueOnce / mockImplementation.
+vi.mock('../../../../main/prompt-manager', () => ({
+	getPrompt: vi.fn((id: string) => {
+		if (id === 'copilot-preamble') return 'COPILOT_PREAMBLE_TEXT';
+		return '';
+	}),
 }));
 
 describe('process IPC handlers', () => {
@@ -329,6 +356,7 @@ describe('process IPC handlers', () => {
 			const expectedChannels = [
 				'process:spawn',
 				'process:write',
+				'process:broadcast-user-input',
 				'process:interrupt',
 				'process:kill',
 				'process:resize',
@@ -698,6 +726,7 @@ describe('process IPC handlers', () => {
 				id: 'claude-code',
 				name: 'Claude Code',
 				command: 'claude',
+				path: '/opt/homebrew/bin/claude',
 				args: ['--print', '--verbose', '--output-format', 'stream-json'],
 				apiCommand: 'claude',
 				interactiveCommand: 'maestro-p',
@@ -724,6 +753,115 @@ describe('process IPC handlers', () => {
 				expect(spawnCall.args).toContain('--verbose');
 				expect(spawnCall.args).toContain('--output-format');
 				expect(spawnCall.args).toContain('stream-json');
+				expect(spawnCall.customEnvVars?.ELECTRON_RUN_AS_NODE).toBeUndefined();
+			});
+
+			it('passes Electron Node mode env for local interactive maestro-p desktop spawn', async () => {
+				const maestroPPath = path.join(process.cwd(), 'src', 'maestro-p', 'index.ts');
+				mockAgentDetector.getAgent.mockResolvedValue(claudeCodeAgent);
+				mockProcessManager.spawn.mockReturnValue({ pid: 4243, success: true });
+				mockSessionsStore.get.mockImplementation((key: string, defaultValue: unknown) => {
+					if (key === 'sessions') {
+						return [
+							{
+								id: 'session-tui',
+								enableMaestroP: true,
+								maestroPMode: 'interactive',
+								maestroPPath,
+							},
+						];
+					}
+					return defaultValue;
+				});
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, {
+					sessionId: 'session-tui-ai-tab-1',
+					toolType: 'claude-code',
+					cwd: '/test',
+					command: '/usr/local/bin/claude',
+					args: claudeCodeAgent.args,
+					prompt: 'hi',
+				});
+
+				const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
+				expect(spawnCall.command).toBe(process.execPath);
+				expect(spawnCall.args[0]).toBe(maestroPPath);
+				expect(spawnCall.args).toContain('--dangerously-skip-permissions');
+				expect(spawnCall.customEnvVars).toEqual(
+					expect.objectContaining({
+						ELECTRON_RUN_AS_NODE: '1',
+						MAESTRO_CLAUDE_BIN: '/usr/local/bin/claude',
+					})
+				);
+				expect(spawnCall.customEnvVars?.NODE_PATH).toBeUndefined();
+			});
+
+			it('adds packaged NODE_PATH while preserving Electron Node mode env', async () => {
+				const maestroPPath = path.join(process.cwd(), 'src', 'maestro-p', 'index.ts');
+				const resourcesPath = '/Applications/Maestro.app/Contents/Resources';
+				const existingNodePath = '/already/on/node-path';
+				const originalNodePath = process.env.NODE_PATH;
+				const originalResourcesDescriptor = Object.getOwnPropertyDescriptor(
+					process,
+					'resourcesPath'
+				);
+
+				Object.defineProperty(process, 'resourcesPath', {
+					configurable: true,
+					value: resourcesPath,
+				});
+				process.env.NODE_PATH = existingNodePath;
+
+				try {
+					mockAgentDetector.getAgent.mockResolvedValue(claudeCodeAgent);
+					mockProcessManager.spawn.mockReturnValue({ pid: 4242, success: true });
+					mockSessionsStore.get.mockImplementation((key: string, defaultValue: unknown) => {
+						if (key === 'sessions') {
+							return [
+								{
+									id: 'session-packaged-tui',
+									enableMaestroP: true,
+									maestroPMode: 'interactive',
+									maestroPPath,
+								},
+							];
+						}
+						return defaultValue;
+					});
+
+					const handler = handlers.get('process:spawn');
+					await handler!({} as any, {
+						sessionId: 'session-packaged-tui',
+						toolType: 'claude-code',
+						cwd: '/test',
+						command: 'claude',
+						args: claudeCodeAgent.args,
+						prompt: 'hi',
+					});
+
+					const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
+					const expectedAsarModules = path.join(resourcesPath, 'app.asar', 'node_modules');
+					expect(spawnCall.command).toBe(process.execPath);
+					expect(spawnCall.customEnvVars).toEqual(
+						expect.objectContaining({
+							ELECTRON_RUN_AS_NODE: '1',
+							MAESTRO_CLAUDE_BIN: '/opt/homebrew/bin/claude',
+							NODE_PATH: `${expectedAsarModules}${path.delimiter}${existingNodePath}`,
+						})
+					);
+				} finally {
+					if (originalNodePath === undefined) {
+						delete process.env.NODE_PATH;
+					} else {
+						process.env.NODE_PATH = originalNodePath;
+					}
+					if (originalResourcesDescriptor) {
+						Object.defineProperty(process, 'resourcesPath', originalResourcesDescriptor);
+					} else {
+						delete (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+					}
+				}
 			});
 
 			it('emits interactive resolution when Path is wired directly at maestro-p', async () => {
@@ -766,6 +904,10 @@ describe('process IPC handlers', () => {
 				expect(sessionId).toBe('session-direct-mp');
 				expect(payload.mode).toBe('interactive');
 				expect(payload.reason).toBe('auto');
+
+				const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
+				expect(spawnCall.command).toBe('/Users/x/dist/cli/maestro-p.js');
+				expect(spawnCall.customEnvVars?.ELECTRON_RUN_AS_NODE).toBeUndefined();
 			});
 
 			it('clears stale claudeInteractive=interactive when neither toggle nor maestro-p Path is active', async () => {
@@ -824,6 +966,181 @@ describe('process IPC handlers', () => {
 				);
 				expect(resolveCalls.length).toBeGreaterThan(0);
 				expect(resolveCalls[0][2].mode).toBe('api');
+			});
+
+			// Regression: desktop turns spawn with a COMPOUND session id
+			// (`{agentId}-ai-{tabId}`), but persisted session records are keyed by the
+			// bare agent id. The handler must strip the `-ai-…` suffix before the
+			// token-mode lookup AND the claudeInteractive write-back, or every desktop
+			// claude-code turn misses its persisted record and silently resolves to
+			// `api` (`claude --print`) regardless of the agent's TUI/Dynamic setting.
+			// Staging a stale `interactive` record under the bare id and spawning with
+			// the compound id exercises both: the resolver only sees the persisted
+			// state (and clears it to `api`) when the suffix is stripped on both sides.
+			it('matches the bare-id persisted record when spawned with a compound -ai- session id', async () => {
+				mockAgentDetector.getAgent.mockResolvedValue(claudeCodeAgent);
+				mockProcessManager.spawn.mockReturnValue({ pid: 4250, success: true });
+
+				mockSessionsStore.get.mockImplementation((key: string, defaultValue: unknown) => {
+					if (key === 'sessions') {
+						return [
+							{
+								id: 'session-rc',
+								claudeInteractive: { mode: 'interactive', modeReason: 'auto' },
+							},
+						];
+					}
+					return defaultValue;
+				});
+
+				const sendSpy = vi.fn();
+				deps = {
+					...deps,
+					getMainWindow: () =>
+						({
+							isDestroyed: vi.fn().mockReturnValue(false),
+							webContents: {
+								send: sendSpy,
+								isDestroyed: vi.fn().mockReturnValue(false),
+							},
+						}) as any,
+				};
+				handlers.clear();
+				vi.mocked(ipcMain.handle).mockImplementation((channel, h) => {
+					handlers.set(channel, h);
+				});
+				registerProcessHandlers(deps);
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, {
+					sessionId: 'session-rc-ai-tab-abc123',
+					toolType: 'claude-code',
+					cwd: '/test',
+					command: 'claude',
+					args: claudeCodeAgent.args,
+					prompt: 'hi',
+				});
+
+				// Write-back found the bare-id record and cleared the stale interactive state.
+				const persisted = mockSessionsStore.set.mock.calls.find((c) => c[0] === 'sessions');
+				expect(persisted).toBeDefined();
+				const nextSessions = persisted![1] as Array<{ id: string; claudeInteractive: any }>;
+				const rc = nextSessions.find((s) => s.id === 'session-rc');
+				expect(rc?.claudeInteractive?.mode).toBe('api');
+
+				// The renderer mirror carries the original compound id (it strips the
+				// suffix on its own side), so the spawner must NOT pre-strip it here.
+				const resolveCalls = sendSpy.mock.calls.filter(
+					(c) => c[0] === 'process:claude-mode-resolved'
+				);
+				expect(resolveCalls.length).toBeGreaterThan(0);
+				expect(resolveCalls[0][1]).toBe('session-rc-ai-tab-abc123');
+			});
+
+			// Once a conversation has run interactive, its transcript can hold
+			// subscription-account thinking blocks. Resuming it in API mode must
+			// strip them first, or Anthropic returns the "thinking blocks cannot be
+			// modified" 400 and the conversation stays permanently stuck.
+			it('sanitizes the transcript before an API-mode resume of a previously-interactive session', async () => {
+				mockAgentDetector.getAgent.mockResolvedValue(claudeCodeAgent);
+				mockProcessManager.spawn.mockReturnValue({ pid: 4247, success: true });
+
+				// Stage a prior interactive run so the cleanup branch sets the config-dir key.
+				mockSessionsStore.get.mockImplementation((key: string, defaultValue: unknown) => {
+					if (key === 'sessions') {
+						return [
+							{
+								id: 'session-resume',
+								claudeInteractive: { mode: 'interactive', modeReason: 'auto' },
+							},
+						];
+					}
+					return defaultValue;
+				});
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, {
+					sessionId: 'session-resume',
+					toolType: 'claude-code',
+					cwd: '/test',
+					command: 'claude',
+					args: claudeCodeAgent.args,
+					agentSessionId: 'prior-session-uuid', // Resume signal
+					prompt: 'continue',
+				});
+
+				expect(stripThinkingFromTranscript).toHaveBeenCalledTimes(1);
+				const calledPath = vi.mocked(stripThinkingFromTranscript).mock.calls[0][0];
+				expect(calledPath).toContain('prior-session-uuid.jsonl');
+			});
+
+			it('does not sanitize a fresh pure-API spawn (no resume, nothing on disk to touch)', async () => {
+				mockAgentDetector.getAgent.mockResolvedValue(claudeCodeAgent);
+				mockProcessManager.spawn.mockReturnValue({ pid: 4248, success: true });
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, {
+					sessionId: 'session-fresh',
+					toolType: 'claude-code',
+					cwd: '/test',
+					command: 'claude',
+					args: claudeCodeAgent.args,
+					prompt: 'hi',
+				});
+
+				expect(stripThinkingFromTranscript).not.toHaveBeenCalled();
+			});
+
+			// The original gate skipped sanitization when no `resolvedConfigDirKey`
+			// was set, which left transcripts poisoned for sessions where Batch Mode
+			// had since been toggled off (or where the persisted mode flipped to
+			// `'api'` via sticky-limit). The narrowed sanitizer (empty-shell only)
+			// is safe to run on any resume, so the gate now only requires an
+			// `agentSessionId` and Claude Code in API mode.
+			it('sanitizes any API-mode resume of a Claude Code session, even without persisted interactive history', async () => {
+				mockAgentDetector.getAgent.mockResolvedValue(claudeCodeAgent);
+				mockProcessManager.spawn.mockReturnValue({ pid: 4249, success: true });
+
+				// No prior interactive run persisted - this used to skip the sanitize
+				// because resolvedConfigDirKey stayed undefined.
+				mockSessionsStore.get.mockImplementation((key: string, defaultValue: unknown) => {
+					if (key === 'sessions') return [];
+					return defaultValue;
+				});
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, {
+					sessionId: 'session-resume-no-history',
+					toolType: 'claude-code',
+					cwd: '/test',
+					command: 'claude',
+					args: claudeCodeAgent.args,
+					agentSessionId: 'orphaned-transcript-uuid',
+					prompt: 'continue',
+				});
+
+				expect(stripThinkingFromTranscript).toHaveBeenCalledTimes(1);
+				const calledPath = vi.mocked(stripThinkingFromTranscript).mock.calls[0][0];
+				expect(calledPath).toContain('orphaned-transcript-uuid.jsonl');
+			});
+
+			it('does not sanitize SSH-enabled spawns (transcript lives on remote, not local disk)', async () => {
+				mockAgentDetector.getAgent.mockResolvedValue(claudeCodeAgent);
+				mockProcessManager.spawn.mockReturnValue({ pid: 4250, success: true });
+
+				const handler = handlers.get('process:spawn');
+				await handler!({} as any, {
+					sessionId: 'session-ssh',
+					toolType: 'claude-code',
+					cwd: '/test',
+					command: 'claude',
+					args: claudeCodeAgent.args,
+					agentSessionId: 'remote-session-uuid',
+					prompt: 'continue',
+					sessionSshRemoteConfig: { enabled: true, remoteId: 'remote-1' },
+				});
+
+				expect(stripThinkingFromTranscript).not.toHaveBeenCalled();
 			});
 		});
 	});
@@ -1828,6 +2145,7 @@ describe('process IPC handlers', () => {
 			// The sshStdinScript should contain the env var export
 			const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
 			expect(spawnCall.sshStdinScript).toContain('CUSTOM_API_KEY=');
+			expect(spawnCall.sshStdinScript).not.toContain('ELECTRON_RUN_AS_NODE');
 		});
 
 		it('should run locally when session SSH is explicitly disabled', async () => {
@@ -1991,6 +2309,104 @@ describe('process IPC handlers', () => {
 			// The stdin script should use just 'codex', not the full local path
 			expect(spawnCall.sshStdinScript).toContain('codex');
 			expect(spawnCall.sshStdinScript).not.toContain('/opt/homebrew/bin/codex');
+
+			// Regression for #1016: when SSH is enabled, no local dirs should be
+			// injected via extraPathDirs — those would leak macOS paths into the
+			// remote spawn env (the SSH command itself runs locally, but the script
+			// it runs on the remote builds its own PATH).
+			expect(spawnCall.extraPathDirs).toBeUndefined();
+		});
+
+		it('should inject the detected agent parent dir as extraPathDirs for local (non-SSH) spawns', async () => {
+			// Regression for #1016: when codex (or any node-script agent) was
+			// installed alongside a non-standard `node` (e.g. /Users/me/opt/node/bin),
+			// Maestro detected it via shell PATH but spawned with a narrower PATH
+			// that didn't include that bin dir — the `#!/usr/bin/env node` shebang
+			// then failed with exit 127. Fix: prepend dirname(agent.path) so the
+			// co-located runtime is reachable.
+			const mockAgent = {
+				id: 'codex',
+				name: 'Codex',
+				binaryName: 'codex',
+				path: '/Users/me/opt/node/bin/codex',
+				requiresPty: false,
+				capabilities: {
+					supportsStreamJsonInput: false,
+				},
+			};
+
+			mockAgentDetector.getAgent.mockResolvedValue(mockAgent);
+			mockProcessManager.spawn.mockReturnValue({ pid: 12345, success: true });
+
+			const handler = handlers.get('process:spawn');
+			await handler!({} as any, {
+				sessionId: 'session-1',
+				toolType: 'codex',
+				cwd: '/home/devuser/project',
+				command: '/Users/me/opt/node/bin/codex',
+				args: ['exec', '--json'],
+				// NOTE: no sessionSshRemoteConfig — this is a local spawn
+			});
+
+			const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
+			expect(spawnCall.extraPathDirs).toEqual(['/Users/me/opt/node/bin']);
+		});
+
+		it('should prefer sessionCustomPath over agent.path when deriving extraPathDirs (local)', async () => {
+			// When the user overrides the binary, the co-located runtime lives
+			// next to *that* binary — not the auto-detected one. Per CodeRabbit
+			// + Greptile review on #1021.
+			const mockAgent = {
+				id: 'codex',
+				name: 'Codex',
+				binaryName: 'codex',
+				path: '/opt/homebrew/bin/codex',
+				requiresPty: false,
+				capabilities: { supportsStreamJsonInput: false },
+			};
+			mockAgentDetector.getAgent.mockResolvedValue(mockAgent);
+			mockProcessManager.spawn.mockReturnValue({ pid: 12345, success: true });
+
+			const handler = handlers.get('process:spawn');
+			await handler!({} as any, {
+				sessionId: 'session-1',
+				toolType: 'codex',
+				cwd: '/home/devuser/project',
+				command: '/opt/homebrew/bin/codex',
+				args: ['exec'],
+				sessionCustomPath: '/Users/me/opt/node/bin/codex',
+			});
+
+			const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
+			expect(spawnCall.extraPathDirs).toEqual(['/Users/me/opt/node/bin']);
+		});
+
+		it('should not inject extraPathDirs when the spawn binary path is not absolute', async () => {
+			// path.dirname("codex") would return "." — prepending that to PATH
+			// would let a binary in the spawn cwd shadow system tools.
+			// Per Greptile review on #1021.
+			const mockAgent = {
+				id: 'codex',
+				name: 'Codex',
+				binaryName: 'codex',
+				path: 'codex', // bare binary name, no directory
+				requiresPty: false,
+				capabilities: { supportsStreamJsonInput: false },
+			};
+			mockAgentDetector.getAgent.mockResolvedValue(mockAgent);
+			mockProcessManager.spawn.mockReturnValue({ pid: 12345, success: true });
+
+			const handler = handlers.get('process:spawn');
+			await handler!({} as any, {
+				sessionId: 'session-1',
+				toolType: 'codex',
+				cwd: '/home/devuser/project',
+				command: 'codex',
+				args: ['exec'],
+			});
+
+			const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
+			expect(spawnCall.extraPathDirs).toBeUndefined();
 		});
 
 		it('should use sessionCustomPath for SSH remote when user specifies a custom path', async () => {
@@ -2604,10 +3020,14 @@ describe('process IPC handlers', () => {
 			const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
 			// --append-system-prompt should NOT be in args (agent doesn't support it)
 			expect(spawnCall.args).not.toContain('--append-system-prompt');
-			// System prompt should NOT be embedded in the user prompt on resume
-			expect(spawnCall.prompt).toBe('Follow-up question');
+			// System prompt should NOT be embedded in the user prompt on resume.
+			// The Copilot preamble is independent and rides on every batch turn —
+			// strip it before comparing the appendSystemPrompt behavior.
 			expect(spawnCall.prompt).not.toContain('Maestro system prompt');
 			expect(spawnCall.prompt).not.toContain('# User Request');
+			expect(spawnCall.prompt!.replace(/^COPILOT_PREAMBLE_TEXT\n\n/, '')).toBe(
+				'Follow-up question'
+			);
 		});
 
 		it('should still embed system prompt on first turn (no agentSessionId) for unsupported agents', async () => {
@@ -2839,6 +3259,133 @@ describe('process IPC handlers', () => {
 					})
 				);
 			});
+		});
+	});
+
+	describe('copilot-preamble injection', () => {
+		const copilotAgent = {
+			id: 'copilot-cli',
+			name: 'Copilot-CLI',
+			requiresPty: true,
+			path: '/usr/local/bin/copilot',
+			capabilities: {
+				supportsAppendSystemPrompt: false,
+				supportsResume: true,
+			},
+			resumeArgs: (sessionId: string) => [`--resume=${sessionId}`],
+		};
+
+		const claudeAgent = {
+			id: 'claude-code',
+			name: 'Claude Code',
+			requiresPty: true,
+			path: '/usr/local/bin/claude',
+			capabilities: { supportsAppendSystemPrompt: true, supportsStreamJsonInput: true },
+		};
+
+		it('prepends copilot-preamble on every Copilot-CLI batch turn, including resume', async () => {
+			mockAgentDetector.getAgent.mockResolvedValue(copilotAgent);
+			mockProcessManager.spawn.mockReturnValue({ pid: 12345, success: true });
+
+			const handler = handlers.get('process:spawn');
+			await handler!({} as any, {
+				sessionId: 'session-1',
+				toolType: 'copilot-cli',
+				cwd: '/home/user/project',
+				command: 'copilot',
+				args: [],
+				prompt: 'Refactor the parser.',
+				agentSessionId: 'prior-session-uuid',
+			});
+
+			const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
+			expect(spawnCall.prompt).toContain('COPILOT_PREAMBLE_TEXT');
+			expect(spawnCall.prompt).toContain('Refactor the parser.');
+			expect(spawnCall.prompt!.indexOf('COPILOT_PREAMBLE_TEXT')).toBeLessThan(
+				spawnCall.prompt!.indexOf('Refactor the parser.')
+			);
+		});
+
+		it('does not inject the preamble for non-Copilot agents', async () => {
+			mockAgentDetector.getAgent.mockResolvedValue(claudeAgent);
+			mockProcessManager.spawn.mockReturnValue({ pid: 12345, success: true });
+
+			const handler = handlers.get('process:spawn');
+			await handler!({} as any, {
+				sessionId: 'session-1',
+				toolType: 'claude-code',
+				cwd: '/home/user/project',
+				command: 'claude',
+				args: ['--print'],
+				prompt: 'Hello world',
+			});
+
+			const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
+			expect(spawnCall.prompt).toBe('Hello world');
+			expect(spawnCall.prompt).not.toContain('COPILOT_PREAMBLE_TEXT');
+		});
+
+		it('skips injection when the preamble customization is empty', async () => {
+			const promptManager = await import('../../../../main/prompt-manager');
+			vi.mocked(promptManager.getPrompt).mockReturnValueOnce('   ');
+
+			mockAgentDetector.getAgent.mockResolvedValue(copilotAgent);
+			mockProcessManager.spawn.mockReturnValue({ pid: 12345, success: true });
+
+			const handler = handlers.get('process:spawn');
+			await handler!({} as any, {
+				sessionId: 'session-1',
+				toolType: 'copilot-cli',
+				cwd: '/home/user/project',
+				command: 'copilot',
+				args: [],
+				prompt: 'Do the thing.',
+			});
+
+			const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
+			expect(spawnCall.prompt).toBe('Do the thing.');
+		});
+
+		it('skips injection when there is no user prompt', async () => {
+			mockAgentDetector.getAgent.mockResolvedValue(copilotAgent);
+			mockProcessManager.spawn.mockReturnValue({ pid: 12345, success: true });
+
+			const handler = handlers.get('process:spawn');
+			await handler!({} as any, {
+				sessionId: 'session-1',
+				toolType: 'copilot-cli',
+				cwd: '/home/user/project',
+				command: 'copilot',
+				args: [],
+				// No prompt: bare interactive launch
+			});
+
+			const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
+			expect(spawnCall.prompt).toBeFalsy();
+		});
+
+		it('preserves appendSystemPrompt fallback when both are present', async () => {
+			mockAgentDetector.getAgent.mockResolvedValue(copilotAgent);
+			mockProcessManager.spawn.mockReturnValue({ pid: 12345, success: true });
+
+			const handler = handlers.get('process:spawn');
+			await handler!({} as any, {
+				sessionId: 'session-1',
+				toolType: 'copilot-cli',
+				cwd: '/home/user/project',
+				command: 'copilot',
+				args: [],
+				prompt: 'Do work.',
+				appendSystemPrompt: 'You are Maestro system prompt content',
+				// No agentSessionId — first-turn path embeds appendSystemPrompt.
+			});
+
+			const spawnCall = mockProcessManager.spawn.mock.calls[0][0];
+			// Order: appendSystemPrompt block (which already embeds the user prompt),
+			// then preamble prepended in front.
+			expect(spawnCall.prompt).toContain('COPILOT_PREAMBLE_TEXT');
+			expect(spawnCall.prompt).toContain('You are Maestro system prompt content');
+			expect(spawnCall.prompt).toContain('Do work.');
 		});
 	});
 });

@@ -1,8 +1,17 @@
-import { useState, useRef, useEffect, useCallback, RefObject } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, RefObject } from 'react';
 import type {
 	SearchHit,
 	FilePreviewSearchAdapter,
 } from '../../components/FilePreview/search/types';
+import type { MarkdownEditorHandle } from '../../components/FilePreview/markdownEditor';
+import {
+	type SearchKind,
+	SEARCH_KIND_CYCLE,
+	compileSearchRegex,
+	escapeRegExp,
+	parseLineQuery,
+} from '../../components/FilePreview/search/queryMatch';
+import { domScrollToLine } from '../../components/FilePreview/lineSync';
 
 /** Maximum search query length to prevent expensive regex operations */
 const MAX_SEARCH_QUERY_LENGTH = 200;
@@ -38,8 +47,11 @@ function isInsideExcludedContainer(node: Node): boolean {
 	return false;
 }
 
-function walkContainerForRanges(container: HTMLElement, escapedQuery: string): Range[] {
-	if (!escapedQuery) return [];
+// `pattern` is a ready-to-compile regex source (literal queries are pre-escaped
+// by the caller, regex-mode queries are passed through verbatim and validated
+// before reaching here).
+function walkContainerForRanges(container: HTMLElement, pattern: string): Range[] {
+	if (!pattern) return [];
 	const ranges: Range[] = [];
 	const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
 		acceptNode(node) {
@@ -50,7 +62,7 @@ function walkContainerForRanges(container: HTMLElement, escapedQuery: string): R
 	while ((textNode = walker.nextNode())) {
 		const text = (textNode as Text).textContent || '';
 		if (!text) continue;
-		const re = new RegExp(escapedQuery, 'gi');
+		const re = new RegExp(pattern, 'gi');
 		let match: RegExpExecArray | null;
 		while ((match = re.exec(text)) !== null) {
 			const range = document.createRange();
@@ -99,7 +111,8 @@ export interface UseFilePreviewSearchParams {
 	codeContainerRef: RefObject<HTMLDivElement | null>;
 	markdownContainerRef: RefObject<HTMLDivElement | null>;
 	contentRef: RefObject<HTMLDivElement | null>;
-	textareaRef: RefObject<HTMLTextAreaElement | null>;
+	/** Imperative handle for the CM6-based edit editor. Drives match decorations and selection. */
+	editorRef: RefObject<MarkdownEditorHandle | null>;
 	isMarkdown: boolean;
 	/** Readable-text previews (plain prose files like .txt) share the markdown search path. */
 	isReadableText?: boolean;
@@ -114,6 +127,12 @@ export interface UseFilePreviewSearchParams {
 	accentColor: string;
 	/** When in 'jq' mode, skip DOM-based highlighting (jq filtering is handled externally) */
 	searchMode: 'text' | 'jq';
+	/**
+	 * Whether the active view shows line numbers (code/text/edit tiers). Gates
+	 * whether the 'regex'/'line' search kinds are usable; markdown/CSV/jq views
+	 * fall back to plain 'text' search regardless of the chip state.
+	 */
+	supportsLineSearch?: boolean;
 	/** Length of actually displayed content (may differ from fileContent when truncated) */
 	displayedContentLength?: number;
 	initialSearchQuery?: string;
@@ -134,13 +153,21 @@ export interface UseFilePreviewSearchReturn {
 	searchInputRef: RefObject<HTMLInputElement>;
 	/** Update match count from external source (e.g. CsvTableRenderer) */
 	setMatchCount: (count: number) => void;
+	/** Active search kind: literal text, regex, or jump-to-line. */
+	searchKind: SearchKind;
+	/** Set the search kind directly (e.g. reset to 'text' on close). */
+	setSearchKind: (kind: SearchKind) => void;
+	/** Advance to the next search kind (text → regex → line → text). */
+	cycleSearchKind: () => void;
+	/** Message for an invalid regex pattern in 'regex' mode, else null. */
+	regexError: string | null;
 }
 
 export function useFilePreviewSearch({
 	codeContainerRef,
 	markdownContainerRef,
 	contentRef,
-	textareaRef,
+	editorRef,
 	isMarkdown,
 	isReadableText = false,
 	isImage,
@@ -153,6 +180,7 @@ export function useFilePreviewSearch({
 	fileContent,
 	accentColor,
 	searchMode,
+	supportsLineSearch = false,
 	displayedContentLength,
 	initialSearchQuery,
 	onSearchQueryChange,
@@ -178,6 +206,52 @@ export function useFilePreviewSearch({
 	const [searchOpen, setSearchOpen] = useState(Boolean(initialSearchQuery));
 	const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
 	const [totalMatches, setTotalMatches] = useState(0);
+	// Search kind toggled by the chip left of the input. Only meaningful for
+	// line-numbered views; collapses to plain 'text' elsewhere.
+	const [searchKind, setSearchKindState] = useState<SearchKind>('text');
+
+	const setSearchKind = useCallback((kind: SearchKind) => {
+		setSearchKindState(kind);
+	}, []);
+
+	const cycleSearchKind = useCallback(() => {
+		setSearchKindState((prev) => {
+			const i = SEARCH_KIND_CYCLE.indexOf(prev);
+			return SEARCH_KIND_CYCLE[(i + 1) % SEARCH_KIND_CYCLE.length];
+		});
+	}, []);
+
+	// When the view can't support regex/line search (markdown, CSV, jq), force
+	// the kind back to plain text so the effects below behave consistently.
+	const effectiveKind: SearchKind = supportsLineSearch ? searchKind : 'text';
+	const isLineMode = effectiveKind === 'line';
+	const useRegex = effectiveKind === 'regex';
+
+	// Reset the chip to plain text whenever the bar closes; a fresh open should
+	// never inherit a stale regex/line mode.
+	useEffect(() => {
+		if (!searchOpen) setSearchKindState('text');
+	}, [searchOpen]);
+
+	// Snap back to text when the view stops supporting line search (e.g. toggling
+	// from the code editor to a rendered markdown preview while the bar is open).
+	useEffect(() => {
+		if (!supportsLineSearch && searchKind !== 'text') setSearchKindState('text');
+	}, [supportsLineSearch, searchKind]);
+
+	// Final regex source fed to every tier. Literal queries are escaped; regex
+	// queries pass through once validated. Null when empty or (in regex mode)
+	// the pattern can't compile, which effects treat as "no matches".
+	const searchPattern = useMemo<string | null>(() => {
+		if (!searchQuery || isLineMode) return null;
+		if (!useRegex) return escapeRegExp(searchQuery);
+		return compileSearchRegex(searchQuery, { regex: true }).regex ? searchQuery : null;
+	}, [searchQuery, useRegex, isLineMode]);
+
+	const regexError = useMemo<string | null>(() => {
+		if (!useRegex || !searchQuery) return null;
+		return compileSearchRegex(searchQuery, { regex: true }).error;
+	}, [useRegex, searchQuery]);
 
 	const matchElementsRef = useRef<HTMLElement[]>([]);
 	const searchInputRef = useRef<HTMLInputElement>(null);
@@ -197,6 +271,8 @@ export function useFilePreviewSearch({
 	// Highlight search matches in syntax-highlighted code
 	useEffect(() => {
 		if (
+			isLineMode ||
+			!searchPattern ||
 			!searchQuery.trim() ||
 			!codeContainerRef.current ||
 			isMarkdown ||
@@ -226,9 +302,7 @@ export function useFilePreviewSearch({
 			textNodes.push(node as Text);
 		}
 
-		// Escape regex special characters
-		const escapedQuery = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-		const regex = new RegExp(escapedQuery, 'gi');
+		const regex = new RegExp(searchPattern, 'gi');
 		const matchElements: HTMLElement[] = [];
 
 		// Highlight matches using safe DOM methods
@@ -295,6 +369,8 @@ export function useFilePreviewSearch({
 		};
 	}, [
 		searchQuery,
+		searchPattern,
+		isLineMode,
 		fileContent,
 		displayedContentLength,
 		isMarkdown,
@@ -333,7 +409,14 @@ export function useFilePreviewSearch({
 	useEffect(() => {
 		const adapterActive = Boolean(searchAdapter);
 		const isTextLike = isMarkdown || isReadableText || adapterActive;
-		if (!isTextLike || markdownEditMode || !searchQuery.trim() || !markdownContainerRef.current) {
+		if (
+			!isTextLike ||
+			markdownEditMode ||
+			isLineMode ||
+			!searchPattern ||
+			!searchQuery.trim() ||
+			!markdownContainerRef.current
+		) {
 			if (isTextLike && !markdownEditMode) {
 				setTotalMatches(0);
 				setCurrentMatchIndex(-1);
@@ -346,7 +429,6 @@ export function useFilePreviewSearch({
 		}
 
 		const container = markdownContainerRef.current;
-		const escapedQuery = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 		// Adapter is the authoritative source for Fast/Giant tiers. Called
 		// exactly once per query change (the whole point of splitting effects).
@@ -354,8 +436,10 @@ export function useFilePreviewSearch({
 		// path stays correct even on the rare browser that lacks the API; the
 		// applyAllHighlight/applyCurrentHighlight helpers below are no-ops in
 		// that case.
-		const adapterHits = searchAdapter ? searchAdapter.findHits(searchQuery) : null;
-		const ranges = walkContainerForRanges(container, escapedQuery);
+		const adapterHits = searchAdapter
+			? searchAdapter.findHits(searchQuery, { regex: useRegex })
+			: null;
+		const ranges = walkContainerForRanges(container, searchPattern);
 		hitsRef.current = adapterHits;
 		rangesRef.current = ranges;
 
@@ -374,6 +458,9 @@ export function useFilePreviewSearch({
 		};
 	}, [
 		searchQuery,
+		searchPattern,
+		isLineMode,
+		useRegex,
 		fileContent,
 		isMarkdown,
 		isReadableText,
@@ -400,7 +487,7 @@ export function useFilePreviewSearch({
 
 		const container = markdownContainerRef.current;
 		const hits = hitsRef.current;
-		const escapedQuery = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		const pattern = searchPattern ?? '';
 
 		if (hits && searchAdapter) {
 			// Out-of-range guard. When a new query reduces the hit count, the
@@ -423,7 +510,7 @@ export function useFilePreviewSearch({
 			searchAdapter.scrollToMatch(hits[safeIdx]);
 			const raf = requestAnimationFrame(() => {
 				if (!markdownContainerRef.current) return;
-				const ranges = walkContainerForRanges(markdownContainerRef.current, escapedQuery);
+				const ranges = walkContainerForRanges(markdownContainerRef.current, pattern);
 				rangesRef.current = ranges;
 				applyAllHighlight(ranges);
 				// First visible range after scrollToMatch is the most likely
@@ -456,7 +543,7 @@ export function useFilePreviewSearch({
 			// Old-browser fallback path (count from raw string, no DOM ranges):
 			// walk the DOM for the Nth match and scroll its parent into view.
 			const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-			const searchRegex = new RegExp(escapedQuery, 'gi');
+			const searchRegex = new RegExp(pattern, 'gi');
 			let matchCount = 0;
 			let textNode: Node | null;
 			while ((textNode = walker.nextNode())) {
@@ -482,44 +569,52 @@ export function useFilePreviewSearch({
 		markdownEditMode,
 		searchAdapter,
 		searchQuery,
+		searchPattern,
 		markdownContainerRef,
 		contentRef,
 	]);
 
-	// Handle search in edit mode - count matches, paint highlights, and update state
-	// Note: We separate counting from selection to avoid stealing focus while typing
+	// Handle search in edit mode — count matches, push CM6 decorations, and
+	// reveal the active match. Counting and decoration painting are owned
+	// here; the CodeMirror editor renders the highlight via its decoration
+	// pipeline (no DOM walking, no CSS Custom Highlight overlay).
 	useEffect(() => {
-		const clearEditHighlights = () => {
-			if ('highlights' in CSS) {
-				(CSS as any).highlights.delete('search-results');
-				(CSS as any).highlights.delete('search-current');
-			}
+		const editor = editorRef.current;
+		const clearEditDecos = () => {
+			editor?.setSearchMatches([], -1);
 		};
 
-		if (!isEditableText || !markdownEditMode || !searchQuery.trim() || !textareaRef.current) {
+		if (
+			!isEditableText ||
+			!markdownEditMode ||
+			isLineMode ||
+			!searchPattern ||
+			!searchQuery.trim() ||
+			!editor
+		) {
 			if (isEditableText && markdownEditMode) {
 				setTotalMatches(0);
 				setCurrentMatchIndex(-1);
-				clearEditHighlights();
+				clearEditDecos();
 			}
 			return;
 		}
 
 		const content = editContent;
-		const escapedQuery = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-		const regex = new RegExp(escapedQuery, 'gi');
+		const regex = new RegExp(searchPattern, 'gi');
 
-		// Find all matches and their positions
-		const matches: { start: number; end: number }[] = [];
+		const matches: { from: number; to: number }[] = [];
 		let matchResult;
 		while ((matchResult = regex.exec(content)) !== null) {
-			matches.push({ start: matchResult.index, end: matchResult.index + matchResult[0].length });
+			matches.push({ from: matchResult.index, to: matchResult.index + matchResult[0].length });
+			// Guard against zero-length matches infinite-looping.
+			if (matchResult.index === regex.lastIndex) regex.lastIndex++;
 		}
 
 		setTotalMatches(matches.length);
 		if (matches.length === 0) {
 			setCurrentMatchIndex(-1);
-			clearEditHighlights();
+			clearEditDecos();
 			return;
 		}
 
@@ -530,101 +625,91 @@ export function useFilePreviewSearch({
 			return;
 		}
 
-		// Paint highlights on the syntax-highlighted overlay. The textarea has
-		// color:transparent so its native selection is invisible — instead we
-		// apply the CSS Custom Highlight API on the overlay's text nodes, which
-		// show through the transparent textarea sitting on top.
-		if ('highlights' in CSS && textareaRef.current.parentElement) {
-			const container = textareaRef.current.parentElement;
-			const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
-				acceptNode: (node) =>
-					(node as Text).parentElement?.tagName === 'TEXTAREA'
-						? NodeFilter.FILTER_REJECT
-						: NodeFilter.FILTER_ACCEPT,
-			});
-			const textNodes: { node: Text; start: number; end: number }[] = [];
-			let pos = 0;
-			let textNode: Node | null;
-			while ((textNode = walker.nextNode())) {
-				const text = (textNode as Text).textContent || '';
-				textNodes.push({ node: textNode as Text, start: pos, end: pos + text.length });
-				pos += text.length;
-			}
+		// Push the match decorations into the editor — paints all matches and
+		// emphasizes the active one. Re-runs on every dep change so typing into
+		// the query updates highlights in real time.
+		editor.setSearchMatches(matches, validIndex);
 
-			const findContainingNode = (offset: number, isRangeStart: boolean) => {
-				for (const tn of textNodes) {
-					if (isRangeStart) {
-						if (offset >= tn.start && offset < tn.end) return tn;
-					} else if (offset > tn.start && offset <= tn.end) {
-						return tn;
-					}
-				}
-				if (textNodes.length > 0 && offset === textNodes[textNodes.length - 1].end) {
-					return textNodes[textNodes.length - 1];
-				}
-				return null;
-			};
-
-			const allRanges: Range[] = [];
-			for (const m of matches) {
-				const startTn = findContainingNode(m.start, true);
-				const endTn = findContainingNode(m.end, false);
-				if (!startTn || !endTn) continue;
-				try {
-					const range = document.createRange();
-					range.setStart(startTn.node, m.start - startTn.start);
-					range.setEnd(endTn.node, m.end - endTn.start);
-					allRanges.push(range);
-				} catch {
-					// Range creation can fail if offsets fall outside the text node
-					// (e.g. overlay text out of sync mid-render). Skip this match.
-				}
-			}
-
-			if (allRanges.length > 0) {
-				(CSS as any).highlights.set('search-results', new (window as any).Highlight(...allRanges));
-				const currentRange = allRanges[validIndex] ?? allRanges[0];
-				(CSS as any).highlights.set('search-current', new (window as any).Highlight(currentRange));
-			} else {
-				clearEditHighlights();
-			}
-		}
-
-		// Only scroll and select when navigating between matches (Enter/Shift+Enter)
-		// or when search query is complete (user stopped typing)
-		// We detect navigation by checking if currentMatchIndex changed without searchQuery changing
+		// Reveal the active match only when navigating (Enter / Shift+Enter).
+		// We detect navigation by an unchanged query with a changed index — that
+		// way typing doesn't yank scroll position or focus.
 		const isNavigating =
 			prevSearchQueryRef.current === searchQuery && prevMatchIndexRef.current !== currentMatchIndex;
 		prevSearchQueryRef.current = searchQuery;
 		prevMatchIndexRef.current = currentMatchIndex;
 
-		// Select the current match in the textarea only when navigating
 		if (isNavigating) {
 			const currentMatch = matches[validIndex];
 			if (currentMatch) {
-				const textarea = textareaRef.current;
-				// Briefly focus the textarea to set selection, then return focus to the
-				// search input so the user can keep typing/navigating without the cursor
-				// jumping into the editor (matches browser Cmd+F behavior).
-				textarea.focus();
-				textarea.setSelectionRange(currentMatch.start, currentMatch.end);
-
-				// Scroll to make the selection visible
-				// Calculate approximate line number and scroll to it
-				const textBeforeMatch = content.substring(0, currentMatch.start);
-				const lineNumber = textBeforeMatch.split('\n').length;
-				const lineHeight = parseInt(getComputedStyle(textarea).lineHeight) || 24;
-				const targetScroll = (lineNumber - 5) * lineHeight; // Leave some lines above
-				textarea.scrollTop = Math.max(0, targetScroll);
-
+				editor.setSelection(currentMatch.from, currentMatch.to, true);
+				// Return focus to the search input so the user can keep typing /
+				// navigating without the caret jumping into the editor.
 				searchInputRef.current?.focus();
 			}
 		}
 
 		return () => {
-			clearEditHighlights();
+			clearEditDecos();
 		};
-	}, [searchQuery, currentMatchIndex, isEditableText, markdownEditMode, editContent]);
+	}, [
+		searchQuery,
+		searchPattern,
+		isLineMode,
+		currentMatchIndex,
+		isEditableText,
+		markdownEditMode,
+		editContent,
+		editorRef,
+	]);
+
+	// Line-number search: parse the query as a 1-based line and jump the active
+	// tier's viewport there. Lives in its own effect so typing a number scrolls
+	// live (no Enter needed) and so the text-match effects above can early-return
+	// in line mode without entangling their highlight bookkeeping.
+	useEffect(() => {
+		if (!isLineMode) return;
+		const line = parseLineQuery(searchQuery);
+		if (line == null) return;
+
+		// Edit mode (CM6): select + reveal the line.
+		if (isEditableText && markdownEditMode && editorRef.current) {
+			editorRef.current.scrollToLine(line, { select: true });
+			return;
+		}
+
+		// Fast / Giant tiers expose a line-aware scroll on the adapter.
+		if (searchAdapter?.scrollToLine) {
+			searchAdapter.scrollToLine(line);
+			return;
+		}
+
+		// Rich tier renders the full source (with a line-number gutter) as DOM.
+		const codeContainer = codeContainerRef.current;
+		if (!codeContainer) return;
+		const gutter = codeContainer.querySelectorAll<HTMLElement>(
+			'.react-syntax-highlighter-line-number'
+		);
+		const target = gutter[line - 1];
+		if (target) {
+			target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+			return;
+		}
+		// Fallback for renderers without numbered gutter spans: map the line to a
+		// text offset and scroll its row to the top.
+		if (contentRef.current && fileContent) {
+			domScrollToLine(contentRef.current, codeContainer, fileContent, line);
+		}
+	}, [
+		isLineMode,
+		searchQuery,
+		isEditableText,
+		markdownEditMode,
+		editorRef,
+		searchAdapter,
+		codeContainerRef,
+		contentRef,
+		fileContent,
+	]);
 
 	// Navigate to next search match
 	const goToNextMatch = useCallback(() => {
@@ -695,5 +780,9 @@ export function useFilePreviewSearch({
 		goToPrevMatch,
 		searchInputRef,
 		setMatchCount,
+		searchKind: effectiveKind,
+		setSearchKind,
+		cycleSearchKind,
+		regexError,
 	};
 }

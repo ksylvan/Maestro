@@ -194,6 +194,9 @@ export function registerGroupChatHandlers(deps: GroupChatHandlerDependencies): v
 					customPath?: string;
 					customArgs?: string;
 					customEnvVars?: Record<string, string>;
+					enableMaestroP?: boolean;
+					maestroPMode?: 'interactive' | 'dynamic';
+					maestroPPath?: string;
 				}
 			): Promise<GroupChat> => {
 				logger.info(`Creating group chat: ${name}`, LOG_CONTEXT, {
@@ -309,6 +312,9 @@ export function registerGroupChatHandlers(deps: GroupChatHandlerDependencies): v
 						customPath?: string;
 						customArgs?: string;
 						customEnvVars?: Record<string, string>;
+						enableMaestroP?: boolean;
+						maestroPMode?: 'interactive' | 'dynamic';
+						maestroPPath?: string;
 					};
 				}
 			): Promise<GroupChat> => {
@@ -671,10 +677,28 @@ export function registerGroupChatHandlers(deps: GroupChatHandlerDependencies): v
 		'groupChat:removeParticipant',
 		withIpcErrorLogging(
 			handlerOpts('removeParticipant'),
-			async (id: string, name: string): Promise<void> => {
+			async (id: string, name: string): Promise<GroupChat | null> => {
 				const processManager = getProcessManager();
-				await removeParticipant(id, name, processManager ?? undefined);
-				logger.info(`Removed participant ${name} from ${id}`, LOG_CONTEXT);
+				const removal = await removeParticipant(id, name, processManager ?? undefined);
+				if (removal) {
+					if (removal.removed) {
+						groupChatEmitters.emitParticipantsChanged?.(id, removal.chat.participants);
+					}
+					logger.info(
+						removal.removed
+							? `Removed participant ${name} from ${id}`
+							: `Remove participant no-op for ${name} in ${id}`,
+						LOG_CONTEXT,
+						{
+							participantCount: removal.chat.participants.length,
+						}
+					);
+				} else {
+					logger.info(`Remove participant skipped for missing group chat ${id}`, LOG_CONTEXT, {
+						participant: name,
+					});
+				}
+				return removal?.chat ?? null;
 			}
 		)
 	);

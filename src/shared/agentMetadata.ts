@@ -22,7 +22,10 @@ export const AGENT_DISPLAY_NAMES: Record<AgentId, string> = {
 	'qwen3-coder': 'Qwen3 Coder',
 	opencode: 'OpenCode',
 	'factory-droid': 'Factory Droid',
+	hermes: 'Hermes',
+	pi: 'Pi',
 	'copilot-cli': 'Copilot-CLI',
+	omp: 'Oh My Pi',
 };
 
 /**
@@ -71,7 +74,11 @@ export function getReadOnlyModeTooltip(agentId: AgentId | string): string {
 export const BETA_AGENTS: ReadonlySet<AgentId> = new Set<AgentId>([
 	'opencode',
 	'factory-droid',
+	'hermes',
+	'pi',
 	'copilot-cli',
+	'qwen3-coder',
+	'omp',
 ]);
 
 /**

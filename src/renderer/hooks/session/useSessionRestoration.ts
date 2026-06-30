@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { Session, SessionState, ToolType, LogEntry } from '../../types';
+import { isLimitError } from '../../../shared/types';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useGroupChatStore } from '../../stores/groupChatStore';
 import { gitService } from '../../services/git';
@@ -391,15 +392,25 @@ export function useSessionRestoration(): SessionRestorationReturn {
 				...tab,
 				state: 'idle' as const,
 				thinkingStartTime: undefined,
+				// Clear any stranded naming-in-flight flag. The promise that would
+				// reset it lives in the renderer and cannot survive a reload/restart,
+				// so a tab whose generateTabName() call was interrupted would otherwise
+				// stay isGeneratingName:true forever, permanently blocking the
+				// namingNotInFlight guard in useInputProcessing from ever retrying.
+				isGeneratingName: false,
 			}));
 
-			// Reset terminal tab runtime state - PTY processes don't survive app restart
-			const resetTerminalTabs = (correctedSession.terminalTabs || []).map((tab) => ({
-				...tab,
-				pid: 0,
-				state: 'idle' as const,
-				exitCode: undefined,
-			}));
+			// Terminal tabs don't persist across app restart unless they carry a
+			// startup command - those are intentionally durable so their command
+			// re-runs on relaunch. Drop the rest, then reset PTY runtime state.
+			const resetTerminalTabs = (correctedSession.terminalTabs || [])
+				.filter((tab) => (tab.startupCommand ?? '').trim() !== '')
+				.map((tab) => ({
+					...tab,
+					pid: 0,
+					state: 'idle' as const,
+					exitCode: undefined,
+				}));
 			const resetBrowserTabs = (correctedSession.browserTabs || []).map((tab) =>
 				rehydrateBrowserTab(tab, correctedSession.id)
 			);
@@ -447,11 +458,26 @@ export function useSessionRestoration(): SessionRestorationReturn {
 			};
 			const repairedUnifiedTabOrder = getRepairedUnifiedTabOrder(restoredSession);
 
+			// Auto-Resume On Limit: a limit pause is the one error state persistence
+			// keeps (see prepareSessionForPersistence). Restore it as a live pause so
+			// the Phase 3 coordinator's startup tick re-finds the session and resumes
+			// the agent once its provider window reopens. IMPORTANT: only the agent
+			// session + its persisted executionQueue resume - the in-memory Auto Run /
+			// goal-run orchestration loop does NOT survive a restart, so on a cold
+			// start the coordinator drives these through the standard queue-drain
+			// resume path (the agent continues from its own transcript via --resume).
+			// Every other error stays cleared below: a stale auth/crash error must not
+			// resurrect a session into 'error' on launch.
+			const isLimitPause =
+				!!correctedSession.agentError &&
+				correctedSession.agentErrorPaused === true &&
+				isLimitError(correctedSession.agentError);
+
 			return {
 				...restoredSession,
 				aiPid: 0,
 				terminalPid: 0,
-				state: 'idle' as SessionState,
+				state: isLimitPause ? ('error' as SessionState) : ('idle' as SessionState),
 				busySource: undefined,
 				thinkingStartTime: undefined,
 				currentCycleTokens: undefined,
@@ -468,8 +494,11 @@ export function useSessionRestoration(): SessionRestorationReturn {
 				shellLogs: correctedSession.shellLogs,
 				executionQueue: correctedSession.executionQueue || [],
 				activeTimeMs: correctedSession.activeTimeMs || 0,
-				agentError: undefined,
-				agentErrorPaused: false,
+				// Keep a limit pause live so auto-resume re-attaches; clear anything else.
+				// `agentErrorTabId` rides through the spread above (persistence only keeps
+				// it for limit pauses, so it's already undefined for everything else).
+				agentError: isLimitPause ? correctedSession.agentError : undefined,
+				agentErrorPaused: isLimitPause ? true : false,
 				closedTabHistory: [],
 				unifiedTabOrder: repairedUnifiedTabOrder,
 			};
