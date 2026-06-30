@@ -108,8 +108,12 @@ export function registerCoworkingHandlers(deps: CoworkingHandlerDependencies): v
 		'coworking:syncSessionBrowsers',
 		withIpcErrorLogging(
 			handlerOpts('syncSessionBrowsers'),
-			async (sessionId: string, inputs: CoworkingBrowserInput[]): Promise<void> => {
-				coworkingRegistry.syncSessionBrowsers(sessionId, inputs);
+			async (
+				sessionId: string,
+				inputs: CoworkingBrowserInput[],
+				interactionEnabled: boolean
+			): Promise<void> => {
+				coworkingRegistry.syncSessionBrowsers(sessionId, inputs, interactionEnabled);
 			}
 		)
 	);

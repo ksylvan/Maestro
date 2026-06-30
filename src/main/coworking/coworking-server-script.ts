@@ -125,7 +125,133 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'browser_navigate',
+    description:
+      'Navigate a browser tab to a URL (or search query), scoped to your own Maestro session. ' +
+      'Requires browser interaction to be enabled for this agent.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Browser tab id, e.g. "browser:2".' },
+        url: { type: 'string', description: 'URL or search text to load.' },
+      },
+      required: ['id', 'url'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'browser_back',
+    description:
+      'Navigate a browser tab back in history (scoped to your own session; requires browser interaction enabled).',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'Browser tab id, e.g. "browser:2".' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'browser_forward',
+    description:
+      'Navigate a browser tab forward in history (requires browser interaction enabled).',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'Browser tab id, e.g. "browser:2".' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'browser_reload',
+    description: 'Reload a browser tab (requires browser interaction enabled).',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'Browser tab id, e.g. "browser:2".' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'browser_stop',
+    description: 'Stop loading a browser tab (requires browser interaction enabled).',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'Browser tab id, e.g. "browser:2".' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'browser_click',
+    description:
+      'Click the first element matching a CSS selector in a browser tab (requires browser interaction enabled).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Browser tab id, e.g. "browser:2".' },
+        selector: { type: 'string', description: 'CSS selector of the element to click.' },
+      },
+      required: ['id', 'selector'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'browser_type',
+    description:
+      'Type text into the first element matching a CSS selector (sets value, fires input/change events). Requires browser interaction enabled.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Browser tab id, e.g. "browser:2".' },
+        selector: { type: 'string', description: 'CSS selector of the input/textarea.' },
+        text: { type: 'string', description: 'Text to set as the value.' },
+      },
+      required: ['id', 'selector', 'text'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'browser_eval',
+    description:
+      'Evaluate JavaScript in a browser tab and return the result. Powerful; requires browser interaction enabled.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Browser tab id, e.g. "browser:2".' },
+        code: { type: 'string', description: 'JavaScript expression or statements to run in the page.' },
+      },
+      required: ['id', 'code'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'browser_screenshot',
+    description:
+      'Capture a PNG screenshot of a browser tab (returned as an image). Most reliable on the visible tab. Requires browser interaction enabled.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'Browser tab id, e.g. "browser:2".' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
 ];
+
+// Browser interaction tools all funnel through the bridge 'browserInteract'
+// method (gated by the per-agent permission in main). Each entry maps a tool
+// name to the BrowserOp it sends.
+const BROWSER_INTERACTION_OPS = {
+  browser_navigate: (a) => ({ kind: 'navigate', url: a.url }),
+  browser_back: () => ({ kind: 'back' }),
+  browser_forward: () => ({ kind: 'forward' }),
+  browser_reload: () => ({ kind: 'reload' }),
+  browser_stop: () => ({ kind: 'stop' }),
+  browser_click: (a) => ({ kind: 'click', selector: a.selector }),
+  browser_type: (a) => ({ kind: 'type', selector: a.selector, text: a.text }),
+  browser_eval: (a) => ({ kind: 'eval', code: a.code }),
+  browser_screenshot: () => ({ kind: 'screenshot' }),
+};
 
 // ---------- Bridge client (lazy, single shared connection) ----------
 let bridgeConn = null;
@@ -370,6 +496,18 @@ async function handleMessage(msg) {
         const text =
           header + '\n----- BEGIN PAGE -----\n' + (result && result.content) + '\n----- END PAGE -----';
         send(rpcResult(id, { content: [{ type: 'text', text }] }));
+        return;
+      }
+      if (Object.prototype.hasOwnProperty.call(BROWSER_INTERACTION_OPS, name)) {
+        const op = BROWSER_INTERACTION_OPS[name](args);
+        const result = await bridgeCall('browserInteract', { id: args.id, op: op });
+        if (op.kind === 'screenshot' && result && result.dataUrl) {
+          const base64 = String(result.dataUrl).replace(/^data:image\/[^;]+;base64,/, '');
+          send(rpcResult(id, { content: [{ type: 'image', data: base64, mimeType: 'image/png' }] }));
+          return;
+        }
+        const text = JSON.stringify(result, null, 2);
+        send(rpcResult(id, { content: [{ type: 'text', text: text }] }));
         return;
       }
       send(rpcError(id, -32601, 'Unknown tool: ' + String(name)));

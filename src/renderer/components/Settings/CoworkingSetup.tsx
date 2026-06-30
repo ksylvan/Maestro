@@ -16,6 +16,7 @@ import type { Theme } from '../../types';
 import { getAgentDisplayName } from '../../../shared/agentMetadata';
 import type { AgentId } from '../../../shared/agentIds';
 import { notifyToast } from '../../stores/notificationStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 
 interface CoworkingInstallStatus {
 	agentId: string;
@@ -32,6 +33,19 @@ export function CoworkingSetup({ theme }: CoworkingSetupProps) {
 	const [busyAgentId, setBusyAgentId] = useState<string | null>(null);
 	const [busyAll, setBusyAll] = useState(false);
 	const [loading, setLoading] = useState(true);
+	const browserInteractionAgents = useSettingsStore((s) => s.coworkingBrowserInteraction);
+	const setBrowserInteractionAgents = useSettingsStore((s) => s.setCoworkingBrowserInteraction);
+	const toggleInteraction = useCallback(
+		(agentId: string) => {
+			const isEnabled = browserInteractionAgents.includes(agentId);
+			setBrowserInteractionAgents(
+				isEnabled
+					? browserInteractionAgents.filter((a) => a !== agentId)
+					: [...browserInteractionAgents, agentId]
+			);
+		},
+		[browserInteractionAgents, setBrowserInteractionAgents]
+	);
 
 	const refresh = useCallback(async () => {
 		// Defensive: in test harnesses (or older preload bundles) the namespace
@@ -159,7 +173,8 @@ export function CoworkingSetup({ theme }: CoworkingSetupProps) {
 					</div>
 					<div className="text-xs mt-0.5" style={{ color: theme.colors.textDim }}>
 						Install the Maestro coworking MCP server into each agent's user-level config so the
-						agent can read terminal scrollback on demand.
+						agent can read terminal scrollback and browser tabs on demand. Enable "Interaction" per
+						agent to also let it drive browser tabs (navigate, click, type, eval, screenshot).
 					</div>
 				</div>
 				<button
@@ -210,28 +225,55 @@ export function CoworkingSetup({ theme }: CoworkingSetupProps) {
 									</div>
 								</div>
 							</div>
-							{s.installed ? (
-								<button
-									onClick={() => handleUninstall(s.agentId)}
-									disabled={isBusy}
-									className="text-xs px-2.5 py-1 rounded transition-colors disabled:opacity-40 hover:bg-white/10"
-									style={{ color: theme.colors.error, borderColor: theme.colors.error }}
-								>
-									{isBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Uninstall'}
-								</button>
-							) : (
-								<button
-									onClick={() => handleInstall(s.agentId)}
-									disabled={isBusy}
-									className="text-xs px-2.5 py-1 rounded transition-colors disabled:opacity-40"
-									style={{
-										backgroundColor: theme.colors.accent,
-										color: theme.colors.bgMain,
-									}}
-								>
-									{isBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Install'}
-								</button>
-							)}
+							<div className="flex items-center gap-2 shrink-0">
+								{s.installed && (
+									<button
+										onClick={() => toggleInteraction(s.agentId)}
+										title="Allow this agent to drive browser tabs: navigate, click, type, eval, screenshot. Off by default; read tools work without this."
+										className="text-[10px] px-2 py-1 rounded transition-colors"
+										style={{
+											backgroundColor: browserInteractionAgents.includes(s.agentId)
+												? `${theme.colors.accent}22`
+												: 'transparent',
+											color: browserInteractionAgents.includes(s.agentId)
+												? theme.colors.accent
+												: theme.colors.textDim,
+											border: `1px solid ${
+												browserInteractionAgents.includes(s.agentId)
+													? theme.colors.accent
+													: theme.colors.border
+											}`,
+										}}
+										aria-pressed={browserInteractionAgents.includes(s.agentId)}
+									>
+										{browserInteractionAgents.includes(s.agentId)
+											? 'Interaction: on'
+											: 'Interaction: off'}
+									</button>
+								)}
+								{s.installed ? (
+									<button
+										onClick={() => handleUninstall(s.agentId)}
+										disabled={isBusy}
+										className="text-xs px-2.5 py-1 rounded transition-colors disabled:opacity-40 hover:bg-white/10"
+										style={{ color: theme.colors.error, borderColor: theme.colors.error }}
+									>
+										{isBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Uninstall'}
+									</button>
+								) : (
+									<button
+										onClick={() => handleInstall(s.agentId)}
+										disabled={isBusy}
+										className="text-xs px-2.5 py-1 rounded transition-colors disabled:opacity-40"
+										style={{
+											backgroundColor: theme.colors.accent,
+											color: theme.colors.bgMain,
+										}}
+									>
+										{isBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Install'}
+									</button>
+								)}
+							</div>
 						</div>
 					);
 				})}

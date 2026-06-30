@@ -36,11 +36,14 @@ import * as path from 'path';
 import { logger } from '../utils/logger';
 import { COWORKING_SOCKET_ENV_VAR } from './coworking-types';
 import type {
+	BrowserOp,
 	CoworkingBridgeRequest,
 	CoworkingBridgeResponse,
 	CoworkingBridgeMethod,
 } from './coworking-types';
+import { coworkingRegistry } from './coworking-registry';
 import {
+	browserInteract,
 	getBrowserUrl,
 	listBrowsers,
 	listTerminals,
@@ -175,6 +178,47 @@ async function handleLine(conn: net.Socket, line: string): Promise<void> {
 	conn.write(JSON.stringify(resp) + '\n');
 }
 
+/** Validate an untyped interaction op from the MCP JSON into a BrowserOp. Returns
+ *  null for unknown kinds or missing required fields (caller maps to -32602).
+ *  `read` is intentionally rejected here - reads go through `readBrowser`. */
+function validateInteractionOp(raw: unknown): BrowserOp | null {
+	if (typeof raw !== 'object' || raw === null) return null;
+	if (!('kind' in raw) || typeof raw.kind !== 'string') return null;
+	switch (raw.kind) {
+		case 'back':
+			return { kind: 'back' };
+		case 'forward':
+			return { kind: 'forward' };
+		case 'reload':
+			return { kind: 'reload' };
+		case 'stop':
+			return { kind: 'stop' };
+		case 'screenshot':
+			return { kind: 'screenshot' };
+		case 'navigate':
+			return 'url' in raw && typeof raw.url === 'string'
+				? { kind: 'navigate', url: raw.url }
+				: null;
+		case 'click':
+			return 'selector' in raw && typeof raw.selector === 'string'
+				? { kind: 'click', selector: raw.selector }
+				: null;
+		case 'type':
+			return 'selector' in raw &&
+				'text' in raw &&
+				typeof raw.selector === 'string' &&
+				typeof raw.text === 'string'
+				? { kind: 'type', selector: raw.selector, text: raw.text }
+				: null;
+		case 'eval':
+			return 'code' in raw && typeof raw.code === 'string'
+				? { kind: 'eval', code: raw.code }
+				: null;
+		default:
+			return null;
+	}
+}
+
 async function dispatch(
 	conn: net.Socket,
 	req: CoworkingBridgeRequest
@@ -261,18 +305,14 @@ async function dispatch(
 			return { id: req.id, result: listBrowsers(sessionId) };
 		}
 		if (method === 'getBrowserUrl') {
-			const params = (req.params ?? {}) as { id?: string };
+			const params: Record<string, unknown> = req.params ?? {};
 			if (typeof params.id !== 'string') {
 				return { id: req.id, error: { code: -32602, message: '`id` is required' } };
 			}
 			return { id: req.id, result: getBrowserUrl(sessionId, { id: params.id }) };
 		}
 		if (method === 'readBrowser') {
-			const params = (req.params ?? {}) as {
-				id?: string;
-				format?: 'text' | 'innerText' | 'html';
-				maxChars?: number;
-			};
+			const params: Record<string, unknown> = req.params ?? {};
 			if (typeof params.id !== 'string') {
 				return { id: req.id, error: { code: -32602, message: '`id` is required' } };
 			}
@@ -306,6 +346,28 @@ async function dispatch(
 				format: params.format,
 				maxChars: params.maxChars,
 			});
+			return { id: req.id, result };
+		}
+		if (method === 'browserInteract') {
+			if (!coworkingRegistry.isBrowserInteractionEnabled(sessionId)) {
+				return {
+					id: req.id,
+					error: {
+						code: -32002,
+						message:
+							'coworking bridge: browser interaction is not enabled for this agent (enable it in Settings -> Encore Features -> Coworking)',
+					},
+				};
+			}
+			const params: Record<string, unknown> = req.params ?? {};
+			if (typeof params.id !== 'string') {
+				return { id: req.id, error: { code: -32602, message: '`id` is required' } };
+			}
+			const op = validateInteractionOp(params.op);
+			if (!op) {
+				return { id: req.id, error: { code: -32602, message: 'invalid or missing `op`' } };
+			}
+			const result = await browserInteract(sessionId, { id: params.id, op });
 			return { id: req.id, result };
 		}
 		return { id: req.id, error: { code: -32601, message: `Unknown method: ${String(method)}` } };

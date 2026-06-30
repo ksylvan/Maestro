@@ -374,6 +374,10 @@ export interface UseSettingsReturn {
 	symphonyRegistryUrls: string[];
 	setSymphonyRegistryUrls: (value: string[]) => void;
 
+	// Coworking browser interaction (agent ids allowed to use browser tools)
+	coworkingBrowserInteraction: string[];
+	setCoworkingBrowserInteraction: (value: string[]) => void;
+
 	// Forced Parallel Execution
 	forcedParallelExecution: boolean;
 	setForcedParallelExecution: (value: boolean) => void;

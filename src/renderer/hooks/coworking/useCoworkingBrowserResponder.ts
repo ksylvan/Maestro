@@ -40,11 +40,60 @@ async function applyBrowserOp(
 			const meta = handle.getMeta();
 			return { ok: true, content, url: meta.url, title: meta.title };
 		}
+		case 'navigate': {
+			const url = handle.navigate(op.url);
+			return { ok: true, url, content: `navigated to ${url}` };
+		}
+		case 'back':
+			handle.goBack();
+			return { ok: true, content: 'went back' };
+		case 'forward':
+			handle.goForward();
+			return { ok: true, content: 'went forward' };
+		case 'reload':
+			handle.reload();
+			return { ok: true, content: 'reloaded' };
+		case 'stop':
+			handle.stop();
+			return { ok: true, content: 'stopped loading' };
+		case 'click': {
+			const res = await handle.executeJavaScript(
+				`(function(){var el=document.querySelector(${JSON.stringify(op.selector)});if(!el)return 'notfound';el.click();return 'ok';})()`
+			);
+			if (res === 'notfound') {
+				return { ok: false, content: `No element matches selector: ${op.selector}` };
+			}
+			return { ok: true, content: `clicked ${op.selector}` };
+		}
+		case 'type': {
+			const res = await handle.executeJavaScript(
+				`(function(){var el=document.querySelector(${JSON.stringify(op.selector)});if(!el)return 'notfound';if(el.focus)el.focus();if('value' in el){el.value=${JSON.stringify(op.text)};el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));}else{el.textContent=${JSON.stringify(op.text)};}return 'ok';})()`
+			);
+			if (res === 'notfound') {
+				return { ok: false, content: `No element matches selector: ${op.selector}` };
+			}
+			return { ok: true, content: `typed into ${op.selector}` };
+		}
+		case 'eval': {
+			const res = await handle.executeJavaScript(op.code);
+			let text: string;
+			if (typeof res === 'string') {
+				text = res;
+			} else {
+				try {
+					text = JSON.stringify(res) ?? String(res);
+				} catch {
+					text = String(res);
+				}
+			}
+			return { ok: true, content: text };
+		}
+		case 'screenshot': {
+			const dataUrl = await handle.capturePage();
+			return { ok: true, dataUrl, content: 'captured screenshot' };
+		}
 		default:
-			// Interaction ops (navigate / click / type / eval / back / forward / ...)
-			// are wired in a later phase behind the browser-interaction permission.
-			// Until then the bridge never dispatches them, so this stays unreachable.
-			return { ok: false, content: `Unsupported browser op: ${op.kind}` };
+			return { ok: false, content: 'Unsupported browser op' };
 	}
 }
 

@@ -3785,7 +3785,8 @@ interface MaestroAPI {
 				canGoBack: boolean;
 				canGoForward: boolean;
 				isLoading: boolean;
-			}>
+			}>,
+			interactionEnabled: boolean
 		) => Promise<void>;
 		onRequestBrowserOp: (
 			callback: (

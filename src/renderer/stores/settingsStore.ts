@@ -408,6 +408,7 @@ export interface SettingsStoreState {
 	userMessageAlignment: 'left' | 'right';
 	encoreFeatures: EncoreFeatureFlags;
 	symphonyRegistryUrls: string[];
+	coworkingBrowserInteraction: string[];
 	directorNotesSettings: DirectorNotesSettings;
 	wakatimeApiKey: string;
 	wakatimeEnabled: boolean;
@@ -553,6 +554,7 @@ export interface SettingsStoreActions {
 	setUserMessageAlignment: (value: 'left' | 'right') => void;
 	setEncoreFeatures: (value: EncoreFeatureFlags) => void;
 	setSymphonyRegistryUrls: (value: string[]) => void;
+	setCoworkingBrowserInteraction: (value: string[]) => void;
 	setDirectorNotesSettings: (value: DirectorNotesSettings) => void;
 	setWakatimeApiKey: (value: string) => void;
 	setWakatimeEnabled: (value: boolean) => void;
@@ -777,6 +779,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		userMessageAlignment: 'right',
 		encoreFeatures: DEFAULT_ENCORE_FEATURES,
 		symphonyRegistryUrls: [],
+		coworkingBrowserInteraction: [],
 		directorNotesSettings: DEFAULT_DIRECTOR_NOTES_SETTINGS,
 		wakatimeApiKey: '',
 		wakatimeEnabled: false,
@@ -1411,6 +1414,11 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		setSymphonyRegistryUrls: (value) => {
 			set({ symphonyRegistryUrls: value });
 			window.maestro.settings.set('symphonyRegistryUrls', value);
+		},
+
+		setCoworkingBrowserInteraction: (value) => {
+			set({ coworkingBrowserInteraction: value });
+			window.maestro.settings.set('coworkingBrowserInteraction', value);
 		},
 
 		setDirectorNotesSettings: (value) => {
@@ -2764,6 +2772,13 @@ export async function loadAllSettings(): Promise<void> {
 		// Symphony registry URLs (additional user-configured registries)
 		if (Array.isArray(allSettings['symphonyRegistryUrls'])) {
 			patch.symphonyRegistryUrls = (allSettings['symphonyRegistryUrls'] as unknown[])
+				.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+				.map((v) => v.trim());
+		}
+
+		// Coworking browser interaction (agent ids allowed to use browser tools)
+		if (Array.isArray(allSettings['coworkingBrowserInteraction'])) {
+			patch.coworkingBrowserInteraction = (allSettings['coworkingBrowserInteraction'] as unknown[])
 				.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
 				.map((v) => v.trim());
 		}

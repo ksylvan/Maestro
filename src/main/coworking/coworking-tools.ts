@@ -167,3 +167,25 @@ export async function readBrowser(
 		totalChars,
 	};
 }
+
+/** Run a state-changing browser op against a tab in the caller's session via the
+ *  live webview. The per-agent interaction permission is enforced by the bridge
+ *  before this is called; this fn only resolves the tab and delegates. */
+export async function browserInteract(
+	sessionId: string,
+	args: { id: string; op: BrowserOp },
+	deps: { registry?: CoworkingRegistry; resolver?: BrowserResolver } = {}
+): Promise<BrowserOpResult> {
+	const registry = deps.registry ?? coworkingRegistry;
+	const resolver = deps.resolver ?? browserResolver;
+	if (!resolver) {
+		throw new Error('coworking tools: browser resolver not configured');
+	}
+	const tabUuid = registry.resolveBrowserTabUuidForSession(sessionId, args.id);
+	if (!tabUuid) {
+		throw new Error(
+			`coworking tools: browser '${args.id}' not found in your session (it may have been closed)`
+		);
+	}
+	return resolver(sessionId, tabUuid, args.op);
+}

@@ -1032,6 +1032,13 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		default: { provider: 'claude-code', defaultLookbackDays: 7, defaultMode: 'rich' },
 		category: 'advanced',
 	},
+	coworkingBrowserInteraction: {
+		description:
+			'Agent ids (ToolType values) for which Coworking browser interaction tools are allowed. Empty array means all off.',
+		type: 'array',
+		default: [],
+		category: 'advanced',
+	},
 
 	// --- System ---
 	installationId: {

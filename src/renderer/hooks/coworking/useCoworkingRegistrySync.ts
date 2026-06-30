@@ -88,6 +88,8 @@ export function useCoworkingRegistrySync(): void {
 	// so this fires on add/remove/terminal-mutation for any session.
 	const sessions = useSessionStore((s) => s.sessions);
 	const enabled = useSettingsStore((s) => s.encoreFeatures?.coworking ?? false);
+	// Per-agent browser-interaction permission (list of allowed ToolType ids).
+	const browserInteractionAgents = useSettingsStore((s) => s.coworkingBrowserInteraction);
 	const lastPayloadRef = useRef<string>('');
 	const lastSessionIdsRef = useRef<Set<string>>(new Set());
 
@@ -136,6 +138,7 @@ export function useCoworkingRegistrySync(): void {
 		const perSessionBrowsers = sessions.map((s) => ({
 			sessionId: s.id,
 			inputs: buildBrowserInputs(s),
+			interactionEnabled: browserInteractionAgents.includes(s.toolType),
 		}));
 		const currentIds = new Set(perSession.map((p) => p.sessionId));
 
@@ -160,8 +163,8 @@ export function useCoworkingRegistrySync(): void {
 				for (const { sessionId, records } of perSession) {
 					await bridge.syncSessionTerminals(sessionId, records);
 				}
-				for (const { sessionId, inputs } of perSessionBrowsers) {
-					await bridge.syncSessionBrowsers(sessionId, inputs);
+				for (const { sessionId, inputs, interactionEnabled } of perSessionBrowsers) {
+					await bridge.syncSessionBrowsers(sessionId, inputs, interactionEnabled);
 				}
 			} catch (err) {
 				// Roll back the optimistic payload-cache write FIRST so the next effect
@@ -172,5 +175,5 @@ export function useCoworkingRegistrySync(): void {
 				reportIfUnexpected(err, 'sync');
 			}
 		})();
-	}, [enabled, sessions]);
+	}, [enabled, sessions, browserInteractionAgents]);
 }

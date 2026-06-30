@@ -34,6 +34,10 @@ class CoworkingRegistry {
 	private browserRecords = new Map<string, CoworkingBrowserRecord>();
 	private browserIdByTabUuid = new Map<string, Map<string, number>>();
 	private nextBrowserId = new Map<string, number>();
+	// Per-session browser-interaction permission, mirrored from the per-agent
+	// `coworkingBrowserInteraction` setting. Gates the state-changing browser
+	// tools in the bridge; read tools are always allowed.
+	private browserInteraction = new Map<string, boolean>();
 
 	/** Replace the full set of terminals for a given session. Used on initial sync from renderer. */
 	syncSessionTerminals(sessionId: string, records: CoworkingTerminalRecord[]): void {
@@ -78,6 +82,7 @@ class CoworkingRegistry {
 		}
 		this.browserIdByTabUuid.delete(sessionId);
 		this.nextBrowserId.delete(sessionId);
+		this.browserInteraction.delete(sessionId);
 		if (mutated) this.notify();
 	}
 
@@ -110,7 +115,12 @@ class CoworkingRegistry {
 	/** Replace the full set of browser tabs for a session, assigning stable
 	 *  `browser:N` ids to any tab not seen before. Ids are monotonic per session
 	 *  and never reused, so a closed tab's id is retired for the app's lifetime. */
-	syncSessionBrowsers(sessionId: string, inputs: CoworkingBrowserInput[]): void {
+	syncSessionBrowsers(
+		sessionId: string,
+		inputs: CoworkingBrowserInput[],
+		interactionEnabled: boolean
+	): void {
+		this.browserInteraction.set(sessionId, interactionEnabled);
 		let idMap = this.browserIdByTabUuid.get(sessionId);
 		if (!idMap) {
 			idMap = new Map();
@@ -176,12 +186,19 @@ class CoworkingRegistry {
 		return () => this.listeners.delete(listener);
 	}
 
+	/** Whether browser interaction tools are permitted for a session, mirrored
+	 *  from the per-agent setting via syncSessionBrowsers. Defaults to false. */
+	isBrowserInteractionEnabled(sessionId: string): boolean {
+		return this.browserInteraction.get(sessionId) ?? false;
+	}
+
 	/** Test-only: clear all state. */
 	reset(): void {
 		this.records.clear();
 		this.browserRecords.clear();
 		this.browserIdByTabUuid.clear();
 		this.nextBrowserId.clear();
+		this.browserInteraction.clear();
 		this.listeners.clear();
 	}
 

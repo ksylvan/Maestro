@@ -43,6 +43,7 @@ type ElectronWebviewElement = HTMLElement & {
 		options?: { forward?: boolean; findNext?: boolean; matchCase?: boolean }
 	) => number;
 	stopFindInPage: (action: 'clearSelection' | 'keepSelection' | 'activateSelection') => void;
+	capturePage?: () => Promise<{ toDataURL: () => string }>;
 };
 
 interface BrowserTabViewProps {
@@ -85,6 +86,19 @@ export interface BrowserTabViewHandle {
 	/** Current url + title of the loaded page (best-effort: webview-fresh with a
 	 *  fallback to the last-known tab metadata). */
 	getMeta(): { url: string; title: string };
+	/** Navigate the tab to a url/search target. Returns the resolved url; throws
+	 *  on an invalid target. Used by the coworking browser_navigate tool. */
+	navigate(url: string): string;
+	/** Reload the current page. */
+	reload(): void;
+	/** Stop the in-flight load. */
+	stop(): void;
+	/** Run JavaScript in the guest page and resolve its result. Used by the
+	 *  coworking browser_click / browser_type / browser_eval tools. */
+	executeJavaScript(code: string): Promise<unknown>;
+	/** Capture a PNG screenshot of the tab as a data URL. Throws when capture is
+	 *  unavailable (e.g. webview not ready). */
+	capturePage(): Promise<string>;
 }
 
 /** Promise-based delay (ES2024 Promise.withResolvers, ambient-typed for the
@@ -226,6 +240,33 @@ export const BrowserTabView = React.memo(
 					// guard does not immediately blur the webview back out.
 					userClickedRef.current = true;
 					webviewRef.current?.focus();
+				},
+				navigate(rawUrl: string): string {
+					const webview = webviewRef.current;
+					if (!webview) throw new Error('Browser webview is not available');
+					const result = resolveBrowserTabNavigationTarget(rawUrl);
+					if (result.kind === 'error') throw new Error(result.message);
+					if (webview.src !== result.url) webview.src = result.url;
+					return result.url;
+				},
+				reload(): void {
+					webviewRef.current?.reload();
+				},
+				stop(): void {
+					webviewRef.current?.stop();
+				},
+				async executeJavaScript(code: string): Promise<unknown> {
+					const webview = webviewRef.current;
+					if (!webview) throw new Error('Browser webview is not available');
+					return webview.executeJavaScript(code);
+				},
+				async capturePage(): Promise<string> {
+					const webview = webviewRef.current;
+					if (!webview || !webview.capturePage) {
+						throw new Error('Screenshot is not available for this tab');
+					}
+					const image = await webview.capturePage();
+					return image.toDataURL();
 				},
 			}),
 			[]
