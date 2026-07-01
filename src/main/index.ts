@@ -42,6 +42,7 @@ import { transcriptReadEgressConflict } from '../shared/plugins/capability-polic
 import { evaluateScheduledDispatch } from '../shared/plugins/plugin-dispatch-gate';
 import { PermissionBroker } from './plugins/permission-broker';
 import { PluginSandboxHost } from './plugins/plugin-sandbox-host';
+import { PluginBackgroundSupervisor } from './plugins/plugin-background-supervisor';
 import { setActivePluginManager } from './plugins/plugin-manager-singleton';
 import { PluginSchedulerHost } from './plugins/plugin-scheduler-host';
 import {
@@ -58,6 +59,7 @@ import { createEgressGuard } from './plugins/net-egress-guard';
 import { createRunUiCommand } from './plugins/run-ui-command';
 import {
 	isPermitted,
+	isPermittedUnattended,
 	describeCapability,
 	capabilityRisk,
 	isPluginCapability,
@@ -218,6 +220,10 @@ import {
 } from './app-lifecycle';
 // Phase 3 refactoring - process listeners
 import { setupProcessListeners as setupProcessListenersModule } from './process-listeners';
+import { setupAgentRunCapture } from './agent-run/setup-capture-listener';
+import { setAgentRunSink } from './agent-run/broadcast';
+import { startAgentRunStoreWatcher } from './agent-run/store-watcher';
+import { setupAgentRunRecovery } from './agent-run/setup-recovery';
 import { setupWakaTimeListener } from './process-listeners/wakatime-listener';
 import { WakaTimeManager } from './wakatime-manager';
 import { MaestroCliManager } from './maestro-cli-manager';
@@ -421,6 +427,7 @@ let pianolaRelearnScheduler: PianolaRelearnScheduler | null = null;
 let pluginManager: PluginManager | null = null;
 let pluginScheduler: PluginSchedulerHost | null = null;
 let pluginSandboxHost: PluginSandboxHost | null = null;
+let pluginBackgroundSupervisor: PluginBackgroundSupervisor | null = null;
 let pluginAuthStore: AuthorizationStore | null = null;
 let pluginEventBus: PluginEventBusImpl | null = null;
 let usageRefreshScheduler: UsageRefreshScheduler | null = null;
@@ -1214,9 +1221,15 @@ app
 		// anchor makes rollback freshness survive app restarts. If native keyring is
 		// unavailable, the lazy factory degrades to session-only without crashing app
 		// startup.
+		// [E2eGaps] Demo instances must never share (or delete!) the developer's
+		// real OS-keyring freshness slot, so DEMO_MODE derives a per-demo-dir
+		// account name; the e2e harness derives the identical string to clean up.
+		const anchorAccount = DEMO_MODE
+			? `freshness:${crypto.createHash('sha256').update(DEMO_DATA_PATH, 'utf8').digest('hex').slice(0, 16)}`
+			: 'freshness';
 		const authStore = createAuthorizationStore({
 			safeStorage,
-			anchor: createKeyringAnchor('com.maestro.plugin-authorization', 'freshness'),
+			anchor: createKeyringAnchor('com.maestro.plugin-authorization', anchorAccount),
 			ledgerPath: path.join(app.getPath('userData'), 'plugin-authorization.bin'),
 		});
 		// Expose the same instance to the IPC registration phase below.
@@ -1610,9 +1623,23 @@ app
 
 		const eventBus = new PluginEventBusImpl({
 			isPermitted: (pluginId) => isPermitted(grantsOf(pluginId), 'events:subscribe'),
+			hasCapability: (pluginId, capability) => isPermitted(grantsOf(pluginId), capability),
 			push: (pluginId, event) => pluginSandboxHost?.pushEvent(pluginId, event) ?? false,
 		});
 		pluginEventBus = eventBus;
+
+		// Background-service supervision (FC5): registered services survive sandbox
+		// crashes via bounded-backoff restart of the owning plugin; the restarted
+		// plugin's activate path re-registers. pluginManager is assigned later in
+		// this function; both closures read it lazily (never before app-ready use).
+		const backgroundSupervisor = new PluginBackgroundSupervisor({
+			// refresh() re-reads disk and reconciles sandboxes: it starts every
+			// runnable plugin that is not running — i.e. the crashed one.
+			restartPlugin: () => pluginManager?.refresh(),
+			isPluginEnabled: (pluginId) =>
+				pluginManager?.getRegistry().records.some((r) => r.id === pluginId && r.enabled) ?? false,
+		});
+		pluginBackgroundSupervisor = backgroundSupervisor;
 
 		const sandboxHost = new PluginSandboxHost({
 			broker: pluginBroker,
@@ -1662,9 +1689,22 @@ app
 					);
 				},
 				recordDecision: pluginRecordDecision,
-				openExternal: (url, opts) => shell.openExternal(url, opts as OpenExternalOptions),
+				openExternal: async (url, opts) => {
+					if (DEMO_MODE) {
+						// [E2eGaps] An isolated demo instance must not open real browsers;
+						// the audit line is what the e2e PASS row asserts.
+						logger.info(`shell.openExternal by plugin -> ${url} (demo no-op)`, '[PluginAudit]');
+						return;
+					}
+					await shell.openExternal(url, opts as OpenExternalOptions);
+				},
 				powerPreventSleep: (reason) => powerManager.addBlockReason(reason),
 				powerReleaseSleep: (reason) => powerManager.removeBlockReason(reason),
+				backgroundRegister: async (pluginId, service) =>
+					backgroundSupervisor.register(pluginId, service),
+				backgroundUnregister: async (pluginId, serviceId) =>
+					backgroundSupervisor.unregister(pluginId, serviceId),
+				backgroundList: (pluginId) => backgroundSupervisor.health(pluginId),
 				storageSqlBaseDir: path.join(app.getPath('userData'), 'plugin-data', 'sql'),
 				pushPluginEvent: (pluginId, event) =>
 					pluginSandboxHost?.pushEvent(pluginId, event) ?? false,
@@ -1690,15 +1730,21 @@ app
 							...(s.toolType ? { toolType: s.toolType } : {}),
 						}));
 				},
-				// agents.dispatch + process.spawn stay UNWIRED: arbitrary-code-
-				// execution-grade, gated behind the Phase 3 sandbox decision.
+				// agents.dispatch + process.spawn (FC2, Plans/feature-complete-workplan.md):
+				// the security decision EXISTS (Option B — trusted-signed + consent is the
+				// boundary). Wiring deps.dispatch/deps.spawn + resolveSpawnBinary flips
+				// live only when the whole phase-4 gate holds (allowlist scopes, separate
+				// + unattended consent, host-owned binary registry, FC1 trusted-to-run
+				// gate) — see Plans/plugin-phase4-high-risk-verbs.md §Wiring acceptance.
 			}),
 			onLog: (pluginId, level, message) => {
 				logger.info(`[Plugin:${pluginId}] ${level}: ${message}`, '[Plugins]');
 			},
 			onCrash: (pluginId, code) => {
 				logger.warn(`[Plugins] plugin "${pluginId}" crashed (code ${code})`, '[Plugins]');
+				backgroundSupervisor.onPluginCrash(pluginId, code);
 			},
+			onStop: (pluginId) => backgroundSupervisor.onPluginStopped(pluginId),
 		});
 		pluginSandboxHost = sandboxHost;
 		pluginManager = new PluginManager({
@@ -1728,12 +1774,14 @@ app
 			},
 			// Complete uninstall (invariant #8): purge the plugin's KV store, its
 			// plugins.<id>.* settings, and its event subscriptions.
-			purgePluginData: (id) =>
+			purgePluginData: (id) => {
 				purgePluginData(id, {
 					kvStore: pluginKvStore,
 					settingsDeleteNamespace: pluginSettingsDeleteNamespace,
 					eventBus,
-				}),
+				});
+				backgroundSupervisor.teardown(id);
+			},
 			onChange: (registry) => {
 				try {
 					mainWindow?.webContents.send('plugins:changed', registry);
@@ -1878,9 +1926,15 @@ app
 			notify: (trigger) => logger.toast(trigger.payload, `Plugin: ${trigger.pluginId}`),
 			evaluateDispatch: (trigger) => {
 				const rec = pluginManager?.getRegistry().records.find((r) => r.id === trigger.pluginId);
+				const grants = grantsOf(trigger.pluginId);
+				// Allowlist scope: the grant must NAME the trigger's target agent; a
+				// scheduler tick is unattended, so the separate unattended consent on
+				// that grant is also required (FC3 / phase-4 §8). Without either, the
+				// verdict is ineligible and the trigger falls back to notify-only.
 				return evaluateScheduledDispatch(trigger.payload, {
-					hasDispatchGrant: isPermitted(grantsOf(trigger.pluginId), 'agents:dispatch'),
+					hasDispatchGrant: isPermitted(grants, 'agents:dispatch', trigger.agentId),
 					trusted: rec?.signature?.status === 'trusted',
+					hasUnattendedConsent: isPermittedUnattended(grants, 'agents:dispatch', trigger.agentId),
 				});
 			},
 		});
@@ -1937,6 +1991,37 @@ app
 		// Set up process event listeners
 		logger.debug('Setting up process event listeners', 'Startup');
 		setupProcessListeners();
+
+		// Wire agent-run lifecycle capture to the ProcessManager (F1). Always-on
+		// per D1: minimal metadata capture is observability, not an opt-in feature.
+		if (processManager) {
+			try {
+				setupAgentRunCapture(processManager);
+				// F3 live push: forward every ledger write to the renderer + web clients.
+				setAgentRunSink({
+					runUpdated: (run) => {
+						if (isWebContentsAvailable(mainWindow)) {
+							mainWindow!.webContents.send('agentRun:updated', run);
+						}
+						webServer?.broadcastToAll({ type: 'agentRun:updated', run });
+					},
+					eventAppended: (event) => {
+						if (isWebContentsAvailable(mainWindow)) {
+							mainWindow!.webContents.send('agentRun:eventAppended', event);
+						}
+						webServer?.broadcastToAll({ type: 'agentRun:eventAppended', event });
+					},
+				});
+				// F3: also watch the store files so CLI-origin writes (pianola/send/batch)
+				// reach the renderer when the app is running (ISC-3.1).
+				startAgentRunStoreWatcher();
+				// F1/ISC-1.10 crash recovery: settle runs left non-terminal by a previous
+				// crash. Runs once, before any new agent spawns; error-tolerant inside.
+				setupAgentRunRecovery(processManager);
+			} catch (err) {
+				logger.warn('Failed to wire agent-run capture', 'Startup', { error: String(err) });
+			}
+		}
 
 		// Start Cue engine if the Encore Feature flag is enabled
 		const encoreFeatures = store.get('encoreFeatures', {}) as Record<string, boolean>;
@@ -2196,6 +2281,9 @@ quitHandler = createQuitHandler({
 		// Tear down plugin hot-reload watching and running sandboxes.
 		pluginManager?.stopWatching();
 		pluginManager?.stopAllSandboxes();
+		// Clear background-service supervision state + pending restart timers
+		// (after stopAllSandboxes so per-plugin onStop hooks fire first).
+		pluginBackgroundSupervisor?.stopAll();
 		// Stop the plugin scheduler poll loop.
 		pluginScheduler?.stop();
 		// Tear down the background quota refresh timers.
@@ -2247,6 +2335,7 @@ function setupIpcHandlers() {
 	// Uses HistoryManager singleton for per-session storage
 	registerHistoryHandlers({
 		safeSend,
+		emitPluginEvent: (event) => pluginEventBus?.emit(event),
 		getMaxEntries: () => store.get('maxLogBuffer', 5000) as number,
 		getSshRemoteById,
 		getSessionById: (id: string) => {
@@ -2408,7 +2497,10 @@ function setupIpcHandlers() {
 	}
 
 	// Register AgentRun control-plane handlers (neutral run/campaign ledger).
-	registerAgentRunHandlers();
+	registerAgentRunHandlers({
+		getProcessManager: () => processManager,
+		settingsStore: store,
+	});
 
 	// Register Context Merge handlers for session context transfer and grooming
 	registerContextHandlers({
