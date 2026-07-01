@@ -1637,8 +1637,6 @@ function MaestroConsoleInner() {
 
 	// --- INPUT HANDLERS (state, completion, processing, keyboard, paste/drop) ---
 	const {
-		inputValue,
-		deferredInputValue,
 		setInputValue,
 		stagedImages,
 		setStagedImages,
@@ -2525,7 +2523,6 @@ function MaestroConsoleInner() {
 		thinkingItems,
 		theme,
 		isMobileLandscape,
-		inputValue,
 		stagedImages,
 		commandHistoryOpen,
 		commandHistoryFilter,
@@ -3170,11 +3167,6 @@ function MaestroConsoleInner() {
 					onCloseFileSearch={handleCloseFileSearch}
 					onFileSearchSelect={handleFileSearchSelect}
 					onClosePromptComposer={handleClosePromptComposer}
-					promptComposerInitialValue={
-						activeGroupChatId
-							? groupChats.find((c) => c.id === activeGroupChatId)?.draftMessage || ''
-							: deferredInputValue
-					}
 					onPromptComposerSubmit={handlePromptComposerSubmit}
 					onPromptComposerSend={handlePromptComposerSend}
 					promptComposerSessionName={

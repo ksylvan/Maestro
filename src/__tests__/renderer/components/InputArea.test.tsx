@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { InputArea } from '../../../renderer/components/InputArea';
+import { useComposerInputStore } from '../../../renderer/stores/composerInputStore';
 import { formatEnterToSend } from '../../../renderer/utils/shortcutFormatter';
 import type { Session } from '../../../renderer/types';
 import { createMockSession as baseCreateMockSession } from '../../helpers/mockSession';
@@ -146,13 +147,19 @@ const createMockSession = (overrides: Partial<Session> & { wizardState?: any } =
 	});
 };
 
-// Default props factory
-const createDefaultProps = (overrides: Partial<Parameters<typeof InputArea>[0]> = {}) => {
+// Default props factory.
+// InputArea reads the live draft from useComposerInputStore now (the value moved
+// out of props for perf), so an `inputValue` override is seeded into the store
+// here rather than passed as a prop. Call sites stay unchanged.
+const createDefaultProps = (
+	overrides: Partial<Parameters<typeof InputArea>[0]> & { inputValue?: string } = {}
+) => {
+	const { inputValue = '', ...rest } = overrides;
+	useComposerInputStore.setState({ aiValue: inputValue, terminalValue: inputValue });
 	const inputRef = { current: null } as React.RefObject<HTMLTextAreaElement>;
 	return {
 		session: createMockSession(),
 		theme: mockTheme,
-		inputValue: '',
 		setInputValue: vi.fn(),
 		enterToSend: true,
 		setEnterToSend: vi.fn(),
@@ -247,6 +254,27 @@ describe('InputArea', () => {
 			expect(
 				screen.getByPlaceholderText('Talking to MySession powered by Claude Code')
 			).toBeInTheDocument();
+		});
+
+		it('updates the textarea from the live AI store slice after render', () => {
+			const props = createDefaultProps({
+				session: createMockSession({ inputMode: 'ai' }),
+				inputValue: 'initial AI draft',
+			});
+			render(<InputArea {...props} />);
+			const textarea = screen.getByRole('textbox');
+
+			expect(textarea).toHaveValue('initial AI draft');
+
+			act(() => {
+				useComposerInputStore.getState().setTerminalValue('terminal draft ignored in AI mode');
+			});
+			expect(textarea).toHaveValue('initial AI draft');
+
+			act(() => {
+				useComposerInputStore.getState().setAiValue('updated AI draft');
+			});
+			expect(textarea).toHaveValue('updated AI draft');
 		});
 
 		it('shows attach image button in AI mode when agent supports image input', () => {
@@ -419,6 +447,27 @@ describe('InputArea', () => {
 			render(<InputArea {...props} />);
 
 			expect(screen.getByPlaceholderText('Run shell command...')).toBeInTheDocument();
+		});
+
+		it('updates the textarea from the live terminal store slice after render', () => {
+			const props = createDefaultProps({
+				session: createMockSession({ inputMode: 'terminal' }),
+				inputValue: 'initial terminal draft',
+			});
+			render(<InputArea {...props} />);
+			const textarea = screen.getByRole('textbox');
+
+			expect(textarea).toHaveValue('initial terminal draft');
+
+			act(() => {
+				useComposerInputStore.getState().setAiValue('AI draft ignored in terminal mode');
+			});
+			expect(textarea).toHaveValue('initial terminal draft');
+
+			act(() => {
+				useComposerInputStore.getState().setTerminalValue('updated terminal draft');
+			});
+			expect(textarea).toHaveValue('updated terminal draft');
 		});
 
 		it('shows $ prefix in terminal mode', () => {

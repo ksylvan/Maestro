@@ -1150,6 +1150,7 @@ interface MaestroAPI {
 			destPath: string,
 			options?: { overwrite?: boolean; sshRemoteId?: string }
 		) => Promise<{ success: boolean }>;
+		startDragOut: (paths: string[]) => void;
 		getPathForFile: (file: File) => string;
 	};
 	webserver: {
@@ -1466,6 +1467,12 @@ interface MaestroAPI {
 			projectPath: string,
 			sessionId: string,
 			starred: boolean
+		) => Promise<void>;
+		snapshotStarredTranscript: (
+			agentId: string,
+			projectPath: string,
+			sessionId: string,
+			sessionName?: string
 		) => Promise<void>;
 	};
 	dialog: {
@@ -2233,6 +2240,7 @@ interface MaestroAPI {
 			releasesUrl: string;
 			error?: string;
 		}>;
+		checkin: () => Promise<void>;
 		download: (targetTag?: string) => Promise<{ success: boolean; error?: string }>;
 		install: () => Promise<void>;
 		getStatus: () => Promise<{

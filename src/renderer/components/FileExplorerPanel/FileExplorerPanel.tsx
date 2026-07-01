@@ -48,6 +48,7 @@ import { useFileTreeFilter } from './hooks/useFileTreeFilter';
 import { useAutoRefresh } from './hooks/useAutoRefresh';
 import { useFileOperations } from './hooks/useFileOperations';
 import { useDragToMove } from './hooks/useDragToMove';
+import { useOsFileDragOut } from './hooks/useOsFileDragOut';
 import { useFileContextMenu } from './hooks/useFileContextMenu';
 
 // Utils
@@ -324,6 +325,10 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 		onShowFlash,
 		setSelectedPaths,
 	});
+
+	// Option/Alt-drag a row out to Finder/Explorer to retrieve the real file
+	// (downloads first over SSH). Separate from the in-app move/@mention drag.
+	const { handleOsDragStart } = useOsFileDragOut({ session, sshRemoteId, onShowFlash });
 
 	// ── Context menu ──────────────────────────────────────────────────────────
 
@@ -804,6 +809,7 @@ function FileExplorerPanelInner(props: FileExplorerPanelProps) {
 											handleFolderDrop={handleFolderDrop}
 											onInternalDragStart={handleInternalDragStart}
 											onInternalDragEnd={handleInternalDragEnd}
+											onOsDragOut={handleOsDragStart}
 											toggleFolder={toggleFolder}
 											toggleFolderRecursive={toggleFolderRecursive}
 											setSessions={setSessions}

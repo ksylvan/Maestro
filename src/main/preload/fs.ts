@@ -211,6 +211,17 @@ export function createFsApi() {
 			ipcRenderer.invoke('fs:copyPath', sourcePath, destPath, options),
 
 		/**
+		 * Start an OS-level file drag-out (drag a file from the file panel to
+		 * Finder/Explorer). `paths` are absolute LOCAL paths that must exist on
+		 * disk - for remote files the caller downloads to a temp file first and
+		 * passes that. Fire-and-forget: it hooks into the live drag gesture via
+		 * Electron's `startDrag`, so it must be invoked from the row's `dragstart`.
+		 */
+		startDragOut: (paths: string[]): void => {
+			ipcRenderer.send('fs:startDragOut', paths);
+		},
+
+		/**
 		 * Resolve the absolute filesystem path of a dropped/selected `File`.
 		 * Electron removed the non-standard `File.path` property; `webUtils`
 		 * is the supported replacement and must be called from the preload
