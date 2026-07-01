@@ -259,8 +259,6 @@ const SECRET_KEY_PATTERN =
  * dot-notation setter. */
 const PROTO_KEY_PATTERN = /(^|\.)(__proto__|prototype|constructor)(\.|$)/;
 
-const SAFE_ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
 /** Is `value` safe to persist as a setting (JSON-serializable, no functions /
  * bigint / symbols / circular references)? */
 function isJsonStorable(value: unknown): boolean {
