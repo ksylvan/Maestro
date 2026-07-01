@@ -3,6 +3,8 @@ import { ipcMain } from 'electron';
 
 // Track registered handlers
 const registeredHandlers = new Map<string, Function>();
+// Track fire-and-forget `ipcMain.on` listeners (e.g. fs:startDragOut)
+const registeredListeners = new Map<string, Function>();
 
 // Mock ipcMain
 vi.mock('electron', () => ({
@@ -10,8 +12,22 @@ vi.mock('electron', () => ({
 		handle: vi.fn((channel: string, handler: Function) => {
 			registeredHandlers.set(channel, handler);
 		}),
+		on: vi.fn((channel: string, handler: Function) => {
+			registeredListeners.set(channel, handler);
+		}),
 	},
 }));
+
+// Mock the drag-out icon so the handler doesn't reach into Electron's nativeImage.
+vi.mock('../../../../main/utils/drag-out-icon', () => ({
+	getDragOutIcon: vi.fn(() => ({ __icon: true })),
+}));
+
+// Mock synchronous fs (existsSync) used by the drag-out handler's path filter.
+vi.mock('fs', () => {
+	const existsSync = vi.fn(() => true);
+	return { existsSync, default: { existsSync } };
+});
 
 // Mock os module
 vi.mock('os', () => ({
@@ -79,11 +95,13 @@ import {
 	writeFileRemote,
 	existsRemote,
 } from '../../../../main/utils/remote-fs';
+import { existsSync } from 'fs';
 
 describe('filesystem handlers', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		registeredHandlers.clear();
+		registeredListeners.clear();
 		registerFilesystemHandlers();
 	});
 
@@ -392,7 +410,7 @@ describe('filesystem handlers', () => {
 				success: true,
 				data: {
 					size: 2048,
-					mtime: '2024-06-15T12:00:00.000Z',
+					mtime: Date.parse('2024-06-15T12:00:00.000Z'),
 					isDirectory: false,
 				},
 			});
@@ -684,6 +702,55 @@ describe('filesystem handlers', () => {
 			await expect(
 				handler!({}, '/external/x', '/remote/x', { sshRemoteId: 'missing' })
 			).rejects.toThrow('SSH remote not found');
+		});
+	});
+
+	describe('fs:startDragOut', () => {
+		it('registers a fire-and-forget listener', () => {
+			expect(registeredListeners.get('fs:startDragOut')).toBeDefined();
+		});
+
+		it('starts a single-file drag with file + icon', () => {
+			vi.mocked(existsSync).mockReturnValue(true);
+			const startDrag = vi.fn();
+			const listener = registeredListeners.get('fs:startDragOut');
+
+			listener!({ sender: { startDrag } }, ['/tmp/report.pdf']);
+
+			expect(startDrag).toHaveBeenCalledTimes(1);
+			expect(startDrag).toHaveBeenCalledWith(
+				expect.objectContaining({ file: '/tmp/report.pdf', icon: expect.anything() })
+			);
+		});
+
+		it('starts a multi-file drag with a files array', () => {
+			vi.mocked(existsSync).mockReturnValue(true);
+			const startDrag = vi.fn();
+			const listener = registeredListeners.get('fs:startDragOut');
+
+			listener!({ sender: { startDrag } }, ['/tmp/a.txt', '/tmp/b.txt']);
+
+			expect(startDrag).toHaveBeenCalledWith(
+				expect.objectContaining({ files: ['/tmp/a.txt', '/tmp/b.txt'] })
+			);
+		});
+
+		it('filters out paths that do not exist and skips startDrag when none remain', () => {
+			vi.mocked(existsSync).mockReturnValue(false);
+			const startDrag = vi.fn();
+			const listener = registeredListeners.get('fs:startDragOut');
+
+			listener!({ sender: { startDrag } }, ['/tmp/missing.txt']);
+
+			expect(startDrag).not.toHaveBeenCalled();
+		});
+
+		it('ignores a non-array payload without throwing', () => {
+			const startDrag = vi.fn();
+			const listener = registeredListeners.get('fs:startDragOut');
+
+			expect(() => listener!({ sender: { startDrag } }, undefined)).not.toThrow();
+			expect(startDrag).not.toHaveBeenCalled();
 		});
 	});
 

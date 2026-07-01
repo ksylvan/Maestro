@@ -21,6 +21,7 @@ import { ipcMain } from 'electron';
 import path from 'path';
 import os from 'os';
 import fs from 'fs/promises';
+import { existsSync } from 'fs';
 
 import { logger } from '../../utils/logger';
 import {
@@ -46,6 +47,7 @@ import {
 } from '../../utils/remote-fs';
 import type { SshRemoteConfig } from '../../../shared/types';
 import { resolveDirentType } from '../../utils/dirent-utils';
+import { getDragOutIcon } from '../../utils/drag-out-icon';
 import { getSshRemoteById } from '../../stores';
 import { captureException } from '../../utils/sentry';
 
@@ -836,6 +838,37 @@ export function registerFilesystemHandlers(): void {
 			// Return null on failure - let caller handle gracefully
 			logger.warn(`Failed to fetch image from ${url}: ${error}`, 'fs:fetchImageAsBase64');
 			return null;
+		}
+	});
+
+	// Start an OS-level file drag-out (drag a file from the file panel to Finder/
+	// Explorer). Uses Electron's `webContents.startDrag`, which must run on the
+	// sender's webContents and *replaces* the in-flight HTML5 drag - the renderer
+	// gates this behind a modifier so the normal move/@mention drag is untouched.
+	//
+	// `paths` are absolute LOCAL paths that must already exist on disk: for remote
+	// (SSH) files the renderer downloads to a temp file first and passes that. We
+	// filter to existing paths so a stale/racing path can't make startDrag throw.
+	// Fire-and-forget (`ipcMain.on`) so it attaches to the live drag gesture with
+	// minimal latency.
+	ipcMain.on('fs:startDragOut', (event, paths?: unknown) => {
+		try {
+			if (!Array.isArray(paths)) return;
+			const existing = paths.filter(
+				(p): p is string => typeof p === 'string' && p.length > 0 && existsSync(p)
+			);
+			if (existing.length === 0) return;
+			const icon = getDragOutIcon();
+			// `file` for a single item, `files` for a batch - both are valid startDrag
+			// shapes; passing the singular form for one item is the documented default.
+			event.sender.startDrag(
+				existing.length === 1
+					? { file: existing[0], icon }
+					: { file: existing[0], files: existing, icon }
+			);
+		} catch (error) {
+			logger.warn(`Failed to start OS file drag-out: ${error}`, 'fs:startDragOut');
+			void captureException(error);
 		}
 	});
 }
