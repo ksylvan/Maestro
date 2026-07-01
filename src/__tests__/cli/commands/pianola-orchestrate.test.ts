@@ -19,6 +19,7 @@ const {
 	upsertAgentRunMock,
 	appendAgentRunEventMock,
 	getAgentRunMock,
+	findActiveRunBySessionMock,
 } = vi.hoisted(() => ({
 	connectMock: vi.fn(),
 	sendCommandMock: vi.fn(),
@@ -27,6 +28,7 @@ const {
 	upsertAgentRunMock: vi.fn(),
 	appendAgentRunEventMock: vi.fn(),
 	getAgentRunMock: vi.fn(),
+	findActiveRunBySessionMock: vi.fn(),
 }));
 
 vi.mock('../../../cli/services/storage', () => ({ readSettingValue: vi.fn() }));
@@ -51,6 +53,7 @@ vi.mock('../../../cli/services/agent-run-store', () => ({
 	upsertAgentRun: upsertAgentRunMock,
 	appendAgentRunEvent: appendAgentRunEventMock,
 	getAgentRun: getAgentRunMock,
+	findActiveRunBySession: findActiveRunBySessionMock,
 }));
 
 import {
@@ -59,6 +62,7 @@ import {
 } from '../../../cli/commands/pianola-orchestrate';
 import { readSettingValue } from '../../../cli/services/storage';
 import { getPianolaPlan } from '../../../cli/services/pianola-store';
+import { runDispatch } from '../../../cli/commands/dispatch';
 
 const PLAN: PianolaPlan = { id: 'plan-1', title: 'P', createdAt: 1, tasks: [] };
 
@@ -99,6 +103,7 @@ describe('pianolaOrchestrate - iteration error resilience', () => {
 		vi.mocked(readSettingValue).mockReturnValue({ pianola: true });
 		vi.mocked(getPianolaPlan).mockReturnValue(PLAN);
 		getAgentRunMock.mockReturnValue(undefined);
+		findActiveRunBySessionMock.mockReturnValue(undefined);
 		upsertAgentRunMock.mockImplementation((run) => run);
 		appendAgentRunEventMock.mockImplementation((event) => event);
 	});
@@ -179,6 +184,202 @@ describe('pianolaOrchestrate - iteration error resilience', () => {
 				type: 'pianola.dispatched',
 				status: 'running',
 			})
+		);
+	});
+
+	it('mirrors an engine-side needs_review task onto the run via the guarded producer (ISC-5.8)', async () => {
+		// The engine routed task-1 to needs_review with a bound runId; the store's
+		// run carries an open finding, so markNeedsReview must transition it.
+		const reviewPlan: PianolaPlan = {
+			id: 'plan-3',
+			title: 'Review',
+			createdAt: 100,
+			tasks: [
+				{
+					id: 'task-1',
+					title: 'Build',
+					prompt: 'build it',
+					dependsOn: [],
+					status: 'needs_review',
+					runId: 'run-nr',
+				},
+			],
+		};
+		vi.mocked(getPianolaPlan).mockReturnValue(reviewPlan);
+		getAgentRunMock.mockImplementation((id: string) =>
+			id === 'run-nr'
+				? {
+						id: 'run-nr',
+						createdAt: 100,
+						updatedAt: 100,
+						provider: 'claude-code',
+						status: 'running',
+						artifacts: [],
+						touchedFiles: [],
+						checks: [],
+						reviews: [{ severity: 'high', category: 'security', message: 'issue', status: 'open' }],
+					}
+				: undefined
+		);
+		runIterationMock.mockImplementation(async () => ({
+			state: { plan: reviewPlan, prevStates: {} },
+			progress: { ...DONE_PROGRESS, total: 1, complete: false },
+			completedTaskIds: [],
+			failedTaskIds: [],
+			dispatchedTaskIds: [],
+			done: true,
+		}));
+
+		await pianolaOrchestrate('plan-3', { once: true });
+
+		expect(upsertAgentRunMock).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 'run-nr', status: 'needs_review' })
+		);
+		expect(appendAgentRunEventMock).toHaveBeenCalledWith(
+			expect.objectContaining({ runId: 'run-nr', type: 'status_change', status: 'needs_review' })
+		);
+	});
+
+	it('leaves the run alone when a needs_review task has no open findings (ISC-5.8 anti)', async () => {
+		const reviewPlan: PianolaPlan = {
+			id: 'plan-4',
+			title: 'CleanReview',
+			createdAt: 100,
+			tasks: [
+				{
+					id: 'task-1',
+					title: 'Build',
+					prompt: 'build it',
+					dependsOn: [],
+					status: 'needs_review',
+					runId: 'run-clean',
+				},
+			],
+		};
+		vi.mocked(getPianolaPlan).mockReturnValue(reviewPlan);
+		// Run exists but carries ZERO open findings (checks-only needs_review):
+		// the guarded producer must refuse to park it in needs_review.
+		getAgentRunMock.mockImplementation((id: string) =>
+			id === 'run-clean'
+				? {
+						id: 'run-clean',
+						createdAt: 100,
+						updatedAt: 100,
+						provider: 'claude-code',
+						status: 'running',
+						artifacts: [],
+						touchedFiles: [],
+						checks: [],
+						reviews: [],
+					}
+				: undefined
+		);
+		runIterationMock.mockImplementation(async () => ({
+			state: { plan: reviewPlan, prevStates: {} },
+			progress: { ...DONE_PROGRESS, total: 1, complete: false },
+			completedTaskIds: [],
+			failedTaskIds: [],
+			dispatchedTaskIds: [],
+			done: true,
+		}));
+
+		await pianolaOrchestrate('plan-4', { once: true });
+
+		expect(upsertAgentRunMock).not.toHaveBeenCalledWith(
+			expect.objectContaining({ status: 'needs_review' })
+		);
+	});
+
+	it('marks the run fixing through the producer when dispatchFix really dispatches (ISC-5.9)', async () => {
+		// Autopilot on so the CLI's dispatchFix dep acts.
+		vi.mocked(readSettingValue).mockReturnValue({ pianola: true, autopilot: true });
+		vi.mocked(runDispatch).mockResolvedValue({ success: true } as never);
+		getAgentRunMock.mockImplementation((id: string) =>
+			id === 'run-fx'
+				? {
+						id: 'run-fx',
+						createdAt: 100,
+						updatedAt: 100,
+						provider: 'claude-code',
+						status: 'needs_review',
+						artifacts: [],
+						touchedFiles: [],
+						checks: [],
+						reviews: [{ severity: 'high', category: 'security', message: 'issue', status: 'open' }],
+					}
+				: undefined
+		);
+		// Capture the deps the CLI hands the engine, then drive dispatchFix directly.
+		let capturedDeps: Record<string, unknown> | undefined;
+		runIterationMock.mockImplementation(async (state: OrchestratorState, deps: unknown) => {
+			capturedDeps = deps as Record<string, unknown>;
+			return doneResult(state);
+		});
+
+		await pianolaOrchestrate('plan-1', { once: true });
+		const dispatchFix = capturedDeps?.dispatchFix as (
+			task: unknown,
+			ledger: unknown
+		) => Promise<{ success: boolean }>;
+		expect(dispatchFix).toBeTypeOf('function');
+
+		const res = await dispatchFix(
+			{
+				id: 'task-1',
+				title: 'Build',
+				prompt: 'p',
+				dependsOn: [],
+				status: 'needs_review',
+				agentId: 'agent-1',
+				fixAttempts: 0,
+			},
+			{ runId: 'run-fx', openFindings: 1, checksPassed: false }
+		);
+
+		expect(res.success).toBe(true);
+		expect(upsertAgentRunMock).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 'run-fx', status: 'fixing' })
+		);
+		expect(appendAgentRunEventMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				runId: 'run-fx',
+				type: 'status_change',
+				status: 'fixing',
+				data: expect.objectContaining({ fixAgentId: 'agent-1' }),
+			})
+		);
+	});
+
+	it('writes no fixing status when the fix dispatch fails (ISC-5.9 anti)', async () => {
+		vi.mocked(readSettingValue).mockReturnValue({ pianola: true, autopilot: true });
+		vi.mocked(runDispatch).mockResolvedValue({ success: false, error: 'agent busy' } as never);
+		let capturedDeps: Record<string, unknown> | undefined;
+		runIterationMock.mockImplementation(async (state: OrchestratorState, deps: unknown) => {
+			capturedDeps = deps as Record<string, unknown>;
+			return doneResult(state);
+		});
+
+		await pianolaOrchestrate('plan-1', { once: true });
+		const dispatchFix = capturedDeps?.dispatchFix as (
+			task: unknown,
+			ledger: unknown
+		) => Promise<{ success: boolean }>;
+
+		const res = await dispatchFix(
+			{
+				id: 'task-1',
+				title: 'Build',
+				prompt: 'p',
+				dependsOn: [],
+				status: 'needs_review',
+				agentId: 'agent-1',
+			},
+			{ runId: 'run-fx', openFindings: 1, checksPassed: false }
+		);
+
+		expect(res.success).toBe(false);
+		expect(upsertAgentRunMock).not.toHaveBeenCalledWith(
+			expect.objectContaining({ status: 'fixing' })
 		);
 	});
 });

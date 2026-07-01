@@ -20,7 +20,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { readSettingValue } from '../services/storage';
 import { readPianolaPlans, getPianolaPlan, upsertPianolaPlan } from '../services/pianola-store';
-import { appendAgentRunEvent, getAgentRun, upsertAgentRun } from '../services/agent-run-store';
+import {
+	appendAgentRunEvent,
+	getAgentRun,
+	upsertAgentRun,
+	findActiveRunBySession,
+} from '../services/agent-run-store';
 import { MaestroClient } from '../services/maestro-client';
 import { runDispatch } from './dispatch';
 import {
@@ -29,6 +34,7 @@ import {
 	type OrchestratorState,
 	type OrchestratorDeps,
 	type OrchestratorIterationResult,
+	type PianolaTaskLedger,
 } from '../../shared/pianola/pianola-orchestrator';
 import {
 	validatePlan,
@@ -41,6 +47,8 @@ import { selectAgentForTask, type AgentCandidate } from '../../shared/pianola/pi
 import { DEFAULT_CAPABILITIES } from '../../shared/types';
 import { enrichWithAwaitingInput } from '../../shared/pianola/pianola-awaiting-detector';
 import { classifyMessages } from '../../shared/pianola/pianola-classifier';
+import { rateRisk } from '../../shared/pianola/pianola-risk';
+import { AgentRunSignals } from '../../main/agent-run/signals';
 import { pianolaTaskAgentRunId, type AgentRun, type AgentRunStatus } from '../../shared/agent-run';
 
 const DEFAULT_INTERVAL_SECONDS = 5;
@@ -104,6 +112,59 @@ function ensurePianolaEnabled(json?: boolean): void {
 function pianolaEnabledNow(): boolean {
 	const flags = readSettingValue('encoreFeatures') as Record<string, unknown> | undefined;
 	return flags?.pianola === true;
+}
+
+/** F8 (ISC-8.12/8.13): the reactive fix/merge loop is gated on autopilot, read
+ *  fresh each iteration so revoking it stops auto-actions immediately. With it
+ *  off, Pianola behaves exactly as the current supervisor (no auto-fix/merge). */
+function autopilotEnabledNow(): boolean {
+	const flags = readSettingValue('encoreFeatures') as Record<string, unknown> | undefined;
+	return flags?.pianola === true && flags?.autopilot === true;
+}
+
+/** Project a captured AgentRun into the engine's ledger view (F8 / ISC-8.3). */
+function ledgerForTask(planId: string, task: PianolaTask): PianolaTaskLedger | undefined {
+	const runId = resolvePianolaRunId(planId, task);
+	const run = getAgentRun(runId);
+	if (!run) return undefined;
+	const openFindings = run.reviews.filter((r) => r.status === 'open');
+	const openCriticalOrHigh = openFindings.filter(
+		(r) => r.severity === 'critical' || r.severity === 'high'
+	).length;
+	const checks = run.checks ?? [];
+	const checksPassed = checks.length === 0 ? undefined : checks.every((c) => c.status === 'passed');
+	return {
+		runId: run.id,
+		checksPassed,
+		openCriticalOrHighFindings: openCriticalOrHigh,
+		openFindings: openFindings.length,
+		pullRequestUrl: run.pullRequest?.url,
+		merged: run.merge?.status === 'merged',
+	};
+}
+
+/** Append an audit-before-action ledger event for an autonomous F8 action
+ *  (ISC-8.9): the record is written BEFORE the action is attempted, so an
+ *  auto-fix or auto-merge always leaves a trail even if the action then fails. */
+function auditAgentRunAction(
+	runId: string | undefined,
+	action: string,
+	detail: Record<string, unknown>
+): void {
+	if (!runId) return;
+	const now = Date.now();
+	try {
+		appendAgentRunEvent({
+			id: `evt_${runId}_audit_${action}_${now}`,
+			runId,
+			timestamp: now,
+			type: 'audit',
+			message: `autonomous ${action}`,
+			data: { action, ...detail },
+		});
+	} catch {
+		// Audit is best-effort; never break the orchestration loop on a log failure.
+	}
 }
 
 /** Parse `--interval` as seconds ("5" or "5s"); defaults to 5, minimum 1. */
@@ -174,13 +235,23 @@ function taskRunStatus(task: PianolaTask, fallback: AgentRunStatus): AgentRunSta
 	return fallback;
 }
 
+function resolvePianolaRunId(planId: string, task: PianolaTask): string {
+	// F8 (ISC-8.1/8.2): bind to the REAL captured run when one exists (the task
+	// already carries a runId, or the desktop capture recorded one for this
+	// session), so the task and its run are one record. Fall back to the
+	// deterministic projection id only for a pure-CLI task with no captured run.
+	if (task.runId) return task.runId;
+	const captured = task.agentId ? findActiveRunBySession(task.agentId) : undefined;
+	return captured?.id ?? pianolaTaskAgentRunId(planId, task.id);
+}
+
 function upsertPianolaTaskRun(
 	planId: string,
 	task: PianolaTask,
 	status: AgentRunStatus,
 	eventType: string
 ): void {
-	const runId = pianolaTaskAgentRunId(planId, task.id);
+	const runId = resolvePianolaRunId(planId, task);
 	const now = Date.now();
 	const existing = getAgentRun(runId);
 	const run: AgentRun = {
@@ -227,7 +298,10 @@ function upsertPianolaTaskRun(
 	});
 }
 
-function recordPianolaAgentRunProgress(result: OrchestratorIterationResult): void {
+function recordPianolaAgentRunProgress(
+	result: OrchestratorIterationResult,
+	signals: AgentRunSignals
+): void {
 	const plan = result.state.plan;
 	const tasksById = new Map(plan.tasks.map((task) => [task.id, task]));
 	for (const taskId of result.dispatchedTaskIds) {
@@ -242,6 +316,14 @@ function recordPianolaAgentRunProgress(result: OrchestratorIterationResult): voi
 	for (const taskId of result.failedTaskIds) {
 		const task = tasksById.get(taskId);
 		if (task) upsertPianolaTaskRun(plan.id, task, taskRunStatus(task, 'failed'), 'pianola.failed');
+	}
+	// F5/F8 (ISC-5.8): mirror engine-side needs_review routing onto the run
+	// ledger through the guarded producer. The guard only fires when the run
+	// really carries >=1 open finding (a checks-only needs_review task leaves
+	// the run untouched, per the anti-signal), and it is idempotent for a run
+	// already parked in needs_review - so calling it every tick is safe.
+	for (const task of plan.tasks) {
+		if (task.status === 'needs_review' && task.runId) signals.markNeedsReview(task.runId);
 	}
 }
 
@@ -461,13 +543,26 @@ export async function pianolaOrchestrate(
 		return messages;
 	};
 
+	const signals = new AgentRunSignals({
+		getAgentRun,
+		findActiveRunBySession,
+		upsertAgentRun,
+		appendAgentRunEvent,
+		// Surface producer failures: an autonomous loop must not swallow store
+		// I/O errors invisibly (the class already guards; this makes it loud).
+		log: (level, message) => console.error(`[orchestrator] agent-run signal ${level}: ${message}`),
+	});
+
 	const deps: OrchestratorDeps = {
 		getRunState: async (task) => {
 			if (!task.tabId) return 'idle';
 			const entries = await listDesktopSessions();
 			const entry = entries.find((e) => e.tabId === task.tabId);
 			if (!entry) return 'idle';
-			if (entry.state === 'busy') return 'busy';
+			if (entry.state === 'busy') {
+				if (task.agentId) signals.markWorking(task.agentId);
+				return 'busy';
+			}
 			// The desktop collapses waiting_input to idle, so before treating idle as
 			// a completion signal, check whether the agent is actually awaiting the
 			// user. If so report waiting_input - the detector then keeps the task
@@ -475,7 +570,12 @@ export async function pianolaOrchestrate(
 			// unanswered question.
 			const messages = await getHistory(task.tabId);
 			const classification = classifyMessages(enrichWithAwaitingInput(messages));
-			return classification.kind === 'none' ? 'idle' : 'waiting_input';
+			if (classification.kind !== 'none') {
+				// F5/F8 (ISC-5.2/5.7): reflect the awaiting-input signal on the run.
+				if (task.agentId) signals.markWaiting(task.agentId);
+				return 'waiting_input';
+			}
+			return 'idle';
 		},
 		getRecentMessages: async (task) => {
 			if (!task.tabId) return [];
@@ -572,6 +672,73 @@ export async function pianolaOrchestrate(
 				// A failed toast must never break autonomous orchestration.
 			}
 		},
+		reactiveEnabled: () => autopilotEnabledNow(),
+		getRunLedger: async (task) => ledgerForTask(plan.id, task),
+		dispatchFix: async (task, ledger) => {
+			// Gated + audited: only auto-fix when autopilot is on this iteration.
+			if (!autopilotEnabledNow()) return { success: false, error: 'autopilot off' };
+			const fixPrompt = `The previous run left ${ledger.openFindings ?? 0} open review finding(s) and/or failing checks. Address them, then stop.`;
+			const agentId = task.agentId;
+			if (!agentId) return { success: false, error: 'no agent bound' };
+			auditAgentRunAction(ledger.runId, 'auto-fix', {
+				taskId: task.id,
+				openFindings: ledger.openFindings ?? 0,
+				checksPassed: ledger.checksPassed,
+				attempt: (task.fixAttempts ?? 0) + 1,
+			});
+			try {
+				const res = await runDispatch(agentId, fixPrompt, {});
+				// F5/F8 (ISC-5.9): a REAL dispatch just happened - reflect it on the run
+				// through the guarded producer. The dispatch object is the evidence; on
+				// a failed dispatch nothing is written (the task also stays needs_review).
+				if (res.success && ledger.runId) {
+					signals.markFixing(ledger.runId, {
+						agentId,
+						reason: `auto-fix attempt ${(task.fixAttempts ?? 0) + 1}`,
+					});
+				}
+				return { success: !!res.success, error: res.error };
+			} catch (error) {
+				return { success: false, error: String(error) };
+			}
+		},
+		requestMerge: async (task, ledger) => {
+			// Gated + risk-rated + audited (ISC-8.9/8.10/8.14): never auto-merge when
+			// autopilot is off, only when the run is fully green (checks passed AND
+			// zero open findings of ANY severity), and never when the merge action
+			// rates high-risk (high-risk-always-escalates).
+			if (!autopilotEnabledNow()) return { merged: false, error: 'autopilot off' };
+			if (ledger.checksPassed !== true || (ledger.openFindings ?? 0) > 0) {
+				return { merged: false, error: 'not green (needs passing checks + zero open findings)' };
+			}
+			const risk = rateRisk(`merge branch for task ${task.title}: ${task.prompt}`);
+			if (risk === 'high') {
+				deps.log(`[orchestrator] task "${task.id}" merge escalated (high risk), not auto-merging`);
+				return { merged: false, error: 'high risk: escalated to user' };
+			}
+			auditAgentRunAction(ledger.runId, 'auto-merge', { taskId: task.id, risk });
+			// No git-merge execution path is reachable from the control plane today
+			// (git.ts exposes status/diff/commit/createPR but no branch merge). Record
+			// an honest 'skipped' merge outcome on the run rather than fabricating a
+			// merge or sending a command with no handler. When a merge path lands,
+			// this is the single site to wire it to.
+			if (ledger.runId) {
+				const run = getAgentRun(ledger.runId);
+				if (run) {
+					upsertAgentRun({
+						...run,
+						updatedAt: Date.now(),
+						merge: {
+							status: 'skipped',
+							error:
+								'No git-merge path reachable from the AgentRun control plane; merge not attempted.',
+							metadata: { requestedAt: Date.now(), risk },
+						},
+					});
+				}
+			}
+			return { merged: false, error: 'merge path not available (recorded skipped)' };
+		},
 	};
 
 	let state: OrchestratorState = initialOrchestratorState(plan);
@@ -604,7 +771,7 @@ export async function pianolaOrchestrate(
 				await sleep(intervalMs);
 				continue;
 			}
-			recordPianolaAgentRunProgress(result);
+			recordPianolaAgentRunProgress(result, signals);
 			state = result.state;
 			console.log(`[orchestrator] ${progressLine(state.plan)}`);
 
