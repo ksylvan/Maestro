@@ -21,10 +21,16 @@ import path from 'path';
 
 export const PLUGIN_ID = 'maestro.e2e.selftest';
 
+/** A real session pre-seeded into maestro-sessions.json so session-addressed
+ * probes (sessions:write, tabs:manage, transcripts:*) reach the BROKER check
+ * (honest DENY) instead of erroring on an unknown session in ungranted runs. */
+export const SEEDED_SESSION_ID = 'maestro-e2e-session';
+
 /** The brokered capabilities the fixture probes, in self-test order. */
 export const PROBED_CAPS = [
 	'fs:write',
 	'fs:read',
+	'fs:watch',
 	'net:fetch',
 	'agents:read',
 	'agents:dispatch',
@@ -32,13 +38,30 @@ export const PROBED_CAPS = [
 	'settings:write',
 	'settings:read',
 	'sessions:read',
+	'sessions:create',
+	'sessions:write',
+	'tabs:manage',
+	'transcripts:write',
 	'transcripts:read',
+	'history:read',
 	'storage:write',
 	'storage:read',
+	'storage:sql',
 	'ui:command',
 	'events:subscribe',
+	'shell:openExternal',
 	'process:spawn',
+	'decisions:write',
+	'power:preventSleep',
+	'background:service',
 ] as const;
+
+/** Manifest-requested caps that have no brokered self-test probe (declarative
+ * gates). Combined with PROBED_CAPS this is the full consent-offer surface. */
+export const UI_ONLY_CAPS = ['ui:contribute', 'ui:panel', 'ui:render-unsafe'] as const;
+
+/** Every capability the fixture manifest requests (the full consent offer). */
+export const REQUESTED_CAPS = [...PROBED_CAPS, ...UI_ONLY_CAPS] as const;
 
 const FIXTURE_PLUGIN_DIR = path.join(__dirname, 'plugins', 'maestro-e2e-selftest');
 const FIXTURE_FILES = ['plugin.json', 'entry.js', 'panel.html'];
@@ -102,6 +125,15 @@ export async function launch(env: NodeJS.ProcessEnv): Promise<LaunchedApp> {
 	return { app, window, output };
 }
 
+/** Close the running app and boot a FRESH Maestro process against the SAME
+ * seeded demo dir — the e2e equivalent of quitting and reopening the app.
+ * Nothing is re-seeded: whatever persisted (ledger, enable-state, plugin
+ * files, keyring anchor) is exactly what the new process sees. */
+export async function relaunch(launched: LaunchedApp, seeded: SeededEnv): Promise<LaunchedApp> {
+	await launched.app.close();
+	return launch(seeded.env);
+}
+
 /** First (throwaway) launch lets the app materialize default config files in
  *  the demo dir so we can flip flags against a valid settings document. */
 async function materializeDefaults(env: NodeJS.ProcessEnv): Promise<void> {
@@ -136,10 +168,72 @@ function enablePluginsFlag(demoDir: string): void {
 	writeSettings(demoDir, settings);
 }
 
-function seedPluginEnabledState(demoDir: string, enabled: boolean): void {
+export function seedPluginEnabledState(demoDir: string, enabled: boolean): void {
 	fs.writeFileSync(
 		path.join(demoDir, 'pianola-plugins.json'),
 		JSON.stringify({ schemaVersion: 1, plugins: { [PLUGIN_ID]: { enabled } } }, null, '\t'),
+		'utf8'
+	);
+}
+
+/** Seed one real session (id SEEDED_SESSION_ID, projectPath = the fs scope)
+ * into maestro-sessions.json so session-addressed probes resolve a session. */
+function seedSession(seeded: SeededEnv): void {
+	const now = Date.now();
+	const tabId = 'e2e-seeded-tab';
+	const session = {
+		id: SEEDED_SESSION_ID,
+		name: 'E2E Seeded Session',
+		toolType: 'claude-code',
+		state: 'idle',
+		cwd: fwd(seeded.scopeDir),
+		fullPath: fwd(seeded.scopeDir),
+		projectRoot: fwd(seeded.scopeDir),
+		createdAt: now,
+		updatedAt: now,
+		aiLogs: [],
+		shellLogs: [],
+		workLog: [],
+		contextUsage: 0,
+		inputMode: 'ai',
+		aiPid: 0,
+		terminalPid: 0,
+		port: 0,
+		isLive: false,
+		changedFiles: [],
+		isGitRepo: false,
+		fileTree: [],
+		fileExplorerExpanded: [],
+		fileExplorerScrollPos: 0,
+		executionQueue: [],
+		activeTimeMs: 0,
+		aiTabs: [
+			{
+				id: tabId,
+				agentSessionId: null,
+				name: null,
+				starred: false,
+				logs: [],
+				inputValue: '',
+				stagedImages: [],
+				createdAt: now,
+				state: 'idle',
+			},
+		],
+		activeTabId: tabId,
+		closedTabHistory: [],
+		filePreviewTabs: [],
+		activeFileTabId: null,
+		browserTabs: [],
+		activeBrowserTabId: null,
+		terminalTabs: [],
+		activeTerminalTabId: null,
+		unifiedTabOrder: [{ type: 'ai', id: tabId }],
+		unifiedClosedTabHistory: [],
+	};
+	fs.writeFileSync(
+		path.join(seeded.demoDir, 'maestro-sessions.json'),
+		JSON.stringify({ sessions: [session], activeSessionId: SEEDED_SESSION_ID }, null, '\t'),
 		'utf8'
 	);
 }
@@ -156,7 +250,13 @@ function installFixturePlugin(seeded: SeededEnv): void {
 	for (const name of FIXTURE_FILES) {
 		let src = fs.readFileSync(path.join(FIXTURE_PLUGIN_DIR, name), 'utf8');
 		if (TEMPLATED_FILES[name]) {
-			src = src.split('__FS_SCOPE__').join(scope).split('__RUN_ID__').join(seeded.runId);
+			src = src
+				.split('__FS_SCOPE__')
+				.join(scope)
+				.split('__RUN_ID__')
+				.join(seeded.runId)
+				.split('__SEEDED_SESSION__')
+				.join(SEEDED_SESSION_ID);
 		}
 		fs.writeFileSync(path.join(destDir, name), src, 'utf8');
 	}
@@ -204,8 +304,8 @@ function seedTrustedKey(demoDir: string, publicKeyB64: string): void {
 
 /**
  * Probe to materialize defaults, enable the plugins Encore flag, seed the
- * plugin's enabled state, install the fixture, and (when trusted) sign it and
- * register its key in the trusted set.
+ * plugin's enabled state + a real session, install the fixture, and (when
+ * trusted) sign it and register its key in the trusted set.
  */
 export async function seedAll(
 	seeded: SeededEnv,
@@ -214,6 +314,7 @@ export async function seedAll(
 	await materializeDefaults(seeded.env);
 	enablePluginsFlag(seeded.demoDir);
 	seedPluginEnabledState(seeded.demoDir, opts.enabled);
+	seedSession(seeded);
 	installFixturePlugin(seeded);
 	if (opts.trusted) {
 		const pub = signInstalledPlugin(pluginDestDir(seeded.demoDir));
@@ -222,12 +323,78 @@ export async function seedAll(
 }
 
 export function cleanup(seeded: SeededEnv): void {
+	// Best-effort: drop this demo instance's keyring anchor so e2e runs never
+	// accumulate entries in the OS credential store.
+	try {
+		deleteAnchor(seeded);
+	} catch {
+		/* keyring unavailable */
+	}
 	for (const d of [seeded.demoDir, seeded.scopeDir]) {
 		try {
 			fs.rmSync(d, { recursive: true, force: true });
 		} catch {
 			/* best effort */
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Grant-ledger persistence surface (WS-grant-ledger relaunch e2e).
+//
+// The app persists the sealed authorization ledger at
+// <userData>/plugin-authorization.bin and anchors its freshness in the OS
+// credential store under service 'com.maestro.plugin-authorization'. In demo
+// mode the account is scoped per demo dir ('freshness:<sha256(demoDir)[:16]>')
+// so isolated e2e instances never touch the developer's real anchor slot —
+// which is also what makes DELETING the anchor (scenario: lost/corrupt
+// keyring) safe to exercise here.
+// ---------------------------------------------------------------------------
+
+const ANCHOR_SERVICE = 'com.maestro.plugin-authorization';
+
+export function ledgerPath(seeded: SeededEnv): string {
+	return path.join(seeded.demoDir, 'plugin-authorization.bin');
+}
+
+/** The demo-scoped keyring account for this instance's freshness anchor.
+ * MUST match the derivation in src/main/index.ts (DEMO_MODE branch). */
+function anchorAccount(seeded: SeededEnv): string {
+	const hash = crypto.createHash('sha256').update(seeded.demoDir, 'utf8').digest('hex');
+	return `freshness:${hash.slice(0, 16)}`;
+}
+
+interface KeyringEntryLike {
+	getPassword(): string | null;
+	deletePassword(): boolean;
+}
+
+function keyringEntry(seeded: SeededEnv): KeyringEntryLike {
+	// Lazy require so merely importing the harness never hard-depends on the
+	// native module; tests that USE the anchor helpers fail loudly instead.
+	// eslint-disable-next-line @typescript-eslint/no-require-imports
+	const mod = require('@napi-rs/keyring') as {
+		Entry: new (service: string, account: string) => KeyringEntryLike;
+	};
+	return new mod.Entry(ANCHOR_SERVICE, anchorAccount(seeded));
+}
+
+/** Read this demo instance's freshness anchor (null when absent). */
+export function readAnchor(seeded: SeededEnv): string | null {
+	try {
+		return keyringEntry(seeded).getPassword();
+	} catch {
+		return null;
+	}
+}
+
+/** Delete this demo instance's freshness anchor — simulates a lost/corrupt
+ * OS keyring entry while the sealed ledger file still exists on disk. */
+export function deleteAnchor(seeded: SeededEnv): boolean {
+	try {
+		return keyringEntry(seeded).deletePassword();
+	} catch {
+		return false;
 	}
 }
 
@@ -269,6 +436,23 @@ export function parseSelfTestSummary(output: string, runId: string): Record<stri
 /** Did the plugin log delivery of the given event topic for this run? */
 export function sawDeliveredEvent(output: string, runId: string, topic: string): boolean {
 	return output.includes(`[e2e-selftest:${runId}] EVENT ${topic}`);
+}
+
+/** The LAST delivered payload for a topic (parsed), or null when none arrived. */
+export function deliveredEventPayload(
+	output: string,
+	runId: string,
+	topic: string
+): Record<string, unknown> | null {
+	const marker = `[e2e-selftest:${runId}] EVENT ${topic} `;
+	const lines = output.split(/\r?\n/).filter((l) => l.includes(marker));
+	if (lines.length === 0) return null;
+	const last = lines[lines.length - 1];
+	try {
+		return JSON.parse(last.slice(last.indexOf(marker) + marker.length)) as Record<string, unknown>;
+	} catch {
+		return null;
+	}
 }
 
 /**
