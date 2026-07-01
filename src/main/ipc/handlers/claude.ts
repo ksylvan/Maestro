@@ -34,6 +34,10 @@ import {
 } from '../../utils/statsCache';
 import { app } from 'electron';
 import { captureException } from '../../utils/sentry';
+import {
+	snapshotStarredTranscript,
+	deleteStarredMirror,
+} from '../../storage/starred-transcript-mirror';
 
 /**
  * Legacy global stats cache structure for deprecated claude:getGlobalStats handler.
@@ -1726,6 +1730,22 @@ export function registerClaudeHandlers(deps: ClaudeHandlerDependencies): void {
 					ORIGINS_LOG_CONTEXT,
 					{ projectPath }
 				);
+
+				// Mirror the transcript on star / drop it on unstar so the conversation
+				// survives provider-side deletion. Fire-and-forget - see the generic
+				// agentSessions:setSessionStarred handler for the rationale.
+				const starEntry = origins[projectPath][agentSessionId];
+				const starSessionName = typeof starEntry === 'object' ? starEntry.sessionName : undefined;
+				if (starred) {
+					void snapshotStarredTranscript({
+						agentId: 'claude-code',
+						projectPath,
+						sessionId: agentSessionId,
+						sessionName: starSessionName,
+					});
+				} else {
+					void deleteStarredMirror({ agentId: 'claude-code', sessionId: agentSessionId });
+				}
 				return true;
 			}
 		)

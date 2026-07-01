@@ -1277,6 +1277,7 @@ quitHandler = createQuitHandler({
 	stopSettingsWatcher: () => settingsWatcher.stop(),
 	powerManager,
 	stopSessionCleanup,
+	getPersistedSessions: () => sessionsStore.get('sessions', []) as Array<Record<string, unknown>>,
 });
 quitHandler.setup();
 

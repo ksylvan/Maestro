@@ -18,6 +18,7 @@ import { flushTelemetry } from '../cue/cue-telemetry';
 import { captureException } from '../utils/sentry';
 import { powerManager as powerManagerInstance } from '../power-manager';
 import { isMacOS } from '../../shared/platformDetection';
+import { flushStarredMirrorsSync } from '../storage/starred-transcript-mirror';
 
 /**
  * Safety timeout for quit confirmation from the renderer.
@@ -106,6 +107,11 @@ export interface QuitHandlerDependencies {
 	powerManager: typeof powerManagerInstance;
 	/** Function to stop group chat moderator cleanup interval */
 	stopSessionCleanup?: () => void;
+	/**
+	 * Returns the persisted session list (StoredSession[]) so the quit path can
+	 * flush every open starred tab's transcript to Maestro's mirror before exit.
+	 */
+	getPersistedSessions?: () => Array<Record<string, unknown>>;
 }
 
 /** Quit handler state */
@@ -164,6 +170,7 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 		stopSettingsWatcher,
 		powerManager,
 		stopSessionCleanup,
+		getPersistedSessions,
 	} = deps;
 
 	const state: QuitHandlerState = {
@@ -326,6 +333,18 @@ export function createQuitHandler(deps: QuitHandlerDependencies): QuitHandler {
 
 		// Stop history manager watcher
 		getHistoryManager().stopWatching();
+
+		// Flush every open starred tab's transcript to Maestro's own mirror. Done
+		// synchronously (not fire-and-forget) because the process is SIGKILLed
+		// shortly after cleanup - async copies could be cut off. Each copy is
+		// mtime-gated, so unchanged transcripts cost only a stat.
+		if (getPersistedSessions) {
+			try {
+				flushStarredMirrorsSync(getPersistedSessions());
+			} catch (err) {
+				logger.error(`Error flushing starred transcripts on quit: ${err}`, 'Shutdown');
+			}
+		}
 
 		// Stop CLI activity watcher
 		if (stopCliWatcher) {
