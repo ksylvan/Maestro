@@ -87,10 +87,6 @@ export function createPluginsApi() {
 		invokeTool: (toolId: string, args?: unknown): Promise<{ result: unknown }> =>
 			ipcRenderer.invoke('plugins:invoke-tool', toolId, args),
 
-		/** Read a contributed panel's HTML for rendering in a sandboxed iframe. */
-		panelHtml: (panelId: string): Promise<{ html: string | null }> =>
-			ipcRenderer.invoke('plugins:panel-html', panelId),
-
 		/**
 		 * Read-only per-plugin observability for running tier-1 plugins: total
 		 * host calls, current/peak in-flight, last-activity timestamp, crash count,

@@ -527,12 +527,15 @@ export function createWindowManager(deps: WindowManagerDependencies): WindowMana
 				logger.warn(`Blocked navigation to: ${url}`, 'Window');
 			});
 
-			// Subframe egress guard. Plugin panels and the file-preview renderer are
-			// sandboxed `srcDoc` subframes whose only intended channel out is the
-			// brokered postMessage bridge. A meta CSP cannot stop such a frame from
-			// navigating ITSELF to a remote URL and leaking data through it, so block
-			// any subframe navigation away from its initial document here (the top
-			// frame is handled by `will-navigate` above).
+			// Subframe egress guard (backstop). Main-window `srcDoc` subframes (the
+			// file-preview renderer) have no business navigating anywhere: a meta CSP
+			// cannot stop such a frame from navigating ITSELF to a remote URL and
+			// leaking data through it, so block any subframe navigation away from its
+			// initial document here (the top frame is handled by `will-navigate`
+			// above). Plugin panels are NOT subframes anymore — they are <webview>
+			// guests with their own webContents, locked down separately in
+			// attachPluginPanelGuestSecurity (did-attach-webview) — but this guard
+			// stays as defense in depth for any srcDoc frame in the main window.
 			mainWindow.webContents.on('will-frame-navigate', (event) => {
 				if (!blocksSubframeNavigation(event.isMainFrame, event.url)) return;
 				event.preventDefault();

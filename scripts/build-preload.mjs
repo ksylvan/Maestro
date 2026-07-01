@@ -18,6 +18,7 @@ const rootDir = path.resolve(__dirname, '..');
 const distMainDir = path.join(rootDir, 'dist/main');
 const preloadOutfile = path.join(distMainDir, 'preload.js');
 const consentPreloadOutfile = path.join(distMainDir, 'consent-preload.js');
+const pluginPanelPreloadOutfile = path.join(distMainDir, 'plugin-panel-preload.js');
 const consentHtmlSrc = path.join(rootDir, 'src/main/consent/consent.html');
 const consentHtmlDest = path.join(distMainDir, 'consent.html');
 
@@ -60,6 +61,16 @@ async function build() {
 			...sharedOptions,
 		});
 		logBuilt(consentPreloadOutfile);
+
+		// Broker-only plugin-panel preload for panel <webview> guests: the one-way
+		// postMessage -> sendToHost bridge. Forced by the main process in
+		// will-attach-webview; never referenced by the renderer.
+		await esbuild.build({
+			entryPoints: [path.join(rootDir, 'src/main/preload/plugin-panel.ts')],
+			outfile: pluginPanelPreloadOutfile,
+			...sharedOptions,
+		});
+		logBuilt(pluginPanelPreloadOutfile);
 
 		// Copy the static consent page next to its preload.
 		fs.mkdirSync(distMainDir, { recursive: true });

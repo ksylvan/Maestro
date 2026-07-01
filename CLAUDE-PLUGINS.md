@@ -43,6 +43,7 @@ Main-process runtime in `src/main/plugins/`:
 | `plugin-event-bus.ts`                         | host->plugin event delivery, re-authorized per delivery                                           |
 | `action-guard.ts`, `plugin-scheduler-host.ts` | write-verb rate/concurrency guard; supervised cue-trigger scheduler                               |
 | `plugin-signature.ts`, `plugin-store-main.ts` | ed25519 verify; on-disk state/grants and `pluginsDir()`                                           |
+| `plugin-panel-host.ts`                        | panel render host: per-plugin session hardening, `plugin-panel://` protocol, egress/nav denial    |
 
 IPC at `src/main/ipc/handlers/plugins.ts`. Renderer at `src/renderer/components/plugins/PluginPanelFrame.tsx` plus `src/renderer/components/Settings/{PluginsPanel,PluginConsentDialog,PluginPanelHost}.tsx` and `src/renderer/hooks/usePluginContributions.ts`.
 
@@ -146,19 +147,18 @@ HostResponse { id, ok, result?, error? } <---postMessage---
 
 Channels (all gated on `encoreFeatures.plugins`):
 
-`plugins:list`, `plugins:set-enabled`, `plugins:install`, `plugins:update`, `plugins:uninstall`, `plugins:contributions`, `plugins:get-grants`, `plugins:set-grants`, `plugins:revoke-grants`, `plugins:invoke-command`, `plugins:invoke-tool`, `plugins:get-activity`, `plugins:panel-html`.
+`plugins:list`, `plugins:set-enabled`, `plugins:install`, `plugins:update`, `plugins:uninstall`, `plugins:contributions`, `plugins:get-grants`, `plugins:set-grants`, `plugins:revoke-grants`, `plugins:invoke-command`, `plugins:invoke-tool`, `plugins:get-activity`. (Panel documents are NOT read over IPC — the render host serves them over the per-plugin `plugin-panel://` protocol; see below.)
 
 - **Pure-reads invariant.** `plugins:list` and `plugins:contributions` MUST NOT call `refresh()`. `refresh()` reconciles sandboxes and fires `onChange` -> `plugins:changed` -> renderer re-fetch -> read again, an infinite IPC loop that freezes the app. Discovery happens at startup and on mutations only.
 - **Consent (`plugins:set-grants`).** The user approves a SUBSET of the plugin's REQUESTED permissions. The handler intersects approved capabilities with the manifest's requests, so an over-broad grant can never be smuggled in via the renderer, and only known capabilities survive. `plugins:revoke-grants` calls `forgetGrants`.
 
-## Renderer panel lockdown + consent
+## Renderer panel render host + consent
 
-`PluginPanelFrame.tsx` is the ONE place panel HTML renders:
+`PluginPanelFrame.tsx` is the ONE place a panel renders — an Electron `<webview>` guest, isolated per plugin (FC6 / WS-render-host):
 
-- Loaded over `plugins:panel-html` and injected as `srcDoc` into an iframe with `sandbox="allow-scripts"` and NO `allow-same-origin` and NO URL `src`. The frame cannot read app cookies/localStorage, reach `window.parent`, navigate the top frame, or touch the host DOM.
-- `withPanelCsp` injects a restrictive meta CSP (`default-src 'none'`, `connect-src 'none'`, `form-action 'none'`, `base-uri 'none'`, inline script/style allowed, `img/font` `data:` only). So a panel CANNOT fetch/XHR/WebSocket directly - any network must go through the brokered `net:fetch` capability.
-- The only channel out is `postMessage({ type: 'maestro:invokeCommand', commandId, args })`. The host accepts it only when `event.source === iframe.contentWindow`, namespaces it to `<pluginId>/<commandId>`, and forwards over the broker-gated `plugins:invoke-command` RPC to the plugin's registered command handler. A non-suppressible "from <plugin>" provenance line sits above every panel.
-- KNOWN RESIDUAL: a meta CSP cannot block frame self-navigation, so a panel could set `window.location` to leak data it already obtained via granted capabilities. Top-frame nav is blocked; full self-nav egress blocking needs main-process `will-frame-navigate` filtering (tracked follow-up).
+- **Per-plugin session.** Partition `plugin:<pluginId>` (in-memory, never `persist:`), so a panel can never see the app's storage nor another plugin's, and everything dies on relaunch. Document URL `plugin-panel://panel/<encoded panelId>` — served by a per-session protocol handler in `plugin-panel-host.ts` (main), which re-checks the Encore flag + grant-gated contributions (`getPanelHtml`) on EVERY load and serves with a restrictive CSP **header + meta** (`connect-src 'none'`, `child-src/frame-src 'none'`, `form-action 'none'`, `base-uri 'none'`; inline script/style allowed, `img/font` `data:` only). Naming contract: `src/shared/plugins/panel-host.ts`.
+- **Main-process enforcement.** `will-attach-webview` (window-manager) verifies partition and document name the SAME plugin, then forces web prefs: no Node, `contextIsolation`, OS `sandbox`, and the broker-only preload `plugin-panel-preload.js` (the ONLY preload; anything renderer-supplied is stripped). The session cancels ALL non-panel-document requests at the `webRequest` layer (egress denial beneath CSP) and denies every permission. `did-attach-webview` branches on `isPluginPanelSession`: panel guests get `window.open` denied and ALL navigations/redirects prevented — and NONE of the browser-tab conveniences (shortcut forwarding, JS injection, privileged paste) ever run inside plugin content. The old self-navigation exfil residual is CLOSED in the main process (the `will-frame-navigate` backstop in window-manager stays for the remaining srcdoc subframes, e.g. file preview).
+- **Bridge (contract unchanged).** Panel HTML still calls `parent.postMessage({ type: 'maestro:invokeCommand', commandId, args }, '*')`. In a top-level guest `parent === window`; the guest preload (source-gated to the panel's own window) forwards that one shape via `ipcRenderer.sendToHost` -> `ipc-message` on the `<webview>` -> `PluginPanelFrame` namespaces it to `<pluginId>/<commandId>` and forwards over the broker-gated `plugins:invoke-command` RPC. One-way; no reply channel. A non-suppressible "from <plugin>" provenance line sits above every panel.
 
 ## Signing / trust
 
@@ -203,7 +203,7 @@ External authors do not read this repo; two artifacts hand them the contract:
 - `src/shared/plugins/` - pure contracts (`plugin-manifest.ts`, `permissions.ts`, `contributions.ts`, `events.ts`, `host-api.ts`, `rpc-protocol.ts`, `signing.ts`).
 - `src/main/plugins/` - runtime (`plugin-manager.ts`, `plugin-sandbox-host.ts`, `plugin-sandbox-entry.ts`, `plugin-host-handlers.ts`, `permission-broker.ts`, `net-egress-guard.ts`).
 - `src/main/ipc/handlers/plugins.ts` - IPC channels and the pure-reads invariant.
-- `src/renderer/components/plugins/PluginPanelFrame.tsx` - panel lockdown + the postMessage bridge.
+- `src/renderer/components/plugins/PluginPanelFrame.tsx` + `src/main/plugins/plugin-panel-host.ts` - the panel render host (isolated webview) + the postMessage bridge.
 - [docs/agent-guides/PLUGIN-DEVELOPMENT.md](docs/agent-guides/PLUGIN-DEVELOPMENT.md) - the practical authoring guide.
 - `packages/plugin-sdk/` - the `@maestro/plugin-sdk` typed authoring package (vendored contracts + drift guard).
 - `src/cli/commands/plugin.ts` - the `maestro plugin` init/validate/sign/pack CLI.

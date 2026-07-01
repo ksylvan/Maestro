@@ -458,7 +458,6 @@ const mockMaestro = {
 		revokeGrants: vi.fn().mockResolvedValue({ requested: [], granted: [] }),
 		invokeCommand: vi.fn().mockResolvedValue({ dispatched: true }),
 		invokeTool: vi.fn().mockResolvedValue({ result: null }),
-		panelHtml: vi.fn().mockResolvedValue({ html: null }),
 		getActivity: vi.fn().mockResolvedValue({}),
 		onChanged: vi.fn().mockReturnValue(() => {}),
 		onRunUiCommand: vi.fn().mockReturnValue(() => {}),

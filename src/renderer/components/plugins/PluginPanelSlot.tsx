@@ -1,6 +1,6 @@
 /**
  * Renders every plugin-contributed panel whose `placement` matches this slot,
- * docked inline, each in a locked-down sandboxed iframe (`PluginPanelFrame`).
+ * docked inline, each in an isolated per-plugin <webview> (`PluginPanelFrame`).
  *
  * Panels are merged through the shared contribution registry so the same
  * built-in-wins / earlier-plugin-wins / provenance-retained contract that

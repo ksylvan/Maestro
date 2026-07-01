@@ -20,6 +20,7 @@ import type { PermissionRequest, PermissionGrant } from '../../../shared/plugins
 import type { PluginManager, InstallResult } from '../../plugins/plugin-manager';
 import type { ActivitySnapshot } from '../../plugins/plugin-sandbox-host';
 import { PLUGIN_ID_PATTERN } from '../../../shared/plugins/plugin-manifest';
+import { setPanelHtmlProvider } from '../../plugins/plugin-panel-host';
 
 const LOG_CONTEXT = '[Plugins]';
 
@@ -177,12 +178,12 @@ export function registerPluginsHandlers(deps: PluginsHandlerDependencies): void 
 			return { result: await manager.invokeTool(toolId, args) };
 		}
 	);
-	const wrappedPanelHtml = withIpcErrorLogging(
-		handlerOpts('panelHtml'),
-		async (panelId: unknown): Promise<{ html: string | null }> => {
-			if (typeof panelId !== 'string' || panelId.length === 0) throw new Error('InvalidPanelId');
-			return { html: manager.getPanelHtml(panelId) };
-		}
+	// The render host (plugin-panel-host) serves panel documents over the
+	// per-plugin `plugin-panel://` protocol. The provider re-checks the Encore
+	// flag and the grant-gated contribution set (inside getPanelHtml) on EVERY
+	// document fetch, so disable/revoke takes effect on the next panel load.
+	setPanelHtmlProvider((panelId) =>
+		isPluginsEnabled(settingsStore) ? manager.getPanelHtml(panelId) : null
 	);
 	const wrappedGetActivity = withIpcErrorLogging(
 		handlerOpts('getActivity'),
@@ -257,14 +258,6 @@ export function registerPluginsHandlers(deps: PluginsHandlerDependencies): void 
 		async (event, toolId: unknown, args: unknown): Promise<{ result: unknown }> => {
 			if (!isPluginsEnabled(settingsStore)) throw new Error('PluginsDisabled');
 			return wrappedInvokeTool(event, toolId, args);
-		}
-	);
-
-	ipcMain.handle(
-		'plugins:panel-html',
-		async (event, panelId: unknown): Promise<{ html: string | null }> => {
-			if (!isPluginsEnabled(settingsStore)) throw new Error('PluginsDisabled');
-			return wrappedPanelHtml(event, panelId);
 		}
 	);
 

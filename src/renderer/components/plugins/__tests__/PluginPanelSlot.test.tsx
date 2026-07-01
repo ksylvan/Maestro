@@ -42,7 +42,6 @@ function panel(over: Partial<PanelContribution> = {}): PanelContribution {
 const pluginBridge = {
 	contributions: vi.fn<() => Promise<AggregatedContributions>>(),
 	onChanged: vi.fn(() => () => {}),
-	panelHtml: vi.fn<(id: string) => Promise<{ html: string | null }>>(),
 	invokeCommand: vi.fn().mockResolvedValue({ dispatched: true }),
 };
 
@@ -51,14 +50,13 @@ beforeEach(() => {
 	// methods the docked-panel path never calls.
 	window.maestro.plugins = pluginBridge as unknown as typeof window.maestro.plugins;
 	pluginBridge.contributions.mockReset().mockResolvedValue(EMPTY);
-	pluginBridge.panelHtml.mockReset().mockResolvedValue({ html: '<p>panel-body-here</p>' });
 	pluginBridge.onChanged.mockClear();
 });
 
 afterEach(() => cleanup());
 
 describe('PluginPanelSlot', () => {
-	it('docks a matching panel in a locked-down sandboxed iframe with provenance', async () => {
+	it('docks a matching panel in an isolated per-plugin webview with provenance', async () => {
 		pluginBridge.contributions.mockResolvedValue({
 			...EMPTY,
 			panels: [
@@ -71,15 +69,14 @@ describe('PluginPanelSlot', () => {
 
 		// Provenance is shown and non-suppressible.
 		await waitFor(() => expect(screen.getByText('from acme.tools')).toBeInTheDocument());
-		// The iframe appears once the panel HTML resolves.
-		await waitFor(() => expect(container.querySelector('iframe')).not.toBeNull());
+		const webview = container.querySelector('webview');
+		expect(webview).not.toBeNull();
 
-		const iframe = container.querySelector('iframe');
-		// Opaque origin: allow-scripts ONLY, never allow-same-origin, never a URL src.
-		expect(iframe?.getAttribute('sandbox')).toBe('allow-scripts');
-		expect(iframe?.getAttribute('sandbox')).not.toContain('allow-same-origin');
-		expect(iframe?.getAttribute('src')).toBeNull();
-		expect(iframe?.getAttribute('srcdoc')).toContain('panel-body-here');
+		// Isolated surface: per-plugin partition + the panel's own protocol URL —
+		// never inline HTML (srcdoc) and never an arbitrary URL.
+		expect(webview?.getAttribute('partition')).toBe('plugin:acme.tools');
+		expect(webview?.getAttribute('src')).toBe('plugin-panel://panel/acme.tools%2Fboard');
+		expect(webview?.getAttribute('srcdoc')).toBeNull();
 
 		// The right-placement panel must NOT render in the left slot.
 		expect(screen.queryByText('Acme Side')).not.toBeInTheDocument();
@@ -94,7 +91,7 @@ describe('PluginPanelSlot', () => {
 		const { container } = render(<PluginPanelSlot theme={theme} placement="left" />);
 		await waitFor(() => expect(pluginBridge.contributions).toHaveBeenCalled());
 		await Promise.resolve();
-		expect(container.querySelector('iframe')).toBeNull();
+		expect(container.querySelector('webview')).toBeNull();
 		expect(container.querySelector('[data-plugin-panel-slot]')).toBeNull();
 	});
 
@@ -119,8 +116,7 @@ describe('PluginPanelSlot', () => {
 		});
 		const { container } = render(<PluginPanelSlot theme={theme} placement="left" />);
 		await waitFor(() => expect(screen.getByText('from first')).toBeInTheDocument());
-		await waitFor(() => expect(container.querySelector('iframe')).not.toBeNull());
-		expect(container.querySelectorAll('iframe')).toHaveLength(1);
+		expect(container.querySelectorAll('webview')).toHaveLength(1);
 		expect(screen.queryByText('from second')).not.toBeInTheDocument();
 	});
 });

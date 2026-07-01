@@ -2,11 +2,11 @@
  * Modal host for a plugin-contributed UI panel (the `modal` placement, launched
  * from Settings -> Encore -> Plugins).
  *
- * The locked-down sandboxed iframe, its HTML loading, the `maestro:invokeCommand`
- * postMessage bridge, and the non-suppressible provenance line all live in the
- * shared `PluginPanelFrame` (the ONE place the opaque-origin invariant is
- * enforced: `srcDoc` + `sandbox="allow-scripts"`, never `allow-same-origin`,
- * never a URL `src`). This component only supplies the modal chrome (backdrop,
+ * The isolated panel surface (a per-plugin-partition <webview>, hardened in the
+ * main process: no Node, contextIsolation, broker-only preload, nav/egress
+ * lockdown), the `maestro:invokeCommand` bridge, and the non-suppressible
+ * provenance line all live in the shared `PluginPanelFrame` (the ONE place a
+ * panel renders). This component only supplies the modal chrome (backdrop,
  * title bar, close affordance) around that frame.
  */
 

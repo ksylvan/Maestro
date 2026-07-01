@@ -3711,7 +3711,6 @@ interface MaestroAPI {
 		revokeGrants: (id: string) => Promise<PluginGrantsSnapshot>;
 		invokeCommand: (commandId: string, args?: unknown) => Promise<{ dispatched: boolean }>;
 		invokeTool: (toolId: string, args?: unknown) => Promise<{ result: unknown }>;
-		panelHtml: (panelId: string) => Promise<{ html: string | null }>;
 		getActivity: () => Promise<PluginActivityMap>;
 		onChanged: (callback: () => void) => () => void;
 		onRunUiCommand: (

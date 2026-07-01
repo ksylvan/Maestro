@@ -1,9 +1,12 @@
 /**
  * @file PluginPanelFrame.test.ts
- * @description withPanelCsp injects a restrictive Content-Security-Policy meta
- * (asserted by the load-bearing connect-src 'none' directive, by substring so
- * extra directives are fine) immediately after <head>, synthesizes a <head> under
- * a bare <html>, or prepends to a fragment - never dropping the original body.
+ * @description The panel frame renders an isolated <webview> surface — a
+ * per-plugin partition (`plugin:<id>`) and the panel's own `plugin-panel://`
+ * document URL, never srcdoc/inline HTML — under the non-suppressible
+ * provenance line. The bridge accepts ONLY the guest preload's
+ * `maestro:invokeCommand` ipc-message, namespaces the command to the owning
+ * plugin, and forwards it over the broker-gated invokeCommand RPC. A failed
+ * document load (unknown/ungranted panel) swaps the frame for an error state.
  */
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
@@ -11,14 +14,7 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import React from 'react';
 import type { PanelContribution } from '../../../../shared/plugins/contributions';
 import { THEMES } from '../../../../renderer/constants/themes';
-import {
-	PluginPanelFrame,
-	withPanelCsp,
-} from '../../../../renderer/components/plugins/PluginPanelFrame';
-
-/** The CSP meta with its load-bearing connect-src 'none', tolerant of additional
- * directives inside the same content attribute. */
-const CSP_META = /<meta http-equiv="Content-Security-Policy"[^>]*connect-src 'none'/;
+import { PluginPanelFrame } from '../../../../renderer/components/plugins/PluginPanelFrame';
 
 const theme = THEMES.dracula;
 
@@ -28,26 +24,20 @@ function panel(over: Partial<PanelContribution> = {}): PanelContribution {
 		localId: 'board',
 		pluginId: 'acme.tools',
 		title: 'Acme Board',
-		entry: 'board.html',
-		placement: 'left',
+		entry: 'panel.html',
+		placement: 'modal',
 		...over,
 	};
 }
 
-function dispatchFrameMessage(
-	iframe: HTMLIFrameElement,
-	data: unknown,
-	origin: string = 'null'
-): void {
-	const event = new MessageEvent('message', { data, origin });
-	Object.defineProperty(event, 'source', { value: iframe.contentWindow });
-	window.dispatchEvent(event);
+/** Dispatch a guest-preload `ipc-message` event on the webview element. */
+function dispatchIpcMessage(webview: Element, channel: string, payload: unknown): void {
+	const event = new Event('ipc-message');
+	Object.assign(event, { channel, args: [payload] });
+	webview.dispatchEvent(event);
 }
 
 beforeEach(() => {
-	vi.mocked(window.maestro.plugins.panelHtml).mockReset().mockResolvedValue({
-		html: '<button>plugin action</button>',
-	});
 	vi.mocked(window.maestro.plugins.invokeCommand)
 		.mockReset()
 		.mockResolvedValue({ dispatched: true });
@@ -55,80 +45,63 @@ beforeEach(() => {
 
 afterEach(() => cleanup());
 
-describe('withPanelCsp', () => {
-	it('inserts the CSP meta immediately after an existing <head>', () => {
-		const out = withPanelCsp('<html><head></head><body>x</body></html>');
-		expect(out).toMatch(CSP_META);
-		const headIdx = out.indexOf('<head>');
-		const metaIdx = out.indexOf('<meta http-equiv="Content-Security-Policy"');
-		expect(metaIdx).toBe(headIdx + '<head>'.length);
-		expect(out).toContain('<body>x</body>');
-	});
-
-	it('creates a <head> with the meta when there is an <html> but no <head>', () => {
-		const out = withPanelCsp('<html><body>hello</body></html>');
-		expect(out).toMatch(CSP_META);
-		expect(out).toContain('<head>');
-		expect(out).toContain('</head>');
-		// The synthesized head (and its meta) precedes the body.
-		expect(out.indexOf('Content-Security-Policy')).toBeLessThan(out.indexOf('<body>'));
-		expect(out).toContain('<body>hello</body>');
-	});
-
-	it('prepends the meta to a bare fragment', () => {
-		const out = withPanelCsp('hi');
-		expect(out).toMatch(CSP_META);
-		expect(out.indexOf('<meta')).toBe(0);
-		expect(out.endsWith('hi')).toBe(true);
-	});
-});
-
 describe('PluginPanelFrame render isolation', () => {
-	it('loads plugin HTML into a sandboxed srcdoc iframe with plugin provenance', async () => {
+	it('renders a webview on the per-plugin partition and panel document URL, with provenance', () => {
 		const { container } = render(React.createElement(PluginPanelFrame, { theme, panel: panel() }));
 
-		await waitFor(() => expect(screen.getByText('from acme.tools')).toBeInTheDocument());
-		await waitFor(() => expect(container.querySelector('iframe')).not.toBeNull());
+		expect(screen.getByText('from acme.tools')).toBeInTheDocument();
 
-		const iframe = container.querySelector('iframe');
-		expect(window.maestro.plugins.panelHtml).toHaveBeenCalledWith('acme.tools/board');
-		expect(iframe?.getAttribute('sandbox')).toBe('allow-scripts');
-		expect(iframe?.getAttribute('sandbox')).not.toContain('allow-same-origin');
-		expect(iframe?.getAttribute('src')).toBeNull();
-		expect(iframe?.getAttribute('srcdoc')).toMatch(CSP_META);
-		expect(iframe?.getAttribute('srcdoc')).toContain('<button>plugin action</button>');
+		const webview = container.querySelector('webview');
+		expect(webview).not.toBeNull();
+		// Per-plugin in-memory session — never persist:, never the app session.
+		expect(webview?.getAttribute('partition')).toBe('plugin:acme.tools');
+		// The document comes from the main-process protocol handler, never inline.
+		expect(webview?.getAttribute('src')).toBe('plugin-panel://panel/acme.tools%2Fboard');
+		expect(webview?.getAttribute('srcdoc')).toBeNull();
+		// The renderer never supplies webPreferences — main forces them all in
+		// will-attach-webview; anything set here would be untrusted anyway.
+		expect(webview?.getAttribute('webpreferences')).toBeNull();
+		expect(webview?.getAttribute('allowpopups')).toBeNull();
 	});
 
-	it('only bridges opaque-origin messages from the owned frame to the owning plugin command', async () => {
+	it('bridges only the guest ipc-message channel to the owning plugin command', async () => {
 		const { container } = render(React.createElement(PluginPanelFrame, { theme, panel: panel() }));
-		await waitFor(() => expect(container.querySelector('iframe')).not.toBeNull());
-		const iframe = container.querySelector('iframe');
-		expect(iframe).not.toBeNull();
+		const webview = container.querySelector('webview');
+		expect(webview).not.toBeNull();
 
-		dispatchFrameMessage(iframe!, {
-			type: 'maestro:invokeCommand',
+		dispatchIpcMessage(webview!, 'maestro:invokeCommand', {
 			commandId: 'open',
 			args: { n: 1 },
 		});
 		await waitFor(() =>
-			expect(window.maestro.plugins.invokeCommand).toHaveBeenCalledWith('acme.tools/open', { n: 1 })
+			expect(window.maestro.plugins.invokeCommand).toHaveBeenCalledWith('acme.tools/open', {
+				n: 1,
+			})
 		);
 
 		vi.mocked(window.maestro.plugins.invokeCommand).mockClear();
-		dispatchFrameMessage(
-			iframe!,
-			{ type: 'maestro:invokeCommand', commandId: 'open' },
-			'https://evil.test'
-		);
-		window.dispatchEvent(
-			new MessageEvent('message', {
-				data: { type: 'maestro:invokeCommand', commandId: 'open' },
-				origin: 'null',
-			})
-		);
-		dispatchFrameMessage(iframe!, { type: 'other', commandId: 'open' });
+		// Wrong channel, malformed payloads, and non-string commandId are ignored.
+		dispatchIpcMessage(webview!, 'other-channel', { commandId: 'open' });
+		dispatchIpcMessage(webview!, 'maestro:invokeCommand', null);
+		dispatchIpcMessage(webview!, 'maestro:invokeCommand', { commandId: 42 });
+		dispatchIpcMessage(webview!, 'maestro:invokeCommand', { commandId: '' });
 
 		await Promise.resolve();
 		expect(window.maestro.plugins.invokeCommand).not.toHaveBeenCalled();
+	});
+
+	it('shows the error state when the panel document fails to load', async () => {
+		const { container } = render(React.createElement(PluginPanelFrame, { theme, panel: panel() }));
+		const webview = container.querySelector('webview');
+		expect(webview).not.toBeNull();
+
+		webview!.dispatchEvent(new Event('did-fail-load'));
+
+		await waitFor(() =>
+			expect(screen.getByText('Panel content could not be loaded.')).toBeInTheDocument()
+		);
+		expect(container.querySelector('webview')).toBeNull();
+		// Provenance stays even in the error state.
+		expect(screen.getByText('from acme.tools')).toBeInTheDocument();
 	});
 });

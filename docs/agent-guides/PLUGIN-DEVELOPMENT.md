@@ -374,7 +374,7 @@ Every method below is broker-gated and needs the matching capability granted. Si
 
 ## 7. Panels (HTML + the postMessage bridge)
 
-A panel renders in a locked-down iframe: `sandbox="allow-scripts"` (opaque origin, no same-origin, no top navigation), `srcDoc` only, with a restrictive CSP injected by the host (`connect-src 'none'`, etc.).
+A panel renders in an isolated Electron `<webview>` guest with a per-plugin in-memory session (partition `plugin:<pluginId>`): no Node, contextIsolation, OS sandbox, opaque origin, and a restrictive CSP served by the host (`connect-src 'none'`, etc.). Navigation and network egress are denied in the main process — the panel lives on its initial document.
 
 **A panel CANNOT make network requests directly.** No `fetch`/XHR/WebSocket. To cause any effect, post a command to the parent; the plugin's registered command handler runs in the sandbox and uses the brokered SDK from there.
 
@@ -393,7 +393,7 @@ parent.postMessage(
 );
 ```
 
-The host accepts the message only from this frame, namespaces it to `<pluginId>/<commandId>`, and forwards it over the broker-gated `invokeCommand` RPC to your `maestro.commands.register('say-hello', ...)` handler.
+The host's guest preload accepts the message only from the panel document's own window, namespaces it to `<pluginId>/<commandId>`, and forwards it over the broker-gated `invokeCommand` RPC to your `maestro.commands.register('say-hello', ...)` handler. (In the panel, `parent === window` — existing panels keep working unchanged.)
 
 ### Minimal panel.html
 
@@ -514,6 +514,6 @@ Typical flow: `init` -> edit -> `validate` -> `sign --gen-key --key-out key.pem`
 - `src/shared/plugins/events.ts` - event topic catalog and payloads.
 - `src/main/plugins/plugin-sandbox-entry.ts` - the `maestro` SDK (`buildSdk`) and sandbox globals.
 - `src/main/plugins/plugin-host-handlers.ts` - what each brokered call actually does.
-- `src/renderer/components/plugins/PluginPanelFrame.tsx` - panel lockdown, CSP, and the postMessage bridge.
+- `src/renderer/components/plugins/PluginPanelFrame.tsx` + `src/main/plugins/plugin-panel-host.ts` - the panel render host (isolated webview), CSP, and the postMessage bridge.
 - `packages/plugin-sdk/` - the `@maestro/plugin-sdk` typed authoring package.
 - `src/cli/commands/plugin.ts` - the `maestro plugin` init/validate/sign/pack CLI.
