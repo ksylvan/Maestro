@@ -22,11 +22,30 @@ import {
 	type PluginEventBus,
 	type PluginEventTopic,
 } from '../../shared/plugins/events';
+import type { PluginCapability } from '../../shared/plugins/permissions';
+
+/**
+ * Topics whose payloads expose a specific host domain require the matching
+ * read capability IN ADDITION to `events:subscribe`. Checked live on every
+ * delivery (same instant-revoke discipline as the base grant), so revoking
+ * e.g. `history:read` silences `history.entryAdded` on the very next event
+ * without disturbing the plugin's other subscriptions. Topics absent from
+ * this map need only `events:subscribe`.
+ */
+export const TOPIC_REQUIRED_CAPABILITY: Partial<Record<PluginEventTopic, PluginCapability>> = {
+	'history.entryAdded': 'history:read',
+	'agent.completed': 'agents:read',
+};
 
 export interface PluginEventBusDeps {
 	/** Re-authorize a delivery against LIVE grants: does this plugin currently
 	 * hold `events:subscribe`? Called for EVERY delivery (instant revoke). */
 	isPermitted: (pluginId: string) => boolean;
+	/** Re-authorize a capability-gated topic against LIVE grants: does this
+	 * plugin currently hold `capability`? Called for every delivery of a topic
+	 * in `TOPIC_REQUIRED_CAPABILITY`. DEFAULT DENY: when this dep is absent,
+	 * gated topics are delivered to nobody (fail closed, never open). */
+	hasCapability?: (pluginId: string, capability: PluginCapability) => boolean;
 	/** Push an `event` control message to a running plugin sandbox. Returns false
 	 * when the plugin is not running, so the bus can prune a dead subscription. */
 	push: (pluginId: string, event: PluginEvent) => boolean;
@@ -117,8 +136,12 @@ export class PluginEventBusImpl implements PluginEventBus {
 	/**
 	 * Fan one event out to every subscriber. Each delivery is independently
 	 * re-authorized against live grants; an unauthorized (revoked) plugin has its
-	 * subscription pruned and receives nothing. A plugin whose sink reports it is
-	 * gone is also pruned. The integrator calls this from core emit sites.
+	 * subscription pruned and receives nothing. A capability-gated topic (see
+	 * `TOPIC_REQUIRED_CAPABILITY`) is additionally withheld from subscribers not
+	 * currently holding the topic's capability — withheld, not pruned, so a
+	 * later grant resumes delivery without resubscribing. A plugin whose sink
+	 * reports it is gone is also pruned. The integrator calls this from core
+	 * emit sites.
 	 */
 	emit(event: PluginEvent): void {
 		if (!isPluginEventTopic(event.topic)) return;
@@ -134,6 +157,13 @@ export class PluginEventBusImpl implements PluginEventBus {
 			if (!this.deps.isPermitted(pluginId)) {
 				// Grant revoked since subscribing: stop trusting the subscription.
 				this.clear(pluginId);
+				this.deps.onDelivery?.(pluginId, event.topic, false);
+				continue;
+			}
+			const requiredCap = TOPIC_REQUIRED_CAPABILITY[event.topic];
+			if (requiredCap && !(this.deps.hasCapability?.(pluginId, requiredCap) ?? false)) {
+				// Missing the topic's domain capability (or no checker wired —
+				// fail closed). Withhold delivery; keep the subscription.
 				this.deps.onDelivery?.(pluginId, event.topic, false);
 				continue;
 			}
