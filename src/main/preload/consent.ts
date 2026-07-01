@@ -26,6 +26,11 @@ interface ConsentOfferItem {
 	scope?: string;
 	reason?: string;
 	description: string;
+	/** Phase-4 act verb: rendered in the separate high-risk section, unchecked
+	 * by default, approved only via the distinct `approvedHighRisk` channel. */
+	actVerb?: boolean;
+	/** Act verbs only: wording of the nested unattended consent line. */
+	unattended?: string;
 }
 
 /** The decoded consent offer handed to the consent window. */
@@ -34,12 +39,28 @@ interface ConsentOffer {
 	pluginName: string;
 	nonce: string;
 	offered: ConsentOfferItem[];
+	/** Full-trust banner for a code plugin (tier >= 1 with an entry file). */
+	codeBanner?: string;
 }
 
 /** The single bridge exposed to the consent page via contextBridge. */
 interface PluginConsentBridge {
 	offer: ConsentOffer | null;
-	confirm(approved: string[]): Promise<{ ok: boolean }>;
+	/**
+	 * Confirm the user's choice. Three DISTINCT channels, so a high-risk act
+	 * verb can never ride the plain approval click (the minter REJECTS act
+	 * verbs arriving in `approved`):
+	 *  - `approved`: the plain (non-act-verb) capabilities the user checked;
+	 *  - `approvedHighRisk`: the act verbs the user separately checked in the
+	 *    high-risk section (unchecked by default);
+	 *  - `unattended`: the subset of `approvedHighRisk` whose NESTED
+	 *    unattended (no-user-present) checkbox the user also checked.
+	 */
+	confirm(
+		approved: string[],
+		approvedHighRisk: string[],
+		unattended: string[]
+	): Promise<{ ok: boolean }>;
 	cancel(): Promise<void>;
 }
 
@@ -63,11 +84,13 @@ const offer = readOffer();
 const bridge: PluginConsentBridge = offer
 	? {
 			offer,
-			confirm: (approved: string[]) =>
+			confirm: (approved: string[], approvedHighRisk: string[], unattended: string[]) =>
 				ipcRenderer.invoke('plugins:confirm-consent', {
 					pluginId: offer.pluginId,
 					nonce: offer.nonce,
 					approved,
+					approvedHighRisk,
+					unattended,
 				}),
 			cancel: () => ipcRenderer.invoke('plugins:cancel-consent'),
 		}

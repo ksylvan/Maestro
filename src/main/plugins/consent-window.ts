@@ -31,6 +31,20 @@ export interface ConsentOfferItem {
 	reason?: string;
 	/** Human-readable description (from describeCapability). */
 	description: string;
+	/**
+	 * Phase 4: true for the arbitrary-code-execution-grade act verbs
+	 * (agents:dispatch / process:spawn). The consent page renders these in a
+	 * SEPARATE high-risk section, UNCHECKED by default, and the preload returns
+	 * their approval on the distinct `approvedHighRisk` channel — never bundled
+	 * into the plain `approved` click.
+	 */
+	actVerb?: boolean;
+	/**
+	 * Act verbs only: the wording of the NESTED, separately-approvable
+	 * unattended (scheduler/trigger-driven, no-user-present) consent line
+	 * (from describeUnattendedConsent). Present = render the nested checkbox.
+	 */
+	unattended?: string;
 }
 
 /** The full offer handed to the consent window via additionalArguments. */
@@ -39,6 +53,13 @@ export interface ConsentOffer {
 	pluginName: string;
 	nonce: string;
 	offered: ConsentOfferItem[];
+	/**
+	 * Full-trust banner for a CODE plugin (manifest.tier >= 1 with an entry
+	 * file): shown verbatim above the capability list so the user understands
+	 * that enabling runs the plugin's code with their account's privileges
+	 * (Option-B trusted-to-run, plugin-phase3-sandbox-decision.md).
+	 */
+	codeBanner?: string;
 }
 
 export interface OpenConsentWindowDeps {

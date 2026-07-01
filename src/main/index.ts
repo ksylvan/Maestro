@@ -63,6 +63,8 @@ import {
 	describeCapability,
 	capabilityRisk,
 	isPluginCapability,
+	isHighRiskActCapability,
+	describeUnattendedConsent,
 } from '../shared/plugins/permissions';
 import {
 	createAuthorizationStore,
@@ -1814,18 +1816,36 @@ app
 			openPrompt: async ({ pluginId, offered, nonce }) => {
 				const record = pluginManager?.getRegistry().records.find((r) => r.id === pluginId);
 				const requested = pluginManager?.getRequestedPermissions(pluginId) ?? [];
+				// [FC1Finish] Full-trust banner for a CODE plugin (tier >= 1 with an
+				// entry file): under Option-B trusted-to-run there is no OS sandbox,
+				// so consent must say what enabling actually does.
+				const isCodePlugin =
+					(record?.manifest?.tier ?? 0) >= 1 &&
+					typeof record?.manifest?.entry === 'string' &&
+					record.manifest.entry !== '';
 				const offer: ConsentOffer = {
 					pluginId,
 					pluginName: record?.manifest?.name ?? pluginId,
 					nonce,
+					...(isCodePlugin
+						? {
+								codeBanner:
+									"This plugin's code will run with your account's privileges on this machine.",
+							}
+						: {}),
 					offered: offered.map((cap) => {
 						const req = requested.find((r) => r.capability === cap);
+						// Phase-4 act verbs render in the consent page's SEPARATE
+						// high-risk section (unchecked by default) with the nested,
+						// separately-approvable unattended consent line.
+						const actVerb = isHighRiskActCapability(cap);
 						return {
 							capability: cap,
 							risk: capabilityRisk(cap),
 							...(req?.scope ? { scope: req.scope } : {}),
 							...(req?.reason ? { reason: req.reason } : {}),
 							description: describeCapability(cap),
+							...(actVerb ? { actVerb: true, unattended: describeUnattendedConsent(cap) } : {}),
 						};
 					}),
 				};
@@ -1861,11 +1881,30 @@ app
 		// Confirm from the consent window: the minter validates the sender frame +
 		// one-time nonce before minting. The window is closed either way.
 		ipcMain.handle('plugins:confirm-consent', (event, payload: unknown) => {
-			const p = (payload ?? {}) as { pluginId?: unknown; nonce?: unknown; approved?: unknown };
+			const p = (payload ?? {}) as {
+				pluginId?: unknown;
+				nonce?: unknown;
+				approved?: unknown;
+				approvedHighRisk?: unknown;
+				unattended?: unknown;
+			};
 			const pluginId = typeof p.pluginId === 'string' ? p.pluginId : '';
 			const nonce = typeof p.nonce === 'string' ? p.nonce : '';
 			const approved = Array.isArray(p.approved) ? p.approved.filter(isPluginCapability) : [];
-			const outcome = consentMinter.confirm(senderTokenOf(event), { pluginId, nonce, approved });
+			// Distinct Phase-4 channels: act verbs arrive ONLY on approvedHighRisk
+			// (the minter rejects one smuggled into approved), and the revocable
+			// unattended flag is minted only from the explicit unattended list.
+			const approvedHighRisk = Array.isArray(p.approvedHighRisk)
+				? p.approvedHighRisk.filter(isPluginCapability)
+				: [];
+			const unattended = Array.isArray(p.unattended) ? p.unattended.filter(isPluginCapability) : [];
+			const outcome = consentMinter.confirm(senderTokenOf(event), {
+				pluginId,
+				nonce,
+				approved,
+				approvedHighRisk,
+				unattended,
+			});
 			closeConsentWindow();
 			if (outcome.ok) {
 				logger.info(

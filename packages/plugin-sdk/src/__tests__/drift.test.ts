@@ -133,4 +133,35 @@ describe('@maestro/plugin-sdk vendored-contract drift guard', () => {
 			srcValidatePluginManifest(invalidCategory)
 		);
 	});
+
+	it('validatePluginManifest agrees with the source on allowlist-scoped act verbs (Phase-4 promotion)', () => {
+		const base = {
+			id: 'com.example.act-plugin',
+			name: 'Act Plugin',
+			version: '0.1.0',
+			tier: 1,
+			maestro: { minHostApi: HOST_API_VERSION },
+			entry: 'dist/entry.js',
+		};
+		// Well-formed: both act verbs carry an exact-member allowlist scope.
+		const scoped = {
+			...base,
+			permissions: [
+				{ capability: 'agents:dispatch', scope: 'agent-a,agent-b' },
+				{ capability: 'process:spawn', scope: 'echo-tool' },
+			],
+		};
+		expect(validatePluginManifest(scoped)).toEqual(srcValidatePluginManifest(scoped));
+		expect(validatePluginManifest(scoped).manifest?.permissions).toHaveLength(2);
+
+		// An UNSCOPED act-verb request is a wildcard: both copies must reject it.
+		const unscoped = { ...base, permissions: [{ capability: 'agents:dispatch' }] };
+		expect(validatePluginManifest(unscoped)).toEqual(srcValidatePluginManifest(unscoped));
+		expect(validatePluginManifest(unscoped).manifest).toBeNull();
+
+		// A pattern-shaped member must also be rejected identically.
+		const wildcard = { ...base, permissions: [{ capability: 'process:spawn', scope: '*' }] };
+		expect(validatePluginManifest(wildcard)).toEqual(srcValidatePluginManifest(wildcard));
+		expect(validatePluginManifest(wildcard).manifest).toBeNull();
+	});
 });

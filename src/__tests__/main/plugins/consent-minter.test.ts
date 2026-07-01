@@ -281,6 +281,124 @@ describe('ConsentMinter', () => {
 	});
 });
 
+describe('ConsentMinter — Phase-4 act-verb channels', () => {
+	const ACT_REQUESTED: PermissionRequest[] = [
+		{ capability: 'fs:read' },
+		{ capability: 'agents:dispatch', scope: 'agent-a' },
+		{ capability: 'process:spawn', scope: 'echo-tool' },
+	];
+
+	it('REJECTS an act verb riding the plain approved[] channel (bundled-act-verb)', async () => {
+		const { minter, mints, captured } = setup({ requested: ACT_REQUESTED, identity: TRUSTED });
+		await minter.requestConsent('p');
+		const out = minter.confirm(SENDER, {
+			pluginId: 'p',
+			nonce: captured.nonce!,
+			// A forged confirm smuggling the act verb into the bundled click: the
+			// real consent page can never produce this shape.
+			approved: ['fs:read', 'agents:dispatch'],
+		});
+		expect(out).toEqual({ ok: false, reason: 'bundled-act-verb' });
+		expect(mints).toHaveLength(0);
+	});
+
+	it('mints an act verb ONLY via approvedHighRisk, keeping its allowlist scope, without unattended', async () => {
+		const { minter, mints, captured } = setup({ requested: ACT_REQUESTED, identity: TRUSTED });
+		await minter.requestConsent('p');
+		const out = minter.confirm(SENDER, {
+			pluginId: 'p',
+			nonce: captured.nonce!,
+			approved: ['fs:read'],
+			approvedHighRisk: ['agents:dispatch'],
+		});
+		expect(out.ok).toBe(true);
+		expect(mints).toHaveLength(1);
+		const caps = mints[0].caps;
+		expect(caps.map((c) => c.capability).sort()).toEqual(['agents:dispatch', 'fs:read']);
+		const dispatchGrant = caps.find((c) => c.capability === 'agents:dispatch')!;
+		expect(dispatchGrant.scope).toBe('agent-a'); // allowlist scope preserved
+		// Interactive approval alone NEVER mints the unattended flag.
+		expect(caps.every((c) => c.unattended !== true)).toBe(true);
+	});
+
+	it('mints the unattended flag ONLY from the explicit unattended acceptance, per capability', async () => {
+		const { minter, mints, captured } = setup({ requested: ACT_REQUESTED, identity: TRUSTED });
+		await minter.requestConsent('p');
+		const out = minter.confirm(SENDER, {
+			pluginId: 'p',
+			nonce: captured.nonce!,
+			approved: [],
+			approvedHighRisk: ['agents:dispatch', 'process:spawn'],
+			unattended: ['agents:dispatch'], // only dispatch gets the 3am consent
+		});
+		expect(out.ok).toBe(true);
+		const caps = mints[0].caps;
+		expect(caps.find((c) => c.capability === 'agents:dispatch')?.unattended).toBe(true);
+		expect(caps.find((c) => c.capability === 'process:spawn')?.unattended).toBeUndefined();
+	});
+
+	it('rejects unattended naming a capability not separately approved as high-risk', async () => {
+		const { minter, mints, captured } = setup({ requested: ACT_REQUESTED, identity: TRUSTED });
+		await minter.requestConsent('p');
+		const out = minter.confirm(SENDER, {
+			pluginId: 'p',
+			nonce: captured.nonce!,
+			approved: ['fs:read'],
+			approvedHighRisk: ['process:spawn'],
+			unattended: ['agents:dispatch'], // never interactively approved
+		});
+		expect(out).toEqual({ ok: false, reason: 'bad-unattended' });
+		expect(mints).toHaveLength(0);
+	});
+
+	it('rejects a non-act verb smuggled onto the approvedHighRisk channel', async () => {
+		const { minter, mints, captured } = setup({ requested: ACT_REQUESTED, identity: TRUSTED });
+		await minter.requestConsent('p');
+		const out = minter.confirm(SENDER, {
+			pluginId: 'p',
+			nonce: captured.nonce!,
+			approved: [],
+			approvedHighRisk: ['fs:read'], // not an act verb
+		});
+		expect(out).toEqual({ ok: false, reason: 'bad-high-risk' });
+		expect(mints).toHaveLength(0);
+	});
+
+	it('still enforces approved ⊆ offered across BOTH channels (no widening via high-risk)', async () => {
+		const { minter, mints, captured } = setup({
+			requested: [{ capability: 'fs:read' }], // no act verb offered
+			identity: TRUSTED,
+		});
+		await minter.requestConsent('p');
+		const out = minter.confirm(SENDER, {
+			pluginId: 'p',
+			nonce: captured.nonce!,
+			approved: ['fs:read'],
+			approvedHighRisk: ['agents:dispatch'], // never offered
+		});
+		expect(out).toEqual({ ok: false, reason: 'bad-nonce' });
+		expect(mints).toHaveLength(0);
+	});
+
+	it('a rejected bundled-act-verb confirm is one-shot (prompt burned, no retry)', async () => {
+		const { minter, mints, captured } = setup({ requested: ACT_REQUESTED, identity: TRUSTED });
+		await minter.requestConsent('p');
+		minter.confirm(SENDER, {
+			pluginId: 'p',
+			nonce: captured.nonce!,
+			approved: ['agents:dispatch'],
+		});
+		const retry = minter.confirm(SENDER, {
+			pluginId: 'p',
+			nonce: captured.nonce!,
+			approved: [],
+			approvedHighRisk: ['agents:dispatch'],
+		});
+		expect(retry).toEqual({ ok: false, reason: 'no-prompt' });
+		expect(mints).toHaveLength(0);
+	});
+});
+
 describe('sameConsentSender', () => {
 	it('matches the same frame in the same state', () => {
 		expect(sameConsentSender(SENDER, { webContentsId: 7, frameId: 1, url: 'app://consent' })).toBe(

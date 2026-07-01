@@ -123,8 +123,15 @@ const CAPABILITY_RISK: Record<PluginCapability, CapabilityRisk> = {
 	'ui:render-unsafe': 'high',
 };
 
-/** Whether a capability's scope is a filesystem path, a network host, or none. */
-type ScopeKind = 'path' | 'host' | 'none';
+/**
+ * Whether a capability's scope is a filesystem path, a network host, a closed
+ * allowlist of exact names, or none. `allowlist` is the Phase-4 scope kind for
+ * the arbitrary-code-execution-grade act verbs: a grant names EXACTLY which
+ * agent ids / host-blessed binary names are permitted (set membership, never
+ * substring or wildcard), and an unscoped grant is a wildcard and therefore
+ * DENIED — the opposite of path/host, where unscoped means broadest.
+ */
+type ScopeKind = 'path' | 'host' | 'allowlist' | 'none';
 
 const CAPABILITY_SCOPE_KIND: Record<PluginCapability, ScopeKind> = {
 	'fs:read': 'path',
@@ -132,7 +139,11 @@ const CAPABILITY_SCOPE_KIND: Record<PluginCapability, ScopeKind> = {
 	'fs:watch': 'path',
 	'net:fetch': 'host',
 	'agents:read': 'none',
-	'agents:dispatch': 'none',
+	// Phase-4 promotion (plugin-phase4-high-risk-verbs.md): a dispatch grant
+	// names the exact agent ids it may target; a spawn grant names the exact
+	// host-blessed binary names. scope:'none' on these verbs would be a
+	// wildcard and is forbidden.
+	'agents:dispatch': 'allowlist',
 	'history:read': 'none',
 	'notifications:toast': 'none',
 	'settings:read': 'none',
@@ -148,7 +159,8 @@ const CAPABILITY_SCOPE_KIND: Record<PluginCapability, ScopeKind> = {
 	'ui:command': 'none',
 	'tabs:manage': 'none',
 	'events:subscribe': 'none',
-	'process:spawn': 'none',
+	// Phase-4 promotion: see agents:dispatch above.
+	'process:spawn': 'allowlist',
 	'shell:openExternal': 'host',
 	'decisions:write': 'none',
 	'power:preventSleep': 'none',
@@ -182,6 +194,47 @@ interface PermissionParseResult {
 	errors: string[];
 }
 
+/**
+ * Characters that could smuggle pattern semantics or confuse audit logs out of
+ * an allowlist member name. Allowlist members are opaque EXACT tokens (agent
+ * ids, host-blessed binary names) — never patterns, paths, or shell text.
+ */
+const ALLOWLIST_MEMBER_FORBIDDEN = /[*?[\]{}()|<>$`"'\\/\s\0]/;
+
+/**
+ * Parse an allowlist scope string into its member set: comma-separated EXACT
+ * names, trimmed, empties dropped. Returns null when the scope is absent or
+ * yields no valid members (which callers must treat as deny — an act-verb
+ * grant without named members is a wildcard and is forbidden).
+ */
+export function parseAllowlistScope(scope: string | undefined): readonly string[] | null {
+	if (typeof scope !== 'string') return null;
+	const members = scope
+		.split(',')
+		.map((m) => m.trim())
+		.filter((m) => m !== '');
+	if (members.length === 0) return null;
+	return members;
+}
+
+/** Validate an allowlist request scope at parse time: required, non-empty, and
+ * every member a plain exact token (no wildcards/paths/whitespace/quotes). */
+function validateAllowlistScope(capability: PluginCapability, scope: unknown): string | null {
+	if (typeof scope !== 'string' || scope.trim() === '') {
+		return `capability "${capability}" requires an allowlist scope naming exact targets (never wildcard)`;
+	}
+	const members = parseAllowlistScope(scope);
+	if (!members) {
+		return `capability "${capability}" allowlist scope has no valid members`;
+	}
+	for (const member of members) {
+		if (ALLOWLIST_MEMBER_FORBIDDEN.test(member)) {
+			return `capability "${capability}" allowlist member "${member}" contains forbidden characters (exact names only)`;
+		}
+	}
+	return null;
+}
+
 /** Parse and validate a manifest `permissions` array. Unknown capabilities and
  * malformed entries are rejected (collected as errors), never dropped silently. */
 function parsePermissions(input: unknown): PermissionParseResult {
@@ -209,6 +262,13 @@ function parsePermissions(input: unknown): PermissionParseResult {
 		if (scopeKind === 'none' && typeof scope === 'string' && scope.trim() !== '') {
 			out.errors.push(`capability "${capability}" does not take a scope`);
 			continue;
+		}
+		if (scopeKind === 'allowlist') {
+			const err = validateAllowlistScope(capability, scope);
+			if (err) {
+				out.errors.push(err);
+				continue;
+			}
 		}
 		if (reason !== undefined && typeof reason !== 'string') {
 			out.errors.push(`capability "${capability}" reason must be a string`);

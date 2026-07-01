@@ -18,6 +18,7 @@ import { randomBytes } from 'crypto';
 import {
 	grantsFromRequests,
 	isPluginCapability,
+	isHighRiskActCapability,
 	type PluginCapability,
 	type PermissionRequest,
 	type PermissionGrant,
@@ -123,7 +124,10 @@ export type MintRejection =
 	| 'plugin-mismatch' // confirm names a different plugin than the open prompt
 	| 'bad-nonce' // nonce missing/expired/replayed, or approved ⊄ offered
 	| 'no-identity' // the plugin dir is unhashable (symlink) — never mintable
-	| 'conflict'; // transcripts:read + egress on an untrusted plugin
+	| 'conflict' // transcripts:read + egress on an untrusted plugin
+	| 'bundled-act-verb' // an act verb rode the plain approved[] channel (forgery/spoof)
+	| 'bad-high-risk' // approvedHighRisk carried a non-act-verb capability
+	| 'bad-unattended'; // unattended named a cap not separately approved as high-risk
 
 export type MintOutcome =
 	| { ok: true; grants: PermissionGrant[] }
@@ -194,10 +198,26 @@ export class ConsentMinter {
 	 * frame, the nonce validates (right plugin, approved ⊆ offered), the identity
 	 * resolves, and the grant does not violate the transcripts+egress rule for an
 	 * untrusted plugin. One-shot: the open prompt is cleared regardless of outcome.
+	 *
+	 * Phase 4 (plugin-phase4-high-risk-verbs.md §1+§8): the act verbs travel a
+	 * DISTINCT `approvedHighRisk` channel. An act verb arriving in the plain
+	 * `approved` array is REJECTED outright — the real consent page can never
+	 * produce that shape, so it is a forgery, not a UI mistake. The revocable
+	 * `unattended` flag is minted ONLY from the explicit `unattended` list (the
+	 * nested no-user-present checkbox), which must itself be a subset of the
+	 * separately-approved act verbs.
 	 */
 	confirm(
 		sender: ConsentSender,
-		req: { pluginId: string; nonce: string; approved: readonly PluginCapability[] }
+		req: {
+			pluginId: string;
+			nonce: string;
+			approved: readonly PluginCapability[];
+			/** Act verbs the user separately checked in the high-risk section. */
+			approvedHighRisk?: readonly PluginCapability[];
+			/** Act verbs whose nested unattended consent the user also checked. */
+			unattended?: readonly PluginCapability[];
+		}
 	): MintOutcome {
 		const open = this.open;
 		this.open = null; // one-shot: a prompt can be confirmed at most once
@@ -208,14 +228,40 @@ export class ConsentMinter {
 		// superseded prompt for the same plugin cannot validate here.
 		if (req.nonce !== open.nonce) return { ok: false, reason: 'bad-nonce' };
 		const approved = req.approved.filter(isPluginCapability);
-		if (!this.deps.registry.consume(req.nonce, req.pluginId, approved)) {
+		// A high-risk act verb must NEVER ride the bundled approval click. The
+		// whole confirm is rejected (not just the verb dropped): the trusted
+		// consent surface cannot emit this shape, so it is evidence of forgery.
+		if (approved.some(isHighRiskActCapability)) {
+			return { ok: false, reason: 'bundled-act-verb' };
+		}
+		const approvedHighRisk = (req.approvedHighRisk ?? []).filter(isPluginCapability);
+		// The high-risk channel carries ONLY act verbs — a plain capability here
+		// would dodge the (future) per-channel wording/audit trail.
+		if (!approvedHighRisk.every(isHighRiskActCapability)) {
+			return { ok: false, reason: 'bad-high-risk' };
+		}
+		const highRiskSet = new Set(approvedHighRisk);
+		const unattended = (req.unattended ?? []).filter(isPluginCapability);
+		// Unattended consent exists only ON TOP of an interactive high-risk
+		// approval: it can never name a capability the user did not separately
+		// approve in the high-risk section (and never a non-act verb).
+		if (!unattended.every((c) => highRiskSet.has(c))) {
+			return { ok: false, reason: 'bad-unattended' };
+		}
+		const allApproved = [...approved, ...approvedHighRisk];
+		if (!this.deps.registry.consume(req.nonce, req.pluginId, allApproved)) {
 			return { ok: false, reason: 'bad-nonce' };
 		}
 		const identity = this.deps.identityOf(req.pluginId);
 		if (!identity) return { ok: false, reason: 'no-identity' };
-		const approvedSet = new Set(approved);
+		const approvedSet = new Set(allApproved);
 		const toGrant = this.deps.requested(req.pluginId).filter((r) => approvedSet.has(r.capability));
-		const grants = grantsFromRequests(toGrant, this.now());
+		const unattendedSet = new Set(unattended);
+		// The separate, revocable unattended flag is minted ONLY from the
+		// explicit unattended acceptance — never inferred from the grant itself.
+		const grants = grantsFromRequests(toGrant, this.now()).map((g) =>
+			unattendedSet.has(g.capability) ? { ...g, unattended: true } : g
+		);
 		const conflict = transcriptReadEgressConflict(grants, {
 			trusted: identity.signatureStatus === 'trusted',
 		});

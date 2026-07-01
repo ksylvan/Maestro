@@ -45,6 +45,59 @@
 			.plugin-name {
 				color: #ffffff;
 			}
+			.code-banner {
+				margin: 0 0 14px;
+				padding: 10px 12px;
+				border: 1px solid #6e4a1f;
+				border-radius: 8px;
+				background: rgba(210, 153, 34, 0.1);
+				color: #e3b341;
+				font-size: 13px;
+				font-weight: 500;
+			}
+			.high-risk-section {
+				margin: 14px 0 0;
+				padding: 12px;
+				border: 1px solid #6e2126;
+				border-radius: 10px;
+				background: rgba(248, 81, 73, 0.05);
+			}
+			.high-risk-heading {
+				margin: 0 0 4px;
+				font-size: 13px;
+				font-weight: 700;
+				text-transform: uppercase;
+				letter-spacing: 0.04em;
+				color: #f85149;
+			}
+			.high-risk-blurb {
+				margin: 0 0 10px;
+				font-size: 12px;
+				color: #d0a0a3;
+			}
+			.cap-unattended {
+				display: flex;
+				align-items: flex-start;
+				gap: 10px;
+				margin: 0 14px 12px 42px;
+				padding: 8px 10px;
+				border: 1px dashed #6e2126;
+				border-radius: 7px;
+				font-size: 12px;
+				color: #d0a0a3;
+				cursor: pointer;
+			}
+			.cap-unattended.disabled {
+				opacity: 0.45;
+				cursor: default;
+			}
+			.unattended-check {
+				flex: none;
+				width: 14px;
+				height: 14px;
+				margin: 1px 0 0;
+				accent-color: #f85149;
+			}
 			.caps {
 				display: flex;
 				flex-direction: column;
@@ -195,16 +248,32 @@
 					title.appendChild(document.createTextNode(' is requesting permissions'));
 					root.appendChild(title);
 
-					var list = el('ul', 'caps');
+					// Full-trust banner for a code plugin (tier >= 1 with an entry file):
+					// enabling it runs its code with the user's account privileges.
+					if (typeof offer.codeBanner === 'string' && offer.codeBanner !== '') {
+						root.appendChild(el('p', 'code-banner', offer.codeBanner));
+					}
+
 					var items = Array.isArray(offer.offered) ? offer.offered : [];
-					items.forEach(function (item) {
+					var plainItems = items.filter(function (item) {
+						return !item.actVerb;
+					});
+					var actItems = items.filter(function (item) {
+						return !!item.actVerb;
+					});
+
+					// One capability row. Plain rows default CHECKED and report on the
+					// `.cap-check` channel; act-verb rows live in the separate high-risk
+					// section, default UNCHECKED, and report on `.cap-check-high-risk` —
+					// so a high-risk approval can never ride the bundled click.
+					function buildRow(item, highRisk) {
 						var li = el('li', 'cap');
 						var label = el('label', 'cap-label');
 
 						var check = document.createElement('input');
 						check.type = 'checkbox';
-						check.checked = true;
-						check.className = 'cap-check';
+						check.checked = !highRisk;
+						check.className = highRisk ? 'cap-check-high-risk' : 'cap-check';
 						check.setAttribute('data-cap', item.capability);
 						label.appendChild(check);
 
@@ -223,9 +292,64 @@
 
 						label.appendChild(body);
 						li.appendChild(label);
-						list.appendChild(li);
+
+						// Nested, separately-approvable unattended consent: only meaningful
+						// on top of the interactive approval, so it is disabled (and
+						// cleared) while the parent act-verb row is unchecked.
+						if (highRisk && typeof item.unattended === 'string' && item.unattended !== '') {
+							var unattendedLabel = el('label', 'cap-unattended disabled');
+							var unattendedCheck = document.createElement('input');
+							unattendedCheck.type = 'checkbox';
+							unattendedCheck.checked = false;
+							unattendedCheck.disabled = true;
+							unattendedCheck.className = 'unattended-check';
+							unattendedCheck.setAttribute('data-cap', item.capability);
+							unattendedLabel.appendChild(unattendedCheck);
+							unattendedLabel.appendChild(el('span', null, item.unattended));
+							li.appendChild(unattendedLabel);
+
+							check.addEventListener('change', function () {
+								if (check.checked) {
+									unattendedCheck.disabled = false;
+									unattendedLabel.className = 'cap-unattended';
+								} else {
+									unattendedCheck.checked = false;
+									unattendedCheck.disabled = true;
+									unattendedLabel.className = 'cap-unattended disabled';
+								}
+							});
+						}
+
+						return li;
+					}
+
+					var list = el('ul', 'caps');
+					plainItems.forEach(function (item) {
+						list.appendChild(buildRow(item, false));
 					});
 					root.appendChild(list);
+
+					// SEPARATE high-risk section (never co-listed with the plain rows a
+					// user trains themselves to click through): the act verbs, unchecked
+					// by default, worded as the arbitrary code execution they are.
+					if (actItems.length > 0) {
+						var section = el('section', 'high-risk-section');
+						section.appendChild(el('h2', 'high-risk-heading', 'Arbitrary code execution'));
+						section.appendChild(
+							el(
+								'p',
+								'high-risk-blurb',
+								'This plugin can make an agent / a program run arbitrary code on your machine. ' +
+									'Each power below is off unless you switch it on.'
+							)
+						);
+						var highList = el('ul', 'caps');
+						actItems.forEach(function (item) {
+							highList.appendChild(buildRow(item, true));
+						});
+						section.appendChild(highList);
+						root.appendChild(section);
+					}
 
 					var actions = el('div', 'actions');
 					var cancelBtn = el('button', 'btn btn-cancel', 'Cancel');
@@ -243,9 +367,17 @@
 						root.querySelectorAll('.cap-check').forEach(function (node) {
 							if (node.checked) approved.push(node.getAttribute('data-cap'));
 						});
+						var approvedHighRisk = [];
+						root.querySelectorAll('.cap-check-high-risk').forEach(function (node) {
+							if (node.checked) approvedHighRisk.push(node.getAttribute('data-cap'));
+						});
+						var unattended = [];
+						root.querySelectorAll('.unattended-check').forEach(function (node) {
+							if (node.checked && !node.disabled) unattended.push(node.getAttribute('data-cap'));
+						});
 						setDisabled(true);
 						try {
-							await window.pluginConsent.confirm(approved);
+							await window.pluginConsent.confirm(approved, approvedHighRisk, unattended);
 						} catch (err) {
 							setDisabled(false);
 						}
@@ -264,7 +396,6 @@
 					actions.appendChild(approveBtn);
 					root.appendChild(actions);
 				}
-
 				if (document.readyState === 'loading') {
 					document.addEventListener('DOMContentLoaded', render);
 				} else {
