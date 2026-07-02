@@ -12,11 +12,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ChevronLeft, Power, Settings as SettingsIcon, Trash2, KeyRound } from 'lucide-react';
 import type { Theme } from '../../../types';
-import {
-	capabilityRisk,
-	describeCapability,
-	type CapabilityRisk,
-} from '../../../../shared/plugins/permissions';
+import { capabilityRisk, describeCapability } from '../../../../shared/plugins/permissions';
+import { PermissionList, RISK_COLOR } from './PermissionList';
 import type { PluginGrantsSnapshot } from '../../../../main/ipc/handlers/plugins';
 import type {
 	AggregatedContributions,
@@ -48,12 +45,6 @@ interface ExtensionDetailsProps {
 	 * config (e.g. Pianola, whose config is its own modal). */
 	settingsBody?: ReactNode;
 }
-
-const RISK_COLOR: Record<CapabilityRisk, 'success' | 'warning' | 'error'> = {
-	low: 'success',
-	medium: 'warning',
-	high: 'error',
-};
 
 /** A buckets→count summary of a plugin's contributions (only non-empty buckets). */
 const CONTRIB_BUCKETS: ReadonlyArray<{
@@ -467,56 +458,7 @@ export function ExtensionDetails({
 							>
 								Permissions
 							</div>
-							<div className="space-y-1.5">
-								{(ext.permissions ?? []).map((req) => {
-									const risk = capabilityRisk(req.capability);
-									const color = theme.colors[RISK_COLOR[risk]];
-									return (
-										<div
-											key={req.capability + (req.scope ?? '')}
-											data-testid="extension-permission"
-											data-cap={req.capability}
-											className="flex items-start gap-2 rounded-lg border p-2"
-											style={{ borderColor: theme.colors.border }}
-										>
-											<span
-												className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase flex-shrink-0 mt-0.5"
-												style={{ backgroundColor: color + '22', color }}
-											>
-												{risk}
-											</span>
-											<div className="min-w-0 flex-1">
-												<div className="text-xs" style={{ color: theme.colors.textMain }}>
-													{describeCapability(req.capability)}
-												</div>
-												{req.scope && (
-													<div
-														className="text-[10px] font-mono mt-0.5"
-														style={{ color: theme.colors.textDim }}
-													>
-														{req.scope}
-													</div>
-												)}
-												{req.reason && (
-													<div
-														className="text-[10px] mt-0.5"
-														style={{ color: theme.colors.textDim }}
-													>
-														{req.reason}
-													</div>
-												)}
-											</div>
-											<span
-												data-testid="extension-permission-status"
-												className="text-[10px] font-medium flex-shrink-0 mt-0.5"
-												style={{ color: theme.colors.textDim }}
-											>
-												Granted on enable
-											</span>
-										</div>
-									);
-								})}
-							</div>
+							<PermissionList theme={theme} permissions={ext.permissions ?? []} />
 						</div>
 					)}
 

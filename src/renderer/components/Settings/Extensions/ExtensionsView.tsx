@@ -12,6 +12,7 @@ import type { ReactNode } from 'react';
 import { useExtensions } from './useExtensions';
 import { ExtensionsGrid } from './ExtensionsGrid';
 import { ExtensionDetails } from './ExtensionDetails';
+import { FirstPartyEnableModal } from './FirstPartyEnableModal';
 import {
 	CATEGORY_FILTERS,
 	CATEGORY_LABELS,
@@ -33,6 +34,9 @@ export function ExtensionsView({ theme, settingsBodies }: ExtensionsViewProps) {
 		pluginsSubsystemEnabled,
 		busyId,
 		toggleBuiltin,
+		pendingEnable,
+		confirmPendingEnable,
+		cancelPendingEnable,
 		enablePluginsSubsystem,
 		togglePlugin,
 		installPlugin,
@@ -193,6 +197,15 @@ export function ExtensionsView({ theme, settingsBodies }: ExtensionsViewProps) {
 						onSelect={(ext) => setSelectedKey(ext.key)}
 					/>
 				</>
+			)}
+			{pendingEnable && (
+				<FirstPartyEnableModal
+					theme={theme}
+					name={pendingEnable.name}
+					permissions={pendingEnable.permissions}
+					onConfirm={confirmPendingEnable}
+					onCancel={cancelPendingEnable}
+				/>
 			)}
 		</div>
 	);

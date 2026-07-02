@@ -22,11 +22,19 @@ import {
 	FIRST_PARTY_PLUGINS,
 	type FirstPartyEncoreFlag,
 } from '../../../../shared/plugins/first-party';
+import type { PermissionRequest } from '../../../../shared/plugins/permissions';
 import { buildExtensions, type UnifiedExtension } from './extensionModel';
 
 /** Is this Encore flag one of the five first-party plugin-backed features? */
 function isFirstPartyFlag(flag: keyof EncoreFeatureFlags): flag is FirstPartyEncoreFlag {
 	return Object.prototype.hasOwnProperty.call(FIRST_PARTY_PLUGINS, flag);
+}
+
+/** A first-party feature enable awaiting the user's permission review. */
+export interface PendingBuiltinEnable {
+	flag: FirstPartyEncoreFlag;
+	name: string;
+	permissions: readonly PermissionRequest[];
 }
 
 export interface UseExtensionsResult {
@@ -39,6 +47,12 @@ export interface UseExtensionsResult {
 	busyId: string | null;
 	reload: () => Promise<void>;
 	toggleBuiltin: (flag: keyof EncoreFeatureFlags) => void;
+	/** A staged first-party enable awaiting permission review (null when none). */
+	pendingEnable: PendingBuiltinEnable | null;
+	/** Commit the staged enable (mints grants via the bridge), then clear it. */
+	confirmPendingEnable: () => void;
+	/** Dismiss the staged enable without touching the flag or minting grants. */
+	cancelPendingEnable: () => void;
 	enablePluginsSubsystem: () => void;
 	togglePlugin: (record: PluginRecord) => Promise<void>;
 	installPlugin: () => Promise<void>;
@@ -57,6 +71,7 @@ export function useExtensions(): UseExtensionsResult {
 	const [pluginsSubsystemEnabled, setPluginsSubsystemEnabled] = useState(true);
 	const [loading, setLoading] = useState(false);
 	const [busyId, setBusyId] = useState<string | null>(null);
+	const [pendingEnable, setPendingEnable] = useState<PendingBuiltinEnable | null>(null);
 
 	const reload = useCallback(async () => {
 		setLoading(true);
@@ -103,9 +118,14 @@ export function useExtensions(): UseExtensionsResult {
 		return unsubscribe;
 	}, [reload]);
 
-	const toggleBuiltin = useCallback(
-		(flag: keyof EncoreFeatureFlags) => {
-			const next = !encoreFeatures[flag];
+	// Commit a built-in flag change. Non-first-party flags are a direct settings
+	// write; first-party flags route through the host-owned lifecycle bridge
+	// (enable mints the declared grants + starts supervised services, disable
+	// stops them). The store syncs from the bridge's SETTLED state (which may be
+	// OFF if the grant mint failed closed). Fails LOUD, then falls back to a
+	// direct write so the toggle still works if the bridge is unavailable.
+	const commitBuiltin = useCallback(
+		(flag: keyof EncoreFeatureFlags, next: boolean) => {
 			// The main-process stats recording gate (`statsCollectionEnabled`) is a
 			// separate setting the old EncoreTab toggle kept in lockstep with the
 			// usageStats flag; the marketplace toggle is now the only management
@@ -118,19 +138,12 @@ export function useExtensions(): UseExtensionsResult {
 				applyFlag(next);
 				return;
 			}
-			// First-party features route through the host-owned lifecycle bridge:
-			// enable mints the declared grants and reconciles supervised services,
-			// disable stops them. The renderer store is synced from the bridge's
-			// settled state (which may be OFF if the grant mint failed closed).
 			void window.maestro.plugins
 				.setFirstPartyEnabled(flag, next)
 				.then((state) => {
 					applyFlag(state.enabled);
 				})
 				.catch((err) => {
-					// Fail LOUD, then fall back to the direct settings write so the
-					// toggle still works if the bridge is unavailable (e.g. main
-					// process predates the channel).
 					console.error(
 						`[Extensions] first-party bridge toggle failed for "${flag}" — ` +
 							`falling back to direct settings write:`,
@@ -141,6 +154,36 @@ export function useExtensions(): UseExtensionsResult {
 		},
 		[encoreFeatures, setEncoreFeatures, setStatsCollectionEnabled]
 	);
+
+	// The management gate. Enabling a first-party feature that declares real
+	// capabilities stages a pre-enable permission review (FirstPartyEnableModal);
+	// NOTHING is minted until the user confirms. Disabling, and enabling
+	// zero-permission or non-first-party flags, commit immediately (disable only
+	// removes access — there is nothing to review).
+	const toggleBuiltin = useCallback(
+		(flag: keyof EncoreFeatureFlags) => {
+			const next = !encoreFeatures[flag];
+			if (next && isFirstPartyFlag(flag)) {
+				const def = FIRST_PARTY_PLUGINS[flag];
+				if (def.permissions.length > 0) {
+					setPendingEnable({ flag, name: def.name, permissions: def.permissions });
+					return;
+				}
+			}
+			commitBuiltin(flag, next);
+		},
+		[encoreFeatures, commitBuiltin]
+	);
+
+	const confirmPendingEnable = useCallback(() => {
+		if (!pendingEnable) return;
+		commitBuiltin(pendingEnable.flag, true);
+		setPendingEnable(null);
+	}, [pendingEnable, commitBuiltin]);
+
+	const cancelPendingEnable = useCallback(() => {
+		setPendingEnable(null);
+	}, []);
 
 	const enablePluginsSubsystem = useCallback(() => {
 		setEncoreFeatures({ ...encoreFeatures, plugins: true });
@@ -270,6 +313,9 @@ export function useExtensions(): UseExtensionsResult {
 		busyId,
 		reload,
 		toggleBuiltin,
+		pendingEnable,
+		confirmPendingEnable,
+		cancelPendingEnable,
 		enablePluginsSubsystem,
 		togglePlugin,
 		installPlugin,
