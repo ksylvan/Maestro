@@ -23,10 +23,17 @@ export interface RegisteredWindow {
 	isMain: boolean;
 	leftPanelCollapsed: boolean;
 	rightPanelCollapsed: boolean;
+	/** User-assigned window name; undefined for the default generic label. */
+	name?: string;
 }
 
 /** The kinds of mutations the registry emits a change signal for. */
-export type WindowRegistryChangeType = 'created' | 'removed' | 'sessions-changed' | 'session-moved';
+export type WindowRegistryChangeType =
+	| 'created'
+	| 'removed'
+	| 'sessions-changed'
+	| 'session-moved'
+	| 'name-changed';
 
 /**
  * Payload describing a registry mutation. Persistence (the window-state store)
@@ -84,6 +91,7 @@ export class WindowRegistry extends EventEmitter {
 		sessionIds?: string[];
 		isMain?: boolean;
 		browserWindow: BrowserWindow;
+		name?: string;
 	}): string {
 		const id = options.windowId ?? generateUUID();
 		this.windows.set(id, {
@@ -93,6 +101,7 @@ export class WindowRegistry extends EventEmitter {
 			isMain: options.isMain ?? false,
 			leftPanelCollapsed: false,
 			rightPanelCollapsed: false,
+			name: options.name,
 		});
 		this.emitChange({ type: 'created', windowId: id });
 		return id;
@@ -155,6 +164,22 @@ export class WindowRegistry extends EventEmitter {
 		if (panel.rightPanelCollapsed !== undefined) {
 			entry.rightPanelCollapsed = panel.rightPanelCollapsed;
 		}
+	}
+
+	/**
+	 * Set (or clear) a window's user-assigned name. Pass an empty/whitespace name
+	 * to clear it back to the default generic label. Emits `name-changed` so the
+	 * broadcast forwards it to every renderer (their Left Bar / palette labels
+	 * refresh) and the persistence layer saves the new name. No-op if unknown.
+	 */
+	setName(windowId: string, name: string): void {
+		const entry = this.windows.get(windowId);
+		if (!entry) return;
+		const trimmed = name.trim();
+		const next = trimmed.length > 0 ? trimmed : undefined;
+		if (entry.name === next) return;
+		entry.name = next;
+		this.emitChange({ type: 'name-changed', windowId });
 	}
 
 	/**

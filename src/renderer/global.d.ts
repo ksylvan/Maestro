@@ -3773,6 +3773,7 @@ interface MaestroAPI {
 			isMain: boolean;
 			sessionIds: string[];
 			activeSessionId: string | null;
+			name?: string;
 		} | null>;
 		close: (windowId: string) => Promise<{ closed: boolean; error?: string }>;
 		list: () => Promise<
@@ -3781,6 +3782,7 @@ interface MaestroAPI {
 				isMain: boolean;
 				sessionIds: string[];
 				activeSessionId: string | null;
+				name?: string;
 			}>
 		>;
 		getForSession: (sessionId: string) => Promise<string | null>;
@@ -3802,6 +3804,7 @@ interface MaestroAPI {
 			activeSessionId: string | null;
 			leftPanelCollapsed: boolean;
 			rightPanelCollapsed: boolean;
+			name?: string;
 		} | null>;
 		// Claim a freshly-created agent for THIS window before its process starts,
 		// so it never momentarily surfaces in the primary's catch-all (spawn flicker).
@@ -3811,6 +3814,8 @@ interface MaestroAPI {
 			leftPanelCollapsed?: boolean;
 			rightPanelCollapsed?: boolean;
 		}) => Promise<void>;
+		// Set (or clear, via empty string) a window's user-assigned name; persists.
+		setName: (windowId: string, name: string) => Promise<{ renamed: boolean }>;
 		getBounds: (
 			windowId?: string
 		) => Promise<{ x: number; y: number; width: number; height: number } | null>;
@@ -3818,7 +3823,7 @@ interface MaestroAPI {
 		// Subscribe to session-ownership move broadcasts; returns an unsubscribe fn.
 		onSessionMoved: (
 			callback: (payload: {
-				type: 'session-moved' | 'sessions-changed';
+				type: 'session-moved' | 'sessions-changed' | 'name-changed';
 				windowId?: string;
 				sessionId?: string;
 				fromWindowId?: string;

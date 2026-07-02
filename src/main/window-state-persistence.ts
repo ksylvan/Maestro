@@ -55,6 +55,7 @@ export function registeredWindowToWindowState(entry: RegisteredWindow): WindowSt
 		activeSessionId: null,
 		leftPanelCollapsed: entry.leftPanelCollapsed,
 		rightPanelCollapsed: entry.rightPanelCollapsed,
+		name: entry.name,
 	};
 }
 
@@ -112,12 +113,12 @@ export function saveAllWindowStates(
  * maximize/fullscreen). `windowId` identifies the window that triggered the save
  * so a stale event from an already-removed or destroyed window is ignored.
  *
- * Window ids are minted fresh each launch (`generateUUID`), so a targeted
- * merge into the previously persisted blob would key off ids that no longer
- * match and resurrect last session's dead windows. Snapshotting the whole live
- * registry instead is always correct and self-healing - the moved window's new
- * bounds are captured along with every other open window's current state. Like
- * {@link saveAllWindowStates}, this never throws.
+ * Snapshots the whole live registry rather than merging the one window into the
+ * previously persisted blob: a merge would leave last session's dead windows in
+ * the saved list, whereas a full snapshot captures every currently-open window's
+ * state and drops the rest. (Restored windows now keep their saved id - see the
+ * restore path - so id-keyed state like a custom name reconnects; a full snapshot
+ * stays correct either way.) Like {@link saveAllWindowStates}, this never throws.
  */
 export function saveWindowState(
 	store: Store<WindowStateStoreData>,

@@ -95,6 +95,16 @@ export function createWindowsApi() {
 			ipcRenderer.invoke('windows:setPanelState', panel),
 
 		/**
+		 * Set (or clear, via an empty string) a window's user-assigned name. Any
+		 * window may rename any window, so this takes an explicit windowId. The new
+		 * name persists and is broadcast to every window so labels refresh.
+		 * @param windowId - The window to (re)name
+		 * @param name - New name; empty/whitespace clears back to the generic label
+		 */
+		setName: (windowId: string, name: string): Promise<{ renamed: boolean }> =>
+			ipcRenderer.invoke('windows:setName', windowId, name),
+
+		/**
 		 * On-screen bounds of a window. Defaults to the calling window.
 		 * @param windowId - Optional window ID to query a specific window
 		 */

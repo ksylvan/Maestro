@@ -448,6 +448,29 @@ describe('Windows IPC Handlers', () => {
 		});
 	});
 
+	describe('windows:setName', () => {
+		it('renames the named window and reflects it in getState', async () => {
+			const win = makeFakeWindow();
+			const id = registry.create({ browserWindow: win, sessionIds: [], isMain: false });
+
+			// withIpcErrorLogging-wrapped handler: called as (event, ...args).
+			const result = (await handlers.get('windows:setName')!({}, id, 'Deploy Watch')) as {
+				renamed: boolean;
+			};
+			expect(result.renamed).toBe(true);
+
+			const state = (await handlers.get('windows:getState')!(makeEvent(win))) as { name?: string };
+			expect(state.name).toBe('Deploy Watch');
+		});
+
+		it('returns { renamed: false } for an unknown window', async () => {
+			const result = (await handlers.get('windows:setName')!({}, 'nope', 'X')) as {
+				renamed: boolean;
+			};
+			expect(result.renamed).toBe(false);
+		});
+	});
+
 	describe('windows:getBounds', () => {
 		it('returns the calling window bounds by default', async () => {
 			const win = makeFakeWindow({
@@ -590,6 +613,22 @@ describe('Windows IPC Handlers', () => {
 			registry.remove(id);
 
 			expect(sendOf(win)).not.toHaveBeenCalled();
+		});
+
+		it('broadcasts a window rename so every renderer refreshes its labels', () => {
+			const win = makeFakeWindow();
+			const id = registry.create({ browserWindow: win, sessionIds: [], isMain: true });
+
+			wireWindowRegistryBroadcast(registry);
+			registry.setName(id, 'Deploy Watch');
+
+			expect(sendOf(win)).toHaveBeenCalledWith('windows:sessionMoved', {
+				type: 'name-changed',
+				windowId: id,
+				sessionId: undefined,
+				fromWindowId: undefined,
+				toWindowId: undefined,
+			});
 		});
 
 		it('skips destroyed windows and destroyed webContents', () => {

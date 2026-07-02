@@ -31,6 +31,14 @@ export interface WindowState {
 	activeSessionId: string | null;
 	leftPanelCollapsed: boolean;
 	rightPanelCollapsed: boolean;
+	/**
+	 * User-assigned window name (from the Left Bar "Move to Window" submenu's
+	 * rename affordance). Undefined for the default generic label ("Window N").
+	 * Persisted with the window and reconnected on restart by the window's stable
+	 * id (see the restore path threading id + name), so a custom name survives a
+	 * relaunch.
+	 */
+	name?: string;
 }
 
 /**
@@ -123,6 +131,8 @@ export interface WindowInfo {
 	isMain: boolean;
 	sessionIds: string[];
 	activeSessionId: string | null;
+	/** User-assigned window name; undefined for the default generic label. */
+	name?: string;
 }
 
 /**
@@ -134,7 +144,7 @@ export interface WindowInfo {
  * the fields are advisory context rather than a strict diff to apply.
  */
 export interface WindowSessionMovedPayload {
-	type: 'session-moved' | 'sessions-changed';
+	type: 'session-moved' | 'sessions-changed' | 'name-changed';
 	windowId?: string;
 	sessionId?: string;
 	fromWindowId?: string;

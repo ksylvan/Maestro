@@ -1857,6 +1857,11 @@ function SessionListInner(props: SessionListProps) {
 									void windowCtx.moveSessionToWindow(contextMenuSession.id, targetWindowId)
 							: undefined
 					}
+					onRenameWindow={
+						windowCtx
+							? (targetWindowId, name) => void windowCtx.renameWindow(targetWindowId, name)
+							: undefined
+					}
 				/>
 			)}
 

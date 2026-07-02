@@ -68,6 +68,7 @@ function toWindowInfo(entry: RegisteredWindow): WindowInfo {
 		isMain: entry.isMain,
 		sessionIds: [...entry.sessionIds],
 		activeSessionId: null,
+		name: entry.name,
 	};
 }
 
@@ -85,8 +86,9 @@ function resolveCallingWindow(
  * Subscribe to the {@link WindowRegistry} change signal and broadcast session
  * ownership moves to every open window on {@link WINDOW_SESSION_MOVED_CHANNEL}.
  *
- * Only the two ownership mutations are forwarded: `moveSession` (emits
- * `session-moved`) and `setSessionsForWindow` (emits `sessions-changed`). Window
+ * Forwarded mutations: `moveSession` (emits `session-moved`),
+ * `setSessionsForWindow` (emits `sessions-changed`), and `setName` (emits
+ * `name-changed`, so every window's Left Bar / palette labels refresh). Window
  * open/close (`created`/`removed`) is intentionally NOT broadcast - an empty new
  * window changes no badges, and any session move into/out of a window already
  * emits `session-moved`. The broadcast goes to ALL windows (not just the ones
@@ -98,7 +100,13 @@ function resolveCallingWindow(
  */
 export function wireWindowRegistryBroadcast(registry: WindowRegistry): () => void {
 	return registry.onChange((change) => {
-		if (change.type !== 'session-moved' && change.type !== 'sessions-changed') return;
+		if (
+			change.type !== 'session-moved' &&
+			change.type !== 'sessions-changed' &&
+			change.type !== 'name-changed'
+		) {
+			return;
+		}
 		const payload: WindowSessionMovedPayload = {
 			type: change.type,
 			windowId: change.windowId,
@@ -328,6 +336,25 @@ export function registerWindowsHandlers(deps: WindowsHandlerDependencies): void 
 			const entry = resolveCallingWindow(event, registry);
 			if (entry) registry.setPanelState(entry.id, panel);
 		}
+	);
+
+	// Set (or clear, via empty string) a window's user-assigned name. Any window
+	// may rename any window (the rename affordance lives in the Left Bar's Move to
+	// Window submenu, which can target other windows), so this takes an explicit
+	// windowId rather than resolving the caller. The registry emits `name-changed`,
+	// which wireWindowRegistryBroadcast forwards to every renderer and the persist
+	// listener saves to disk.
+	ipcMain.handle(
+		'windows:setName',
+		withIpcErrorLogging(
+			{ context: LOG_CONTEXT, operation: 'setName' },
+			async (windowId: string, name: string): Promise<{ renamed: boolean }> => {
+				const registry = requireDependency(getWindowRegistry, 'Window registry');
+				if (!registry.get(windowId)) return { renamed: false };
+				registry.setName(windowId, name);
+				return { renamed: true };
+			}
+		)
 	);
 
 	// On-screen bounds of a window. Defaults to the calling window; pass a

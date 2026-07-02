@@ -132,6 +132,12 @@ describe('window-state-persistence', () => {
 			registry.setSessionsForWindow('w1', ['a', 'b']);
 			expect(state.sessionIds).toEqual(['a']);
 		});
+
+		it('persists a user-assigned window name', () => {
+			registry.create({ windowId: 'w1', browserWindow: makeWindow() });
+			registry.setName('w1', 'Deploy Watch');
+			expect(registeredWindowToWindowState(registry.get('w1')!).name).toBe('Deploy Watch');
+		});
 	});
 
 	describe('buildMultiWindowState', () => {
@@ -320,6 +326,24 @@ describe('window-state-persistence', () => {
 			expect(specs.map((s) => s.sessionIds)).toEqual([['p'], ['a'], ['b']]);
 			// Bounds ride through untouched so each window restores where it was.
 			expect(specs[1].bounds).toMatchObject({ x: 10, y: 20 });
+		});
+
+		it('carries a saved window name through the restore spec bounds (id + name reconnect)', () => {
+			const state: MultiWindowState = {
+				primaryWindowId: 'primary',
+				windows: [
+					makePersistedWindow({ id: 'primary', sessionIds: ['p'] }),
+					makePersistedWindow({ id: 'secondary', sessionIds: ['a'], name: 'Deploy Watch' }),
+				],
+			};
+
+			const specs = planWindowRestore(state, new Set(['a', 'p']));
+
+			const secondary = specs.find((s) => !s.isPrimary);
+			// The window manager reads bounds.id + bounds.name to re-adopt the id and
+			// reconnect the custom name on restore.
+			expect(secondary?.bounds.id).toBe('secondary');
+			expect(secondary?.bounds.name).toBe('Deploy Watch');
 		});
 
 		it('drops agents that no longer exist from each window', () => {

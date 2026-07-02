@@ -162,7 +162,11 @@ import {
 import { WindowRegistry } from './window-registry';
 // Multi-window startup restore: turn the persisted MultiWindowState back into
 // window-creation specs (pruning agents that no longer exist).
-import { planWindowRestore, pickFocusWindowSpec } from './window-state-persistence';
+import {
+	planWindowRestore,
+	pickFocusWindowSpec,
+	saveWindowState,
+} from './window-state-persistence';
 import type { WindowState as SharedWindowState } from '../shared/window-types';
 // Phase 3 refactoring - process listeners
 import { setupProcessListeners as setupProcessListenersModule } from './process-listeners';
@@ -1579,6 +1583,14 @@ function setupIpcHandlers() {
 	// secondary shell can surface nothing (every agent is owned by some window),
 	// so the agent-level move flow tidies it up automatically.
 	wireEmptySecondaryWindowAutoClose(windowRegistry);
+	// Persist a window rename as soon as it happens (rather than only on quit),
+	// so a custom name survives even an abrupt exit. saveWindowState snapshots the
+	// whole live registry, so passing the renamed window's id is enough.
+	windowRegistry.onChange((change) => {
+		if (change.type === 'name-changed' && change.windowId) {
+			saveWindowState(windowStateStore, windowRegistry, change.windowId);
+		}
+	});
 
 	// Record aggregate multi-window usage telemetry (secondary windows opened +
 	// peak concurrent windows) as windows open. Gated on the user's

@@ -15,6 +15,8 @@ import {
 	Fingerprint,
 	AppWindow,
 	Plus,
+	Pencil,
+	Check,
 } from 'lucide-react';
 import type { Group, Session, Theme } from '../../types';
 import { useClickOutside, useContextMenuPosition } from '../../hooks';
@@ -52,6 +54,12 @@ interface SessionContextMenuProps {
 	onMoveToNewWindow?: () => void;
 	/** Move this agent into the given existing window. */
 	onMoveToWindow?: (windowId: string) => void;
+	/**
+	 * Rename a window (empty string clears back to the generic label). Enables the
+	 * inline pencil-rename affordance on each secondary window row in the Move to
+	 * Window submenu. Omitted in a single-window app.
+	 */
+	onRenameWindow?: (windowId: string, name: string) => void;
 }
 
 /**
@@ -135,8 +143,15 @@ export function SessionContextMenu({
 	windowTargets,
 	onMoveToNewWindow,
 	onMoveToWindow,
+	onRenameWindow,
 }: SessionContextMenuProps) {
 	const menuRef = useRef<HTMLDivElement>(null);
+
+	// Inline window-rename state. While a row is being renamed, the Move to Window
+	// flyout must NOT auto-close on mouse-leave (it would unmount the input
+	// mid-edit), so the container's close is guarded on this being null.
+	const [renamingWindowId, setRenamingWindowId] = useState<string | null>(null);
+	const [renameValue, setRenameValue] = useState('');
 
 	const onDismissRef = useRef(onDismiss);
 	onDismissRef.current = onDismiss;
@@ -164,6 +179,25 @@ export function SessionContextMenu({
 	// "Move to Window" appears only in a multi-window-capable app: a mover handler
 	// plus at least one enumerated window (empty before the registry hydrates).
 	const showMoveToWindow = !!onMoveToNewWindow && !!windowTargets && windowTargets.length > 0;
+
+	// Enter inline rename for a window row (seed the input with its current custom
+	// name, or empty so the generic label shows as the placeholder).
+	const beginRenameWindow = (windowId: string, currentName?: string) => {
+		setRenameValue(currentName ?? '');
+		setRenamingWindowId(windowId);
+		moveToWindow.open();
+	};
+	// Commit the rename and dismiss the whole menu (the new label shows on next
+	// open, in the OS title, and in any other window via the name-changed broadcast).
+	const commitRenameWindow = () => {
+		if (!renamingWindowId) return;
+		const id = renamingWindowId;
+		setRenamingWindowId(null);
+		onRenameWindow?.(id, renameValue.trim());
+		onDismiss();
+	};
+	// Abandon the edit without renaming; keep the menu open.
+	const cancelRenameWindow = () => setRenamingWindowId(null);
 
 	// Compute visibility for worktree sections to avoid rendering dividers without buttons
 	const showWorktreeParentSection =
@@ -353,10 +387,18 @@ export function SessionContextMenu({
 					className="relative"
 					tabIndex={0}
 					onMouseEnter={moveToWindow.open}
-					onMouseLeave={moveToWindow.scheduleClose}
+					// Don't auto-close while a row is being renamed - it would unmount the
+					// input mid-edit. The commit (Enter/blur) clears editing, after which
+					// normal close resumes.
+					onMouseLeave={() => {
+						if (!renamingWindowId) moveToWindow.scheduleClose();
+					}}
 					onFocus={moveToWindow.open}
-					onBlur={moveToWindow.scheduleClose}
+					onBlur={() => {
+						if (!renamingWindowId) moveToWindow.scheduleClose();
+					}}
 					onKeyDown={(e) => {
+						if (renamingWindowId) return; // let the rename input own key handling
 						if (e.key === 'Enter' || e.key === ' ') {
 							e.preventDefault();
 							moveToWindow.open();
@@ -406,25 +448,94 @@ export function SessionContextMenu({
 
 							<div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
 
-							{windowTargets?.map((target) => (
-								<button
-									type="button"
-									key={target.windowId}
-									onClick={() => {
-										onMoveToWindow?.(target.windowId);
-										onDismiss();
-									}}
-									className={`w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center gap-2 ${target.isCurrentOwner ? 'opacity-50' : ''}`}
-									style={{ color: theme.colors.textMain }}
-									disabled={target.isCurrentOwner}
-								>
-									<AppWindow className="w-3.5 h-3.5" />
-									<span className="truncate">{target.label}</span>
-									{target.isCurrentOwner && (
-										<span className="text-[10px] opacity-50">(current)</span>
-									)}
-								</button>
-							))}
+							{windowTargets?.map((target) =>
+								renamingWindowId === target.windowId ? (
+									// Inline rename: an input replaces the row. Enter/blur commit,
+									// Escape cancels. stopPropagation on keys so the parent menu's
+									// Escape-to-close and the flyout's key nav don't fire.
+									<div key={target.windowId} className="flex items-center gap-1 px-2 py-1">
+										<AppWindow
+											className="w-3.5 h-3.5 shrink-0"
+											style={{ color: theme.colors.textDim }}
+										/>
+										<input
+											type="text"
+											autoFocus
+											value={renameValue}
+											placeholder={target.label}
+											onChange={(e) => setRenameValue(e.target.value)}
+											onKeyDown={(e) => {
+												e.stopPropagation();
+												if (e.key === 'Enter') {
+													e.preventDefault();
+													commitRenameWindow();
+												} else if (e.key === 'Escape') {
+													e.preventDefault();
+													cancelRenameWindow();
+												}
+											}}
+											onBlur={commitRenameWindow}
+											className="flex-1 min-w-0 bg-transparent border rounded px-1.5 py-0.5 text-xs outline-none"
+											style={{
+												color: theme.colors.textMain,
+												borderColor: theme.colors.accent,
+											}}
+										/>
+										<button
+											type="button"
+											onMouseDown={(e) => {
+												// mouseDown (before the input's blur) so the click lands.
+												e.preventDefault();
+												commitRenameWindow();
+											}}
+											className="shrink-0 p-0.5 rounded hover:bg-white/10"
+											title="Save window name"
+											style={{ color: theme.colors.accent }}
+										>
+											<Check className="w-3.5 h-3.5" />
+										</button>
+									</div>
+								) : (
+									<div
+										key={target.windowId}
+										className={`w-full flex items-center hover:bg-white/5 transition-colors ${target.isCurrentOwner ? 'opacity-50' : ''}`}
+									>
+										<button
+											type="button"
+											onClick={() => {
+												if (target.isCurrentOwner) return;
+												onMoveToWindow?.(target.windowId);
+												onDismiss();
+											}}
+											className="flex-1 min-w-0 text-left pl-3 pr-1 py-1.5 text-xs flex items-center gap-2"
+											style={{ color: theme.colors.textMain }}
+											disabled={target.isCurrentOwner}
+										>
+											<AppWindow className="w-3.5 h-3.5 shrink-0" />
+											<span className="truncate">{target.label}</span>
+											{target.isCurrentOwner && (
+												<span className="text-[10px] opacity-50 shrink-0">(current)</span>
+											)}
+										</button>
+										{/* Rename affordance - secondary windows only; the primary keeps
+										    the stable "Main Window" label. */}
+										{onRenameWindow && !target.isMain && (
+											<button
+												type="button"
+												onClick={(e) => {
+													e.stopPropagation();
+													beginRenameWindow(target.windowId, target.customName);
+												}}
+												className="shrink-0 p-1 mr-1.5 rounded hover:bg-white/10 opacity-60 hover:opacity-100"
+												title="Rename window"
+												style={{ color: theme.colors.textDim }}
+											>
+												<Pencil className="w-3 h-3" />
+											</button>
+										)}
+									</div>
+								)
+							)}
 						</div>
 					)}
 				</div>

@@ -39,8 +39,16 @@ export interface WindowMoveTarget {
 	isMain: boolean;
 	/** 1-based position in registry order (primary first), matching WindowBadge. */
 	windowNumber: number;
-	/** Display label: "Main Window" for the primary, else its lead agent name. */
+	/**
+	 * Display label: the user-assigned custom name if set, else "Main Window" for
+	 * the primary or the secondary's lead agent name / "Window N".
+	 */
 	label: string;
+	/**
+	 * The raw user-assigned name (undefined when unnamed). Seeds the rename input;
+	 * distinct from `label`, which always has a display fallback.
+	 */
+	customName?: string;
 	/** True when this window already surfaces the agent (shown disabled / skipped). */
 	isCurrentOwner: boolean;
 }
@@ -61,10 +69,11 @@ function truncateLabel(name: string): string {
  * Build the ordered list of windows an agent can move between, labeling the
  * primary "Main Window" and each secondary by its lead (first) agent's name.
  *
- * Ownership is catch-all aware: an agent is owned by the secondary window that
- * explicitly claimed it, otherwise by the primary. `getSessionName` resolves an
- * agent id to its display name (the caller owns the session list); a secondary
- * with no resolvable lead name falls back to its window number.
+ * A user-assigned `win.name` wins over every default label. Otherwise ownership
+ * is catch-all aware: an agent is owned by the secondary window that explicitly
+ * claimed it, else the primary. `getSessionName` resolves an agent id to its
+ * display name (the caller owns the session list); a secondary with no custom
+ * name and no resolvable lead name falls back to its window number.
  *
  * Returns `[]` before the registry has hydrated (the single-window common case),
  * so callers can simply skip rendering the "move to window" affordance.
@@ -80,8 +89,11 @@ export function buildWindowMoveTargets(
 		const isCurrentOwner = claimedBySecondary
 			? !win.isMain && win.sessionIds.includes(agentId)
 			: win.isMain;
+		const customName = win.name && win.name.trim().length > 0 ? win.name.trim() : undefined;
 		let label: string;
-		if (win.isMain) {
+		if (customName) {
+			label = truncateLabel(customName);
+		} else if (win.isMain) {
 			label = MAIN_WINDOW_LABEL;
 		} else {
 			const leadName = win.sessionIds[0] ? getSessionName(win.sessionIds[0]) : undefined;
@@ -92,6 +104,7 @@ export function buildWindowMoveTargets(
 			isMain: win.isMain,
 			windowNumber: idx + 1,
 			label,
+			customName,
 			isCurrentOwner,
 		};
 	});

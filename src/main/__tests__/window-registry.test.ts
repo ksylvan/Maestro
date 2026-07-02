@@ -129,6 +129,47 @@ describe('WindowRegistry', () => {
 		});
 	});
 
+	describe('setName', () => {
+		it('sets a trimmed name and emits name-changed', () => {
+			const listener = vi.fn();
+			registry.create({ windowId: 'w1', browserWindow: makeWindow() });
+			registry.onChange(listener);
+
+			registry.setName('w1', '  My Window  ');
+
+			expect(registry.get('w1')?.name).toBe('My Window');
+			expect(listener).toHaveBeenCalledWith(
+				expect.objectContaining({ type: 'name-changed', windowId: 'w1' })
+			);
+		});
+
+		it('clears the name back to undefined for an empty/whitespace value', () => {
+			registry.create({ windowId: 'w1', name: 'Old', browserWindow: makeWindow() });
+			registry.setName('w1', '   ');
+			expect(registry.get('w1')?.name).toBeUndefined();
+		});
+
+		it('does not emit when the name is unchanged', () => {
+			registry.create({ windowId: 'w1', name: 'Same', browserWindow: makeWindow() });
+			const listener = vi.fn();
+			registry.onChange(listener);
+			registry.setName('w1', 'Same');
+			expect(listener).not.toHaveBeenCalled();
+		});
+
+		it('is a no-op for an unknown window', () => {
+			const listener = vi.fn();
+			registry.onChange(listener);
+			registry.setName('nope', 'X');
+			expect(listener).not.toHaveBeenCalled();
+		});
+
+		it('carries the name supplied at create time', () => {
+			registry.create({ windowId: 'w1', name: 'Preset', browserWindow: makeWindow() });
+			expect(registry.get('w1')?.name).toBe('Preset');
+		});
+	});
+
 	describe('moveSession', () => {
 		beforeEach(() => {
 			registry.create({ windowId: 'w1', sessionIds: ['s1', 's2'], browserWindow: makeWindow() });

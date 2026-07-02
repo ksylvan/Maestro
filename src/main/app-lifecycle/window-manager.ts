@@ -870,11 +870,14 @@ export function createWindowManager(deps: WindowManagerDependencies): WindowMana
 			sessionIds?: string[];
 			bounds?: Partial<SharedWindowState>;
 		}): BrowserWindow => {
-			const windowId = generateUUID();
 			const sessionIds = options?.sessionIds ?? [];
 			// Restore from the saved multi-window primary bounds when restoring a
 			// layout; otherwise fall back to the legacy single-window store.
 			const bounds = options?.bounds ?? windowStateStore.store;
+			// Adopt the saved window id (multi-window restore) so ids stay STABLE
+			// across restart and id-keyed state (e.g. a custom window name) reconnects;
+			// mint a fresh one for a first-ever launch with no saved layout.
+			const windowId = options?.bounds?.id ?? generateUUID();
 			const browserWindow = createBrowserWindow({
 				windowId,
 				sessionIds,
@@ -883,7 +886,13 @@ export function createWindowManager(deps: WindowManagerDependencies): WindowMana
 			});
 
 			if (windowRegistry) {
-				windowRegistry.create({ windowId, browserWindow, sessionIds, isMain: true });
+				windowRegistry.create({
+					windowId,
+					browserWindow,
+					sessionIds,
+					isMain: true,
+					name: options?.bounds?.name,
+				});
 				// Keep the registry consistent if the primary closes. On macOS the
 				// app stays alive after all windows close and a later `activate`
 				// rebuilds a fresh primary, so the stale entry must not linger.
@@ -899,7 +908,9 @@ export function createWindowManager(deps: WindowManagerDependencies): WindowMana
 			sessionIds: string[],
 			bounds?: Partial<SharedWindowState>
 		): BrowserWindow => {
-			const windowId = generateUUID();
+			// Adopt the saved id on restore so ids stay stable across restart and a
+			// custom window name (keyed by id) reconnects; mint fresh otherwise.
+			const windowId = bounds?.id ?? generateUUID();
 			const browserWindow = createBrowserWindow({
 				windowId,
 				sessionIds,
@@ -907,7 +918,13 @@ export function createWindowManager(deps: WindowManagerDependencies): WindowMana
 				isMain: false,
 			});
 
-			windowRegistry?.create({ windowId, browserWindow, sessionIds, isMain: false });
+			windowRegistry?.create({
+				windowId,
+				browserWindow,
+				sessionIds,
+				isMain: false,
+				name: bounds?.name,
+			});
 
 			browserWindow.on('closed', () => {
 				// Skip registry work while the app is quitting - the registry is

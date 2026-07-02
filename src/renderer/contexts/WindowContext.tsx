@@ -136,6 +136,13 @@ export interface WindowContextValue {
 	 */
 	moveSessionToWindow: (sessionId: string, targetWindowId: string) => Promise<void>;
 	/**
+	 * Set (or clear, via an empty string) a window's user-assigned name. Any window
+	 * may rename any window (the affordance lives in the Left Bar's Move to Window
+	 * submenu). The name persists and is broadcast to every window so labels
+	 * refresh. No-op outside a multi-window context (no windowId yet).
+	 */
+	renameWindow: (windowId: string, name: string) => Promise<void>;
+	/**
 	 * True while a tab from ANOTHER window is being dragged over THIS window as a
 	 * candidate dock target. The main process pushes the toggle on
 	 * `windows:highlightDropZone` (sent only to the hovered window); the tab bar
@@ -324,16 +331,23 @@ export function WindowProvider({ children }: { children: ReactNode }) {
 		return isMainWindow ? 1 : null;
 	}, [windowId, windows, isMainWindow]);
 
-	// Reflect a secondary window's number in its OS title ("Maestro [2]") so users
-	// can tell windows apart in Cmd+Tab / Mission Control. Only secondary windows
-	// get the badge; the primary keeps its descriptive HTML title untouched. The
-	// number tracks registry order, so the title re-renders whenever a hydrate
-	// (e.g. a window opening/closing) shifts this window's position.
+	// This window's own user-assigned name (if any), read from the hydrated window
+	// list. Drives the OS title so a renamed window is identifiable in Cmd+Tab.
+	const ownName = useMemo(
+		() => windows.find((win) => win.id === windowId)?.name,
+		[windows, windowId]
+	);
+
+	// Reflect a secondary window's name (or number, "Maestro [2]") in its OS title
+	// so users can tell windows apart in Cmd+Tab / Mission Control. A custom name
+	// wins over the number badge. Only secondary windows get a badge; the primary
+	// keeps its descriptive HTML title untouched. Re-runs whenever a hydrate shifts
+	// this window's number or its name changes.
 	useEffect(() => {
 		if (typeof document === 'undefined') return;
 		if (isMainWindow || windowNumber === null) return;
-		document.title = formatWindowTitle(windowNumber);
-	}, [isMainWindow, windowNumber]);
+		document.title = ownName && ownName.length > 0 ? ownName : formatWindowTitle(windowNumber);
+	}, [isMainWindow, windowNumber, ownName]);
 
 	const ownsSession = useCallback(
 		(sessionId: string): boolean =>
@@ -505,6 +519,14 @@ export function WindowProvider({ children }: { children: ReactNode }) {
 		[windowId, resolveAgentUnit, resolveOwnerWindowId, blocksEmptyingPrimary]
 	);
 
+	const renameWindow = useCallback(async (targetWindowId: string, name: string) => {
+		if (!targetWindowId) return;
+		// The main process broadcasts name-changed, which re-hydrates every window's
+		// window list (see the onSessionMoved subscription), so the label refreshes
+		// here and in any other window without a local optimistic update.
+		await window.maestro.windows.setName(targetWindowId, name);
+	}, []);
+
 	const value = useMemo<WindowContextValue>(
 		() => ({
 			windowId,
@@ -520,6 +542,7 @@ export function WindowProvider({ children }: { children: ReactNode }) {
 			closeTab,
 			moveSessionToNewWindow,
 			moveSessionToWindow,
+			renameWindow,
 			isDropTarget,
 		}),
 		[
@@ -536,6 +559,7 @@ export function WindowProvider({ children }: { children: ReactNode }) {
 			closeTab,
 			moveSessionToNewWindow,
 			moveSessionToWindow,
+			renameWindow,
 			isDropTarget,
 		]
 	);

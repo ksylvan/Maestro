@@ -58,6 +58,24 @@ describe('buildWindowMoveTargets', () => {
 		expect(targets.find((t) => t.windowId === 'win-2')?.isCurrentOwner).toBe(true);
 	});
 
+	it('uses a custom window name as the label (and exposes it as customName)', () => {
+		const windows = [
+			makeInfo({ id: 'primary', isMain: true }),
+			makeInfo({ id: 'win-2', sessionIds: ['b'], name: 'Deploy Watch' }),
+		];
+		const targets = buildWindowMoveTargets(windows, 'a', getName);
+		const secondary = targets.find((t) => t.windowId === 'win-2')!;
+		// Custom name wins over the lead-agent label ("Bravo").
+		expect(secondary.label).toBe('Deploy Watch');
+		expect(secondary.customName).toBe('Deploy Watch');
+	});
+
+	it('a custom name on the primary overrides "Main Window"', () => {
+		const windows = [makeInfo({ id: 'primary', isMain: true, name: 'Home Base' })];
+		const targets = buildWindowMoveTargets(windows, 'a', getName);
+		expect(targets[0].label).toBe('Home Base');
+	});
+
 	it('falls back to the window number when a secondary has no resolvable lead name', () => {
 		const windows = [
 			makeInfo({ id: 'primary', isMain: true }),
