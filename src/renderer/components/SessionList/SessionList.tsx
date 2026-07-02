@@ -1838,13 +1838,7 @@ function SessionListInner(props: SessionListProps) {
 					}
 					onConfigureCue={onConfigureCue ? () => onConfigureCue(contextMenuSession) : undefined}
 					windowTargets={
-						windowCtx
-							? buildWindowMoveTargets(
-									windowCtx.windows,
-									contextMenuSession.id,
-									(id) => sessions.find((s) => s.id === id)?.name
-								)
-							: undefined
+						windowCtx ? buildWindowMoveTargets(windowCtx.windows, contextMenuSession.id) : undefined
 					}
 					onMoveToNewWindow={
 						windowCtx

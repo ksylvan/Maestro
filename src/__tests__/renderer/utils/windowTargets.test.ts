@@ -15,26 +15,21 @@ function makeInfo(partial: Partial<WindowInfo> & Pick<WindowInfo, 'id'>): Window
 	return { isMain: false, sessionIds: [], activeSessionId: null, ...partial };
 }
 
-const names: Record<string, string> = {
-	a: 'Alpha',
-	b: 'Bravo',
-	c: 'Charlie',
-};
-const getName = (id: string) => names[id];
-
 describe('buildWindowMoveTargets', () => {
 	it('returns [] before the registry has hydrated (single-window common case)', () => {
-		expect(buildWindowMoveTargets([], 'a', getName)).toEqual([]);
+		expect(buildWindowMoveTargets([], 'a')).toEqual([]);
 	});
 
-	it('labels the primary "Main Window" and each secondary by its lead agent', () => {
+	it('labels the primary "Main Window" and each secondary by its window number', () => {
 		const windows = [
 			makeInfo({ id: 'primary', isMain: true }),
+			// Secondary borrows NO agent name - it is a numbered container.
 			makeInfo({ id: 'win-2', sessionIds: ['b', 'c'] }),
+			makeInfo({ id: 'win-3', sessionIds: ['d'] }),
 		];
-		const targets = buildWindowMoveTargets(windows, 'a', getName);
-		expect(targets.map((t) => t.label)).toEqual([MAIN_WINDOW_LABEL, 'Bravo']);
-		expect(targets.map((t) => t.windowNumber)).toEqual([1, 2]);
+		const targets = buildWindowMoveTargets(windows, 'a');
+		expect(targets.map((t) => t.label)).toEqual([MAIN_WINDOW_LABEL, 'Window 2', 'Window 3']);
+		expect(targets.map((t) => t.windowNumber)).toEqual([1, 2, 3]);
 	});
 
 	it('flags the primary as current owner for a catch-all (unclaimed) agent', () => {
@@ -42,7 +37,7 @@ describe('buildWindowMoveTargets', () => {
 			makeInfo({ id: 'primary', isMain: true }),
 			makeInfo({ id: 'win-2', sessionIds: ['b'] }),
 		];
-		const targets = buildWindowMoveTargets(windows, 'a', getName);
+		const targets = buildWindowMoveTargets(windows, 'a');
 		// 'a' is claimed by no secondary, so the primary catch-all owns it.
 		expect(targets.find((t) => t.isMain)?.isCurrentOwner).toBe(true);
 		expect(targets.find((t) => t.windowId === 'win-2')?.isCurrentOwner).toBe(false);
@@ -53,7 +48,7 @@ describe('buildWindowMoveTargets', () => {
 			makeInfo({ id: 'primary', isMain: true }),
 			makeInfo({ id: 'win-2', sessionIds: ['a'] }),
 		];
-		const targets = buildWindowMoveTargets(windows, 'a', getName);
+		const targets = buildWindowMoveTargets(windows, 'a');
 		expect(targets.find((t) => t.isMain)?.isCurrentOwner).toBe(false);
 		expect(targets.find((t) => t.windowId === 'win-2')?.isCurrentOwner).toBe(true);
 	});
@@ -63,37 +58,35 @@ describe('buildWindowMoveTargets', () => {
 			makeInfo({ id: 'primary', isMain: true }),
 			makeInfo({ id: 'win-2', sessionIds: ['b'], name: 'Deploy Watch' }),
 		];
-		const targets = buildWindowMoveTargets(windows, 'a', getName);
+		const targets = buildWindowMoveTargets(windows, 'a');
 		const secondary = targets.find((t) => t.windowId === 'win-2')!;
-		// Custom name wins over the lead-agent label ("Bravo").
+		// Custom name wins over the generic "Window 2" label.
 		expect(secondary.label).toBe('Deploy Watch');
 		expect(secondary.customName).toBe('Deploy Watch');
 	});
 
 	it('a custom name on the primary overrides "Main Window"', () => {
 		const windows = [makeInfo({ id: 'primary', isMain: true, name: 'Home Base' })];
-		const targets = buildWindowMoveTargets(windows, 'a', getName);
+		const targets = buildWindowMoveTargets(windows, 'a');
 		expect(targets[0].label).toBe('Home Base');
 	});
 
-	it('falls back to the window number when a secondary has no resolvable lead name', () => {
+	it('labels an unnamed secondary by its number regardless of the agents it holds', () => {
 		const windows = [
 			makeInfo({ id: 'primary', isMain: true }),
-			makeInfo({ id: 'win-2', sessionIds: ['unknown-id'] }),
+			makeInfo({ id: 'win-2', sessionIds: ['some-agent'] }),
 		];
-		const targets = buildWindowMoveTargets(windows, 'a', getName);
+		const targets = buildWindowMoveTargets(windows, 'a');
 		expect(targets.find((t) => t.windowId === 'win-2')?.label).toBe('Window 2');
 	});
 
-	it('truncates a long lead-agent name with an end ellipsis', () => {
+	it('truncates a long custom name with an end ellipsis', () => {
 		const longName = 'A'.repeat(60);
 		const windows = [
 			makeInfo({ id: 'primary', isMain: true }),
-			makeInfo({ id: 'win-2', sessionIds: ['long'] }),
+			makeInfo({ id: 'win-2', sessionIds: ['b'], name: longName }),
 		];
-		const targets = buildWindowMoveTargets(windows, 'a', (id) =>
-			id === 'long' ? longName : undefined
-		);
+		const targets = buildWindowMoveTargets(windows, 'a');
 		const label = targets.find((t) => t.windowId === 'win-2')!.label;
 		expect(label.length).toBeLessThan(longName.length);
 		expect(label.endsWith('…')).toBe(true);

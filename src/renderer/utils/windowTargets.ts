@@ -41,7 +41,7 @@ export interface WindowMoveTarget {
 	windowNumber: number;
 	/**
 	 * Display label: the user-assigned custom name if set, else "Main Window" for
-	 * the primary or the secondary's lead agent name / "Window N".
+	 * the primary or "Window N" for a secondary (its 1-based number).
 	 */
 	label: string;
 	/**
@@ -58,7 +58,7 @@ export const MAIN_WINDOW_LABEL = 'Main Window';
 
 const MAX_LABEL_LENGTH = 28;
 
-/** End-ellipsis clamp for a secondary window's lead-agent label. */
+/** End-ellipsis clamp for a user-assigned custom window name. */
 function truncateLabel(name: string): string {
 	const trimmed = name.trim();
 	if (trimmed.length <= MAX_LABEL_LENGTH) return trimmed;
@@ -67,22 +67,19 @@ function truncateLabel(name: string): string {
 
 /**
  * Build the ordered list of windows an agent can move between, labeling the
- * primary "Main Window" and each secondary by its lead (first) agent's name.
+ * primary "Main Window" and each secondary by its 1-based number ("Window 2",
+ * "Window 3", ...) - matching the WindowBadge / OS-title numbering.
  *
- * A user-assigned `win.name` wins over every default label. Otherwise ownership
- * is catch-all aware: an agent is owned by the secondary window that explicitly
- * claimed it, else the primary. `getSessionName` resolves an agent id to its
- * display name (the caller owns the session list); a secondary with no custom
- * name and no resolvable lead name falls back to its window number.
+ * A user-assigned `win.name` wins over every default label. Secondary windows do
+ * NOT borrow their lead agent's name (an earlier behaviour, reverted): a window
+ * is a stable numbered container, not a mirror of whatever agent happens to be in
+ * it. Ownership is still catch-all aware for `isCurrentOwner`: an agent is owned
+ * by the secondary window that explicitly claimed it, else the primary.
  *
  * Returns `[]` before the registry has hydrated (the single-window common case),
  * so callers can simply skip rendering the "move to window" affordance.
  */
-export function buildWindowMoveTargets(
-	windows: WindowInfo[],
-	agentId: string,
-	getSessionName: (sessionId: string) => string | undefined
-): WindowMoveTarget[] {
+export function buildWindowMoveTargets(windows: WindowInfo[], agentId: string): WindowMoveTarget[] {
 	if (windows.length === 0) return [];
 	const claimedBySecondary = windows.some((win) => !win.isMain && win.sessionIds.includes(agentId));
 	return windows.map((win, idx) => {
@@ -96,8 +93,7 @@ export function buildWindowMoveTargets(
 		} else if (win.isMain) {
 			label = MAIN_WINDOW_LABEL;
 		} else {
-			const leadName = win.sessionIds[0] ? getSessionName(win.sessionIds[0]) : undefined;
-			label = leadName ? truncateLabel(leadName) : `Window ${idx + 1}`;
+			label = `Window ${idx + 1}`;
 		}
 		return {
 			windowId: win.id,

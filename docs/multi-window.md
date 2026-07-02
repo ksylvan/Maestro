@@ -23,7 +23,7 @@ There is no keyboard shortcut bound directly to opening a new window. Windows ar
 
 ## Moving Agents Between Windows
 
-The **Move to Window** submenu (and the matching Quick Actions commands) lists every open window, labeled by the lead agent it holds - the primary window is shown as **Main Window**. Pick any window to move the agent there; the window it currently lives in is marked **(current)**. Choosing **Main Window** brings an agent back to the primary window.
+The **Move to Window** submenu (and the matching Quick Actions commands) lists every open window by number - **Main Window**, **Window 2**, **Window 3**, and so on (or a custom name if you have renamed one). Pick any window to move the agent there; the window it currently lives in is marked **(current)**. Choosing **Main Window** brings an agent back to the primary window.
 
 A window can hold as many agents as you move into it. When you move the last agent out of a secondary window, that now-empty window closes automatically.
 

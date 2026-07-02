@@ -45,9 +45,10 @@ interface SessionContextMenuProps {
 	onCreateGroup?: () => void;
 	onConfigureCue?: () => void;
 	/**
-	 * Multi-window: every window this agent can move into, labeled by lead agent
-	 * ("Main Window" for the primary), with the current owner flagged. Omitted or
-	 * empty in a single-window app, where the "Move to Window" submenu is hidden.
+	 * Multi-window: every window this agent can move into, labeled by number
+	 * ("Main Window" for the primary, "Window N" for secondaries, or a custom
+	 * name), with the current owner flagged. Omitted or empty in a single-window
+	 * app, where the "Move to Window" submenu is hidden.
 	 */
 	windowTargets?: WindowMoveTarget[];
 	/** Detach this agent into a brand-new window. */

@@ -511,11 +511,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			activeSession,
 			windowTargets:
 				windowCtx && activeSession
-					? buildWindowMoveTargets(
-							windowCtx.windows,
-							activeSession.id,
-							(id) => sessions.find((s) => s.id === id)?.name
-						)
+					? buildWindowMoveTargets(windowCtx.windows, activeSession.id)
 					: [],
 			moveToNewWindow: (id) => windowCtx?.moveSessionToNewWindow(id),
 			moveToWindow: (id, targetWindowId) => windowCtx?.moveSessionToWindow(id, targetWindowId),
