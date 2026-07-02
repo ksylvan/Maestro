@@ -205,20 +205,79 @@ export const USAGE_STATS_FIRST_PARTY_PLUGIN: FirstPartyPluginDefinition = {
 	backgroundServices: [],
 };
 
+/** Broker capabilities Symphony's registry/contribution surface actually touches. */
+export const SYMPHONY_FIRST_PARTY_PLUGIN_PERMISSIONS: readonly PermissionRequest[] = [
+	{
+		capability: 'settings:read',
+		reason:
+			'Re-read the Symphony Encore flag and the user-configured custom registry URLs before every registry fetch.',
+	},
+	{
+		// Unscoped on purpose: besides the default registry
+		// (raw.githubusercontent.com) and api.github.com (stars, issues, PR
+		// status), users may add custom registry URLs pointing at ANY http(s)
+		// host, so a static host scope would be dishonest.
+		capability: 'net:fetch',
+		reason:
+			'Fetch the curated repository registry (default + custom URLs), GitHub star/issue/PR data, and issue-attached documents.',
+	},
+	{
+		capability: 'sessions:read',
+		reason:
+			'Match active contributions against live sessions so orphaned contributions are dropped from the Active tab.',
+	},
+	{
+		capability: 'sessions:create',
+		reason:
+			'Starting a contribution opens a new Maestro session on the cloned repository for the Auto Run work.',
+	},
+	{
+		capability: 'notifications:toast',
+		reason:
+			'Announce contribution lifecycle outcomes: PR ready for review, manual finalization needed, start failures.',
+	},
+	{
+		capability: 'storage:read',
+		reason:
+			'Read Symphony-private state: contribution history, contributor stats, and the registry/issue cache.',
+	},
+	{
+		capability: 'storage:write',
+		reason:
+			'Persist Symphony-private state: active/completed contributions, contributor stats, registry/issue cache, and staged issue documents.',
+	},
+	// NOTE: `process:spawn` is deliberately ABSENT. Symphony's git/gh work
+	// (clone, branch, fork setup, push, draft-PR create/edit) runs as
+	// HOST-OWNED supervised calls (`execFileNoThrow` with fixed argv over
+	// validated slugs/URLs), not broker calls — and act verbs never ride the
+	// bundled first-party mint (HIGH_RISK_ACT_CAPABILITIES each require their
+	// own separate consent step). Same holds for the files those pipeline
+	// steps stage into the per-contribution workspace the user picked: the
+	// target is chosen interactively per contribution, so no static path
+	// scope can name it and an unscoped `fs:write` would claim more authority
+	// than the feature has.
+	// NOTE: `agents:dispatch` is deliberately ABSENT (same constraint as
+	// pianola): completing contribution setup auto-starts a batch run on the
+	// session it just created — a dynamically-created target that a static
+	// FC2 allowlist scope cannot name. Dispatch authority stays host-owned.
+	// NOTE: the "PR ready" history entry Symphony records has no vocabulary
+	// equivalent (only `history:read` exists — there is no history-write
+	// capability), so it is disclosed here rather than declared.
+] as const;
+
 export const SYMPHONY_FIRST_PARTY_PLUGIN: FirstPartyPluginDefinition = {
 	id: 'com.maestro.symphony',
 	name: 'Maestro Symphony',
 	description: 'Contribute to open-source projects through curated repositories.',
 	firstParty: true,
 	category: 'agents',
-	permissions: [
-		{
-			capability: 'settings:read',
-			reason: 'Re-read the Symphony Encore flag and registry source settings.',
-		},
-	],
+	permissions: SYMPHONY_FIRST_PARTY_PLUGIN_PERMISSIONS,
 	settingsNamespace: 'symphony',
 	encoreFlag: 'symphony',
+	// NONE on purpose: registry/issue fetching is on-demand (2h/5min/24h TTL
+	// caches, refreshed when the UI asks) and PR-status sync is renderer-side
+	// polling of on-demand IPC while the Symphony modal is open. There is no
+	// main-process timer, poller, or supervised loop to register.
 	backgroundServices: [],
 };
 
