@@ -281,8 +281,9 @@ export function ShortcutsHelpModal({
 							window focuses that window instead of moving the agent.
 						</p>
 						<p>
-							To open an agent in its own window, drag its tab out of the tab strip, or right-click
-							the tab and choose &ldquo;Move to New Window&rdquo;.
+							To open an agent in its own window, right-click it in the sidebar and choose
+							&ldquo;Move to Window&rdquo; &rarr; &ldquo;New Window&rdquo;, or search &ldquo;move to
+							window&rdquo; in Quick Actions. The same menu moves an agent between existing windows.
 						</p>
 					</div>
 					<div className="flex items-center gap-1.5">

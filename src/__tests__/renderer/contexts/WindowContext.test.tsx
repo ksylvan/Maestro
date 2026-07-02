@@ -529,6 +529,32 @@ describe('WindowContext', () => {
 			expect(result.current.sessionIds).toEqual(['a', 'b']);
 			expect(result.current.activeSessionId).toBe('a');
 		});
+
+		it('moves from the agent OWNER window, not the initiating window', async () => {
+			// Initiated from the primary, but the agent lives in a secondary window.
+			// The move source must be resolved to the real owner (win-2), so the Left
+			// Bar can relocate any agent regardless of which window is focused.
+			setUrl('/');
+			vi.mocked(windows().getState).mockResolvedValue(
+				makeState({ id: 'primary-1', sessionIds: [], activeSessionId: null })
+			);
+			vi.mocked(windows().list).mockResolvedValue([
+				makeInfo({ id: 'primary-1', isMain: true }),
+				makeInfo({ id: 'win-2', sessionIds: ['a'], activeSessionId: 'a' }),
+				makeInfo({ id: 'win-3' }),
+			]);
+			seedSessions(['a', 'b']);
+
+			const { result } = renderHook(() => useWindowContext(), { wrapper });
+			await waitFor(() => expect(result.current.windowId).toBe('primary-1'));
+			await waitFor(() => expect(result.current.windows.some((w) => w.id === 'win-2')).toBe(true));
+
+			await act(async () => {
+				await result.current.moveSessionToWindow('a', 'win-3');
+			});
+
+			expect(windows().moveSession).toHaveBeenCalledWith('a', 'win-2', 'win-3');
+		});
 	});
 
 	describe('primary-window-empty guard', () => {

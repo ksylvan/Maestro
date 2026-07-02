@@ -91,6 +91,7 @@ import {
 	registerMemoryHandlers,
 	registerWindowsHandlers,
 	wireWindowRegistryBroadcast,
+	wireEmptySecondaryWindowAutoClose,
 	setupLoggerEventForwarding,
 	cleanupAllGroomingSessions,
 	getActiveGroomingSessionCount,
@@ -161,7 +162,7 @@ import {
 import { WindowRegistry } from './window-registry';
 // Multi-window startup restore: turn the persisted MultiWindowState back into
 // window-creation specs (pruning agents that no longer exist).
-import { planWindowRestore } from './window-state-persistence';
+import { planWindowRestore, pickFocusWindowSpec } from './window-state-persistence';
 import type { WindowState as SharedWindowState } from '../shared/window-types';
 // Phase 3 refactoring - process listeners
 import { setupProcessListeners as setupProcessListenersModule } from './process-listeners';
@@ -518,12 +519,29 @@ function restoreWindows() {
 	}
 
 	logger.info(`Restoring ${specs.length} window(s) from saved layout`, 'Startup');
+
+	// The globally-active agent (Left Bar highlight) should be the window the user
+	// lands on. Windows are created primary-first, so without this the last-created
+	// secondary keeps OS focus and startup opens onto a window that isn't showing
+	// the active agent. Focus the window that owns the active agent (default the
+	// primary) once all windows exist, in creation order so `created[i]` maps to
+	// `specs[i]`.
+	const activeSessionId = sessionsStore.get('activeSessionId') as string | undefined;
+	const focusSpec = pickFocusWindowSpec(specs, activeSessionId);
+	const created: BrowserWindow[] = [];
 	for (const spec of specs) {
 		if (spec.isPrimary) {
 			createWindow({ sessionIds: spec.sessionIds, bounds: spec.bounds });
+			// createWindow anchors the primary on the module-level mainWindow.
+			if (mainWindow) created.push(mainWindow);
 		} else {
-			windowManager.createSecondaryWindow(spec.sessionIds, spec.bounds);
+			created.push(windowManager.createSecondaryWindow(spec.sessionIds, spec.bounds));
 		}
+	}
+
+	const focusWindow = focusSpec ? created[specs.indexOf(focusSpec)] : undefined;
+	if (focusWindow && !focusWindow.isDestroyed()) {
+		focusWindow.focus();
 	}
 }
 
@@ -1557,6 +1575,10 @@ function setupIpcHandlers() {
 	// cross-window badges). The registry is a module-scope instance, so pass it
 	// directly rather than through the handlers' lazy getter.
 	wireWindowRegistryBroadcast(windowRegistry);
+	// Close a secondary window as soon as its last agent moves out - an empty
+	// secondary shell can surface nothing (every agent is owned by some window),
+	// so the agent-level move flow tidies it up automatically.
+	wireEmptySecondaryWindowAutoClose(windowRegistry);
 
 	// Record aggregate multi-window usage telemetry (secondary windows opened +
 	// peak concurrent windows) as windows open. Gated on the user's

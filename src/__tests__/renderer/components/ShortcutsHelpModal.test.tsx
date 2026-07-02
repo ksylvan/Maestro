@@ -460,7 +460,7 @@ describe('ShortcutsHelpModal', () => {
 			expect(screen.getAllByText('Window')).toHaveLength(1);
 		});
 
-		it('documents the "Move to New Window" tab action', () => {
+		it('documents the agent-level Move to Window action', () => {
 			render(
 				<TestWrapper>
 					<ShortcutsHelpModal
@@ -472,8 +472,8 @@ describe('ShortcutsHelpModal', () => {
 				</TestWrapper>
 			);
 
-			expect(screen.getByText(/Move to New Window/)).toBeInTheDocument();
-			expect(screen.getByText(/drag its tab out of the tab strip/)).toBeInTheDocument();
+			expect(screen.getByText(/right-click it in the sidebar/)).toBeInTheDocument();
+			expect(screen.getByText(/Move to Window/)).toBeInTheDocument();
 		});
 
 		it('explains that window-scoped shortcuts focus the owning window', () => {

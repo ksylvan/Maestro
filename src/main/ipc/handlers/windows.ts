@@ -117,6 +117,31 @@ export function wireWindowRegistryBroadcast(registry: WindowRegistry): () => voi
 }
 
 /**
+ * Subscribe to the {@link WindowRegistry} change signal and close any SECONDARY
+ * window whose agent set has dropped to zero. Moving the last agent out of a
+ * secondary window leaves it with no tab strip and nothing it can surface (every
+ * agent is owned by some window, and clicking one focuses that window), so the
+ * empty shell is closed automatically - the agent-level counterpart to the
+ * primary-empty guard on the renderer side.
+ *
+ * Only reacts to the ownership mutations (`session-moved` / `sessions-changed`);
+ * an emptied window's own `closed` handler runs the normal reclaim path (a no-op
+ * here, since it owns nothing) and removes it from the registry. The primary is
+ * never closed. Returns an unsubscribe function for teardown/tests.
+ */
+export function wireEmptySecondaryWindowAutoClose(registry: WindowRegistry): () => void {
+	return registry.onChange((change) => {
+		if (change.type !== 'session-moved' && change.type !== 'sessions-changed') return;
+		for (const entry of registry.getAll()) {
+			if (entry.isMain) continue;
+			if (entry.sessionIds.length > 0) continue;
+			if (entry.browserWindow.isDestroyed()) continue;
+			entry.browserWindow.close();
+		}
+	});
+}
+
+/**
  * Register all `windows:*` IPC handlers.
  */
 export function registerWindowsHandlers(deps: WindowsHandlerDependencies): void {
@@ -228,6 +253,12 @@ export function registerWindowsHandlers(deps: WindowsHandlerDependencies): void 
 	);
 
 	// Find the window whose screen bounds contain a point (Phase 3 tab drag).
+	// INERT as of the agent-level move rework (2026-07): this + `highlightDropZone`
+	// + `getBounds` below only served the removed tab drag-out/dock gesture. No
+	// renderer invokes them now (moves go through the Left Bar "Move to Window"
+	// menu / Cmd+K). Left registered as dead-but-wired scaffolding pending a
+	// follow-up removal sweep; delete the three together with their preload +
+	// global.d.ts entries and `registry.findWindowAtPoint`.
 	ipcMain.handle(
 		'windows:findWindowAtPoint',
 		withIpcErrorLogging(
@@ -301,6 +332,9 @@ export function registerWindowsHandlers(deps: WindowsHandlerDependencies): void 
 
 	// On-screen bounds of a window. Defaults to the calling window; pass a
 	// windowId to query a specific one (Phase 3 tab drag).
+	// INERT as of the agent-level move rework (2026-07): only the removed tab
+	// drag-out gesture read this (to snapshot bounds for drag-exit detection). See
+	// the `findWindowAtPoint` note above - remove as part of the same sweep.
 	ipcMain.handle(
 		'windows:getBounds',
 		(event: Electron.IpcMainInvokeEvent, windowId?: string): WindowBounds | null => {

@@ -96,6 +96,13 @@ export interface WindowContextValue {
 	 */
 	getSessionWindow: (sessionId: string) => { windowId: string; windowNumber: number } | null;
 	/**
+	 * Every open window, in registry order (primary first). Exposed so agent-level
+	 * "move to window" surfaces (the Left Bar context menu and Cmd+K palette) can
+	 * enumerate destinations and label each by its lead agent. Empty until the
+	 * first hydrate (the single-window common case).
+	 */
+	windows: WindowInfo[];
+	/**
 	 * Open/focus an agent in THIS window. If the agent already lives in another
 	 * window, focuses that window instead of stealing it (single-window-per-agent).
 	 */
@@ -113,18 +120,19 @@ export interface WindowContextValue {
 	/** Remove an agent's tab strip from this window (does not delete the agent). */
 	closeTab: (sessionId: string) => void;
 	/**
-	 * Detach an agent into a brand-new window, leaving this one. Pass `bounds` to
-	 * position the new window (e.g. at a tab drag-out drop point); omit it to let
-	 * the main process pick a default position (the right-click "Move to New
-	 * Window" path).
+	 * Detach an agent into a brand-new window. The agent leaves whichever window
+	 * currently surfaces it (its owner, resolved from the registry) - NOT
+	 * necessarily this window, since every window's Left Bar can move any agent.
+	 * Pass `bounds` to position the new window; omit it to let the main process
+	 * pick a default position.
 	 */
 	moveSessionToNewWindow: (sessionId: string, bounds?: { x: number; y: number }) => Promise<void>;
 	/**
-	 * Dock an agent into an EXISTING window (the tab drag-out drop target),
-	 * leaving this one. The destination surfaces the agent in its tab bar and
-	 * activates it via the `windows:sessionMoved` broadcast; this just transfers
-	 * registry ownership and drops the agent from this window's scope. No-op when
-	 * the target is this window or this window has no id yet.
+	 * Move an agent into an EXISTING window, leaving its current owner. The
+	 * destination surfaces the agent in its tab bar and activates it via the
+	 * `windows:sessionMoved` broadcast; this transfers registry ownership from the
+	 * agent's owner (resolved from the registry, not assumed to be this window) to
+	 * `targetWindowId`. No-op when the target already owns the agent.
 	 */
 	moveSessionToWindow: (sessionId: string, targetWindowId: string) => Promise<void>;
 	/**
@@ -133,6 +141,14 @@ export interface WindowContextValue {
 	 * `windows:highlightDropZone` (sent only to the hovered window); the tab bar
 	 * reads this to light up its drop zone. False whenever no cross-window drag is
 	 * hovering this window.
+	 *
+	 * INERT as of the agent-level move rework (2026-07): the tab drag-out/dock
+	 * gesture that drove this was removed in favour of the Left Bar "Move to
+	 * Window" menu + Cmd+K commands, so nothing sets this to true anymore. Kept
+	 * (with its `onHighlightDropZone` subscription below and the
+	 * `windows:highlightDropZone`/`findWindowAtPoint`/`getBounds` IPC) as
+	 * dead-but-wired scaffolding, pending a follow-up removal sweep. Safe to delete
+	 * as one unit; no live caller reads it.
 	 */
 	isDropTarget: boolean;
 }
@@ -226,6 +242,11 @@ export function WindowProvider({ children }: { children: ReactNode }) {
 	// window; we still compare against our own id defensively. Null-safe so a
 	// preload without the channel (web build / isolation tests) simply never
 	// highlights instead of throwing.
+	//
+	// INERT as of the agent-level move rework (2026-07): no window emits the
+	// `windows:highlightDropZone` push anymore (it was fired by the removed tab
+	// drag-out gesture), so this subscription never fires. Retained with
+	// `isDropTarget` above as one removable unit pending the cleanup sweep.
 	useEffect(() => {
 		const subscribe = window.maestro?.windows?.onHighlightDropZone;
 		if (!subscribe) return;
@@ -247,6 +268,34 @@ export function WindowProvider({ children }: { children: ReactNode }) {
 		}
 		return set;
 	}, [windows, windowId]);
+
+	// Agents explicitly claimed by ANY secondary window (window-independent, unlike
+	// `sessionsOwnedElsewhere`). An agent NOT in this set is a primary catch-all
+	// agent. Used to resolve an agent's true owner and to guard the primary against
+	// being emptied, regardless of which window initiated the move.
+	const secondaryClaimedSessionIds = useMemo(() => {
+		const set = new Set<string>();
+		for (const win of windows) {
+			if (win.isMain) continue;
+			for (const sid of win.sessionIds) set.add(sid);
+		}
+		return set;
+	}, [windows]);
+
+	// The window that currently surfaces an agent: the secondary window that
+	// claimed it, else the primary (catch-all owner). Falls back to this window's
+	// id before the registry has hydrated. This is the true move source - a move
+	// initiated from any window's Left Bar must leave the agent's real owner, not
+	// the initiating window.
+	const resolveOwnerWindowId = useCallback(
+		(sessionId: string): string | null => {
+			const claimant = windows.find((win) => !win.isMain && win.sessionIds.includes(sessionId));
+			if (claimant) return claimant.id;
+			const primary = windows.find((win) => win.isMain);
+			return primary?.id ?? windowId;
+		},
+		[windows, windowId]
+	);
 
 	// This window's own 1-based number, derived from its position in the registry
 	// order (primary first) so it always matches the Left Bar's cross-window
@@ -355,24 +404,27 @@ export function WindowProvider({ children }: { children: ReactNode }) {
 	 * owner, so it must always surface at least one agent; moving the last agent
 	 * out of it is blocked (with a toast) rather than leaving the user with no
 	 * primary tab strip. Secondary windows are NOT guarded - they may be emptied
-	 * and auto-close (Phase 6).
+	 * and the main process auto-closes them.
 	 *
-	 * The primary's agent count is the set of sessions no secondary window has
-	 * claimed, read live from the session store at gesture time (this runs on a
-	 * user move, so a snapshot read is correct and needs no reactivity). The move
-	 * empties the primary only when the agent leaving is the single agent it still
-	 * owns; an agent the store doesn't track (e.g. isolation tests) fails open so a
-	 * legitimate move is never wrongly blocked.
+	 * Owner-aware, not initiator-aware: any window's Left Bar / palette can move
+	 * any agent, so the guard keys off whether the AGENT is a primary catch-all
+	 * agent (not claimed by a secondary), never off which window is initiating.
+	 * Only moving a primary agent can empty the primary; a secondary-owned agent
+	 * moving out never touches the primary's count. The primary's agent count is
+	 * read live from the session store at gesture time (a snapshot is correct on a
+	 * user move). An agent the store doesn't track (e.g. isolation tests) fails
+	 * open so a legitimate move is never wrongly blocked.
 	 *
 	 * Returns `true` when the move was blocked (and the toast fired) so callers can
 	 * bail before mutating any window state.
 	 */
 	const blocksEmptyingPrimary = useCallback(
 		(sessionId: string): boolean => {
-			if (!isMainWindow) return false;
+			// A secondary-owned agent leaving never empties the primary.
+			if (secondaryClaimedSessionIds.has(sessionId)) return false;
 			const primaryAgents = useSessionStore
 				.getState()
-				.sessions.filter((session) => !sessionsOwnedElsewhere.has(session.id));
+				.sessions.filter((session) => !secondaryClaimedSessionIds.has(session.id));
 			const isLastInPrimary =
 				primaryAgents.length <= 1 && primaryAgents.some((session) => session.id === sessionId);
 			if (!isLastInPrimary) return false;
@@ -383,36 +435,45 @@ export function WindowProvider({ children }: { children: ReactNode }) {
 			});
 			return true;
 		},
-		[isMainWindow, sessionsOwnedElsewhere]
+		[secondaryClaimedSessionIds]
 	);
 
 	const moveSessionToNewWindow = useCallback(
 		async (sessionId: string, bounds?: { x: number; y: number }) => {
-			if (!windowId) return;
+			const sourceWindowId = resolveOwnerWindowId(sessionId) ?? windowId;
+			if (!sourceWindowId) return;
 			if (blocksEmptyingPrimary(sessionId)) return;
 			const created = await window.maestro.windows.create([sessionId], bounds);
 			if (!created) return;
-			// The new window already owns the agent; this transfer just removes it
-			// from THIS window's registry ownership (enforcing single-window-per-agent)
-			// and emits the move so other windows can refresh.
-			await window.maestro.windows.moveSession(sessionId, windowId, created.id);
+			// The new window already owns the agent; this transfer strips it from its
+			// previous owner (enforcing single-window-per-agent) and emits the move so
+			// every window refreshes.
+			await window.maestro.windows.moveSession(sessionId, sourceWindowId, created.id);
+			// No-op unless this window happened to be the owner; the broadcast handles
+			// the rest.
 			setScope((prev) => removeFromScope(prev, sessionId));
 		},
-		[windowId, blocksEmptyingPrimary]
+		[windowId, resolveOwnerWindowId, blocksEmptyingPrimary]
 	);
 
 	const moveSessionToWindow = useCallback(
 		async (sessionId: string, targetWindowId: string) => {
-			// No identity yet, or a "move" onto this same window: nothing to do.
-			if (!windowId || targetWindowId === windowId) return;
+			const sourceWindowId = resolveOwnerWindowId(sessionId) ?? windowId;
+			// No owner yet, or a "move" onto the window that already owns it: nothing
+			// to do.
+			if (!sourceWindowId || targetWindowId === sourceWindowId) return;
 			if (blocksEmptyingPrimary(sessionId)) return;
-			const result = await window.maestro.windows.moveSession(sessionId, windowId, targetWindowId);
+			const result = await window.maestro.windows.moveSession(
+				sessionId,
+				sourceWindowId,
+				targetWindowId
+			);
 			// Only drop the agent from this window once the registry confirms the move,
 			// so a failed transfer never strands the agent (owned by no window).
 			if (!result?.moved) return;
 			setScope((prev) => removeFromScope(prev, sessionId));
 		},
-		[windowId, blocksEmptyingPrimary]
+		[windowId, resolveOwnerWindowId, blocksEmptyingPrimary]
 	);
 
 	const value = useMemo<WindowContextValue>(
@@ -424,6 +485,7 @@ export function WindowProvider({ children }: { children: ReactNode }) {
 			activeSessionId: scope.activeSessionId,
 			ownsSession,
 			getSessionWindow,
+			windows,
 			openSession,
 			registerNewSession,
 			closeTab,
@@ -439,6 +501,7 @@ export function WindowProvider({ children }: { children: ReactNode }) {
 			scope.activeSessionId,
 			ownsSession,
 			getSessionWindow,
+			windows,
 			openSession,
 			registerNewSession,
 			closeTab,

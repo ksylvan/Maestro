@@ -1,29 +1,31 @@
 ---
 title: Multiple Windows
-description: Spread your agents across multiple Maestro windows - drag a tab out into its own window, dock it onto another, and let Maestro keep every agent owned by exactly one window.
+description: Spread your agents across multiple Maestro windows - move an agent into its own window, shuffle agents between windows, and let Maestro keep every agent owned by exactly one window.
 icon: window-restore
 ---
 
 Maestro can run across multiple windows so you can spread agents over more than one monitor or simply give a long-running agent its own dedicated space. Every window shares the same Left Bar agent list, but each agent is "owned" by exactly one window at a time. Maestro keeps that ownership consistent for you - an agent is never lost, duplicated, or stranded in a window you closed.
 
+Moving windows is an agent-level action: a whole agent (with all of its AI, terminal, browser, and file tabs) moves together as one unit. Individual tabs are never split across windows.
+
 ## Creating a New Window
 
 There are two ways to pull an agent out into a window of its own:
 
-- **Drag a tab out** - Grab an agent's tab in the tab strip and drag it outside the current window's bounds. When you release, Maestro spawns a new window at the drop point and the agent moves into it.
-- **Right-click the tab** - Right-click an agent tab and choose **Move to New Window**.
+- **Right-click the agent** - Right-click the agent in the Left Bar and choose **Move to Window** -> **New Window**.
+- **Quick Actions** - Open Quick Actions (`Cmd+K`) and search for **move to window**, then pick **Move Agent to New Window**.
 
 The agent leaves its original window and becomes the sole occupant of the new one. Its conversation, files, and state come along with it untouched - moving an agent never restarts it.
 
 <Note>
-There is no keyboard shortcut to open a new window. Windows are created by moving an agent into one, either by dragging a tab out or via the **Move to New Window** menu item.
+There is no keyboard shortcut bound directly to opening a new window. Windows are created by moving an agent into one, via the Left Bar's **Move to Window** submenu or the Quick Actions command.
 </Note>
 
-## Moving Agents Between Windows (Docking)
+## Moving Agents Between Windows
 
-To move an agent from one window into another window that is already open, drag its tab from the source window and drop it onto the target window's tab strip. As you drag over a window that can accept the agent, that window's tab strip highlights with an accent-colored inset ring to advertise the drop zone. Release the tab to dock the agent there.
+The **Move to Window** submenu (and the matching Quick Actions commands) lists every open window, labeled by the lead agent it holds - the primary window is shown as **Main Window**. Pick any window to move the agent there; the window it currently lives in is marked **(current)**. Choosing **Main Window** brings an agent back to the primary window.
 
-This is the same single drag gesture as creating a new window, with one difference in where you release: drop **onto another window's tab strip** to dock into it, or drop **outside any window** to spawn a fresh one.
+A window can hold as many agents as you move into it. When you move the last agent out of a secondary window, that now-empty window closes automatically.
 
 ## Telling Windows Apart
 
@@ -45,7 +47,7 @@ Selecting an agent that lives in another window **focuses that window** rather t
 - The **Quick Actions** palette (`Cmd+K`)
 - The **Switch Agent** picker (`Cmd+O`)
 
-Each agent stays in exactly one window, so selecting it brings that window forward. To actually relocate an agent, drag its tab as described above.
+Each agent stays in exactly one window, so selecting it brings that window forward. To actually relocate an agent, use the **Move to Window** menu described above.
 
 ## Window-Scoped vs. Global Shortcuts
 

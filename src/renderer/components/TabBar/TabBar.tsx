@@ -20,21 +20,12 @@ import { NewTabPopover } from './NewTabPopover';
 import { SearchPopover } from './SearchPopover';
 import { isUnifiedTabActive, getShortcutHint } from './tabBarUtils';
 import { buildFileTabDisplayNames } from '../../hooks/tabs/internal/filePreviewTabHelpers';
-import { useTabDragOut } from '../../hooks/tabs/useTabDragOut';
-import { useWindowOwnsSession, useWindowContextOptional } from '../../contexts/WindowContext';
+import { useWindowOwnsSession } from '../../contexts/WindowContext';
 import type { TabBarProps } from './types';
 import { logger } from '../../utils/logger';
 
 /** Approximate width of the sticky right "+" button area (px) */
 const STICKY_RIGHT_WIDTH = 48;
-
-/**
- * Offset (px) applied to the drop point when spawning a new window from a tab
- * dragged onto empty space. Shifts the window's top-left up and left of the
- * cursor so the released tab lands near where the pointer is, rather than the
- * window's corner snapping under the cursor.
- */
-const DRAG_OUT_NEW_WINDOW_OFFSET = { x: 100, y: 50 };
 
 /**
  * TabBar component for displaying the unified tab strip.
@@ -139,32 +130,6 @@ function TabBarInner({
 	// doesn't own. Outside a WindowProvider (isolation tests) or without a
 	// sessionId, this resolves to true - single-window behaviour is unchanged.
 	const ownsActiveAgent = useWindowOwnsSession(sessionId);
-
-	// The owning window's move action (null outside a WindowProvider, e.g. the
-	// single-window app / isolation tests). Used to dock a dragged-out agent into
-	// another Maestro window on drop.
-	const windowCtx = useWindowContextOptional();
-
-	// Drag-out detection (Phase 3 multi-window): tracks a tab drag in screen
-	// coordinates and flips `isDraggingOut` once the cursor leaves this window's
-	// bounds, resolving which other Maestro window (if any) sits under the cursor.
-	// In-bar reordering is unaffected - it runs on onDragOver/onDrop against
-	// sibling tabs and never consults this state.
-	const {
-		isDraggingOut,
-		beginDragOut,
-		trackDragOut,
-		getDragOutPoint,
-		isOutsideOwningWindow,
-		getTargetWindowId,
-		endDragOut,
-	} = useTabDragOut();
-
-	// Cross-window drop-zone highlight (Phase 3): true while a tab from ANOTHER
-	// window is being dragged over THIS one as a dock target. Driven by the
-	// `windows:highlightDropZone` push the WindowContext subscribes to. Outside a
-	// WindowProvider (single-window app / isolation tests) it is simply false.
-	const isDropTarget = windowCtx?.isDropTarget ?? false;
 
 	// Scroll active tab into view
 	useEffect(() => {
@@ -283,12 +248,8 @@ function TabBarInner({
 						: { type: 'ai', id: tabId };
 			if (ref) writeTabTilePayload(e.dataTransfer, { ref, source: 'tab-bar' });
 			setDraggingTabId(tabId);
-			// Snapshot this window's bounds so onDrag can detect when the cursor
-			// leaves it. Harmless for non-AI tabs (which don't wire onDrag): the
-			// snapshot is just never consulted.
-			beginDragOut();
 		},
-		[beginDragOut, unifiedTabs]
+		[unifiedTabs]
 	);
 
 	const handleDragOver = useCallback(
@@ -300,44 +261,10 @@ function TabBarInner({
 		[draggingTabId]
 	);
 
-	// Continuous drag sampling (HTML5 onDrag) - screenX/screenY are screen-relative,
-	// so they compare directly against the window bounds captured on drag start.
-	const handleDrag = useCallback(
-		(e: React.DragEvent) => {
-			trackDragOut(e.screenX, e.screenY);
-		},
-		[trackDragOut]
-	);
-
 	const handleDragEnd = useCallback(() => {
-		// Cross-window drop: a tab dragged out of this window and released over
-		// another Maestro window docks the agent there; released over empty space it
-		// detaches into a brand-new window at the drop point. The drag-out hook
-		// resolved the window under the cursor as samples arrived; read it now (it is
-		// null over empty space or inside this window).
-		const targetWindowId = getTargetWindowId();
-		if (sessionId && windowCtx) {
-			if (targetWindowId) {
-				// Dock into the existing window under the cursor.
-				void windowCtx.moveSessionToWindow(sessionId, targetWindowId);
-			} else if (isOutsideOwningWindow()) {
-				// Released outside this window with no window under the cursor: spawn a
-				// new window at the drop point. A null target while still inside the bar
-				// is an in-bar reorder (handled by onDrop), so isOutsideOwningWindow()
-				// gates out that case.
-				const point = getDragOutPoint();
-				if (point) {
-					void windowCtx.moveSessionToNewWindow(sessionId, {
-						x: point.x - DRAG_OUT_NEW_WINDOW_OFFSET.x,
-						y: point.y - DRAG_OUT_NEW_WINDOW_OFFSET.y,
-					});
-				}
-			}
-		}
 		setDraggingTabId(null);
 		setDragOverTabId(null);
-		endDragOut();
-	}, [getTargetWindowId, isOutsideOwningWindow, getDragOutPoint, sessionId, windowCtx, endDragOut]);
+	}, []);
 
 	// Promote a tiled pane back to a standalone tab when its title bar is dropped
 	// onto the tab bar. `insertIndex` is the target position in unifiedTabOrder
@@ -460,15 +387,6 @@ function TabBarInner({
 		[tabs, onTabReorder, unifiedTabs, onUnifiedTabReorder]
 	);
 
-	// "Move to New Window" (right-click action): detach this agent into a brand-new
-	// window via the WindowContext helper - the same path the tab drag-out-to-empty-
-	// space gesture uses, minus a drop point (the main process picks the position).
-	// Operates on the whole agent (sessionId), so the per-tab id is unused. Only
-	// wired when a WindowProvider is present (the AITab hides the item otherwise).
-	const handleMoveToNewWindow = useCallback(() => {
-		if (sessionId && windowCtx) void windowCtx.moveSessionToNewWindow(sessionId);
-	}, [sessionId, windowCtx]);
-
 	// Close wrappers — forward the clicked tab id as the pivot so the operation
 	// closes relative to the tab whose menu was used, not whatever happens to be
 	// the active tab. Dropping the id here was the cause of catastrophic
@@ -547,7 +465,6 @@ function TabBarInner({
 		onSelect: onTabSelect,
 		onClose: onTabClose,
 		onDragStart: handleDragStart,
-		onDrag: handleDrag,
 		onDragOver: handleDragOver,
 		onDragEnd: handleDragEnd,
 		onDrop: handleDrop,
@@ -572,10 +489,6 @@ function TabBarInner({
 			!isLastTab && (useUnifiedReorder ? onUnifiedTabReorder : onTabReorder)
 				? handleMoveToLast
 				: undefined,
-		// Detach-to-new-window is available whenever this window owns the agent (a
-		// WindowProvider is mounted and we have a session id). Hidden in the single-
-		// window app fallback / isolation tests where no provider exists.
-		onMoveToNewWindow: windowCtx && sessionId ? handleMoveToNewWindow : undefined,
 		isFirstTab,
 		isLastTab,
 		shortcutHint,
@@ -595,21 +508,13 @@ function TabBarInner({
 			className="flex items-end gap-0.5 pt-2 border-b overflow-x-auto overflow-y-hidden no-scrollbar transition-shadow duration-150"
 			data-tour="tab-bar"
 			// Accept a tiled pane's title-bar drag dropped onto the bar background to
-			// promote it back to a standalone tab. Chip reorder + multi-window drag-out
-			// are unaffected (they target chips / empty space outside the window).
+			// promote it back to a standalone tab. Chip reorder is unaffected (it
+			// targets sibling chips).
 			onDragOver={handleBarDragOver}
 			onDrop={handleBarDrop}
-			// Surfaces drag-out detection: 'true' while a tab is being dragged beyond
-			// this window's bounds. Drives the cross-window move / detach feedback.
-			data-dragging-out={isDraggingOut ? 'true' : undefined}
-			// 'true' while a tab from another window is dragged over this one - lights
-			// up the drop zone (accent inset ring) to advertise "drop here to dock".
-			data-drop-target={isDropTarget ? 'true' : undefined}
 			style={{
-				backgroundColor: isDropTarget ? `${theme.colors.accent}14` : theme.colors.bgSidebar,
+				backgroundColor: theme.colors.bgSidebar,
 				borderColor: theme.colors.border,
-				// Accent inset ring on hover-as-drop-target, themed to match the tab bar.
-				boxShadow: isDropTarget ? `inset 0 0 0 2px ${theme.colors.accent}` : undefined,
 			}}
 		>
 			{/* Sticky left: search + unread filter */}

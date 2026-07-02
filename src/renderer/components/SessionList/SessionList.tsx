@@ -41,6 +41,7 @@ import { useInlineWizardContext } from '../../contexts/InlineWizardContext';
 import { useWindowContextOptional } from '../../contexts/WindowContext';
 import { getModalActions, useModalStore } from '../../stores/modalStore';
 import { SessionContextMenu } from './SessionContextMenu';
+import { buildWindowMoveTargets } from '../../utils/windowTargets';
 import { GroupContextMenu } from './GroupContextMenu';
 import { WizardIndicator } from './WizardIndicator';
 import { HamburgerMenuContent } from './HamburgerMenuContent';
@@ -1795,6 +1796,26 @@ function SessionListInner(props: SessionListProps) {
 							: createNewGroup
 					}
 					onConfigureCue={onConfigureCue ? () => onConfigureCue(contextMenuSession) : undefined}
+					windowTargets={
+						windowCtx
+							? buildWindowMoveTargets(
+									windowCtx.windows,
+									contextMenuSession.id,
+									(id) => sessions.find((s) => s.id === id)?.name
+								)
+							: undefined
+					}
+					onMoveToNewWindow={
+						windowCtx
+							? () => void windowCtx.moveSessionToNewWindow(contextMenuSession.id)
+							: undefined
+					}
+					onMoveToWindow={
+						windowCtx
+							? (targetWindowId) =>
+									void windowCtx.moveSessionToWindow(contextMenuSession.id, targetWindowId)
+							: undefined
+					}
 				/>
 			)}
 

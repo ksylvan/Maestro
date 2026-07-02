@@ -71,6 +71,7 @@ import { registerMemoryHandlers } from './memory';
 import {
 	registerWindowsHandlers,
 	wireWindowRegistryBroadcast,
+	wireEmptySecondaryWindowAutoClose,
 	WindowsHandlerDependencies,
 } from './windows';
 import { AgentDetector } from '../../agents';
@@ -139,6 +140,7 @@ export { registerPromptsHandlers };
 export { registerMemoryHandlers };
 export { registerWindowsHandlers };
 export { wireWindowRegistryBroadcast };
+export { wireEmptySecondaryWindowAutoClose };
 export type { WindowsHandlerDependencies };
 export type { AgentsHandlerDependencies };
 export type { ProcessHandlerDependencies };

@@ -1,16 +1,12 @@
-// Structured drag-and-drop payload for intra-window tab tiling (Phase 3 split
-// panes). A tab chip (or a tiled pane's title bar) writes this onto the native
-// HTML5 `dataTransfer` under a Maestro-specific MIME so the main panel's drop
-// zones can identify the dragged tab and where it came from.
+// Structured drag-and-drop payload for intra-window tab tiling (split panes). A
+// tab chip (or a tiled pane's title bar) writes this onto the native HTML5
+// `dataTransfer` under a Maestro-specific MIME so the main panel's drop zones can
+// identify the dragged tab and where it came from.
 //
-// This is ADDED alongside, never in place of, the multi-window drag-out data:
-// TabBar still writes `text/plain` (the tab id) and drives `useTabDragOut` off
-// screen coordinates for the cross-window detach/dock gesture. The tiling drop
-// target (the tiled panel area) reads THIS payload; the tab-bar reorder path and
-// the drag-out path are untouched, so the three drops stay cleanly separated:
+// This is ADDED alongside, never in place of, the `text/plain` tab id TabBar
+// writes for in-bar reordering, so the two drops stay cleanly separated:
 //   - drop on another tab chip  -> in-bar reorder (reads `text/plain`)
 //   - drop onto the tiled panel  -> tile (reads this payload)
-//   - release outside any window -> multi-window spawn/dock (screen coords)
 
 import type { UnifiedTabRef } from '../types';
 

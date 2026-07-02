@@ -49,6 +49,8 @@ import {
 } from './commands/sessionCommands';
 import { buildSupportCommands } from './commands/supportCommands';
 import { buildNewTabCommands, buildTabCommands } from './commands/tabCommands';
+import { buildWindowCommands } from './commands/windowCommands';
+import { buildWindowMoveTargets } from '../../utils/windowTargets';
 
 export const QuickActionsModal = memo(function QuickActionsModal(props: QuickActionsModalProps) {
 	const {
@@ -484,6 +486,20 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 				});
 			},
 		}).filter((action) => action.id !== 'kill'),
+		...buildWindowCommands({
+			activeSession,
+			windowTargets:
+				windowCtx && activeSession
+					? buildWindowMoveTargets(
+							windowCtx.windows,
+							activeSession.id,
+							(id) => sessions.find((s) => s.id === id)?.name
+						)
+					: [],
+			moveToNewWindow: (id) => windowCtx?.moveSessionToNewWindow(id),
+			moveToWindow: (id, targetWindowId) => windowCtx?.moveSessionToWindow(id, targetWindowId),
+			setQuickActionOpen,
+		}),
 		...buildAgentPanelCommands({
 			activeSession,
 			groups,

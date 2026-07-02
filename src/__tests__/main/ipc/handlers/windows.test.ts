@@ -51,6 +51,7 @@ vi.mock('../../../../main/utils/ipcHandler', () => ({
 import {
 	registerWindowsHandlers,
 	wireWindowRegistryBroadcast,
+	wireEmptySecondaryWindowAutoClose,
 } from '../../../../main/ipc/handlers/windows';
 import { WindowRegistry } from '../../../../main/window-registry';
 
@@ -618,6 +619,92 @@ describe('Windows IPC Handlers', () => {
 			registry.setSessionsForWindow(id, ['a', 'b']);
 
 			expect(sendOf(win)).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('wireEmptySecondaryWindowAutoClose', () => {
+		it('closes a secondary window once its last agent moves out', () => {
+			const primaryWin = makeFakeWindow();
+			const secondaryWin = makeFakeWindow();
+			const primary = registry.create({
+				browserWindow: primaryWin,
+				sessionIds: [],
+				isMain: true,
+			});
+			const secondary = registry.create({
+				browserWindow: secondaryWin,
+				sessionIds: ['agent-1'],
+				isMain: false,
+			});
+
+			wireEmptySecondaryWindowAutoClose(registry);
+			// Move the secondary's lone agent back to the primary: the secondary is now
+			// empty and should be closed.
+			registry.moveSession('agent-1', secondary, primary);
+
+			expect(secondaryWin.close).toHaveBeenCalledTimes(1);
+			// The primary is never auto-closed, even when it happens to be empty.
+			expect(primaryWin.close).not.toHaveBeenCalled();
+		});
+
+		it('leaves a secondary that still owns agents open', () => {
+			const secondaryWin = makeFakeWindow();
+			registry.create({ browserWindow: makeFakeWindow(), sessionIds: [], isMain: true });
+			const secondary = registry.create({
+				browserWindow: secondaryWin,
+				sessionIds: ['a', 'b'],
+				isMain: false,
+			});
+			const other = registry.create({
+				browserWindow: makeFakeWindow(),
+				sessionIds: [],
+				isMain: false,
+			});
+
+			wireEmptySecondaryWindowAutoClose(registry);
+			registry.moveSession('a', secondary, other);
+
+			// 'b' still lives here, so the window stays open.
+			expect(secondaryWin.close).not.toHaveBeenCalled();
+		});
+
+		it('skips a secondary window that is already destroyed', () => {
+			const destroyedWin = makeFakeWindow({ isDestroyed: vi.fn(() => true) });
+			const primary = registry.create({
+				browserWindow: makeFakeWindow(),
+				sessionIds: [],
+				isMain: true,
+			});
+			const secondary = registry.create({
+				browserWindow: destroyedWin,
+				sessionIds: ['agent-1'],
+				isMain: false,
+			});
+
+			wireEmptySecondaryWindowAutoClose(registry);
+			registry.moveSession('agent-1', secondary, primary);
+
+			expect(destroyedWin.close).not.toHaveBeenCalled();
+		});
+
+		it('stops auto-closing after unsubscribe', () => {
+			const secondaryWin = makeFakeWindow();
+			const primary = registry.create({
+				browserWindow: makeFakeWindow(),
+				sessionIds: [],
+				isMain: true,
+			});
+			const secondary = registry.create({
+				browserWindow: secondaryWin,
+				sessionIds: ['agent-1'],
+				isMain: false,
+			});
+
+			const unsubscribe = wireEmptySecondaryWindowAutoClose(registry);
+			unsubscribe();
+			registry.moveSession('agent-1', secondary, primary);
+
+			expect(secondaryWin.close).not.toHaveBeenCalled();
 		});
 	});
 
