@@ -11,12 +11,27 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, Download, Loader2, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, Check, Download, Loader2, RefreshCw, X } from 'lucide-react';
 import type { Theme } from '../../types';
 import { getAgentDisplayName } from '../../../shared/agentMetadata';
 import type { AgentId } from '../../../shared/agentIds';
 import { notifyToast } from '../../stores/notificationStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import type { BrowserConfirmPolicy } from '../../../shared/coworkingBrowser';
+
+/** Segmented-control options for the per-call approval policy, in escalating
+ *  paranoia order. Labels are user language; values are the wire policy. */
+const CONFIRM_POLICY_OPTIONS: ReadonlyArray<{ value: BrowserConfirmPolicy; label: string }> = [
+	{ value: 'dangerous', label: 'Risky only' },
+	{ value: 'all', label: 'Every action' },
+	{ value: 'off', label: 'Never' },
+];
+
+const CONFIRM_POLICY_DESCRIPTIONS: Record<BrowserConfirmPolicy, string> = {
+	dangerous: 'Asks before risky actions: navigating, running JavaScript, opening or closing tabs.',
+	all: 'Asks before every browser action, including clicks and screenshots.',
+	off: 'Never asks — every browser action runs immediately.',
+};
 
 interface CoworkingInstallStatus {
 	agentId: string;
@@ -48,11 +63,9 @@ export function CoworkingSetup({ theme }: CoworkingSetupProps) {
 	);
 	const browserConfirm = useSettingsStore((s) => s.coworkingBrowserInteractionConfirm);
 	const setBrowserConfirm = useSettingsStore((s) => s.setCoworkingBrowserInteractionConfirm);
-	const cycleConfirmPolicy = useCallback(
-		(agentId: string) => {
-			const current = browserConfirm[agentId] ?? 'dangerous';
-			const next = current === 'dangerous' ? 'all' : current === 'all' ? 'off' : 'dangerous';
-			setBrowserConfirm({ ...browserConfirm, [agentId]: next });
+	const setConfirmPolicy = useCallback(
+		(agentId: string, policy: BrowserConfirmPolicy) => {
+			setBrowserConfirm({ ...browserConfirm, [agentId]: policy });
 		},
 		[browserConfirm, setBrowserConfirm]
 	);
@@ -243,14 +256,19 @@ export function CoworkingSetup({ theme }: CoworkingSetupProps) {
 					)}
 					<button
 						onClick={() => setBackgroundBrowsers(!backgroundBrowsers)}
-						className="text-xs px-2.5 py-1 rounded transition-colors"
+						className="relative w-10 h-5 rounded-full transition-colors shrink-0"
 						style={{
-							backgroundColor: backgroundBrowsers ? theme.colors.accent : 'transparent',
-							border: `1px solid ${backgroundBrowsers ? theme.colors.accent : theme.colors.border}`,
-							color: backgroundBrowsers ? theme.colors.bgMain : theme.colors.textDim,
+							backgroundColor: backgroundBrowsers ? theme.colors.accent : theme.colors.bgMain,
 						}}
+						role="switch"
+						aria-checked={backgroundBrowsers}
+						aria-label="Background browsing"
 					>
-						{backgroundBrowsers ? 'On' : 'Off'}
+						<span
+							className={`absolute left-0 top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+								backgroundBrowsers ? 'translate-x-5' : 'translate-x-0.5'
+							}`}
+						/>
 					</button>
 				</div>
 			</div>
@@ -258,103 +276,158 @@ export function CoworkingSetup({ theme }: CoworkingSetupProps) {
 			<div className="space-y-1.5">
 				{statuses.map((s) => {
 					const isBusy = busyAgentId === s.agentId || busyAll;
+					const interactionOn = browserInteractionAgents.includes(s.agentId);
+					const confirmPolicy = browserConfirm[s.agentId] ?? 'dangerous';
 					return (
 						<div
 							key={s.agentId}
-							className="flex items-center justify-between px-3 py-2 rounded"
+							className="px-3 py-2 rounded"
 							style={{
 								backgroundColor: theme.colors.bgActivity,
 								border: `1px solid ${theme.colors.border}`,
 							}}
 						>
-							<div className="flex items-center gap-2 min-w-0 flex-1">
-								{s.installed ? (
-									<Check className="w-3.5 h-3.5 shrink-0" style={{ color: theme.colors.success }} />
-								) : (
-									<X
-										className="w-3.5 h-3.5 shrink-0 opacity-50"
-										style={{ color: theme.colors.textDim }}
-									/>
-								)}
-								<div className="min-w-0">
-									<div
-										className="text-sm font-medium truncate"
-										style={{ color: theme.colors.textMain }}
-									>
-										{getAgentDisplayName(s.agentId as AgentId)}
-									</div>
-									<div
-										className="text-[10px] font-mono truncate opacity-60"
-										title={s.configPath}
-										style={{ color: theme.colors.textDim }}
-									>
-										{s.configPath}
+							<div className="flex items-center justify-between">
+								<div className="flex items-center gap-2 min-w-0 flex-1">
+									{s.installed ? (
+										<Check
+											className="w-3.5 h-3.5 shrink-0"
+											style={{ color: theme.colors.success }}
+										/>
+									) : (
+										<X
+											className="w-3.5 h-3.5 shrink-0 opacity-50"
+											style={{ color: theme.colors.textDim }}
+										/>
+									)}
+									<div className="min-w-0">
+										<div
+											className="text-sm font-medium truncate"
+											style={{ color: theme.colors.textMain }}
+										>
+											{getAgentDisplayName(s.agentId as AgentId)}
+										</div>
+										<div
+											className="text-[10px] font-mono truncate opacity-60"
+											title={s.configPath}
+											style={{ color: theme.colors.textDim }}
+										>
+											{s.configPath}
+										</div>
 									</div>
 								</div>
+								<div className="flex items-center gap-2 shrink-0">
+									{s.installed ? (
+										<button
+											onClick={() => handleUninstall(s.agentId)}
+											disabled={isBusy}
+											className="text-xs px-2.5 py-1 rounded transition-colors disabled:opacity-40 hover:bg-white/10"
+											style={{ color: theme.colors.error, borderColor: theme.colors.error }}
+										>
+											{isBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Uninstall'}
+										</button>
+									) : (
+										<button
+											onClick={() => handleInstall(s.agentId)}
+											disabled={isBusy}
+											className="text-xs px-2.5 py-1 rounded transition-colors disabled:opacity-40"
+											style={{
+												backgroundColor: theme.colors.accent,
+												color: theme.colors.bgMain,
+											}}
+										>
+											{isBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Install'}
+										</button>
+									)}
+								</div>
 							</div>
-							<div className="flex items-center gap-2 shrink-0">
-								{s.installed && (
-									<button
-										onClick={() => toggleInteraction(s.agentId)}
-										title="Allow this agent to drive browser tabs: navigate, click, type, eval, screenshot. Off by default; read tools work without this."
-										className="text-[10px] px-2 py-1 rounded transition-colors"
-										style={{
-											backgroundColor: browserInteractionAgents.includes(s.agentId)
-												? `${theme.colors.accent}22`
-												: 'transparent',
-											color: browserInteractionAgents.includes(s.agentId)
-												? theme.colors.accent
-												: theme.colors.textDim,
-											border: `1px solid ${
-												browserInteractionAgents.includes(s.agentId)
-													? theme.colors.accent
-													: theme.colors.border
-											}`,
-										}}
-										aria-pressed={browserInteractionAgents.includes(s.agentId)}
-									>
-										{browserInteractionAgents.includes(s.agentId)
-											? 'Interaction: on'
-											: 'Interaction: off'}
-									</button>
-								)}
-								{s.installed && browserInteractionAgents.includes(s.agentId) && (
-									<button
-										onClick={() => cycleConfirmPolicy(s.agentId)}
-										title="Per-call approval for browser actions. dangerous = confirm navigate + eval (default); all = confirm every action; off = no per-call confirm."
-										className="text-[10px] px-2 py-1 rounded transition-colors"
-										style={{
-											backgroundColor: 'transparent',
-											color: theme.colors.textDim,
-											border: `1px solid ${theme.colors.border}`,
-										}}
-									>
-										{`Confirm: ${browserConfirm[s.agentId] ?? 'dangerous'}`}
-									</button>
-								)}
-								{s.installed ? (
-									<button
-										onClick={() => handleUninstall(s.agentId)}
-										disabled={isBusy}
-										className="text-xs px-2.5 py-1 rounded transition-colors disabled:opacity-40 hover:bg-white/10"
-										style={{ color: theme.colors.error, borderColor: theme.colors.error }}
-									>
-										{isBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Uninstall'}
-									</button>
-								) : (
-									<button
-										onClick={() => handleInstall(s.agentId)}
-										disabled={isBusy}
-										className="text-xs px-2.5 py-1 rounded transition-colors disabled:opacity-40"
-										style={{
-											backgroundColor: theme.colors.accent,
-											color: theme.colors.bgMain,
-										}}
-									>
-										{isBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Install'}
-									</button>
-								)}
-							</div>
+							{s.installed && (
+								<div
+									className="mt-2 pt-2 space-y-2 border-t"
+									style={{ borderColor: theme.colors.border }}
+								>
+									<div className="flex items-center justify-between gap-3">
+										<div className="min-w-0">
+											<p className="text-sm" style={{ color: theme.colors.textMain }}>
+												Browser interaction
+											</p>
+											<p
+												className="text-xs opacity-60 mt-0.5"
+												style={{ color: theme.colors.textDim }}
+											>
+												Let this agent drive browser tabs: navigate, click, type, run JavaScript,
+												screenshot, open and close tabs. Reading tabs works without this.
+											</p>
+										</div>
+										<button
+											onClick={() => toggleInteraction(s.agentId)}
+											className="relative w-10 h-5 rounded-full transition-colors shrink-0"
+											style={{
+												backgroundColor: interactionOn ? theme.colors.accent : theme.colors.bgMain,
+											}}
+											role="switch"
+											aria-checked={interactionOn}
+											aria-label={`Browser interaction for ${getAgentDisplayName(s.agentId as AgentId)}`}
+										>
+											<span
+												className={`absolute left-0 top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+													interactionOn ? 'translate-x-5' : 'translate-x-0.5'
+												}`}
+											/>
+										</button>
+									</div>
+									{interactionOn && (
+										<div className="flex items-center justify-between gap-3">
+											<div className="min-w-0">
+												<p className="text-sm" style={{ color: theme.colors.textMain }}>
+													Ask before actions
+												</p>
+												<p
+													className="text-xs opacity-60 mt-0.5"
+													style={{ color: theme.colors.textDim }}
+												>
+													{CONFIRM_POLICY_DESCRIPTIONS[confirmPolicy]}
+												</p>
+											</div>
+											<div
+												className="flex rounded overflow-hidden shrink-0"
+												style={{ border: `1px solid ${theme.colors.border}` }}
+												role="radiogroup"
+												aria-label="Ask before actions"
+											>
+												{CONFIRM_POLICY_OPTIONS.map((opt) => (
+													<button
+														key={opt.value}
+														onClick={() => setConfirmPolicy(s.agentId, opt.value)}
+														className="text-xs px-2 py-1 transition-colors"
+														style={{
+															backgroundColor:
+																confirmPolicy === opt.value ? theme.colors.accent : 'transparent',
+															color:
+																confirmPolicy === opt.value
+																	? theme.colors.bgMain
+																	: theme.colors.textDim,
+														}}
+														role="radio"
+														aria-checked={confirmPolicy === opt.value}
+													>
+														{opt.label}
+													</button>
+												))}
+											</div>
+										</div>
+									)}
+									{interactionOn && confirmPolicy === 'off' && (
+										<p
+											className="text-xs flex items-center gap-1.5"
+											style={{ color: theme.colors.warning }}
+										>
+											<AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+											This agent can drive your browser without ever asking you.
+										</p>
+									)}
+								</div>
+							)}
 						</div>
 					);
 				})}
