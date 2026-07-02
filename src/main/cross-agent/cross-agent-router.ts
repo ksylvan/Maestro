@@ -68,6 +68,8 @@ export interface CrossAgentTargetSession {
 	customModel?: string;
 	/** Per-session reasoning/effort override (threaded through like model/args). */
 	customEffort?: string;
+	/** Per-session context-window override (folded into agentConfigValues.contextWindow). */
+	customContextWindow?: number;
 	/** Claude token-source opt-in (Claude Code targets only). */
 	enableMaestroP?: boolean;
 	maestroPMode?: 'interactive' | 'dynamic';
@@ -206,7 +208,15 @@ export async function startCrossAgentRequest(
 
 	const fullPrompt = buildCrossAgentPrompt(request);
 	const command = agent.path || agent.command;
-	const agentConfigValues = opts.getAgentConfig?.(target.toolType) ?? {};
+	// Honor a per-session context-window override the same way model/effort/args
+	// are honored: getContextWindowValue (inside spawnGroupChatAgent) reads
+	// `agentConfigValues.contextWindow`, so fold the session value in here on a
+	// COPY rather than mutating the shared agent-config object.
+	const baseAgentConfig = opts.getAgentConfig?.(target.toolType) ?? {};
+	const agentConfigValues =
+		typeof target.customContextWindow === 'number' && target.customContextWindow > 0
+			? { ...baseAgentConfig, contextWindow: target.customContextWindow }
+			: baseAgentConfig;
 
 	// Build args exactly like Group Chat: base args -> batch/json/cwd args ->
 	// custom-config overrides. Read-write (readOnlyMode: false), matching a
@@ -254,7 +264,21 @@ export async function startCrossAgentRequest(
 		cleanup();
 		try {
 			const text = extractTextFromStreamJson(buffer, target.toolType).trim();
-			if (text) {
+			if (code !== 0) {
+				// Non-zero exit is a failed consult (auth/usage/CLI error), even if the
+				// process printed something. Keep any text so the user still sees what
+				// the agent said, but stamp the error so it renders as a failure rather
+				// than a success-styled answer.
+				onChunk(
+					baseChunk({
+						chunk: text,
+						done: true,
+						error: text
+							? `${target.name} exited with code ${code}.`
+							: `${target.name} produced no visible output (exit code ${code}).`,
+					})
+				);
+			} else if (text) {
 				onChunk(baseChunk({ chunk: text, done: true }));
 			} else {
 				onChunk(

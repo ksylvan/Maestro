@@ -1,5 +1,5 @@
 import React, { memo, useMemo, useRef } from 'react';
-import type { Session, Theme } from '../../../types';
+import type { Session, Group, Theme } from '../../../types';
 import { getProviderDisplayName } from '../../../utils/sessionValidation';
 import { useSettingsStore } from '../../../stores/settingsStore';
 import { tokenizeMentions } from '../../../../shared/mentionPatterns';
@@ -45,6 +45,12 @@ const SHARED_TYPOGRAPHY: React.CSSProperties = {
 	wordBreak: 'break-word',
 };
 
+// Stable empty references so the gated sessions/groups selectors return the same
+// value on every render while the composer has no `@` - no re-render churn from
+// unrelated streaming flushes.
+const EMPTY_SESSIONS: Session[] = [];
+const EMPTY_GROUPS: Group[] = [];
+
 export const InputTextarea = memo(function InputTextarea({
 	session,
 	theme,
@@ -74,12 +80,14 @@ export const InputTextarea = memo(function InputTextarea({
 	// The mentionable agent/group roster (from this agent's vantage point).
 	// A bare `@word` only lights up when it names a known agent/group; unknown
 	// words stay plain text. Excludes the current agent (can't @-mention itself).
-	const sessions = useSessionStore((state) => state.sessions);
-	const groups = useSessionStore((state) => state.groups);
-	// Only build the roster when the input actually contains an `@` candidate.
-	// `sessions` changes on every streaming flush from any agent; without this
-	// guard we'd rescan the whole roster per flush even for `@`-free input.
+	//
+	// Only subscribe to the roster when the input actually contains an `@`.
+	// `sessions` is replaced on every streaming flush from ANY agent, so gating
+	// the SELECTORS (not just the derived memo) keeps an `@`-free composer from
+	// re-rendering on unrelated output - the stable empty refs compare equal.
 	const hasMentionCandidate = overlayEnabled && inputValue.includes('@');
+	const sessions = useSessionStore((state) => (hasMentionCandidate ? state.sessions : EMPTY_SESSIONS));
+	const groups = useSessionStore((state) => (hasMentionCandidate ? state.groups : EMPTY_GROUPS));
 	const knownMentionNames = useMemo(
 		() =>
 			hasMentionCandidate ? buildKnownMentionNameSet(sessions, groups, session.id) : undefined,

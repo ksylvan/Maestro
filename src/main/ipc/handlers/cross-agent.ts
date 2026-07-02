@@ -85,6 +85,7 @@ export function registerCrossAgentHandlers(deps: CrossAgentHandlerDependencies):
 			customEnvVars: s.customEnvVars,
 			customModel: s.customModel,
 			customEffort: s.customEffort,
+			customContextWindow: s.customContextWindow,
 			enableMaestroP: s.enableMaestroP,
 			maestroPMode: s.maestroPMode,
 			maestroPPath: s.maestroPPath,
