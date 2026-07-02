@@ -424,6 +424,41 @@ describe('WindowContext', () => {
 			expect(result.current.activeSessionId).toBe('b');
 		});
 
+		it('moves the whole worktree unit (parent + children) when a CHILD is moved', async () => {
+			// Option A: moving a worktree child relocates its entire parent unit.
+			setUrl('/');
+			vi.mocked(windows().getState).mockResolvedValue(makeState({ id: 'primary-1' }));
+			vi.mocked(windows().list).mockResolvedValue([makeInfo({ id: 'primary-1', isMain: true })]);
+			vi.mocked(windows().create).mockResolvedValue(
+				makeInfo({ id: 'win-2', sessionIds: ['parent', 'c1', 'c2'] })
+			);
+			// A parent with two worktree children, plus another top-level agent so the
+			// move doesn't trip the primary-empty guard. resolveAgentUnit reads this.
+			useSessionStore.setState({
+				sessions: [
+					createMockSession({ id: 'parent' }),
+					createMockSession({ id: 'c1', parentSessionId: 'parent' }),
+					createMockSession({ id: 'c2', parentSessionId: 'parent' }),
+					createMockSession({ id: 'other' }),
+				],
+			} as unknown as Parameters<typeof useSessionStore.setState>[0]);
+
+			const { result } = renderHook(() => useWindowContext(), { wrapper });
+			await waitFor(() => expect(result.current.windowId).toBe('primary-1'));
+
+			await act(async () => {
+				// Move a worktree CHILD - the whole unit should relocate.
+				await result.current.moveSessionToNewWindow('c1');
+			});
+
+			// New window is created owning the whole unit, rooted at the parent...
+			expect(windows().create).toHaveBeenCalledWith(['parent', 'c1', 'c2'], undefined);
+			// ...and every unit member's ownership transfers from the primary.
+			expect(windows().moveSession).toHaveBeenCalledWith('parent', 'primary-1', 'win-2');
+			expect(windows().moveSession).toHaveBeenCalledWith('c1', 'primary-1', 'win-2');
+			expect(windows().moveSession).toHaveBeenCalledWith('c2', 'primary-1', 'win-2');
+		});
+
 		it('positions the new window at the provided drop-point bounds', async () => {
 			setUrl('/?windowId=win-1');
 			vi.mocked(windows().getState).mockResolvedValue(

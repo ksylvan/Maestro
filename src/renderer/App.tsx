@@ -1935,6 +1935,10 @@ function MaestroConsoleInner() {
 	const { starredItems, activateStarredItem } = useStarredItems({
 		onJumpToStarredSession: handleJumpToStarredSession,
 		showConfirmation,
+		// Multi-window: scope the Starred section to agents this window owns (same
+		// ownsSession the thinking pill / cycling use). Undefined outside a
+		// WindowProvider, so single-window/web behaviour is unchanged.
+		ownsSession,
 	});
 
 	// cycleSession — provided by useCycleSession hook
