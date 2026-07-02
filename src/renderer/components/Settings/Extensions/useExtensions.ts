@@ -18,7 +18,16 @@ import type {
 } from '../../../../main/ipc/handlers/plugins';
 import type { AggregatedContributions } from '../../../../shared/plugins/contributions';
 import type { EncoreFeatureFlags } from '../../../types';
+import {
+	FIRST_PARTY_PLUGINS,
+	type FirstPartyEncoreFlag,
+} from '../../../../shared/plugins/first-party';
 import { buildExtensions, type UnifiedExtension } from './extensionModel';
+
+/** Is this Encore flag one of the five first-party plugin-backed features? */
+function isFirstPartyFlag(flag: keyof EncoreFeatureFlags): flag is FirstPartyEncoreFlag {
+	return Object.prototype.hasOwnProperty.call(FIRST_PARTY_PLUGINS, flag);
+}
 
 export interface UseExtensionsResult {
 	extensions: UnifiedExtension[];
@@ -95,7 +104,31 @@ export function useExtensions(): UseExtensionsResult {
 
 	const toggleBuiltin = useCallback(
 		(flag: keyof EncoreFeatureFlags) => {
-			setEncoreFeatures({ ...encoreFeatures, [flag]: !encoreFeatures[flag] });
+			const next = !encoreFeatures[flag];
+			if (!isFirstPartyFlag(flag)) {
+				setEncoreFeatures({ ...encoreFeatures, [flag]: next });
+				return;
+			}
+			// First-party features route through the host-owned lifecycle bridge:
+			// enable mints the declared grants and reconciles supervised services,
+			// disable stops them. The renderer store is synced from the bridge's
+			// settled state (which may be OFF if the grant mint failed closed).
+			void window.maestro.plugins
+				.setFirstPartyEnabled(flag, next)
+				.then((state) => {
+					setEncoreFeatures({ ...encoreFeatures, [flag]: state.enabled });
+				})
+				.catch((err) => {
+					// Fail LOUD, then fall back to the direct settings write so the
+					// toggle still works if the bridge is unavailable (e.g. main
+					// process predates the channel).
+					console.error(
+						`[Extensions] first-party bridge toggle failed for "${flag}" — ` +
+							`falling back to direct settings write:`,
+						err
+					);
+					setEncoreFeatures({ ...encoreFeatures, [flag]: next });
+				});
 		},
 		[encoreFeatures, setEncoreFeatures]
 	);

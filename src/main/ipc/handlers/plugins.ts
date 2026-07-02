@@ -21,6 +21,11 @@ import type { PluginManager, InstallResult } from '../../plugins/plugin-manager'
 import type { ActivitySnapshot } from '../../plugins/plugin-sandbox-host';
 import { PLUGIN_ID_PATTERN } from '../../../shared/plugins/plugin-manifest';
 import { setPanelHtmlProvider } from '../../plugins/plugin-panel-host';
+import { getFirstPartyBridge, type FirstPartyBridgeState } from '../../plugins/first-party-bridge';
+import {
+	FIRST_PARTY_PLUGINS,
+	type FirstPartyEncoreFlag,
+} from '../../../shared/plugins/first-party';
 
 const LOG_CONTEXT = '[Plugins]';
 
@@ -189,6 +194,26 @@ export function registerPluginsHandlers(deps: PluginsHandlerDependencies): void 
 		handlerOpts('getActivity'),
 		async (): Promise<PluginActivityMap> => sandboxHost?.getActivity() ?? {}
 	);
+	// First-party Encore features: route the marketplace toggle through the
+	// host-owned lifecycle bridge (flag flip + grant mint + supervised-work
+	// reconcile/stop) instead of a bare settings write. Deliberately NOT gated
+	// on `encoreFeatures.plugins` — first-party features are independent of the
+	// community-plugin subsystem, and their tiles render even when it is off.
+	const wrappedFirstPartySetEnabled = withIpcErrorLogging(
+		handlerOpts('firstPartySetEnabled'),
+		async (flag: unknown, enabled: unknown): Promise<FirstPartyBridgeState> => {
+			if (
+				typeof flag !== 'string' ||
+				!Object.prototype.hasOwnProperty.call(FIRST_PARTY_PLUGINS, flag)
+			) {
+				throw new Error('InvalidFirstPartyFlag');
+			}
+			if (typeof enabled !== 'boolean') throw new Error('InvalidEnabledFlag');
+			const bridge = getFirstPartyBridge(flag as FirstPartyEncoreFlag);
+			if (!bridge) throw new Error('FirstPartyBridgeUnavailable');
+			return bridge.setEnabled(enabled);
+		}
+	);
 
 	ipcMain.handle('plugins:list', async (event): Promise<PluginListSnapshot> => {
 		if (!isPluginsEnabled(settingsStore)) throw new Error('PluginsDisabled');
@@ -265,4 +290,10 @@ export function registerPluginsHandlers(deps: PluginsHandlerDependencies): void 
 		if (!isPluginsEnabled(settingsStore)) throw new Error('PluginsDisabled');
 		return wrappedGetActivity(event);
 	});
+
+	ipcMain.handle(
+		'plugins:first-party-set-enabled',
+		async (event, flag: unknown, enabled: unknown): Promise<FirstPartyBridgeState> =>
+			wrappedFirstPartySetEnabled(event, flag, enabled)
+	);
 }

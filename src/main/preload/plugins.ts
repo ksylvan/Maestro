@@ -19,6 +19,8 @@ import type {
 } from '../ipc/handlers/plugins';
 import type { InstallResult } from '../plugins/plugin-manager';
 import type { AggregatedContributions } from '../../shared/plugins/contributions';
+import type { FirstPartyBridgeState } from '../plugins/first-party-bridge';
+import type { FirstPartyEncoreFlag } from '../../shared/plugins/first-party';
 
 /** Creates the plugins API object for contextBridge exposure. */
 export function createPluginsApi() {
@@ -33,6 +35,18 @@ export function createPluginsApi() {
 		/** Enable or disable a plugin by id; returns the updated snapshot. */
 		setEnabled: (id: string, enabled: boolean): Promise<PluginListSnapshot> =>
 			ipcRenderer.invoke('plugins:set-enabled', id, enabled),
+
+		/**
+		 * Enable/disable a first-party Encore feature through its host-owned
+		 * lifecycle bridge (grant mint + supervised-service reconcile/stop), not a
+		 * bare settings write. Returns the settled bridge state. NOT gated on the
+		 * `plugins` subsystem flag — first-party features are independent of it.
+		 */
+		setFirstPartyEnabled: (
+			flag: FirstPartyEncoreFlag,
+			enabled: boolean
+		): Promise<FirstPartyBridgeState> =>
+			ipcRenderer.invoke('plugins:first-party-set-enabled', flag, enabled),
 
 		/** Install a plugin by copying a directory that contains a plugin.json. */
 		install: (sourceDir: string): Promise<InstallResult> =>

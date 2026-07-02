@@ -178,6 +178,8 @@ import type {
 } from '../main/ipc/handlers/plugins';
 import type { InstallResult as PluginInstallResult } from '../main/plugins/plugin-manager';
 import type { AggregatedContributions as PluginContributions } from '../shared/plugins/contributions';
+import type { FirstPartyBridgeState } from '../main/plugins/first-party-bridge';
+import type { FirstPartyEncoreFlag } from '../shared/plugins/first-party';
 import type { AgentRunApi } from '../main/preload/agentRun';
 
 interface MaestroAPI {
@@ -3702,6 +3704,10 @@ interface MaestroAPI {
 	plugins: {
 		list: () => Promise<PluginListSnapshot>;
 		setEnabled: (id: string, enabled: boolean) => Promise<PluginListSnapshot>;
+		setFirstPartyEnabled: (
+			flag: FirstPartyEncoreFlag,
+			enabled: boolean
+		) => Promise<FirstPartyBridgeState>;
 		install: (sourceDir: string) => Promise<PluginInstallResult>;
 		update: (sourceDir: string) => Promise<PluginListSnapshot>;
 		uninstall: (id: string) => Promise<{ success: boolean; error?: string }>;

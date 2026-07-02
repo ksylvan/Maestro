@@ -8,7 +8,7 @@
  * ipcMain is mocked to capture handlers; the store is mocked so no fs runs.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { AggregatedContributions } from '../../../shared/plugins/contributions';
 import type { PluginRegistry } from '../../../shared/plugins/plugin-registry';
 import type { PluginManager } from '../../../main/plugins/plugin-manager';
@@ -16,6 +16,15 @@ import type {
 	PluginActivityMap,
 	PluginsHandlerDependencies,
 } from '../../../main/ipc/handlers/plugins';
+import {
+	FirstPartyPluginBridge,
+	setFirstPartyBridges,
+} from '../../../main/plugins/first-party-bridge';
+import {
+	FIRST_PARTY_PLUGINS,
+	PIANOLA_FIRST_PARTY_PLUGIN,
+} from '../../../shared/plugins/first-party';
+import { grantsFromRequests, type PermissionGrant } from '../../../shared/plugins/permissions';
 
 const handlers = new Map<string, (...args: unknown[]) => unknown>();
 
@@ -226,5 +235,138 @@ describe('plugins:set-enabled gates code-tier activation on ledger authorization
 		const handler = handlers.get('plugins:set-enabled');
 		await expect(handler!(event, 'com.p', true)).resolves.toBeDefined();
 		expect(setEnabledMock).toHaveBeenCalledWith('com.p', true);
+	});
+});
+
+describe('plugins:first-party-set-enabled routes the marketplace toggle through the bridge', () => {
+	// A REAL bridge over fake deps: the round-trip exercises handler validation
+	// + bridge lifecycle (flag write, grant mint, supervisor hooks) end to end.
+	function bridgeSetup() {
+		let ledger: PermissionGrant[] = [];
+		const encore: Record<string, unknown> = { pianola: false };
+		const store = {
+			get: vi.fn((key: string) => (key === 'encoreFeatures' ? { ...encore } : undefined)),
+			set: vi.fn((key: string, value: unknown) => {
+				if (key === 'encoreFeatures' && value && typeof value === 'object') {
+					Object.assign(encore, value);
+				}
+			}),
+		};
+		const supervisor = { reconcile: vi.fn(), stopAll: vi.fn() };
+		const bridge = new FirstPartyPluginBridge(PIANOLA_FIRST_PARTY_PLUGIN, {
+			settingsStore: store,
+			readGrants: () => ledger,
+			mintFirstPartyGrants: vi.fn((definition) => {
+				ledger = grantsFromRequests([...definition.permissions], Date.now());
+			}),
+			revokeGrants: vi.fn(() => {
+				ledger = [];
+			}),
+			supervisor,
+		});
+		setFirstPartyBridges({ pianola: bridge });
+		return { encore, supervisor };
+	}
+
+	afterEach(() => {
+		setFirstPartyBridges({});
+	});
+
+	it('enable flips the flag through the bridge and reconciles the supervisor', async () => {
+		register(true);
+		const { encore, supervisor } = bridgeSetup();
+		const handler = handlers.get('plugins:first-party-set-enabled');
+		expect(handler).toBeDefined();
+
+		await expect(handler!(event, 'pianola', true)).resolves.toEqual({
+			enabled: true,
+			authorized: true,
+		});
+		expect(encore.pianola).toBe(true);
+		expect(supervisor.reconcile).toHaveBeenCalledTimes(1);
+		expect(supervisor.stopAll).not.toHaveBeenCalled();
+	});
+
+	it('disable flips the flag off and stops supervised work', async () => {
+		register(true);
+		const { encore, supervisor } = bridgeSetup();
+		const handler = handlers.get('plugins:first-party-set-enabled');
+
+		await handler!(event, 'pianola', true);
+		const state = await handler!(event, 'pianola', false);
+
+		expect(state).toMatchObject({ enabled: false });
+		expect(encore.pianola).toBe(false);
+		expect(supervisor.stopAll).toHaveBeenCalledTimes(1);
+	});
+
+	it('is NOT gated on the community-plugin subsystem flag', async () => {
+		register(false); // encoreFeatures.plugins === false
+		const { encore } = bridgeSetup();
+		const handler = handlers.get('plugins:first-party-set-enabled');
+
+		await expect(handler!(event, 'pianola', true)).resolves.toMatchObject({ enabled: true });
+		expect(encore.pianola).toBe(true);
+	});
+
+	it('rejects a flag that is not a first-party Encore flag', async () => {
+		register(true);
+		bridgeSetup();
+		const handler = handlers.get('plugins:first-party-set-enabled');
+
+		await expect(handler!(event, 'plugins', true)).rejects.toThrow('InvalidFirstPartyFlag');
+		await expect(handler!(event, '../evil', true)).rejects.toThrow('InvalidFirstPartyFlag');
+		await expect(handler!(event, 42, true)).rejects.toThrow('InvalidFirstPartyFlag');
+	});
+
+	it('rejects a non-boolean enabled value', async () => {
+		register(true);
+		bridgeSetup();
+		const handler = handlers.get('plugins:first-party-set-enabled');
+
+		await expect(handler!(event, 'pianola', 'yes')).rejects.toThrow('InvalidEnabledFlag');
+	});
+
+	it('rejects when no bridge is registered for the flag', async () => {
+		register(true);
+		bridgeSetup(); // registers pianola only
+		const handler = handlers.get('plugins:first-party-set-enabled');
+
+		await expect(handler!(event, 'symphony', true)).rejects.toThrow('FirstPartyBridgeUnavailable');
+	});
+
+	it('accepts every first-party flag when its bridge exists', async () => {
+		register(true);
+		// One real bridge per flag over an isolated settings map.
+		const encore: Record<string, unknown> = {};
+		const store = {
+			get: (key: string) => (key === 'encoreFeatures' ? { ...encore } : undefined),
+			set: (_key: string, value: unknown) => {
+				if (value && typeof value === 'object') Object.assign(encore, value);
+			},
+		};
+		const ledgers: Record<string, PermissionGrant[]> = {};
+		const bridges = Object.fromEntries(
+			Object.values(FIRST_PARTY_PLUGINS).map((definition) => [
+				definition.encoreFlag,
+				new FirstPartyPluginBridge(definition, {
+					settingsStore: store,
+					readGrants: (id) => ledgers[id] ?? [],
+					mintFirstPartyGrants: (def) => {
+						ledgers[def.id] = grantsFromRequests([...def.permissions], Date.now());
+					},
+					revokeGrants: (id) => {
+						ledgers[id] = [];
+					},
+				}),
+			])
+		);
+		setFirstPartyBridges(bridges);
+		const handler = handlers.get('plugins:first-party-set-enabled');
+
+		for (const flag of Object.keys(FIRST_PARTY_PLUGINS)) {
+			await expect(handler!(event, flag, true)).resolves.toMatchObject({ enabled: true });
+			expect(encore[flag]).toBe(true);
+		}
 	});
 });

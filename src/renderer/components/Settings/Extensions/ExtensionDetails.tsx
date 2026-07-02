@@ -29,6 +29,7 @@ import {
 	type ExtensionState,
 	type UnifiedExtension,
 } from './extensionModel';
+import { FIRST_PARTY_PLUGINS } from '../../../../shared/plugins/first-party';
 import { getModalActions } from '../../../stores/modalStore';
 
 interface ExtensionDetailsProps {
@@ -162,6 +163,14 @@ export function ExtensionDetails({
 
 	const grantedCaps = new Set((grants?.granted ?? []).map((g) => g.capability));
 	const toggleLabel = ext.state === 'enabled' ? 'Disable' : 'Enable';
+
+	// First-party tiles surface their supervised background services; status
+	// derives from the definition + the bridge-written flag state (enable
+	// reconciles, disable stops) — no live process polling.
+	const firstPartyServices =
+		!isPlugin && ext.firstParty && ext.flag && ext.flag in FIRST_PARTY_PLUGINS
+			? FIRST_PARTY_PLUGINS[ext.flag as keyof typeof FIRST_PARTY_PLUGINS].backgroundServices
+			: [];
 
 	return (
 		<div data-testid="extension-details" className="select-text">
@@ -316,6 +325,47 @@ export function ExtensionDetails({
 					</button>
 				)}
 			</div>
+
+			{/* First-party background services (supervised via the lifecycle bridge) */}
+			{firstPartyServices.length > 0 && (
+				<div className="mt-5">
+					<div
+						className="text-xs font-bold uppercase opacity-70 mb-2"
+						style={{ color: theme.colors.textMain }}
+					>
+						Background services
+					</div>
+					<div className="space-y-1.5">
+						{firstPartyServices.map((service) => (
+							<div
+								key={service.id}
+								data-testid="extension-background-service"
+								data-service={service.id}
+								className="flex items-start gap-2 rounded-lg border p-2"
+								style={{ borderColor: theme.colors.border }}
+							>
+								<div className="min-w-0 flex-1">
+									<div className="text-xs font-mono" style={{ color: theme.colors.textMain }}>
+										{service.id}
+									</div>
+									<div className="text-[10px] mt-0.5" style={{ color: theme.colors.textDim }}>
+										{service.description}
+									</div>
+								</div>
+								<span
+									data-testid="extension-background-service-status"
+									className="text-[10px] font-medium flex-shrink-0 mt-0.5"
+									style={{
+										color: ext.state === 'enabled' ? theme.colors.success : theme.colors.textDim,
+									}}
+								>
+									{ext.state === 'enabled' ? 'Running (supervised)' : 'Stopped'}
+								</span>
+							</div>
+						))}
+					</div>
+				</div>
+			)}
 
 			{/* Requested permissions */}
 			{isPlugin && grants && grants.requested.length > 0 && (
