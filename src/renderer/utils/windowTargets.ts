@@ -1,5 +1,32 @@
 import type { WindowInfo } from '../../shared/window-types';
 
+/** Minimal shape needed to scope a session list by window ownership. */
+interface ScopableSession {
+	id: string;
+	parentSessionId?: string | null;
+}
+
+/**
+ * Filter a session list to the agents a SECONDARY window should surface in its
+ * Left Bar: only the agents that window owns, plus any worktree child whose
+ * parent it owns (so a detached agent keeps its worktrees in the same window).
+ *
+ * A no-op that returns the list unchanged when `isSecondaryWindow` is false (the
+ * primary window is the catch-all fleet view) or `ownsSession` is null (no
+ * WindowProvider, e.g. isolation tests). Kept pure so it is unit-testable apart
+ * from the heavy SessionList render.
+ */
+export function scopeSessionsToOwningWindow<T extends ScopableSession>(
+	sessions: T[],
+	ownsSession: ((sessionId: string) => boolean) | null | undefined,
+	isSecondaryWindow: boolean
+): T[] {
+	if (!isSecondaryWindow || !ownsSession) return sessions;
+	return sessions.filter(
+		(s) => ownsSession(s.id) || (s.parentSessionId != null && ownsSession(s.parentSessionId))
+	);
+}
+
 /**
  * A window an agent can be moved into, plus how to label it. Shared by the
  * Left Bar agent context menu and the Cmd+K palette so both surfaces enumerate

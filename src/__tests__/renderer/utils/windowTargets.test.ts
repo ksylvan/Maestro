@@ -4,7 +4,11 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildWindowMoveTargets, MAIN_WINDOW_LABEL } from '../../../renderer/utils/windowTargets';
+import {
+	buildWindowMoveTargets,
+	scopeSessionsToOwningWindow,
+	MAIN_WINDOW_LABEL,
+} from '../../../renderer/utils/windowTargets';
 import type { WindowInfo } from '../../../shared/window-types';
 
 function makeInfo(partial: Partial<WindowInfo> & Pick<WindowInfo, 'id'>): WindowInfo {
@@ -75,5 +79,42 @@ describe('buildWindowMoveTargets', () => {
 		const label = targets.find((t) => t.windowId === 'win-2')!.label;
 		expect(label.length).toBeLessThan(longName.length);
 		expect(label.endsWith('…')).toBe(true);
+	});
+});
+
+describe('scopeSessionsToOwningWindow', () => {
+	interface S {
+		id: string;
+		parentSessionId?: string | null;
+	}
+	const list: S[] = [
+		{ id: 'a' },
+		{ id: 'b' },
+		{ id: 'c' },
+		{ id: 'a-wt', parentSessionId: 'a' }, // worktree child of a
+		{ id: 'b-wt', parentSessionId: 'b' }, // worktree child of b
+	];
+
+	it('returns the list unchanged in the primary window (not secondary)', () => {
+		const owns = (id: string) => id === 'a';
+		expect(scopeSessionsToOwningWindow(list, owns, false)).toBe(list);
+	});
+
+	it('returns the list unchanged when there is no ownsSession (no WindowProvider)', () => {
+		expect(scopeSessionsToOwningWindow(list, null, true)).toBe(list);
+	});
+
+	it('keeps only owned agents in a secondary window', () => {
+		const owns = (id: string) => id === 'a';
+		const scoped = scopeSessionsToOwningWindow(list, owns, true).map((s) => s.id);
+		// 'a' is owned; 'a-wt' rides along as its worktree child. b/c and b-wt drop.
+		expect(scoped).toEqual(['a', 'a-wt']);
+	});
+
+	it('keeps a worktree child whose parent is owned, even if the child id is not', () => {
+		// Ownership is recorded per-agent; a moved parent should keep its worktrees.
+		const owns = (id: string) => id === 'b';
+		const scoped = scopeSessionsToOwningWindow(list, owns, true).map((s) => s.id);
+		expect(scoped).toEqual(['b', 'b-wt']);
 	});
 });
