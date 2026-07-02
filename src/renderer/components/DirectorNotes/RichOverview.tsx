@@ -71,6 +71,8 @@ interface RichOverviewProps {
 	lookbackDays: number;
 	/** Forwarded to the narrative MarkdownRenderer (matches Plain-mode behavior). */
 	enableBionifyReadingMode?: boolean;
+	/** Enables KaTeX math in the narrative MarkdownRenderer (matches Plain-mode behavior). */
+	chatMath?: boolean;
 }
 
 export function RichOverview({
@@ -81,6 +83,7 @@ export function RichOverview({
 	narrativeError,
 	lookbackDays,
 	enableBionifyReadingMode = false,
+	chatMath = false,
 }: RichOverviewProps) {
 	const colorBlindMode = useSettingsStore((s) => s.colorBlindMode);
 	const [richStats, setRichStats] = useState<RichStats | null>(null);
@@ -255,6 +258,7 @@ export function RichOverview({
 								theme={theme}
 								onCopy={(text) => safeClipboardWrite(text)}
 								enableBionifyReadingMode={enableBionifyReadingMode}
+								chatMath={chatMath}
 							/>
 						</div>
 					</SectionCard>

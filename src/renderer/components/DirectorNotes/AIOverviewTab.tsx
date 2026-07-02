@@ -557,6 +557,7 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 							narrativeError={narrativeError}
 							lookbackDays={lookbackDays}
 							enableBionifyReadingMode={bionifyReadingMode}
+							chatMath
 						/>
 					) : (
 						// Content-driven AI output: opt back into text selection under
@@ -568,6 +569,7 @@ export function AIOverviewTab({ theme, onSynopsisReady }: AIOverviewTabProps) {
 								theme={theme}
 								onCopy={(text) => safeClipboardWrite(text)}
 								enableBionifyReadingMode={bionifyReadingMode}
+								chatMath
 							/>
 						</div>
 					)
