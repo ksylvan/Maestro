@@ -670,7 +670,11 @@ function SessionListInner(props: SessionListProps) {
 		sortedSessions,
 		showUnreadAgentsOnly,
 		activeSessionId,
-		activeBatchSessionIds
+		activeBatchSessionIds,
+		// Scope categorization to this window's agents (no-op in the primary window).
+		// useSessionCategories reads sessions from the store itself, so the scope must
+		// be applied here, not just via the scoped sortedSessions param above.
+		scopeSessionsToWindow
 	);
 
 	// PERF: Cached callback maps to prevent SessionItem re-renders.
