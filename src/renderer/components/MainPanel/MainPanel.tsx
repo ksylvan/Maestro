@@ -30,7 +30,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { notifyCenterFlash } from '../../stores/centerFlashStore';
 import { useTerminalMounting } from '../../hooks/terminal/useTerminalMounting';
 import { getTerminalTabDisplayName } from '../../utils/terminalTabHelpers';
-import { aiTabFocusFields } from '../../utils/tabHelpers';
+import { aiTabFocusFields, computeUnreadGroupIds } from '../../utils/tabHelpers';
 import { useSshRemoteName } from '../../hooks/mainPanel/useSshRemoteName';
 import { useContextWindow } from '../../hooks/mainPanel/useContextWindow';
 import { useFilePreviewHandlers } from '../../hooks/mainPanel/useFilePreviewHandlers';
@@ -760,6 +760,14 @@ export const MainPanel = React.memo(
 			]
 		);
 
+		// Group ids that survive the unread filter (any collapsed member is unread), so
+		// the TabBar can gate group chips the same way it gates AI tabs. Only computed
+		// while the filter is active (undefined otherwise -> all groups shown).
+		const unreadGroupIds = useMemo(
+			() => (showUnreadOnly && activeSession ? computeUnreadGroupIds(activeSession) : undefined),
+			[showUnreadOnly, activeSession]
+		);
+
 		// Handler for input focus - select session in sidebar
 		// Memoized to avoid recreating on every render
 		const handleInputFocus = useCallback(() => {
@@ -1025,6 +1033,7 @@ export const MainPanel = React.memo(
 									}
 									// Tab tiling (split panes)
 									tabGroups={activeSession.tabGroups}
+									unreadGroupIds={unreadGroupIds}
 									activeGroupId={activeSession.activeGroupId}
 									onGroupSelect={handleGroupSelect}
 									onGroupRename={handleGroupRename}

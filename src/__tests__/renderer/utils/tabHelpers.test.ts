@@ -63,6 +63,8 @@ import {
 	resolveQueuedItemTarget,
 	markTabRunningQueuedItem,
 	isSoleAiTabReplacement,
+	groupHasUnreadTabs,
+	computeUnreadGroupIds,
 } from '../../../renderer/utils/tabHelpers';
 import type { LogEntry } from '../../../renderer/types';
 import type {
@@ -4671,6 +4673,102 @@ describe('tabHelpers', () => {
 			const result = markTabRunningQueuedItem(tab, item);
 			expect(result.state).toBe('busy');
 			expect(result.logs).toHaveLength(0);
+		});
+	});
+
+	describe('group unread rollup (groupHasUnreadTabs / computeUnreadGroupIds)', () => {
+		function groupWith(aiLeafIds: string[]) {
+			return {
+				id: 'g1',
+				name: 'G',
+				createdAt: 0,
+				focusedPaneId: 'l0',
+				layout: {
+					kind: 'split' as const,
+					id: 's1',
+					direction: 'row' as const,
+					sizes: aiLeafIds.map(() => 1 / aiLeafIds.length),
+					children: aiLeafIds.map((id, i) => ({
+						kind: 'leaf' as const,
+						id: `l${i}`,
+						tab: { type: 'ai' as const, id },
+					})),
+				},
+			};
+		}
+
+		beforeEach(() => {
+			useSettingsStore.setState({ showStarredInUnreadFilter: false });
+		});
+
+		it('is true when any AI member has unread', () => {
+			const group = groupWith(['a', 'b']);
+			const session = createMockSession({
+				aiTabs: [
+					createMockTab({ id: 'a', hasUnread: false, state: 'idle' }),
+					createMockTab({ id: 'b', hasUnread: true, state: 'idle' }),
+				],
+				tabGroups: [group] as never,
+				// Neither member is the active tab, so only unread drives the result.
+				activeTabId: 'other',
+				inputMode: 'ai',
+			});
+			expect(groupHasUnreadTabs(session, group as never)).toBe(true);
+		});
+
+		it('is true when any AI member is busy (thinking)', () => {
+			const group = groupWith(['a', 'b']);
+			const session = createMockSession({
+				aiTabs: [
+					createMockTab({ id: 'a', hasUnread: false, state: 'idle' }),
+					createMockTab({ id: 'b', hasUnread: false, state: 'busy' }),
+				],
+				tabGroups: [group] as never,
+				activeTabId: 'other',
+				inputMode: 'ai',
+			});
+			expect(groupHasUnreadTabs(session, group as never)).toBe(true);
+		});
+
+		it('is false when no AI member qualifies', () => {
+			const group = groupWith(['a', 'b']);
+			const session = createMockSession({
+				aiTabs: [
+					createMockTab({ id: 'a', hasUnread: false, state: 'idle' }),
+					createMockTab({ id: 'b', hasUnread: false, state: 'idle' }),
+				],
+				tabGroups: [group] as never,
+				activeTabId: 'other',
+				inputMode: 'ai',
+			});
+			expect(groupHasUnreadTabs(session, group as never)).toBe(false);
+		});
+
+		it('computeUnreadGroupIds returns only groups with an unread member', () => {
+			const g1 = { ...groupWith(['a']), id: 'g1' };
+			const g2 = {
+				...groupWith(['b']),
+				id: 'g2',
+				layout: {
+					kind: 'split' as const,
+					id: 's2',
+					direction: 'row' as const,
+					sizes: [1],
+					children: [{ kind: 'leaf' as const, id: 'l0', tab: { type: 'ai' as const, id: 'b' } }],
+				},
+			};
+			const session = createMockSession({
+				aiTabs: [
+					createMockTab({ id: 'a', hasUnread: true, state: 'idle' }),
+					createMockTab({ id: 'b', hasUnread: false, state: 'idle' }),
+				],
+				tabGroups: [g1, g2] as never,
+				activeTabId: 'other',
+				inputMode: 'ai',
+			});
+			const ids = computeUnreadGroupIds(session);
+			expect(ids.has('g1')).toBe(true);
+			expect(ids.has('g2')).toBe(false);
 		});
 	});
 });

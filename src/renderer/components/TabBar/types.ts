@@ -97,6 +97,13 @@ export interface TabBarProps {
 	// === Tab Tiling (split panes) ===
 	/** Tiled tab groups for this session, rendered as single chips in the strip */
 	tabGroups?: TabGroup[];
+	/**
+	 * Ids of groups that have at least one unread member (precomputed from the full
+	 * session). Under the unread filter a group chip is shown iff its id is in this
+	 * set - it inherits the unread state of the members it collapsed. Undefined
+	 * outside the unread filter (all groups shown).
+	 */
+	unreadGroupIds?: Set<string>;
 	/** Currently active tab group id (null when a standalone tab is active) */
 	activeGroupId?: string | null;
 	/** Handler to activate a tab group (shows its tiled layout in the panel) */

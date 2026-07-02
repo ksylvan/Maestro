@@ -84,6 +84,7 @@ function TabBarInner({
 	onCopyBrowserContent,
 	onSendBrowserContentToAgent,
 	activeGroupId,
+	unreadGroupIds,
 	onGroupSelect,
 	onGroupRename,
 	onGroupBreakApart,
@@ -213,6 +214,12 @@ function TabBarInner({
 			if (ut.type === 'file') {
 				return showFilePreviewsInUnreadFilter || ut.id === activeFileTabId;
 			}
+			// A tiled group is shown iff any of its collapsed members is unread. The set
+			// is precomputed from the full session (see computeUnreadGroupIds). When it's
+			// absent (not provided), fall back to showing the group.
+			if (ut.type === 'group') {
+				return unreadGroupIds ? unreadGroupIds.has(ut.id) : true;
+			}
 			// Terminal tabs are always visible
 			return true;
 		});
@@ -226,6 +233,7 @@ function TabBarInner({
 		showStarredInUnreadFilter,
 		showFilePreviewsInUnreadFilter,
 		ownsActiveAgent,
+		unreadGroupIds,
 	]);
 
 	// Drag handlers

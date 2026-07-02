@@ -18,9 +18,13 @@ import {
 	Play,
 	X,
 	Maximize2,
+	AlertCircle,
+	Loader2,
 } from 'lucide-react';
 
 import { TerminalOutput } from '../TerminalOutput';
+import { WizardIndicator } from '../SessionList/WizardIndicator';
+import { hasDraft } from '../../utils/tabHelpers';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useModalStore } from '../../stores/modalStore';
 import { useUIStore } from '../../stores/uiStore';
@@ -635,6 +639,65 @@ function PaneActionsMenu({
 	);
 }
 
+/**
+ * Status indicators for a pane's title bar. A tiled tab has no strip chip, so the
+ * signals a chip would show (error, busy/thinking, generating-name spinner, wizard,
+ * unread, draft) surface here instead - mirroring AITab's indicator set. Only AI
+ * panes carry these states; file/terminal/browser panes render nothing.
+ */
+function PaneStatusIndicators({
+	tab,
+	session,
+	theme,
+}: {
+	tab: UnifiedTabRef;
+	session: Session;
+	theme: Theme;
+}) {
+	if (tab.type !== 'ai') return null;
+	const aiTab = session.aiTabs?.find((t) => t.id === tab.id);
+	if (!aiTab) return null;
+	const isWizard = !!(aiTab.wizardState?.isActive || aiTab.wizardState?.isGeneratingDocs);
+	const draft = hasDraft(aiTab);
+	return (
+		<>
+			{aiTab.agentError && (
+				<span title={`Error: ${aiTab.agentError.message}`}>
+					<AlertCircle className="w-3 h-3 shrink-0" style={{ color: theme.colors.error }} />
+				</span>
+			)}
+			{aiTab.state === 'busy' && (
+				<span
+					className="w-2 h-2 rounded-full shrink-0 animate-pulse"
+					style={{ backgroundColor: theme.colors.warning }}
+					title="Thinking"
+				/>
+			)}
+			<WizardIndicator active={isWizard} generatingDocs={!!aiTab.wizardState?.isGeneratingDocs} />
+			{aiTab.isGeneratingName && (
+				<span title="Generating tab name...">
+					<Loader2
+						className="w-3 h-3 shrink-0 animate-spin"
+						style={{ color: theme.colors.textDim }}
+					/>
+				</span>
+			)}
+			{aiTab.state !== 'busy' && aiTab.hasUnread && (
+				<span
+					className="w-2 h-2 rounded-full shrink-0"
+					style={{ backgroundColor: theme.colors.error }}
+					title="New messages"
+				/>
+			)}
+			{draft && (
+				<span title="Has draft message">
+					<Pencil className="w-3 h-3 shrink-0" style={{ color: theme.colors.warning }} />
+				</span>
+			)}
+		</>
+	);
+}
+
 /** A single leaf pane: a title bar (doubles as a drag handle) atop the content. */
 function PaneFrame({
 	node,
@@ -739,6 +802,7 @@ function PaneFrame({
 					theme={theme}
 					actions={paneTabActions}
 				/>
+				<PaneStatusIndicators tab={node.tab} session={session} theme={theme} />
 				<span className="truncate">{title}</span>
 				{/* Maximize / restore: fills the panel with this pane (Minimize2 folds it
 				    back into its quadrant). Pushed to the right edge with ml-auto. Not a

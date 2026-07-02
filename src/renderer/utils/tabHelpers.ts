@@ -442,19 +442,88 @@ export function filterUnifiedTabOrderForUnread(
 		if (ref.type === 'ai') {
 			const tab = session.aiTabs.find((t) => t.id === ref.id);
 			if (!tab) return false;
-			return (
-				tab.hasUnread ||
-				tab.state === 'busy' ||
-				(inputMode === 'ai' && tab.id === activeTabId) ||
-				hasDraft(tab) ||
-				(showStarred && !!tab.starred)
-			);
+			return aiTabPassesUnreadFilter(tab, inputMode, activeTabId, showStarred);
 		}
 		// Active file tab is always visible so the user never loses sight of what
 		// they're looking at, even when the file-preview filter is off.
 		if (ref.type === 'file') return showFilePreviews || ref.id === activeFileTabId;
+		// A group is shown iff ANY of its member tabs passes the unread filter (the
+		// group chip stands in for its collapsed members, so it inherits their unread
+		// state). Otherwise the whole group hides, like any other filtered-out tab.
+		if (ref.type === 'group') {
+			const group = session.tabGroups?.find((g) => g.id === ref.id);
+			return group ? groupHasUnreadTabs(session, group) : false;
+		}
 		return true;
 	});
+}
+
+/**
+ * Shared predicate: does this AI tab pass the "unread" filter? An AI tab is kept
+ * when it has unread messages, is busy (thinking), is the active tab in AI mode,
+ * holds an unsent draft, or (when the setting is on) is starred. Centralized so the
+ * TabBar display filter, navigation filter, and group-unread rollup can never drift.
+ */
+export function aiTabPassesUnreadFilter(
+	tab: AITab,
+	inputMode: 'ai' | 'terminal' | undefined,
+	activeTabId: string | null,
+	showStarred: boolean
+): boolean {
+	return (
+		tab.hasUnread ||
+		tab.state === 'busy' ||
+		(inputMode === 'ai' && tab.id === activeTabId) ||
+		hasDraft(tab) ||
+		(showStarred && !!tab.starred)
+	);
+}
+
+/**
+ * True when any AI tab tiled into `group` passes the unread filter. Walks the
+ * group's layout leaves and applies {@link aiTabPassesUnreadFilter} to each AI
+ * member (non-AI panes have no unread state and never keep the group visible). Used
+ * to decide whether the group chip survives the unread filter - the chip inherits
+ * the unread state of the members it collapsed.
+ */
+export function groupHasUnreadTabs(session: Session, group: TabGroup): boolean {
+	const settings = useSettingsStore.getState();
+	const showStarred = settings.showStarredInUnreadFilter;
+	const inputMode = session.inputMode ?? 'ai';
+	const activeTabId = session.activeTabId ?? null;
+	for (const ref of collectGroupLeafRefs(group)) {
+		if (ref.type !== 'ai') continue;
+		const tab = session.aiTabs.find((t) => t.id === ref.id);
+		if (tab && aiTabPassesUnreadFilter(tab, inputMode, activeTabId, showStarred)) return true;
+	}
+	return false;
+}
+
+/**
+ * Build the set of group ids that survive the unread filter (any member is unread).
+ * Precomputed once per render where the full session is in scope, then handed to the
+ * TabBar so its display filter can gate group chips without re-walking every layout.
+ */
+export function computeUnreadGroupIds(session: Session): Set<string> {
+	const ids = new Set<string>();
+	for (const group of session.tabGroups ?? []) {
+		if (groupHasUnreadTabs(session, group)) ids.add(group.id);
+	}
+	return ids;
+}
+
+/** Collect a group's layout leaf refs (local walk; avoids a panelLayout import cycle). */
+function collectGroupLeafRefs(group: TabGroup): UnifiedTabRef[] {
+	const out: UnifiedTabRef[] = [];
+	const walk = (node: PanelLayoutNode): void => {
+		if (node.kind === 'leaf') {
+			out.push(node.tab);
+			return;
+		}
+		node.children.forEach(walk);
+	};
+	walk(group.layout);
+	return out;
 }
 
 /**

@@ -19,6 +19,7 @@ import type {
 import { generateId } from './ids';
 import { getTabDisplayName } from './tabHelpers';
 import { getTerminalTabDisplayName } from './terminalTabHelpers';
+import { getBrowserTabLabel } from './browserTabPersistence';
 
 /**
  * Minimum fractional size a pane may shrink to during a resize. Splits normalize
@@ -295,9 +296,11 @@ export function resolveTabRefTitle(session: Session, ref: UnifiedTabRef): string
 		}
 		case 'browser': {
 			const browserTab = session.browserTabs?.find((t) => t.id === ref.id);
-			return browserTab
-				? (browserTab.customTitle ?? browserTab.title ?? browserTab.url)
-				: 'Browser';
+			// Reuse the shared label helper (trims, falls back host -> "New Tab") so a
+			// tiled pane never shows a blank title. The bare `customTitle ?? title ?? url`
+			// chain rendered an empty label whenever `title` was an empty string (e.g. a
+			// mid-reload transient after switching away from and back to the group).
+			return browserTab ? getBrowserTabLabel(browserTab) : 'Browser';
 		}
 		default:
 			return 'Tab';
