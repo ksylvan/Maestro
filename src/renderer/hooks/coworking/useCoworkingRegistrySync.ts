@@ -72,7 +72,7 @@ function buildRecords(session: Session) {
 /** Build the per-session browser-input list from a Session. The registry assigns
  *  the stable `browser:N` id, so we only push raw tab metadata here. Hidden
  *  tabs are pushed WITH their flag (not filtered out) so main can enforce the
- *  exclusion itself — filtering here left a sync-cycle window where a
+ *  exclusion itself: filtering here left a sync-cycle window where a
  *  just-hidden tab was still addressable, and enforcement-by-absence meant
  *  main could never re-check. Hidden tabs also keep their stable browser:N id
  *  across hide/unhide this way. */
@@ -107,8 +107,14 @@ export function useCoworkingRegistrySync(): void {
 	// older run's writes land AFTER a newer run's and leave the registry stale
 	// (lastPayloadRef already matches the newer payload, so it never self-heals).
 	const runQueueRef = useRef<Promise<void>>(Promise.resolve());
+	// Monotonic id bumped once per effect run. The async sync body below can
+	// resolve AFTER a newer effect run has already rewritten lastPayloadRef /
+	// lastSessionIdsRef synchronously; guarding the failure-path rollback on this
+	// id keeps a stale run from stomping that newer state.
+	const runIdRef = useRef(0);
 
 	useEffect(() => {
+		const runId = ++runIdRef.current;
 		// Bail out cleanly when the coworking bridge isn't exposed (e.g. in test
 		// harnesses that mock `window.maestro` without the namespace, or in older
 		// preload bundles before this PR shipped). The hook is best-effort -
@@ -206,8 +212,14 @@ export function useCoworkingRegistrySync(): void {
 					// run retries instead of treating the same payload as already-synced and
 					// leaving the main-process registry stale. Then surface the failure
 					// (teardown IPC errors stay quiet; anything else re-throws).
-					lastPayloadRef.current = '';
-					lastSessionIdsRef.current = previousSessionIds;
+					//
+					// Guard the rollback: a newer effect run may have already rewritten
+					// these refs synchronously while this async push was in flight, so only
+					// the latest run may stomp them - otherwise we'd revert newer state.
+					if (runIdRef.current === runId) {
+						lastPayloadRef.current = '';
+						lastSessionIdsRef.current = previousSessionIds;
+					}
 					reportIfUnexpected(err, 'sync');
 				}
 				// reportIfUnexpected re-throws (after capturing to Sentry) to surface real

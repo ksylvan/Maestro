@@ -10,7 +10,7 @@
  *
  * Redaction: page/terminal content is never recorded; free-form `eval` code and
  * typed text are reduced to lengths; navigate/newTab URLs are stripped to
- * origin+path (query strings and fragments — where auth tokens live — are
+ * origin+path (query strings and fragments, where auth tokens live, are
  * reduced to character counts). The JSONL sink is written owner-only (0600).
  */
 
@@ -71,7 +71,7 @@ export function redactBrowserOpDetail(op: BrowserOp): string {
 	}
 }
 
-/** Strip query string and fragment from a URL before it hits the audit log —
+/** Strip query string and fragment from a URL before it hits the audit log,
  *  that's where session tokens and magic-link secrets live. Non-URL navigate
  *  targets (search text) are reduced to a character count: free-form search
  *  queries can carry secrets just like query strings, so they never log verbatim. */
@@ -86,6 +86,28 @@ function redactUrl(raw: string): string {
 	}
 }
 
+/** Soft cap on the JSONL audit file. Past this size we stop appending rather
+ *  than rotate: the trail is best-effort, and rotating on the main process
+ *  would cost more than the lost lines are worth. */
+const MAX_AUDIT_FILE_BYTES = 5 * 1024 * 1024;
+
+/** Best-effort, non-blocking append of one audit line. Skips the write once the
+ *  file passes the soft size cap. Never rejects: failures go to Sentry so a
+ *  disk/permission error can't crash the main process. */
+async function appendAuditLine(file: string, line: string): Promise<void> {
+	try {
+		const existing = await fs.promises.stat(file).catch(() => null);
+		if (existing && existing.size >= MAX_AUDIT_FILE_BYTES) return;
+		// mode 0600 applies when the file is first created so the audit trail
+		// isn't world/group-readable.
+		await fs.promises.appendFile(file, line, { mode: 0o600 });
+	} catch (err) {
+		captureException(err instanceof Error ? err : new Error(String(err)), {
+			operation: 'coworking:browserAudit',
+		});
+	}
+}
+
 /** Default sink: a system-log line (visible in the Log Viewer) plus a best-effort
  *  JSONL append under userData. */
 export function createDefaultBrowserAuditSink(): BrowserAuditSink {
@@ -96,15 +118,9 @@ export function createDefaultBrowserAuditSink(): BrowserAuditSink {
 			`[Coworking][Browser] ${entry.status} ${entry.tool}${op} session=${entry.sessionId}${entry.agentType ? ' agent=' + entry.agentType : ''}${detail}`,
 			'Coworking'
 		);
-		try {
-			const file = path.join(app.getPath('userData'), 'coworking-browser-audit.jsonl');
-			// mode 0600 applies when the file is first created so the audit trail
-			// isn't world/group-readable.
-			fs.appendFileSync(file, JSON.stringify(entry) + '\n', { mode: 0o600 });
-		} catch (err) {
-			captureException(err instanceof Error ? err : new Error(String(err)), {
-				operation: 'coworking:browserAudit',
-			});
-		}
+		const file = path.join(app.getPath('userData'), 'coworking-browser-audit.jsonl');
+		// Fire-and-forget: appending must never block the Electron main event
+		// loop on a coworking tool call. Errors are captured inside appendAuditLine.
+		void appendAuditLine(file, JSON.stringify(entry) + '\n');
 	};
 }

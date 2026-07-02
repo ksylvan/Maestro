@@ -473,6 +473,14 @@ describe('app-lifecycle/window-manager', () => {
 				{ name: 'foreign persist partition', partition: 'persist:evil', allowed: false },
 				{ name: 'ephemeral-lookalike prefix', partition: 'maestro-evil-sess-1', allowed: false },
 				{
+					// Correct `maestro-ephemeral-` prefix but missing the `-<random8>`
+					// suffix: the old startsWith gate allowed this, the full regex must
+					// now reject it so an attacker cannot attach with a lookalike prefix.
+					name: 'ephemeral prefix without the random-8 suffix',
+					partition: 'maestro-ephemeral-x',
+					allowed: false,
+				},
+				{
 					name: 'default session (empty partition)',
 					partition: '',
 					allowed: false,

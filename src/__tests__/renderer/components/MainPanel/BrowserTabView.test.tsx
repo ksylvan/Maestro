@@ -856,6 +856,37 @@ describe('BrowserTabView', () => {
 			const alert = await screen.findByRole('alert');
 			expect(alert.textContent).toMatch(/not supported by this build/);
 		});
+
+		it('disarms the clear-session confirm when switched to a different tab.id', () => {
+			const clearSessionData = vi.fn(async () => ({ ok: true }));
+			maestroMutable.browserSession = { clearSessionData };
+			const tabB: BrowserTab = {
+				...mockTab,
+				id: 'browser-2',
+				partition: 'persist:maestro-browser-session-session-2',
+			};
+			const { rerender } = render(
+				<BrowserTabView tab={mockTab} theme={mockTheme} onUpdateTab={vi.fn()} />
+			);
+
+			// Arm the two-step confirm on tab A.
+			const armed = screen.getByTestId('browser-tab-clear-session-data');
+			fireEvent.click(armed);
+			expect(armed).toHaveAttribute('aria-pressed', 'true');
+
+			// The component instance is reused across tab switches, so switching the
+			// tab.id must disarm - otherwise a single stale click would wipe tab B's
+			// data with no guard.
+			rerender(<BrowserTabView tab={tabB} theme={mockTheme} onUpdateTab={vi.fn()} />);
+			const afterSwitch = screen.getByTestId('browser-tab-clear-session-data');
+			expect(afterSwitch).toHaveAttribute('aria-pressed', 'false');
+
+			// The first click after the switch only re-arms; it must NOT clear (and
+			// certainly not clear tab B's partition off a carried-over arm).
+			fireEvent.click(afterSwitch);
+			expect(clearSessionData).not.toHaveBeenCalled();
+			expect(afterSwitch).toHaveAttribute('aria-pressed', 'true');
+		});
 	});
 
 	describe('web-desktop placeholder', () => {

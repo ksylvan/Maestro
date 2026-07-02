@@ -220,7 +220,7 @@ describe('browserTabPersistence', () => {
 				// make ephemeral tabs unattachable/unclearable.
 				const partition = getEphemeralBrowserTabPartition(' My Session/1! ');
 				expect(partition).toMatch(/^maestro-ephemeral-[A-Za-z0-9_-]+-[a-z0-9]{8}$/);
-				// No persist: scheme — Electron must keep the data in memory only.
+				// No persist: scheme - Electron must keep the data in memory only.
 				expect(partition.startsWith('persist:')).toBe(false);
 			});
 

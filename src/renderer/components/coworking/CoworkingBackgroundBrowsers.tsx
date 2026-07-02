@@ -14,7 +14,7 @@ import { useCallback, useEffect } from 'react';
 import { BrowserTabView } from '../MainPanel/BrowserTabView';
 import type { BrowserTab, Theme } from '../../types';
 import { useCoworkingBackgroundBrowserStore } from '../../stores/coworkingBackgroundBrowserStore';
-import { useSessionStore, updateSessionWith } from '../../stores/sessionStore';
+import { useSessionStore, updateSessionWith, selectActiveSession } from '../../stores/sessionStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { normalizeBrowserTabUpdates } from '../../hooks/tabs/internal/browserTabHelpers';
 
@@ -22,8 +22,15 @@ export function CoworkingBackgroundBrowsers({ theme }: { theme: Theme }) {
 	const mounts = useCoworkingBackgroundBrowserStore((s) => s.mounts);
 	const setHandle = useCoworkingBackgroundBrowserStore((s) => s.setHandle);
 	const clear = useCoworkingBackgroundBrowserStore((s) => s.clear);
-	const enabled = useSettingsStore((s) => s.coworkingBackgroundBrowsers);
+	// Gate on BOTH the background-browsing toggle and the coworking Encore flag:
+	// if coworking is turned off, these off-screen webviews must not keep running.
+	const backgroundEnabled = useSettingsStore((s) => s.coworkingBackgroundBrowsers);
+	const coworkingEnabled = useSettingsStore((s) => s.encoreFeatures?.coworking ?? false);
+	const enabled = backgroundEnabled && coworkingEnabled;
 	const sessions = useSessionStore((s) => s.sessions);
+	// The active agent's browser tabs are mounted by MainPanelContent, so exclude
+	// them here: two hidden webviews for the same tab would race on nav events.
+	const activeSessionId = useSessionStore((s) => selectActiveSession(s)?.id ?? null);
 
 	const handleBackgroundTabUpdate = useCallback(
 		(sessionId: string, tabId: string, updates: Partial<BrowserTab>) => {
@@ -37,12 +44,13 @@ export function CoworkingBackgroundBrowsers({ theme }: { theme: Theme }) {
 		[]
 	);
 
-	// Opt-out releases every hidden webview (each is a renderer process).
+	// Opt-out (either toggle) releases every hidden webview (each is a renderer process).
 	useEffect(() => {
 		if (!enabled) clear();
 	}, [enabled, clear]);
 
-	if (!enabled || mounts.length === 0) return null;
+	const visibleMounts = mounts.filter((m) => m.sessionId !== activeSessionId);
+	if (!enabled || visibleMounts.length === 0) return null;
 
 	return (
 		<div
@@ -58,7 +66,7 @@ export function CoworkingBackgroundBrowsers({ theme }: { theme: Theme }) {
 				pointerEvents: 'none',
 			}}
 		>
-			{mounts.map((m) => {
+			{visibleMounts.map((m) => {
 				const session = sessions.find((s) => s.id === m.sessionId);
 				const tab = session?.browserTabs?.find((t) => t.id === m.tabUuid);
 				if (!tab) return null;

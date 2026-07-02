@@ -403,13 +403,13 @@ export const TerminalTabItem = memo(function TerminalTabItem({
 				{displayName}
 			</span>
 
-			{/* Coworking id pill — agents address terminals via this id (e.g. "term:3"). Click to copy. */}
+			{/* Coworking id pill - agents address terminals via this id (e.g. "term:3"). Click to copy. */}
 			{coworkingPillId && (
 				<button
 					type="button"
 					onClick={handleCoworkingPillClick}
 					className="px-1 py-px rounded text-[9px] font-mono shrink-0 transition-colors hover:bg-white/10"
-					title={`Coworking id — click to copy "${coworkingPillId}"`}
+					title={`Coworking id - click to copy "${coworkingPillId}"`}
 					style={{
 						backgroundColor: theme.colors.bgActivity,
 						color: theme.colors.textDim,

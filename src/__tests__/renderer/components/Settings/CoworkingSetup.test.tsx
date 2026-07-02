@@ -109,7 +109,7 @@ describe('CoworkingSetup', () => {
 		expect(screen.getByRole('button', { name: 'Install' })).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: 'Uninstall' })).not.toBeInTheDocument();
 		// The only switch on the page is the panel-level Background browsing
-		// toggle — the uninstalled row must not grow an interaction switch.
+		// toggle - the uninstalled row must not grow an interaction switch.
 		const switches = screen.getAllByRole('switch');
 		expect(switches).toHaveLength(1);
 		expect(switches[0]).toHaveAccessibleName('Background browsing');
@@ -192,7 +192,7 @@ describe('CoworkingSetup', () => {
 		render(<CoworkingSetup theme={mockTheme} />);
 		await screen.findByText('Claude Code');
 
-		// One click straight from the 'dangerous' default to 'off' — a cycling
+		// One click straight from the 'dangerous' default to 'off' - a cycling
 		// control would land elsewhere.
 		fireEvent.click(getRadio('JS only'));
 

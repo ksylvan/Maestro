@@ -909,7 +909,7 @@ export interface Session {
 	// Currently active terminal tab ID (null if an AI or file tab is active)
 	activeTerminalTabId: string | null;
 	// Monotonic counter for TerminalTab.coworkingId (used by the coworking MCP server).
-	// Increments on add, never decrements — readable ids never repeat within a session.
+	// Increments on add, never decrements - readable ids never repeat within a session.
 	nextCoworkingId?: number;
 
 	// Unified tab ordering - determines visual order of all tabs (AI, file, browser, and terminal)
@@ -1210,7 +1210,7 @@ export interface EncoreFeatureFlags {
 	usageStats: boolean;
 	symphony: boolean;
 	maestroCue: boolean;
-	// Coworking — agents can read terminal scrollback via per-agent MCP server.
+	// Coworking - agents can read terminal scrollback via per-agent MCP server.
 	// Off by default. Optional so existing literals (older test fixtures, persisted
 	// settings without the key) continue to type-check.
 	coworking?: boolean;

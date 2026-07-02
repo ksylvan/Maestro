@@ -140,7 +140,7 @@ describe('coworking-tools', () => {
 			cwd: '/other',
 			title: 'Foreign Terminal 1',
 		});
-		// sess-1 has its own term:1 (uuid-a) — calling from sess-1 must resolve to uuid-a.
+		// sess-1 has its own term:1 (uuid-a) - calling from sess-1 must resolve to uuid-a.
 		let seenTab: string | null = null;
 		const out = await readTerminal(
 			'sess-1',

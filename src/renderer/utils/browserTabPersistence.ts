@@ -1,7 +1,7 @@
 import type { BrowserTab } from '../types';
+import { PERSISTENT_BROWSER_TAB_PARTITION_PATTERN } from '../../shared/browserTabPartition';
 
 const BROWSER_TAB_PARTITION_PREFIX = 'persist:maestro-browser-session-';
-const BROWSER_TAB_PARTITION_PATTERN = /^persist:maestro-browser-session-[a-zA-Z0-9_-]+$/;
 // Ephemeral (incognito) browser tabs use a partition WITHOUT the `persist:`
 // prefix, so Electron keeps their session data purely in memory and discards
 // it when the app quits.
@@ -55,7 +55,10 @@ export function getSafeBrowserTabPartition(
 	partition: string | null | undefined,
 	sessionId: string
 ): string {
-	if (typeof partition === 'string' && BROWSER_TAB_PARTITION_PATTERN.test(partition.trim())) {
+	if (
+		typeof partition === 'string' &&
+		PERSISTENT_BROWSER_TAB_PARTITION_PATTERN.test(partition.trim())
+	) {
 		return partition.trim();
 	}
 

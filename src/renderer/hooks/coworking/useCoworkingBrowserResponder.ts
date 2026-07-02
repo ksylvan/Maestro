@@ -55,7 +55,7 @@ export type BrowserApprovalRequester = (
 		agentId: string;
 		sessionId: string;
 		/** Main-process approval-requirement computation (from the policy mirrored
-		 *  into the registry). ORed with the local policy — either side saying
+		 *  into the registry). ORed with the local policy - either side saying
 		 *  "confirm" forces the dialog, so a stale renderer settings read can
 		 *  never weaken the gate. */
 		forceConfirm?: boolean;
@@ -139,13 +139,25 @@ function createTabForSession(
 	const created = createBrowserTab(sessionId, targetUrl, {
 		ephemeral: op.ephemeral === true,
 	});
+	// The session-existence check happens BEFORE the approval await, so a session
+	// closed during approval would otherwise drop the tab silently while telling
+	// the agent success. Track whether the updater actually matched the session.
+	let sessionFound = false;
 	setSessions((prev) =>
 		prev.map((s) => {
 			if (s.id !== sessionId) return s;
+			sessionFound = true;
+			// Match the normal new-browser-tab path (openInMaestroBrowser): clear the
+			// competing active-tab fields and switch to AI input mode so the tab strip
+			// never shows two active tabs or hides the new browser tab under terminal
+			// mode.
 			return {
 				...s,
 				browserTabs: [...(s.browserTabs || []), created],
+				activeFileTabId: null,
 				activeBrowserTabId: created.id,
+				activeTerminalTabId: null,
+				inputMode: 'ai' as const,
 				unifiedTabOrder: insertAfterActiveInUnifiedTabOrder(s, {
 					type: 'browser',
 					id: created.id,
@@ -153,6 +165,12 @@ function createTabForSession(
 			};
 		})
 	);
+	if (!sessionFound) {
+		return {
+			ok: false,
+			content: 'Session no longer exists; the tab could not be created.',
+		};
+	}
 	return {
 		ok: true,
 		url: created.url,
@@ -272,7 +290,17 @@ export async function applyBrowserOp(
 			const timeoutMs = Math.min(op.timeoutMs ?? 10000, 30000);
 			const deadline = Date.now() + timeoutMs;
 			const probe = `!!document.querySelector(${JSON.stringify(op.selector)})`;
+			// Snapshot the tab this handle is bound to. If a mid-wait navigation (or
+			// tab recycle) reassigns the handle to a different tab, surface it right
+			// away instead of polling the wrong webview until the full timeout.
+			const expectedTabId = handle.getTabId();
 			for (;;) {
+				if (handle.getTabId() !== expectedTabId) {
+					return {
+						ok: false,
+						content: `Browser tab changed while waiting for selector: ${op.selector}`,
+					};
+				}
 				const found = await handle.executeJavaScript(probe);
 				if (found === true) {
 					return { ok: true, content: `Element appeared: ${op.selector}` };
@@ -331,7 +359,7 @@ export async function resolveAndRun(
 
 	// Per-call approval for state-changing ops, BEFORE any focus change, mount,
 	// or side effect. read ops are never gated. Uses the REQUESTING agent's
-	// policy, ORed with main's own computation from its mirrored policy — either
+	// policy, ORed with main's own computation from its mirrored policy - either
 	// side requiring approval forces the dialog.
 	if (op.kind !== 'read') {
 		const approved = await requestApproval(op, {
@@ -363,9 +391,20 @@ export async function resolveAndRun(
 		}
 
 		// Fallback: activate the tab so it mounts, run the op, then restore the
-		// previously active browser tab. The focus guard guarantees the tab
-		// belongs to the focused agent, so activating within that agent is correct.
-		const prevActiveBrowserTabId = active.activeBrowserTabId;
+		// full prior focus surface. The focus guard guarantees the tab belongs to
+		// the focused agent, so activating within that agent is correct.
+		//
+		// Capture ALL competing active fields, not just the browser id: when the
+		// user was on an AI/file/terminal tab, activeBrowserTabId is null, so
+		// restoring only that would strand them on the browser tab we mounted for
+		// the read. selectBrowserTab clears activeFileTabId/activeTerminalTabId and
+		// flips inputMode to 'ai', so we snapshot and restore every one of them.
+		const prevSurface = {
+			activeFileTabId: active.activeFileTabId,
+			activeTerminalTabId: active.activeTerminalTabId,
+			activeBrowserTabId: active.activeBrowserTabId,
+			inputMode: active.inputMode,
+		};
 		selectBrowserTab(sessionId, tabUuid);
 		let handle: BrowserTabViewHandle | undefined;
 		for (let i = 0; i < 40; i++) {
@@ -385,9 +424,22 @@ export async function resolveAndRun(
 			}
 			return await applyBrowserOp(handle, op);
 		} finally {
-			if (prevActiveBrowserTabId && prevActiveBrowserTabId !== tabUuid) {
-				selectBrowserTab(sessionId, prevActiveBrowserTabId);
-			}
+			// Restore the full prior surface (not just the browser id) so a read
+			// that mounted this tab never leaves the user switched away from their
+			// AI/file/terminal tab.
+			const { setSessions } = useSessionStore.getState();
+			setSessions((prev) =>
+				prev.map((s) => {
+					if (s.id !== sessionId) return s;
+					return {
+						...s,
+						activeFileTabId: prevSurface.activeFileTabId,
+						activeTerminalTabId: prevSurface.activeTerminalTabId,
+						activeBrowserTabId: prevSurface.activeBrowserTabId,
+						inputMode: prevSurface.inputMode,
+					};
+				})
+			);
 		}
 	}
 

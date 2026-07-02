@@ -145,12 +145,22 @@ export function registerCoworkingHandlers(deps: CoworkingHandlerDependencies): v
 		const responseChannel = `coworking:bufferResponse:${nextRequestId++}`;
 		const expectedSenderId = win.webContents.id;
 		const { promise, resolve, reject } = Promise.withResolvers<string>();
-		const handler = (_event: Electron.IpcMainEvent, content: string) => {
+		const handler = (_event: Electron.IpcMainEvent, content: string, ok?: boolean) => {
 			// Drop responses originating from any renderer other than our main window
-			// — defense-in-depth against a malicious or misconfigured renderer.
+			// - defense-in-depth against a malicious or misconfigured renderer.
 			if (_event.sender.id !== expectedSenderId) return;
 			clearTimeout(timer);
 			ipcMain.removeListener(responseChannel, handler);
+			// The renderer signals a non-live terminal (its TerminalView ref isn't
+			// mounted) via ok:false, mirroring the browser channel's ok:false path,
+			// so readTerminal rejects with a clear error instead of resolving a
+			// false, successful empty read.
+			if (ok === false) {
+				reject(
+					new Error('Coworking: terminal is not live in the renderer (its view is not mounted)')
+				);
+				return;
+			}
 			resolve(typeof content === 'string' ? content : '');
 		};
 		const timer = setTimeout(() => {

@@ -17,7 +17,10 @@ import { getAgentDisplayName } from '../../../shared/agentMetadata';
 import type { AgentId } from '../../../shared/agentIds';
 import { notifyToast } from '../../stores/notificationStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import type { BrowserConfirmPolicy } from '../../../shared/coworkingBrowser';
+import {
+	DEFAULT_BROWSER_CONFIRM_POLICY,
+	type BrowserConfirmPolicy,
+} from '../../../shared/coworkingBrowser';
 
 /** Segmented-control options for the per-call approval policy, in escalating
  *  paranoia order. Labels are user language; values are the wire policy. */
@@ -279,7 +282,7 @@ export function CoworkingSetup({ theme }: CoworkingSetupProps) {
 				{statuses.map((s) => {
 					const isBusy = busyAgentId === s.agentId || busyAll;
 					const interactionOn = browserInteractionAgents.includes(s.agentId);
-					const confirmPolicy = browserConfirm[s.agentId] ?? 'dangerous';
+					const confirmPolicy = browserConfirm[s.agentId] ?? DEFAULT_BROWSER_CONFIRM_POLICY;
 					return (
 						<div
 							key={s.agentId}

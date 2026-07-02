@@ -2,7 +2,7 @@
  * Redaction tests for the coworking audit trail. The invariant defended here:
  * secrets that ride in URLs (query strings, fragments), free-form navigate
  * targets, eval code and typed text must NEVER appear verbatim in an audit
- * detail line — only origins/paths and character counts survive.
+ * detail line - only origins/paths and character counts survive.
  */
 
 import { describe, it, expect, vi } from 'vitest';

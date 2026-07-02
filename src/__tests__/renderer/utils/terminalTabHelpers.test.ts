@@ -193,7 +193,7 @@ describe('addTerminalTab', () => {
 
 	it('clamps nextCoworkingId against existing ids even when the counter is set but stale', () => {
 		// Persisted counter is 3, but an existing tab already carries id=10. Without the
-		// Math.max clamp we'd hand out term:3 — a duplicate of nothing yet, but the next
+		// Math.max clamp we'd hand out term:3 - a duplicate of nothing yet, but the next
 		// few adds would collide with the existing 10. The clamp must jump past it.
 		const existingTab = createMockTerminalTab({ id: 'old', coworkingId: 10 });
 		const session = createMockSession({
@@ -210,7 +210,7 @@ describe('addTerminalTab', () => {
 
 	it('falls back to max(existing coworkingId)+1 when nextCoworkingId is missing (legacy migration)', () => {
 		// Simulates a session deserialized from disk before nextCoworkingId existed:
-		// the existing tab already carries coworkingId=7, so a fresh add must mint 8 — not 1.
+		// the existing tab already carries coworkingId=7, so a fresh add must mint 8 - not 1.
 		const existingTab = createMockTerminalTab({ id: 'old', coworkingId: 7 });
 		const session = createMockSession({
 			terminalTabs: [existingTab],

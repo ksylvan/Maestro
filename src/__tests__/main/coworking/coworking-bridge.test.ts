@@ -2,7 +2,7 @@
  * Bridge handshake / session-binding tests. Exercises the per-connection sessionId
  * binding that fixes PR #948's privacy blocker (focus-bound scope leak).
  *
- * We don't actually open a Unix socket here — we drive `dispatch` directly via
+ * We don't actually open a Unix socket here - we drive `dispatch` directly via
  * the test-only export and use a plain object as the connection key (the bridge's
  * connection state is keyed via WeakMap, which accepts any object).
  */
@@ -112,7 +112,7 @@ describe('coworking-bridge dispatch (handshake + session binding)', () => {
 	it('hello with ppid resolves session via the registered resolver', async () => {
 		const conn = newConn();
 		__testing.connections.set(conn, { sessionId: null });
-		const resolver = vi.fn((pid: number) => (pid === 4242 ? 'sess-via-pid' : null));
+		const resolver = vi.fn(async (pid: number) => (pid === 4242 ? 'sess-via-pid' : null));
 		__testing.setResolveSessionFromPid(resolver);
 
 		const resp = await __testing.dispatch(conn, {
@@ -129,7 +129,7 @@ describe('coworking-bridge dispatch (handshake + session binding)', () => {
 	it('hello with ppid rejects when resolver returns null', async () => {
 		const conn = newConn();
 		__testing.connections.set(conn, { sessionId: null });
-		__testing.setResolveSessionFromPid(() => null);
+		__testing.setResolveSessionFromPid(async () => null);
 
 		const resp = await __testing.dispatch(conn, {
 			id: 1,
@@ -155,10 +155,10 @@ describe('coworking-bridge dispatch (handshake + session binding)', () => {
 		expect(resp.error?.message).toMatch(/resolver not configured/i);
 	});
 
-	it('hello prefers sessionId over ppid when both are present', async () => {
+	it('hello with sessionId + a ppid that resolves to the SAME session binds it', async () => {
 		const conn = newConn();
 		__testing.connections.set(conn, { sessionId: null });
-		const resolver = vi.fn(() => 'sess-from-pid');
+		const resolver = vi.fn(async () => 'sess-explicit');
 		__testing.setResolveSessionFromPid(resolver);
 
 		const resp = await __testing.dispatch(conn, {
@@ -168,7 +168,55 @@ describe('coworking-bridge dispatch (handshake + session binding)', () => {
 		});
 		expect(resp.error).toBeUndefined();
 		expect(__testing.connections.get(conn)?.sessionId).toBe('sess-explicit');
-		expect(resolver).not.toHaveBeenCalled();
+		expect(resolver).toHaveBeenCalledWith(4242);
+	});
+
+	it('hello with sessionId + a ppid the resolver cannot map (null) still trusts sessionId', async () => {
+		const conn = newConn();
+		__testing.connections.set(conn, { sessionId: null });
+		const resolver = vi.fn(async () => null);
+		__testing.setResolveSessionFromPid(resolver);
+
+		const resp = await __testing.dispatch(conn, {
+			id: 1,
+			method: 'hello',
+			params: { sessionId: 'sess-explicit', ppid: 4242 },
+		});
+		// A null (can't-determine) result is NOT a mismatch: env-propagating
+		// agents whose PIDs aren't tracked must not regress.
+		expect(resp.error).toBeUndefined();
+		expect(__testing.connections.get(conn)?.sessionId).toBe('sess-explicit');
+		expect(resolver).toHaveBeenCalledWith(4242);
+	});
+
+	it('hello rejects when the ppid resolves to a DIFFERENT session than the claimed sessionId', async () => {
+		const conn = newConn();
+		__testing.connections.set(conn, { sessionId: null });
+		const resolver = vi.fn(async () => 'sess-from-pid');
+		__testing.setResolveSessionFromPid(resolver);
+
+		const resp = await __testing.dispatch(conn, {
+			id: 1,
+			method: 'hello',
+			params: { sessionId: 'sess-explicit', ppid: 4242 },
+		});
+		expect(resp.error?.code).toBe(-32602);
+		expect(resp.error?.message).toMatch(/does not match caller process/i);
+		expect(__testing.connections.get(conn)?.sessionId).toBeNull();
+	});
+
+	it('hello with sessionId and NO resolver wired trusts sessionId (env-only agents)', async () => {
+		const conn = newConn();
+		__testing.connections.set(conn, { sessionId: null });
+		__testing.setResolveSessionFromPid(null);
+
+		const resp = await __testing.dispatch(conn, {
+			id: 1,
+			method: 'hello',
+			params: { sessionId: 'sess-explicit', ppid: 4242 },
+		});
+		expect(resp.error).toBeUndefined();
+		expect(__testing.connections.get(conn)?.sessionId).toBe('sess-explicit');
 	});
 
 	it('after hello, listTerminals is dispatched with the bound sessionId', async () => {

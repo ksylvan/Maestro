@@ -410,7 +410,7 @@ export class ProcessManager extends EventEmitter {
 	 * the PID does not match any tracked agent-CLI process. Used by the
 	 * coworking bridge to bind a connection when an agent CLI (e.g. Codex)
 	 * does not propagate `MAESTRO_COWORKING_SESSION_ID` into the MCP
-	 * subprocess it spawned — the subprocess instead sends `process.ppid`
+	 * subprocess it spawned - the subprocess instead sends `process.ppid`
 	 * during handshake and we walk the parent chain to find the owning agent.
 	 *
 	 * Terminals are excluded: they don't spawn MCP clients, and skipping them

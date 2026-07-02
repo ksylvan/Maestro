@@ -266,8 +266,23 @@ describe('resolveAndRun', () => {
 		expect(selectBrowserTab).not.toHaveBeenCalled();
 	});
 
-	it('activates an unmounted tab, runs the op, then restores the previous tab', async () => {
-		vi.mocked(selectActiveSession).mockReturnValue(fakeActive('sess-A', 'prev-tab'));
+	it('activates an unmounted tab, runs the op, then restores the full prior surface', async () => {
+		// The user was on a TERMINAL tab (activeBrowserTabId null). Mounting the
+		// browser tab for the op flips inputMode to 'ai' and clears the terminal
+		// selection; the finally block must replay the FULL captured surface, not
+		// just re-select a browser tab.
+		const prior = {
+			id: 'sess-A',
+			toolType: 'claude-code',
+			activeBrowserTabId: null,
+			activeFileTabId: null,
+			activeTerminalTabId: 'term-9',
+			inputMode: 'terminal',
+			browserTabs: [{ id: 'u-2' }],
+		} as unknown as Session;
+		vi.mocked(selectActiveSession).mockReturnValue(prior);
+		const setSessions = vi.fn();
+		vi.mocked(useSessionStore.getState).mockReturnValue({ setSessions } as unknown as SessionStore);
 		const reload = vi.fn();
 		const handle = makeHandle({ getTabId: () => 'u-2', reload });
 		const map = new Map<string, BrowserTabViewHandle>();
@@ -285,12 +300,42 @@ describe('resolveAndRun', () => {
 		);
 		expect(res.ok).toBe(true);
 		expect(reload).toHaveBeenCalled();
-		expect(selectBrowserTab).toHaveBeenNthCalledWith(1, 'sess-A', 'u-2');
-		expect(selectBrowserTab).toHaveBeenNthCalledWith(2, 'sess-A', 'prev-tab');
+		// The tab is mounted exactly once; restore no longer goes through a second
+		// selectBrowserTab call (that would only restore the browser id).
+		expect(selectBrowserTab).toHaveBeenCalledTimes(1);
+		expect(selectBrowserTab).toHaveBeenCalledWith('sess-A', 'u-2');
+		// Restore replays every competing active field through setSessions.
+		expect(setSessions).toHaveBeenCalledTimes(1);
+		const restore = setSessions.mock.calls[0][0] as (prev: Session[]) => Session[];
+		// Feed it the "mounted" surface selectBrowserTab produced and confirm the
+		// requesting session is returned to its terminal surface while other
+		// sessions are left byte-identical.
+		const otherSession = { id: 'other', activeBrowserTabId: 'keep' } as unknown as Session;
+		const mounted = [
+			{
+				id: 'sess-A',
+				activeBrowserTabId: 'u-2',
+				activeFileTabId: null,
+				activeTerminalTabId: null,
+				inputMode: 'ai',
+			} as unknown as Session,
+			otherSession,
+		];
+		const restored = restore(mounted);
+		expect(restored[0]).toMatchObject({
+			id: 'sess-A',
+			activeBrowserTabId: null,
+			activeFileTabId: null,
+			activeTerminalTabId: 'term-9',
+			inputMode: 'terminal',
+		});
+		expect(restored[1]).toBe(otherSession);
 	});
 
 	it('returns ok:false when the tab cannot be mounted', async () => {
 		vi.mocked(selectActiveSession).mockReturnValue(fakeActive('sess-A', null));
+		const setSessions = vi.fn();
+		vi.mocked(useSessionStore.getState).mockReturnValue({ setSessions } as unknown as SessionStore);
 		const selectBrowserTab = vi.fn();
 		const res = await resolveAndRun(
 			{ current: new Map() },
@@ -302,6 +347,9 @@ describe('resolveAndRun', () => {
 		);
 		expect(res.ok).toBe(false);
 		expect(String(res.content)).toMatch(/could not be mounted/i);
+		// The finally block restores the prior surface even when the mount failed,
+		// so a failed read never strands the user on a half-mounted browser tab.
+		expect(setSessions).toHaveBeenCalledTimes(1);
 	});
 
 	it('declines an interaction op when approval is denied and never touches the handle', async () => {

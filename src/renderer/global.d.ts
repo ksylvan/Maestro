@@ -163,6 +163,7 @@ import type { CueStatsAggregation, CueStatsTimeRange } from '../shared/cue-stats
 import type { DurationPercentiles } from '../shared/percentiles';
 import type { MaestroCliStatus, MaestroCliInstallResult } from '../shared/maestro-cli';
 import type { GitWorktreeSetupResult, GitWorktreeCheckoutResult } from '../main/preload/git';
+import type { BrowserOp } from '../shared/coworkingBrowser';
 
 interface MaestroAPI {
 	// Context merging API (for session context transfer and grooming)
@@ -3803,7 +3804,7 @@ interface MaestroAPI {
 		onRequestBuffer: (
 			callback: (tabUuid: string, sessionId: string, responseChannel: string) => void
 		) => () => void;
-		sendBufferResponse: (responseChannel: string, content: string) => void;
+		sendBufferResponse: (responseChannel: string, content: string, ok?: boolean) => void;
 		syncSessionBrowsers: (
 			sessionId: string,
 			inputs: Array<{
@@ -3824,20 +3825,7 @@ interface MaestroAPI {
 			callback: (
 				tabUuid: string,
 				sessionId: string,
-				op:
-					| { kind: 'read'; format: 'text' | 'innerText' | 'html'; selector?: string }
-					| { kind: 'navigate'; url: string }
-					| { kind: 'back' }
-					| { kind: 'forward' }
-					| { kind: 'reload' }
-					| { kind: 'stop' }
-					| { kind: 'click'; selector: string }
-					| { kind: 'type'; selector: string; text: string }
-					| { kind: 'eval'; code: string }
-					| { kind: 'screenshot' }
-					| { kind: 'waitFor'; selector: string; timeoutMs?: number }
-					| { kind: 'newTab'; url?: string; ephemeral?: boolean }
-					| { kind: 'closeTab' },
+				op: BrowserOp,
 				responseChannel: string,
 				needsConfirm?: boolean
 			) => void

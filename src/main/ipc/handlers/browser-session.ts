@@ -11,38 +11,28 @@
 import { ipcMain, session } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { logger } from '../../utils/logger';
+import { isAllowedBrowserTabPartition } from '../../../shared/browserTabPartition';
 
 const LOG_CONTEXT = '[BrowserSession]';
 
-// Only the two partition schemes minted for embedded browser tabs may be
-// cleared, validated against the FULL minted shape (not just a prefix).
-// Mirrors the will-attach-webview gate in
-// src/main/app-lifecycle/window-manager.ts and the renderer-side minting in
-// src/renderer/utils/browserTabPersistence.ts (sanitizer emits [A-Za-z0-9_-];
-// ephemeral adds a -<random8 lowercase alnum> suffix). Anything else (the
-// default session, other persist: partitions, malformed keys) is rejected so
-// a misbehaving caller cannot wipe unrelated storage.
-const PERSISTENT_BROWSER_TAB_PARTITION_PATTERN = /^persist:maestro-browser-session-[A-Za-z0-9_-]+$/;
-const EPHEMERAL_BROWSER_TAB_PARTITION_PATTERN = /^maestro-ephemeral-[A-Za-z0-9_-]+-[a-z0-9]{8}$/;
-
-function isAllowedBrowserTabPartition(partition: string): boolean {
-	return (
-		PERSISTENT_BROWSER_TAB_PARTITION_PATTERN.test(partition) ||
-		EPHEMERAL_BROWSER_TAB_PARTITION_PATTERN.test(partition)
-	);
-}
+// clearSessionData is validated against the FULL minted partition shape (see
+// src/shared/browserTabPartition.ts), shared with the will-attach-webview gate
+// in window-manager.ts and the renderer-side minting in
+// src/renderer/utils/browserTabPersistence.ts. Anything else (the default
+// session, other persist: partitions, malformed keys) is rejected so a
+// misbehaving caller cannot wipe unrelated storage.
 
 /**
  * Register all browser session IPC handlers.
  *
  * Handlers:
- * - browser:clearSessionData — Clear all storage data and cache for a browser tab partition
+ * - browser:clearSessionData - Clear all storage data and cache for a browser tab partition
  */
 export function registerBrowserSessionHandlers(): void {
 	// Clear storage data (cookies, localStorage, IndexedDB, ...) and HTTP cache
 	// for a single browser tab partition. Destructive, so the handler validates
 	// the SENDER too: only a top-level window webContents (the trusted app
-	// renderer) may invoke it — a webview guest that somehow reached ipcRenderer
+	// renderer) may invoke it: a webview guest that somehow reached ipcRenderer
 	// is rejected outright.
 	ipcMain.handle(
 		'browser:clearSessionData',

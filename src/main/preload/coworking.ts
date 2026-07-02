@@ -42,7 +42,7 @@ export interface CoworkingApi {
 	// ---- Registry sync (renderer → main) ----
 	//
 	// The renderer pushes terminal state for *every* Maestro session, not just the
-	// focused one. There is no setActiveSession — scoping happens via the MCP
+	// focused one. There is no setActiveSession - scoping happens via the MCP
 	// subprocess's bridge handshake (see coworking-bridge.ts) so an agent only
 	// ever sees its own session's terminals.
 	syncSessionTerminals(sessionId: string, records: CoworkingTerminalRecord[]): Promise<void>;
@@ -52,13 +52,13 @@ export interface CoworkingApi {
 	/**
 	 * Subscribe to "give me the scrollback of <tabUuid> in <sessionId>" requests from main.
 	 * The renderer must send the buffer back via the supplied responseChannel. `sessionId`
-	 * is the owning session id (used to pick the correct TerminalView ref) — always set,
+	 * is the owning session id (used to pick the correct TerminalView ref) - always set,
 	 * because the bridge enforces per-connection session binding at handshake.
 	 */
 	onRequestBuffer(
 		callback: (tabUuid: string, sessionId: string, responseChannel: string) => void
 	): () => void;
-	sendBufferResponse(responseChannel: string, content: string): void;
+	sendBufferResponse(responseChannel: string, content: string, ok?: boolean): void;
 
 	// ---- Browser registry sync (renderer → main) ----
 	syncSessionBrowsers(
@@ -106,8 +106,8 @@ export function createCoworkingApi(): CoworkingApi {
 			ipcRenderer.on('coworking:requestBuffer', handler);
 			return () => ipcRenderer.removeListener('coworking:requestBuffer', handler);
 		},
-		sendBufferResponse: (responseChannel, content) => {
-			ipcRenderer.send(responseChannel, content);
+		sendBufferResponse: (responseChannel, content, ok) => {
+			ipcRenderer.send(responseChannel, content, ok);
 		},
 
 		syncSessionBrowsers: (sessionId, inputs, interactionEnabled, agentType, confirmPolicy) =>

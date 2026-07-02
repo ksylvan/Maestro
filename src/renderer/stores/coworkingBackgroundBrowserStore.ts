@@ -94,6 +94,13 @@ export const useCoworkingBackgroundBrowserStore = create<CoworkingBackgroundBrow
 			}
 			set({ handles });
 		},
-		clear: () => set({ mounts: [], handles: new Map() }),
+		clear: () => {
+			// Also drop the in-flight guard: without this, a key whose markOpEnd never
+			// fired (e.g. a hung op or torn-down host) would permanently exempt that key
+			// from LRU eviction. Call sites (useCoworkingBrowserResponder) already use
+			// try/finally, so this is a safety net for the abnormal-teardown case.
+			inFlightKeys.clear();
+			set({ mounts: [], handles: new Map() });
+		},
 	})
 );

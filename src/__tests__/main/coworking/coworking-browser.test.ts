@@ -281,7 +281,7 @@ describe('coworking browser tools', () => {
 
 	it('readBrowser clamps an explicit maxChars above MAX_BROWSER_MAX_CHARS to the ceiling', async () => {
 		// Page just over the ceiling; request a cap well past it. Without the clamp
-		// the requested cap exceeds the content and nothing truncates — the clamp
+		// the requested cap exceeds the content and nothing truncates - the clamp
 		// forces the cap down to the ceiling, trimming content and flipping truncated.
 		const full = 'b'.repeat(MAX_BROWSER_MAX_CHARS + 10);
 		const out = await readBrowser(

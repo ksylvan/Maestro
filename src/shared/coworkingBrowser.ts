@@ -78,7 +78,7 @@ export interface BrowserOpResult {
  *  per-call user approval, layered on top of the per-agent interaction permission.
  *  - 'off'       : no per-call approval (the interaction permission alone gates),
  *                  EXCEPT `eval`, which always requires approval (see below).
- *  - 'dangerous' : approve the sharp-edge ops (navigate, eval, type). Default.
+ *  - 'dangerous' : approve the sharp-edge ops (navigate, eval, type, newTab, closeTab). Default.
  *  - 'all'       : approve every interaction op. */
 export type BrowserConfirmPolicy = 'off' | 'dangerous' | 'all';
 

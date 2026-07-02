@@ -364,7 +364,7 @@ export const BrowserTabItem = memo(function BrowserTabItem({
 			{tab.ephemeral && (
 				<span
 					className="shrink-0 flex items-center"
-					title="Incognito tab — browsing data is kept in memory only and discarded when the app closes"
+					title="Incognito tab - browsing data is kept in memory only and discarded when the app closes"
 				>
 					<VenetianMask className="w-3 h-3" style={{ color: theme.colors.textDim }} />
 				</span>

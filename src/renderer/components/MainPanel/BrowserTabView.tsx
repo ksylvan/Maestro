@@ -76,7 +76,7 @@ export interface BrowserTabViewHandle {
 	 * Returns `""` if the webview cannot be reached or the script throws.
 	 */
 	getContent(): Promise<string>;
-	/** The tabId this view is currently rendering — used for ref-to-tab reconciliation. */
+	/** The tabId this view is currently rendering - used for ref-to-tab reconciliation. */
 	getTabId(): string;
 	/** Open the in-page find bar and focus its input. */
 	openFind(): void;
@@ -271,7 +271,12 @@ export const BrowserTabView = React.memo(
 					if (!webview) throw new Error('Browser webview is not available');
 					const result = resolveBrowserTabNavigationTarget(rawUrl);
 					if (result.kind === 'error') throw new Error(result.message);
-					if (webview.src !== result.url) webview.src = result.url;
+					if (webview.src !== result.url) {
+						// The old page stays loaded until the new src reaches dom-ready;
+						// mark not-ready so a follow-up read/waitFor extracts the NEW page.
+						isDomReadyRef.current = false;
+						webview.src = result.url;
+					}
 					return result.url;
 				},
 				reload(): void {
@@ -310,7 +315,7 @@ export const BrowserTabView = React.memo(
 			};
 			const onFocusIn = () => {
 				if (!userClickedRef.current) {
-					// Focus was not user-initiated — push it back out, but leave the
+					// Focus was not user-initiated - push it back out, but leave the
 					// find-bar input alone (Cmd+F intentionally focuses it
 					// programmatically, and that is exactly the case this guard
 					// would otherwise mistakenly reject).
@@ -354,6 +359,18 @@ export const BrowserTabView = React.memo(
 				setAddressValue(tab.url);
 			}
 		}, [tab.id, tab.url]);
+
+		// The component instance is reused across tab switches (see the addressValue
+		// reset above), so reset the two-step clear-session confirm too: arming Clear
+		// on tab A then switching to tab B must not leave B pre-armed, where one click
+		// would wipe B's data and skip the guard.
+		useEffect(() => {
+			setClearArmed(false);
+			if (clearDisarmTimerRef.current !== null) {
+				window.clearTimeout(clearDisarmTimerRef.current);
+				clearDisarmTimerRef.current = null;
+			}
+		}, [tab.id]);
 
 		useEffect(() => {
 			const webview = webviewRef.current;
@@ -857,7 +874,7 @@ export const BrowserTabView = React.memo(
 											style={{ color: theme.colors.textDim }}
 											data-testid="browser-tab-incognito-badge"
 										>
-											<title>Incognito tab — browsing data is kept in memory only</title>
+											<title>Incognito tab - browsing data is kept in memory only</title>
 										</VenetianMask>
 									) : null}
 									{tab.favicon ? (
@@ -938,7 +955,7 @@ export const BrowserTabView = React.memo(
 							title={
 								clearArmed
 									? 'Click again to clear ALL browsing data (cookies, storage, logins) for this agent\u2019s browser session'
-									: 'Clear browsing data for this agent\u2019s browser session (cookies, storage, logins \u2014 shared by all its tabs)'
+									: 'Clear browsing data for this agent\u2019s browser session (cookies, storage, logins - shared by all its tabs)'
 							}
 							aria-pressed={clearArmed}
 							data-testid="browser-tab-clear-session-data"
@@ -1017,7 +1034,7 @@ export const BrowserTabView = React.memo(
 										(event.metaKey || event.ctrlKey) &&
 										!event.altKey
 									) {
-										// Cmd+G / Cmd+Shift+G — next/prev match (standard browser shortcut)
+										// Cmd+G / Cmd+Shift+G - next/prev match (standard browser shortcut)
 										event.preventDefault();
 										event.stopPropagation();
 										handleFindNext(!event.shiftKey);
@@ -1027,7 +1044,7 @@ export const BrowserTabView = React.memo(
 										!event.altKey &&
 										!event.shiftKey
 									) {
-										// Cmd+F while find bar is open — re-focus and select the query
+										// Cmd+F while find bar is open - re-focus and select the query
 										event.preventDefault();
 										event.stopPropagation();
 										event.currentTarget.select();

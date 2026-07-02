@@ -1660,7 +1660,7 @@ function setupIpcHandlers() {
 	// Register Coworking handlers + start the IPC bridge socket and refresh the bundled
 	// MCP-server script. The bridge runs whenever Maestro is up; per-agent activation
 	// is opt-in via Settings → Encore Features → Coworking Setup. Bridge startup is
-	// non-fatal — feature degrades to "not available" until next launch.
+	// non-fatal - feature degrades to "not available" until next launch.
 	registerCoworkingHandlers({ getMainWindow: () => mainWindow });
 	void (async () => {
 		try {

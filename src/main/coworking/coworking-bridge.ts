@@ -33,6 +33,7 @@ import { app } from 'electron';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { logger } from '../utils/logger';
 import { COWORKING_SOCKET_ENV_VAR } from './coworking-types';
 import type {
@@ -83,7 +84,7 @@ async function auditedBrowserCall<T>(
  * main-process startup so the bridge can support agent CLIs (notably Codex)
  * that do not propagate `MAESTRO_COWORKING_SESSION_ID` env into MCP subprocesses.
  */
-export type CoworkingSessionFromPidResolver = (pid: number) => string | null;
+export type CoworkingSessionFromPidResolver = (pid: number) => Promise<string | null>;
 
 let resolveSessionFromPid: CoworkingSessionFromPidResolver | null = null;
 
@@ -94,8 +95,11 @@ const connections = new WeakMap<net.Socket, { sessionId: string | null }>();
 /** Compute the platform-appropriate IPC bridge socket path. */
 export function getBridgeSocketPath(): string {
 	if (process.platform === 'win32') {
-		// Per-user named pipe; userData path is unique per OS user.
-		const slug = path.basename(app.getPath('userData')).replace(/[^A-Za-z0-9_-]/g, '_');
+		// Per-user named pipe. Derive the slug from a hash of the FULL userData
+		// path so the pipe name is unique per OS user; path.basename would be the
+		// same app-folder name for every account and collide across users.
+		const userData = app.getPath('userData');
+		const slug = crypto.createHash('sha1').update(userData).digest('hex').slice(0, 16);
 		return `\\\\.\\pipe\\maestro-coworking-${slug}`;
 	}
 	return path.join(app.getPath('userData'), 'coworking.sock');
@@ -211,20 +215,27 @@ async function handleLine(conn: net.Socket, line: string): Promise<void> {
 	conn.write(JSON.stringify(resp) + '\n');
 }
 
-/** Allowlist of URL schemes an agent may navigate a browser tab to. Only
- *  http/https (plus about:blank) are permitted. Blocks file: (local-file
- *  exfiltration via a follow-up read_browser), javascript: and data: (a second
- *  eval path that would bypass the eval approval gate), and privileged schemes
- *  like chrome:. */
+/** Guard for the URL/search input an agent may navigate a browser tab to. The
+ *  renderer treats this field as "URL or search query" and safely resolves bare
+ *  hosts and free text to https, so those are allowed. When the input DOES parse
+ *  as a URL we enforce a scheme allowlist: only http/https (plus about:blank)
+ *  pass. Any other scheme is rejected - file: (local-file exfiltration via a
+ *  follow-up read_browser), javascript: and data: (a second eval path that would
+ *  bypass the eval approval gate), and privileged schemes like chrome:. */
 function isAllowedNavigateUrl(url: string): boolean {
 	const trimmed = url.trim();
 	if (trimmed.toLowerCase() === 'about:blank') return true;
+	let scheme: string;
 	try {
-		const scheme = new URL(trimmed).protocol.toLowerCase();
-		return scheme === 'http:' || scheme === 'https:';
+		scheme = new URL(trimmed).protocol.toLowerCase();
 	} catch {
-		return false;
+		// Does not parse as a URL: a bare host ('example.com') or a search
+		// query. The renderer's resolveBrowserTabNavigationTarget resolves these
+		// to https, so allow them - matching the documented behavior.
+		return true;
 	}
+	// Parsed as a URL: enforce the scheme allowlist.
+	return scheme === 'http:' || scheme === 'https:';
 }
 
 /** Validate an untyped interaction op from the MCP JSON into a BrowserOp. Returns
@@ -311,6 +322,30 @@ async function dispatch(
 			// because the main process injected it at agent-CLI spawn time.
 			if (typeof params.sessionId === 'string' && params.sessionId.length > 0) {
 				bound = params.sessionId;
+				// The bundled MCP server always sends ppid too. Cross-check it
+				// against the process tree: if the ppid resolver maps the caller's
+				// process to a DIFFERENT known session, the caller is claiming a
+				// session it does not own, so reject. A null result (can't
+				// determine) is NOT a mismatch, so keep trusting the explicit
+				// sessionId and avoid regressing env-propagating agents whose PIDs
+				// aren't tracked.
+				if (
+					resolveSessionFromPid &&
+					typeof params.ppid === 'number' &&
+					Number.isInteger(params.ppid) &&
+					params.ppid > 0
+				) {
+					const resolved = await resolveSessionFromPid(params.ppid);
+					if (resolved !== null && resolved !== bound) {
+						return {
+							id: req.id,
+							error: {
+								code: -32602,
+								message: 'session id does not match caller process',
+							},
+						};
+					}
+				}
 			} else if (
 				typeof params.ppid === 'number' &&
 				Number.isInteger(params.ppid) &&
@@ -329,7 +364,7 @@ async function dispatch(
 						},
 					};
 				}
-				bound = resolveSessionFromPid(params.ppid);
+				bound = await resolveSessionFromPid(params.ppid);
 				if (!bound) {
 					return {
 						id: req.id,
@@ -367,14 +402,15 @@ async function dispatch(
 		}
 
 		if (method === 'listTerminals') {
-			recordBrowserAudit({
-				ts: Date.now(),
-				sessionId,
-				agentType: coworkingRegistry.getAgentType(sessionId),
-				tool: 'list_terminals',
-				status: 'ok',
-			});
-			return { id: req.id, result: listTerminals(sessionId) };
+			const result = await auditedBrowserCall(
+				{
+					sessionId,
+					agentType: coworkingRegistry.getAgentType(sessionId),
+					tool: 'list_terminals',
+				},
+				() => listTerminals(sessionId)
+			);
+			return { id: req.id, result };
 		}
 		if (method === 'readTerminal') {
 			const params = (req.params ?? {}) as { id?: string; lines?: number };
@@ -436,11 +472,17 @@ async function dispatch(
 			const maxChars = params.maxChars;
 			if (
 				maxChars !== undefined &&
-				(typeof maxChars !== 'number' || !Number.isInteger(maxChars) || maxChars <= 0)
+				(typeof maxChars !== 'number' ||
+					!Number.isInteger(maxChars) ||
+					maxChars <= 0 ||
+					maxChars > 2_000_000)
 			) {
 				return {
 					id: req.id,
-					error: { code: -32602, message: '`maxChars` must be a positive integer' },
+					error: {
+						code: -32602,
+						message: '`maxChars` must be a positive integer <= 2,000,000',
+					},
 				};
 			}
 			const selector = params.selector;

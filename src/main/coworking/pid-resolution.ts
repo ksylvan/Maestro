@@ -17,8 +17,12 @@
  */
 
 import * as fs from 'fs';
-import { execFileSync } from 'child_process';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { isWindows, isMacOS, isLinux } from '../../shared/platformDetection';
+
+/** Promisified execFile so parent-pid lookups don't block the main event loop. */
+const execFileAsync = promisify(execFile);
 
 /** Maximum ancestors to inspect before giving up. Caps cost on pathological trees. */
 export const MAX_PID_WALK_HOPS = 5;
@@ -35,26 +39,25 @@ export const MAX_PID_WALK_HOPS = 5;
 let windowsPidBackend: 'wmic' | 'powershell' | null = null;
 
 /** Query the parent PID via wmic. Throws if wmic is missing or the spawn fails. */
-function queryParentPidWmic(pid: number): number | null {
-	const out = execFileSync(
+async function queryParentPidWmic(pid: number): Promise<number | null> {
+	const { stdout } = await execFileAsync(
 		'wmic',
 		['process', 'where', `ProcessId=${pid}`, 'get', 'ParentProcessId', '/value'],
 		{
 			encoding: 'utf8',
 			timeout: 2000,
-			stdio: ['ignore', 'pipe', 'ignore'],
 			windowsHide: true,
 		}
 	);
-	const m = out.match(/ParentProcessId=(\d+)/);
+	const m = stdout.match(/ParentProcessId=(\d+)/);
 	if (!m) return null;
 	const n = Number(m[1]);
 	return Number.isInteger(n) && n > 0 ? n : null;
 }
 
 /** Query the parent PID via PowerShell CIM. Throws if the spawn fails. */
-function queryParentPidPowerShell(pid: number): number | null {
-	const out = execFileSync(
+async function queryParentPidPowerShell(pid: number): Promise<number | null> {
+	const { stdout } = await execFileAsync(
 		'powershell',
 		[
 			'-NoProfile',
@@ -65,11 +68,10 @@ function queryParentPidPowerShell(pid: number): number | null {
 		{
 			encoding: 'utf8',
 			timeout: 3000,
-			stdio: ['ignore', 'pipe', 'ignore'],
 			windowsHide: true,
 		}
 	);
-	const m = out.trim().match(/^(\d+)$/);
+	const m = stdout.trim().match(/^(\d+)$/);
 	if (!m) return null;
 	const n = Number(m[1]);
 	return Number.isInteger(n) && n > 0 ? n : null;
@@ -78,36 +80,36 @@ function queryParentPidPowerShell(pid: number): number | null {
 /**
  * Windows parent-pid lookup with backend fallback. Tries `wmic` first (fast
  * path); on ENOENT or any other spawn failure falls back to PowerShell CIM.
- * Never throws — any failure resolves to null (fail-closed).
+ * Never throws - any failure resolves to null (fail-closed).
  */
-function getParentPidWindows(pid: number): number | null {
+async function getParentPidWindows(pid: number): Promise<number | null> {
 	// Defense in depth: `pid` is interpolated into both backends' query strings,
 	// so re-validate here even though getParentPid already gates on it.
 	if (!Number.isInteger(pid) || pid <= 0) return null;
 	if (windowsPidBackend === 'wmic') {
 		try {
-			return queryParentPidWmic(pid);
+			return await queryParentPidWmic(pid);
 		} catch {
 			return null;
 		}
 	}
 	if (windowsPidBackend === 'powershell') {
 		try {
-			return queryParentPidPowerShell(pid);
+			return await queryParentPidPowerShell(pid);
 		} catch {
 			return null;
 		}
 	}
 	// Backend not yet determined: probe wmic first, then PowerShell.
 	try {
-		const result = queryParentPidWmic(pid);
+		const result = await queryParentPidWmic(pid);
 		windowsPidBackend = 'wmic';
 		return result;
 	} catch {
 		// wmic missing (deprecated, removed on newer Win11 builds) or broken.
 	}
 	try {
-		const result = queryParentPidPowerShell(pid);
+		const result = await queryParentPidPowerShell(pid);
 		windowsPidBackend = 'powershell';
 		return result;
 	} catch {
@@ -116,28 +118,28 @@ function getParentPidWindows(pid: number): number | null {
 }
 
 /** Resolve a single PID's parent. Returns null if unknown or the lookup failed. */
-export function getParentPid(pid: number): number | null {
+export async function getParentPid(pid: number): Promise<number | null> {
 	if (!Number.isInteger(pid) || pid <= 1) return null;
 	try {
 		if (isLinux()) {
-			const status = fs.readFileSync(`/proc/${pid}/status`, 'utf8');
+			const status = await fs.promises.readFile(`/proc/${pid}/status`, 'utf8');
 			const m = status.match(/^PPid:\s*(\d+)/m);
 			if (!m) return null;
 			const n = Number(m[1]);
 			return Number.isInteger(n) && n > 0 ? n : null;
 		}
 		if (isMacOS()) {
-			const out = execFileSync('ps', ['-o', 'ppid=', '-p', String(pid)], {
+			const { stdout } = await execFileAsync('ps', ['-o', 'ppid=', '-p', String(pid)], {
 				encoding: 'utf8',
 				timeout: 1000,
-				stdio: ['ignore', 'pipe', 'ignore'],
-			}).trim();
+			});
+			const out = stdout.trim();
 			if (!out) return null;
 			const n = Number(out);
 			return Number.isInteger(n) && n > 0 ? n : null;
 		}
 		if (isWindows()) {
-			return getParentPidWindows(pid);
+			return await getParentPidWindows(pid);
 		}
 	} catch {
 		return null;
@@ -153,17 +155,17 @@ export function getParentPid(pid: number): number | null {
  * `getParent` is injected so tests can drive the walk without forking real
  * processes; in production it defaults to `getParentPid`.
  */
-export function resolveSessionFromPidWalk(
+export async function resolveSessionFromPidWalk(
 	startPid: number,
 	lookup: (pid: number) => string | null,
-	getParent: (pid: number) => number | null = getParentPid
-): string | null {
+	getParent: (pid: number) => Promise<number | null> = getParentPid
+): Promise<string | null> {
 	if (!Number.isInteger(startPid) || startPid <= 1) return null;
 	let cur = startPid;
 	for (let hops = 0; hops <= MAX_PID_WALK_HOPS; hops++) {
 		const sessionId = lookup(cur);
 		if (sessionId) return sessionId;
-		const parent = getParent(cur);
+		const parent = await getParent(cur);
 		if (parent === null || parent === cur || parent <= 1) return null;
 		cur = parent;
 	}

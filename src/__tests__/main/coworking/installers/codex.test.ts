@@ -67,7 +67,7 @@ auto_save = true
 		expect(restored).toBe(userContent);
 	});
 
-	it('install is idempotent — re-installing does not duplicate the block', async () => {
+	it('install is idempotent - re-installing does not duplicate the block', async () => {
 		await codexInstaller.install(SPEC);
 		await codexInstaller.install(SPEC);
 		const content = fs.readFileSync(cfgPath(), 'utf8');
