@@ -247,9 +247,10 @@ export class PluginManager {
 			// Refresh-time LEDGER authorization gate: a code plugin eligible to be
 			// active (enabled, loadable, tier>=1, has entry) is force-DISABLED when the
 			// injected gate rejects it (consented identity no longer matches the bytes
-			// on disk, or it was removed). Absent by default. Tampered code (signature
-			// `invalid`) is enforced separately and centrally in getActiveRecords() +
-			// isRunnable(), so it is inert regardless of this gate or the enable toggle.
+			// on disk, or it was removed). Absent by default. Signature trust is
+			// enforced separately and centrally: tampered code (`invalid`) is inert via
+			// getActiveRecords(), and CODE EXECUTION additionally requires `trusted`
+			// via isRunnable() — regardless of this gate or the enable toggle.
 			let gated = signed;
 			if (this.deps.verifyRecord) {
 				const eligibleCode =
@@ -287,8 +288,12 @@ export class PluginManager {
 
 	/**
 	 * Whether a record is allowed to RUN sandboxed code: enabled, loadable, a
-	 * code tier, has an entry, and its signature is not invalid (tampered code is
-	 * never run; unsigned/untrusted may run once the user has enabled = consented).
+	 * code tier, has an entry, and its signature is TRUSTED (Option-B gate:
+	 * running code requires a valid signature from a trusted publisher key).
+	 * Unsigned/untrusted/tampered plugins never execute code; they remain
+	 * installable + enableable for DECLARATIVE contributions only (themes,
+	 * prompts, UI slots — see getActiveRecords/getContributions, which
+	 * deliberately do NOT use this gate and only exclude tampered `invalid`).
 	 */
 	private isRunnable(record: PluginRecord): boolean {
 		return (
@@ -297,7 +302,7 @@ export class PluginManager {
 			!!record.manifest &&
 			record.manifest.tier >= 1 &&
 			!!record.manifest.entry &&
-			record.signature?.status !== 'invalid'
+			record.signature?.status === 'trusted'
 		);
 	}
 

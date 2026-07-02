@@ -224,6 +224,32 @@ export function ExtensionDetails({
 				</p>
 			)}
 
+			{/* FC1 Option-B gate: code execution requires a trusted signature.
+			    unsigned/untrusted: code never runs, declarative contributions still
+			    apply. invalid (tampered): the plugin is fully inert — getActiveRecords
+			    excludes it, so even declarative contributions are dropped. */}
+			{isPlugin && isCodeTier && ext.trust === 'invalid' && (
+				<p
+					data-testid="extension-code-disabled"
+					className="text-xs mt-2"
+					style={{ color: theme.colors.error }}
+				>
+					This plugin&apos;s files no longer match their signature (tampered). It is fully disabled:
+					no code runs and no contributions apply. Reinstall it from a trusted source.
+				</p>
+			)}
+			{isPlugin && isCodeTier && ext.trust !== 'trusted' && ext.trust !== 'invalid' && (
+				<p
+					data-testid="extension-code-disabled"
+					className="text-xs mt-2"
+					style={{ color: theme.colors.warning }}
+				>
+					Code execution requires a trusted signature — this plugin is{' '}
+					{(ext.trust ?? 'unsigned') === 'unsigned' ? 'unsigned' : 'signed by an untrusted key'}.
+					Its code will not run; declarative contributions (themes, prompts) still apply.
+				</p>
+			)}
+
 			{/* Actions */}
 			<div className="flex flex-wrap items-center gap-2 mt-4">
 				<button

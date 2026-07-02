@@ -17,6 +17,12 @@ vi.mock('electron', () => ({
 
 import { PluginManager, type PluginSandboxLifecycle } from '../../../main/plugins/plugin-manager';
 import { pluginsDir } from '../../../main/plugins/plugin-store-main';
+import { makeSigningKeys, signPluginDir } from './plugin-signing-helper';
+
+// FC1 Option-B gate: code only RUNS with a trusted signature, so every fixture
+// write is followed by a re-sign with this test key (stale signature = invalid
+// = never runs) and the manager registers the key as trusted.
+const keys = makeSigningKeys();
 
 function writeCodePlugin(
 	id: string,
@@ -35,6 +41,7 @@ function writeCodePlugin(
 	};
 	fs.writeFileSync(path.join(dir, 'plugin.json'), JSON.stringify(manifest));
 	fs.writeFileSync(path.join(dir, entry), options.code ?? 'module.exports = "v1";');
+	signPluginDir(dir, keys);
 }
 
 function makeSandbox(): PluginSandboxLifecycle {
@@ -84,7 +91,12 @@ describe('PluginManager hot reload reconciliation', () => {
 	it('refreshes a manifest edit and restarts the still-runnable sandbox', () => {
 		const sandbox = makeSandbox();
 		const onChange = vi.fn();
-		const manager = new PluginManager({ isEnabled: () => true, sandbox, onChange });
+		const manager = new PluginManager({
+			isEnabled: () => true,
+			sandbox,
+			onChange,
+			trustedKeys: () => [keys.publicKeyB64],
+		});
 		writeCodePlugin('demo');
 		enableRunnablePlugin(manager, sandbox);
 
@@ -104,11 +116,16 @@ describe('PluginManager hot reload reconciliation', () => {
 
 	it('refreshes a code edit and restarts the affected sandbox', () => {
 		const sandbox = makeSandbox();
-		const manager = new PluginManager({ isEnabled: () => true, sandbox });
+		const manager = new PluginManager({
+			isEnabled: () => true,
+			sandbox,
+			trustedKeys: () => [keys.publicKeyB64],
+		});
 		writeCodePlugin('demo');
 		enableRunnablePlugin(manager, sandbox);
 
 		fs.writeFileSync(path.join(pluginsDir(), 'demo', 'main.js'), 'module.exports = "v2";');
+		signPluginDir(path.join(pluginsDir(), 'demo'), keys);
 		manager.refresh();
 
 		expect(sandbox.stop).toHaveBeenCalledTimes(1);
@@ -120,7 +137,11 @@ describe('PluginManager hot reload reconciliation', () => {
 
 	it('refreshes removal by stopping the sandbox and dropping the stale registry record', () => {
 		const sandbox = makeSandbox();
-		const manager = new PluginManager({ isEnabled: () => true, sandbox });
+		const manager = new PluginManager({
+			isEnabled: () => true,
+			sandbox,
+			trustedKeys: () => [keys.publicKeyB64],
+		});
 		writeCodePlugin('demo');
 		enableRunnablePlugin(manager, sandbox);
 

@@ -1,304 +1,457 @@
 /**
  * Plugin sandbox child bootstrap (runs inside an Electron utilityProcess).
  *
- * THREAT MODEL (read before changing anything here):
- * A utilityProcess child has full Node by default - process isolation is NOT a
- * capability sandbox on its own. So plugin code is NOT `require`d into this
- * module's scope. Instead it is compiled and run inside a `vm` context whose
- * global is a frozen, minimal surface: the `maestro` SDK (which only does
- * broker-gated RPC back to the host) plus a curated set of pure ECMAScript
- * globals. `require`, `process`, `module`, `Buffer`, `globalThis`, and the Node
- * builtins are deliberately absent.
+ * Two isolation layers apply to plugin code, and it is critical to be honest
+ * about what each one is:
  *
- * `vm` is NOT a hard security boundary (a determined attacker can attempt realm
- * escapes), so it is defense-in-depth, not the primary defense. The primary
- * defenses are: (1) signature trust + explicit install-time consent gating which
- * code runs at all, and (2) the permission broker, which default-denies every
- * brokered host effect. IMPORTANT: a successful realm escape that reaches this
- * child's real `process`/`require` gets full Node in THIS utilityProcess and can
- * call fs/net/child_process DIRECTLY, bypassing the broker - so we work to make
- * escape hard (no host intrinsics, no require/process in the context, wrapped
- * timers, codeGeneration disabled). The child is launched with an empty env and
- * holds no Maestro secrets or handles, which bounds the damage of an escape to
- * the user's ambient OS permissions, but escape is not "harmless". Treat closing
- * escape vectors here as load-bearing, not cosmetic.
+ * 1. The utilityProcess is PROCESS isolation (crash + env separation), not an
+ *    OS sandbox: this child still runs with the user's ambient OS privileges.
+ * 2. The vm context is REALM isolation and is defense-in-depth only. The real
+ *    boundary is (1) plus the signature/consent gate on which code runs at all,
+ *    and the permission broker, which default-denies every brokered host effect.
  *
- * The host (plugin-sandbox-host.ts) treats every message from here as hostile:
- * it validates the method, size, and shape, and authorizes via the broker before
- * doing anything.
+ * REALM CONSTRUCTION INVARIANT (the load-bearing part of this file): nothing
+ * reachable from plugin code may be a host-realm value. Every function and
+ * object the plugin can touch (the maestro SDK, console, timers, module /
+ * exports, and everything transitively reachable from them) is constructed
+ * INSIDE the vm context by a precompiled bootstrap script, from JSON-only
+ * data. Host bridge functions are captured in bootstrap closures — never
+ * assigned to any property plugin code can read — so the canonical escape
+ * `reachable.constructor.constructor('return process')()` resolves to the
+ * CONTEXT Function constructor, which `codeGeneration: { strings: false }`
+ * makes throw. The regression test in
+ * `src/__tests__/main/plugins/plugin-sandbox-realm.test.ts` walks the entire
+ * reachable graph and fails the build if any host intrinsic leaks back in.
+ *
+ * IMPORTANT: a successful realm escape that reaches this child's real
+ * `process`/`require` gets full Node in THIS utilityProcess and can call
+ * fs/net/child_process DIRECTLY, bypassing the broker — so treat every change
+ * to the bootstrap surface as security-sensitive, not cosmetic.
  */
 
 import * as vm from 'vm';
 import {
 	isHostMethod,
-	type HostMethod,
-	type HostRequest,
-	type HostResponse,
 	type HostControlMessage,
+	type HostResponse,
 	type ToolResult,
 } from '../../shared/plugins/rpc-protocol';
 
 // utilityProcess exposes a message channel on process.parentPort (not in the
 // standard Node Process type), so narrow access without redeclaring the global.
 interface ParentPort {
-	postMessage: (message: unknown) => void;
-	on: (event: 'message', listener: (event: { data: unknown }) => void) => void;
+	on(event: 'message', listener: (event: { data: unknown }) => void): void;
+	postMessage(message: unknown): void;
 }
 
 const parentPort = (process as NodeJS.Process & { parentPort?: ParentPort }).parentPort;
 
-interface PendingCall {
-	resolve: (value: unknown) => void;
-	reject: (reason: Error) => void;
+/** Host-realm callbacks handed to the bootstrap factory. They are captured in
+ * context closures and must NEVER be reachable as properties from plugin code.
+ * Every argument crossing this boundary is a primitive (string/number). */
+export interface RealmBridge {
+	/** Fire a brokered host RPC request; `json` is `{id, method, params}`. */
+	send(json: string): void;
+	/** Sink for sandbox console output and internal error reporting. */
+	log(level: 'info' | 'warn' | 'error', message: string): void;
+	/** Start a host timer that must call `SandboxRealm.fireTimer(id)` on expiry. */
+	timerStart(id: number, ms: number): void;
+	/** Cancel a host timer started via `timerStart`. */
+	timerClear(id: number): void;
 }
 
-const pending = new Map<number, PendingCall>();
-let nextId = 1;
-let deactivate: (() => void | Promise<void>) | undefined;
-/** Command handlers the plugin registered via maestro.commands.register. */
-const commandHandlers = new Map<string, (args: unknown) => unknown>();
-/** A plugin's local handler for a delivered host event (metadata-only payload). */
-type PluginEventHandler = (payload: unknown, meta: { topic: string; at: string }) => void;
-/** Per-topic event handlers the plugin registered via maestro.events.on. */
-const eventHandlers = new Map<string, Set<PluginEventHandler>>();
-
-/** Send a brokered host call and await its response. */
-function hostCall(method: HostMethod, params: unknown): Promise<unknown> {
-	if (!parentPort) return Promise.reject(new Error('sandbox has no parent port'));
-	const id = nextId++;
-	const request: HostRequest = { id, method, params };
-	let resolve!: (value: unknown) => void;
-	let reject!: (reason?: unknown) => void;
-	const promise = new Promise<unknown>((res, rej) => {
-		resolve = res;
-		reject = rej;
-	});
-	pending.set(id, { resolve, reject });
-	parentPort.postMessage(request);
-	return promise;
-}
-
-/** Build the `maestro` SDK object exposed to plugin code. Every method is a
- * thin broker-gated RPC; there is no direct host access. */
-function buildSdk(pluginId: string) {
-	const call = (method: HostMethod, params: unknown): Promise<unknown> => hostCall(method, params);
-	return Object.freeze({
-		pluginId,
-		fs: Object.freeze({
-			read: (path: string): Promise<string> => call('fs.read', { path }) as Promise<string>,
-			write: (path: string, contents: string): Promise<void> =>
-				call('fs.write', { path, contents }) as Promise<void>,
-			watch: (path: string, opts?: unknown): Promise<unknown> => call('fs.watch', { path, opts }),
-		}),
-		net: Object.freeze({
-			fetch: (url: string, init?: unknown): Promise<unknown> => call('net.fetch', { url, init }),
-		}),
-		agents: Object.freeze({
-			list: (): Promise<unknown> => call('agents.list', {}),
-			get: (agentId: string): Promise<unknown> => call('agents.get', { agentId }),
-			dispatch: (agentId: string, prompt: string, opts?: unknown): Promise<unknown> =>
-				call('agents.dispatch', { agentId, prompt, opts }),
-		}),
-		history: Object.freeze({
-			list: (params?: unknown): Promise<unknown> => call('history.list', params ?? {}),
-			get: (entryId: string): Promise<unknown> => call('history.get', { entryId }),
-		}),
-		notifications: Object.freeze({
-			toast: (message: string, opts?: unknown): Promise<void> =>
-				call('notifications.toast', { message, opts }) as Promise<void>,
-		}),
-		settings: Object.freeze({
-			get: (key: string): Promise<unknown> => call('settings.get', { key }),
-			/** Write the plugin's OWN namespaced (plugins.<id>.*) non-secret setting. */
-			set: (key: string, value: unknown): Promise<void> =>
-				call('settings.set', { key, value }) as Promise<void>,
-		}),
-		sessions: Object.freeze({
-			/** List session METADATA (never message content). */
-			list: (): Promise<unknown> => call('sessions.list', {}),
-			get: (sessionId: string): Promise<unknown> => call('sessions.get', { sessionId }),
-			create: (params?: unknown): Promise<unknown> => call('sessions.create', params ?? {}),
-			update: (sessionId: string, patch: unknown): Promise<unknown> =>
-				call('sessions.update', { sessionId, patch }),
-			delete: (sessionId: string): Promise<void> =>
-				call('sessions.delete', { sessionId }) as Promise<void>,
-		}),
-		transcripts: Object.freeze({
-			/** Read PROJECTED conversation content for a session visible via
-			 * sessions.list. Declare exactly the `fields` you need; only those are
-			 * returned. Requires the high-risk `transcripts:read` capability and is
-			 * project-scoped + audited. Pass `projectPath` (from session metadata)
-			 * so a project-scoped grant authorizes; omit it only with an unscoped
-			 * grant. */
-			read: (params: {
-				sessionId: string;
-				fields: readonly string[];
-				projectPath?: string;
-				limit?: number;
-				since?: number;
-			}): Promise<unknown> => call('transcripts.read', params),
-			append: (params: {
-				sessionId: string;
-				projectPath?: string;
-				entries: Array<Record<string, unknown>>;
-			}): Promise<unknown> => call('transcripts.append', params),
-		}),
-		storage: Object.freeze({
-			get: (key: string): Promise<unknown> => call('storage.get', { key }),
-			set: (key: string, value: string): Promise<void> =>
-				call('storage.set', { key, value }) as Promise<void>,
-			delete: (key: string): Promise<unknown> => call('storage.delete', { key }),
-			keys: (): Promise<unknown> => call('storage.keys', {}),
-			sql: (query: string, params?: readonly unknown[]): Promise<unknown> =>
-				call('storage.sql', { query, params }),
-		}),
-		ui: Object.freeze({
-			/** Invoke a registered command-palette command. */
-			runCommand: (commandId: string, args?: unknown): Promise<unknown> =>
-				call('ui.runCommand', { commandId, args }),
-		}),
-		tabs: Object.freeze({
-			list: (): Promise<unknown> => call('tabs.list', {}),
-			create: (params?: unknown): Promise<unknown> => call('tabs.create', params ?? {}),
-			focus: (tabId: string): Promise<void> => call('tabs.focus', { tabId }) as Promise<void>,
-			close: (tabId: string): Promise<void> => call('tabs.close', { tabId }) as Promise<void>,
-		}),
-		events: Object.freeze({
-			/** Register a local handler for a host event topic (call subscribe to
-			 * start delivery). Payloads are metadata-only. */
-			on: (topic: string, handler: PluginEventHandler): void => {
-				if (typeof topic !== 'string' || typeof handler !== 'function') return;
-				let set = eventHandlers.get(topic);
-				if (!set) {
-					set = new Set<PluginEventHandler>();
-					eventHandlers.set(topic, set);
-				}
-				set.add(handler);
-			},
-			/** Ask the host to start delivering the given topics to this plugin. */
-			subscribe: (topics: readonly string[]): Promise<unknown> =>
-				call('events.subscribe', { topics }),
-			/** Stop delivery for the given topics, or all topics when omitted. */
-			unsubscribe: (topics?: readonly string[]): Promise<unknown> =>
-				call('events.unsubscribe', topics ? { topics } : {}),
-		}),
-		commands: Object.freeze({
-			/** Register a handler invoked when the host dispatches this command. */
-			register: (commandId: string, handler: (args: unknown) => unknown): void => {
-				if (typeof commandId === 'string' && typeof handler === 'function') {
-					commandHandlers.set(commandId, handler);
-				}
-			},
-		}),
-		tools: Object.freeze({
-			/** Register a tool handler. A tool IS a command-with-result: the host
-			 * invokes it via a brokered request/response round-trip and resolves the
-			 * caller with the awaited return value. Delegates to the same handler map
-			 * as commands, so a single local id can be both a command and a tool. */
-			register: (localId: string, handler: (args: unknown) => unknown): void => {
-				if (typeof localId === 'string' && typeof handler === 'function') {
-					commandHandlers.set(localId, handler);
-				}
-			},
-		}),
-		shell: Object.freeze({
-			openExternal: (url: string, opts?: unknown): Promise<void> =>
-				call('shell.openExternal', { url, opts }) as Promise<void>,
-		}),
-		process: Object.freeze({
-			spawn: (command: string, opts?: unknown): Promise<unknown> =>
-				call('process.spawn', { command, opts }),
-		}),
-		decisions: Object.freeze({
-			record: (decision: unknown): Promise<unknown> => call('decisions.record', { decision }),
-		}),
-		power: Object.freeze({
-			preventSleep: (reason: string, opts?: unknown): Promise<unknown> =>
-				call('power.preventSleep', { reason, opts }),
-			releaseSleep: (handleId: string): Promise<void> =>
-				call('power.releaseSleep', { handleId }) as Promise<void>,
-		}),
-		background: Object.freeze({
-			register: (service: unknown): Promise<unknown> => call('background.register', { service }),
-			unregister: (serviceId: string): Promise<void> =>
-				call('background.unregister', { serviceId }) as Promise<void>,
-		}),
-	});
+/** Context-realm entry points returned by the bootstrap factory. All `json`
+ * parameters are serialized by the host and parsed INSIDE the context so the
+ * data plugin handlers observe is context-realm. */
+export interface SandboxRealm {
+	/** Install the SDK + curated globals for `pluginId`. Call once, first. */
+	init(pluginId: string): void;
+	/** Compile + run code inside the realm (bootstrap-safe host helper). */
+	runScript(code: string, filename: string, timeoutMs?: number): void;
+	/** Resolve/reject a pending SDK call; `json` is a HostResponse. */
+	deliverResponse(json: string): void;
+	/** Fan an event out to registered handlers; `json` is `{topic, at, payload}`. */
+	deliverEvent(json: string): void;
+	/** Fire-and-forget a registered command; `json` is `{commandId, args}`. */
+	invokeCommand(json: string): void;
+	/** Invoke a registered tool; resolves to a JSON string of
+	 * `{ok: true, result}` or `{ok: false, error}`. */
+	invokeTool(json: string): Promise<string>;
+	/** Run the context callback registered for host timer `id`. */
+	fireTimer(id: number): void;
+	/** Call the plugin's `activate(maestro)` export, if present. */
+	activate(): Promise<void>;
+	/** Call the plugin's `deactivate()` export, if present. */
+	deactivate(): Promise<void>;
 }
 
 /**
- * Run the plugin's code in a confined vm context. The plugin module is expected
- * to assign an object with optional `activate(maestro)` / `deactivate()` to
- * `module.exports` (CommonJS-ish), which we expose as a bare `module` object in
- * the sandbox. No Node `require` is provided.
+ * Bootstrap source, compiled once and evaluated inside the context; its
+ * completion value is a factory the HOST calls with the bridge. Plain JS by
+ * necessity (it executes in the plugin realm, not through the TS build).
+ *
+ * Rules for editing this string:
+ * - No host value may be assigned to `globalThis` or any reachable property.
+ * - Data from the host arrives ONLY as JSON strings, parsed here.
+ * - Values returned to the host are primitives or context promises thereof.
  */
-function runPluginCode(pluginId: string, code: string): void {
-	const sdk = buildSdk(pluginId);
-	const moduleShim: { exports: Record<string, unknown> } = { exports: {} };
+const BOOTSTRAP_SOURCE = String.raw`(function bootstrap(bridge) {
+	'use strict';
+	var bridgeSend = bridge.send;
+	var bridgeLog = bridge.log;
+	var bridgeTimerStart = bridge.timerStart;
+	var bridgeTimerClear = bridge.timerClear;
+	bridge = null; // drop the only direct reference to the host object
 
-	// Curated globals. We deliberately do NOT inject host intrinsics (Object, Array,
-	// Promise, URL, ...): doing so would share the HOST's prototype chain with plugin
-	// code (prototype pollution of this process). vm.createContext gives the context
-	// its OWN native intrinsics, isolated from the host realm.
-	//
-	// HONEST THREAT MODEL: the values we DO inject (the maestro SDK, console,
-	// setTimeout/clearTimeout) are host-realm functions, so `someInjected.constructor`
-	// is the HOST `Function` constructor, and `codeGeneration.strings:false` only
-	// disables code-gen for the CONTEXT's own Function - NOT the host's. A determined
-	// plugin can therefore still realm-escape (e.g. `console.log.constructor("return
-	// process")()` reaches the real `process`). vm is DEFENSE-IN-DEPTH, never the
-	// boundary: the real isolation is the separate utilityProcess + the default-deny
-	// broker + signature/consent gating on which code runs at all. Closing the escape
-	// fully (an OS-level sandbox dropping ambient fs/net/exec authority) is the
-	// documented Phase-3 decision; until then, enabling a tier-1 code plugin is a
-	// full-trust decision. require/process/Buffer/module-loading/globalThis are absent.
-	const sandboxGlobal: Record<string, unknown> = {
-		maestro: sdk,
-		module: moduleShim,
-		exports: moduleShim.exports,
-		console: makeSandboxConsole(),
-		setTimeout: (fn: () => void, ms?: number) => setTimeout(fn, ms),
-		clearTimeout: (handle: ReturnType<typeof setTimeout>) => clearTimeout(handle),
-	};
+	function safeLog(level, message) {
+		try { bridgeLog(level, message); } catch (e) { /* host gone; nothing to do */ }
+	}
 
-	const context = vm.createContext(sandboxGlobal, {
-		codeGeneration: { strings: false, wasm: false },
+	// ---- brokered host calls -------------------------------------------------
+	var pending = new Map();
+	var nextCallId = 1;
+	function hostCall(method, params) {
+		var d = Promise.withResolvers();
+		var id = nextCallId++;
+		pending.set(id, d);
+		try {
+			bridgeSend(JSON.stringify({ id: id, method: method, params: params }));
+		} catch (e) {
+			pending.delete(id);
+			d.reject(new Error('sandbox bridge unavailable'));
+		}
+		return d.promise;
+	}
+	function deliverResponse(json) {
+		var res;
+		try { res = JSON.parse(json); } catch (e) { return; }
+		if (!res || typeof res.id !== 'number') return;
+		var call = pending.get(res.id);
+		if (!call) return;
+		pending.delete(res.id);
+		if (res.ok) call.resolve(res.result);
+		else call.reject(new Error(typeof res.error === 'string' ? res.error : 'host call failed'));
+	}
+
+	// ---- curated globals -----------------------------------------------------
+	var sandboxConsole = Object.freeze({
+		log: function () { safeLog('info', Array.prototype.map.call(arguments, String).join(' ')); },
+		info: function () { safeLog('info', Array.prototype.map.call(arguments, String).join(' ')); },
+		warn: function () { safeLog('warn', Array.prototype.map.call(arguments, String).join(' ')); },
+		error: function () { safeLog('error', Array.prototype.map.call(arguments, String).join(' ')); }
 	});
-	const script = new vm.Script(code, { filename: `plugin:${pluginId}` });
-	script.runInContext(context, { timeout: 5000 });
 
-	const exported = moduleShim.exports as {
-		activate?: (m: unknown) => void | Promise<void>;
-		deactivate?: () => void | Promise<void>;
-	};
-	deactivate = typeof exported.deactivate === 'function' ? exported.deactivate : undefined;
-	if (typeof exported.activate === 'function') {
-		void Promise.resolve(exported.activate(sdk)).catch((err) => {
-			log('error', `activate() threw: ${String(err)}`);
+	var timers = new Map();
+	var nextTimerId = 1;
+	function sandboxSetTimeout(fn, ms) {
+		if (typeof fn !== 'function') return 0;
+		var id = nextTimerId++;
+		timers.set(id, fn);
+		try { bridgeTimerStart(id, typeof ms === 'number' && ms >= 0 ? ms : 0); } catch (e) { timers.delete(id); return 0; }
+		return id;
+	}
+	function sandboxClearTimeout(id) {
+		if (!timers.delete(id)) return;
+		try { bridgeTimerClear(id); } catch (e) { /* already fired host-side */ }
+	}
+	function fireTimer(id) {
+		var fn = timers.get(id);
+		timers.delete(id);
+		if (typeof fn !== 'function') return;
+		try { fn(); } catch (e) { safeLog('error', 'timer callback threw: ' + String(e)); }
+	}
+
+	// ---- plugin registries ---------------------------------------------------
+	var commandHandlers = new Map();
+	var eventHandlers = new Map();
+
+	function deliverEvent(json) {
+		var msg;
+		try { msg = JSON.parse(json); } catch (e) { return; }
+		if (!msg || typeof msg.topic !== 'string') return;
+		var handlers = eventHandlers.get(msg.topic);
+		if (!handlers) return;
+		var meta = Object.freeze({ topic: msg.topic, at: typeof msg.at === 'string' ? msg.at : '' });
+		handlers.forEach(function (handler) {
+			try {
+				Promise.resolve(handler(msg.payload, meta)).catch(function (err) {
+					safeLog('error', 'event "' + msg.topic + '" handler threw: ' + String(err));
+				});
+			} catch (err) {
+				safeLog('error', 'event "' + msg.topic + '" handler threw: ' + String(err));
+			}
 		});
 	}
-}
 
-function makeSandboxConsole() {
+	function invokeCommand(json) {
+		var msg;
+		try { msg = JSON.parse(json); } catch (e) { return; }
+		if (!msg || typeof msg.commandId !== 'string') return;
+		var handler = commandHandlers.get(msg.commandId);
+		if (!handler) { safeLog('warn', 'no handler registered for command "' + msg.commandId + '"'); return; }
+		try {
+			Promise.resolve(handler(msg.args)).catch(function (err) {
+				safeLog('error', 'command "' + msg.commandId + '" threw: ' + String(err));
+			});
+		} catch (err) {
+			safeLog('error', 'command "' + msg.commandId + '" threw: ' + String(err));
+		}
+	}
+
+	function invokeTool(json) {
+		var msg;
+		try { msg = JSON.parse(json); } catch (e) { return Promise.resolve(JSON.stringify({ ok: false, error: 'malformed tool invocation' })); }
+		var commandId = msg && typeof msg.commandId === 'string' ? msg.commandId : '';
+		var handler = commandHandlers.get(commandId);
+		if (!handler) {
+			safeLog('warn', 'no handler registered for tool "' + commandId + '"');
+			return Promise.resolve(JSON.stringify({ ok: false, error: 'no handler registered for tool "' + commandId + '"' }));
+		}
+		return new Promise(function (resolve) {
+			try {
+				Promise.resolve(handler(msg.args)).then(
+					function (result) {
+						var body;
+						try { body = JSON.stringify({ ok: true, result: result === undefined ? null : result }); }
+						catch (e) { body = JSON.stringify({ ok: false, error: 'tool result is not JSON-serializable' }); }
+						resolve(body);
+					},
+					function (err) {
+						safeLog('error', 'tool "' + commandId + '" threw: ' + String(err));
+						resolve(JSON.stringify({ ok: false, error: err && err.message ? String(err.message) : String(err) }));
+					}
+				);
+			} catch (err) {
+				safeLog('error', 'tool "' + commandId + '" threw: ' + String(err));
+				resolve(JSON.stringify({ ok: false, error: err && err.message ? String(err.message) : String(err) }));
+			}
+		});
+	}
+
+	// ---- the maestro SDK (broker-gated RPC only; frozen with CONTEXT
+	// intrinsics so plugin code cannot mutate or extend the surface) ----------
+	function buildSdk(pluginId) {
+		return Object.freeze({
+			pluginId: pluginId,
+			fs: Object.freeze({
+				read: function (path) { return hostCall('fs.read', { path: path }); },
+				write: function (path, contents) { return hostCall('fs.write', { path: path, contents: contents }); },
+				watch: function (path, opts) { return hostCall('fs.watch', { path: path, opts: opts }); }
+			}),
+			net: Object.freeze({
+				fetch: function (url, init) { return hostCall('net.fetch', { url: url, init: init }); }
+			}),
+			agents: Object.freeze({
+				list: function () { return hostCall('agents.list', {}); },
+				get: function (agentId) { return hostCall('agents.get', { agentId: agentId }); },
+				dispatch: function (agentId, prompt, opts) { return hostCall('agents.dispatch', { agentId: agentId, prompt: prompt, opts: opts }); }
+			}),
+			history: Object.freeze({
+				list: function (params) { return hostCall('history.list', params || {}); },
+				get: function (entryId) { return hostCall('history.get', { entryId: entryId }); }
+			}),
+			notifications: Object.freeze({
+				toast: function (message, opts) { return hostCall('notifications.toast', { message: message, opts: opts }); }
+			}),
+			settings: Object.freeze({
+				get: function (key) { return hostCall('settings.get', { key: key }); },
+				set: function (key, value) { return hostCall('settings.set', { key: key, value: value }); }
+			}),
+			sessions: Object.freeze({
+				list: function () { return hostCall('sessions.list', {}); },
+				get: function (sessionId) { return hostCall('sessions.get', { sessionId: sessionId }); },
+				create: function (params) { return hostCall('sessions.create', params || {}); },
+				update: function (sessionId, patch) { return hostCall('sessions.update', { sessionId: sessionId, patch: patch }); },
+				delete: function (sessionId) { return hostCall('sessions.delete', { sessionId: sessionId }); }
+			}),
+			transcripts: Object.freeze({
+				read: function (params) { return hostCall('transcripts.read', params); },
+				append: function (params) { return hostCall('transcripts.append', params); }
+			}),
+			storage: Object.freeze({
+				get: function (key) { return hostCall('storage.get', { key: key }); },
+				set: function (key, value) { return hostCall('storage.set', { key: key, value: value }); },
+				delete: function (key) { return hostCall('storage.delete', { key: key }); },
+				keys: function () { return hostCall('storage.keys', {}); },
+				sql: function (query, params) { return hostCall('storage.sql', { query: query, params: params }); }
+			}),
+			ui: Object.freeze({
+				runCommand: function (commandId, args) { return hostCall('ui.runCommand', { commandId: commandId, args: args }); }
+			}),
+			tabs: Object.freeze({
+				list: function () { return hostCall('tabs.list', {}); },
+				create: function (params) { return hostCall('tabs.create', params || {}); },
+				focus: function (tabId) { return hostCall('tabs.focus', { tabId: tabId }); },
+				close: function (tabId) { return hostCall('tabs.close', { tabId: tabId }); }
+			}),
+			events: Object.freeze({
+				on: function (topic, handler) {
+					if (typeof topic !== 'string' || typeof handler !== 'function') return;
+					var set = eventHandlers.get(topic);
+					if (!set) { set = new Set(); eventHandlers.set(topic, set); }
+					set.add(handler);
+				},
+				subscribe: function (topics) { return hostCall('events.subscribe', { topics: topics }); },
+				unsubscribe: function (topics) { return hostCall('events.unsubscribe', topics ? { topics: topics } : {}); }
+			}),
+			commands: Object.freeze({
+				register: function (commandId, handler) {
+					if (typeof commandId === 'string' && typeof handler === 'function') {
+						commandHandlers.set(commandId, handler);
+					}
+				}
+			}),
+			tools: Object.freeze({
+				register: function (localId, handler) {
+					if (typeof localId === 'string' && typeof handler === 'function') {
+						commandHandlers.set(localId, handler);
+					}
+				}
+			}),
+			shell: Object.freeze({
+				openExternal: function (url, opts) { return hostCall('shell.openExternal', { url: url, opts: opts }); }
+			}),
+			process: Object.freeze({
+				spawn: function (command, opts) { return hostCall('process.spawn', { command: command, opts: opts }); }
+			}),
+			decisions: Object.freeze({
+				record: function (decision) { return hostCall('decisions.record', { decision: decision }); }
+			}),
+			power: Object.freeze({
+				preventSleep: function (reason, opts) { return hostCall('power.preventSleep', { reason: reason, opts: opts }); },
+				releaseSleep: function (handleId) { return hostCall('power.releaseSleep', { handleId: handleId }); }
+			}),
+			background: Object.freeze({
+				register: function (service) { return hostCall('background.register', { service: service }); },
+				unregister: function (serviceId) { return hostCall('background.unregister', { serviceId: serviceId }); },
+				list: function () { return hostCall('background.list', {}); }
+			})
+		});
+	}
+
+	// ---- lifecycle -------------------------------------------------------------
+	var moduleShim = { exports: {} };
+	var sdk = null;
+
+	function init(pluginId) {
+		sdk = buildSdk(String(pluginId));
+		globalThis.maestro = sdk;
+		globalThis.module = moduleShim;
+		globalThis.exports = moduleShim.exports;
+		globalThis.console = sandboxConsole;
+		globalThis.setTimeout = sandboxSetTimeout;
+		globalThis.clearTimeout = sandboxClearTimeout;
+	}
+
+	function activate() {
+		var ex = moduleShim.exports;
+		if (ex && typeof ex.activate === 'function') {
+			try {
+				return Promise.resolve(ex.activate(sdk)).catch(function (err) {
+					safeLog('error', 'activate() threw: ' + String(err));
+				});
+			} catch (err) {
+				safeLog('error', 'activate() threw: ' + String(err));
+			}
+		}
+		return Promise.resolve();
+	}
+
+	function deactivate() {
+		var ex = moduleShim.exports;
+		if (ex && typeof ex.deactivate === 'function') {
+			try {
+				return Promise.resolve(ex.deactivate()).catch(function () {});
+			} catch (err) { /* deactivate errors are non-fatal */ }
+		}
+		return Promise.resolve();
+	}
+
 	return {
-		log: (...args: unknown[]) => log('info', args.map(String).join(' ')),
-		info: (...args: unknown[]) => log('info', args.map(String).join(' ')),
-		warn: (...args: unknown[]) => log('warn', args.map(String).join(' ')),
-		error: (...args: unknown[]) => log('error', args.map(String).join(' ')),
+		init: init,
+		deliverResponse: deliverResponse,
+		deliverEvent: deliverEvent,
+		invokeCommand: invokeCommand,
+		invokeTool: invokeTool,
+		fireTimer: fireTimer,
+		activate: activate,
+		deactivate: deactivate
+	};
+})`;
+
+const bootstrapScript = new vm.Script(BOOTSTRAP_SOURCE, {
+	filename: 'maestro-sandbox-bootstrap',
+});
+
+/** The factory shape the bootstrap script evaluates to inside the context. */
+type BootstrapFactory = (bridge: RealmBridge) => Omit<SandboxRealm, 'runScript'>;
+
+/**
+ * Create a confined vm realm. Everything plugin code can reach is built inside
+ * the context by the bootstrap; `bridge` is closure-captured only.
+ */
+export function createSandboxRealm(bridge: RealmBridge): SandboxRealm {
+	// The context global starts EMPTY: every curated global is assigned by the
+	// bootstrap's init() from inside the realm, so nothing on it is host-realm.
+	const context = vm.createContext(Object.create(null) as Record<string, unknown>, {
+		codeGeneration: { strings: false, wasm: false },
+	});
+	const factory = bootstrapScript.runInContext(context) as BootstrapFactory;
+	const realm = factory(bridge);
+	return {
+		...realm,
+		runScript(code: string, filename: string, timeoutMs = 5000): void {
+			const script = new vm.Script(code, { filename });
+			script.runInContext(context, { timeout: timeoutMs });
+		},
 	};
 }
+
+// ---------------------------------------------------------------------------
+// utilityProcess wiring (inert under test: parentPort is absent there)
+// ---------------------------------------------------------------------------
+
+let activeRealm: SandboxRealm | undefined;
+/** Host-side timer registry backing the realm's numeric-id timer bridge. */
+const hostTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
 function log(level: 'info' | 'warn' | 'error', message: string): void {
 	parentPort?.postMessage({ kind: 'log', level, message });
 }
 
-/** Handle a response to one of our outstanding host calls. */
-function handleResponse(res: HostResponse): void {
-	const call = pending.get(res.id);
-	if (!call) return;
-	pending.delete(res.id);
-	if (res.ok) call.resolve(res.result);
-	else call.reject(new Error(res.error ?? 'host call failed'));
+function makeParentPortBridge(): RealmBridge {
+	return {
+		send(json: string): void {
+			if (!parentPort) throw new Error('sandbox has no parent port');
+			parentPort.postMessage(JSON.parse(json));
+		},
+		log(level, message): void {
+			log(level === 'warn' ? 'warn' : level === 'error' ? 'error' : 'info', String(message));
+		},
+		timerStart(id: number, ms: number): void {
+			hostTimers.set(
+				id,
+				setTimeout(() => {
+					hostTimers.delete(id);
+					activeRealm?.fireTimer(id);
+				}, ms)
+			);
+		},
+		timerClear(id: number): void {
+			const handle = hostTimers.get(id);
+			hostTimers.delete(id);
+			if (handle !== undefined) clearTimeout(handle);
+		},
+	};
+}
+
+/** Boot the plugin: build the realm, install globals, run its code, activate. */
+function runPluginCode(pluginId: string, code: string): void {
+	const realm = createSandboxRealm(makeParentPortBridge());
+	activeRealm = realm;
+	realm.init(pluginId);
+	realm.runScript(code, `plugin:${pluginId}`);
+	void realm.activate();
 }
 
 if (parentPort) {
@@ -320,72 +473,44 @@ if (parentPort) {
 			return;
 		}
 		if (msg.kind === 'invokeCommand') {
-			const commandId = typeof msg.commandId === 'string' ? msg.commandId : '';
-			const handler = commandHandlers.get(commandId);
-			if (handler) {
-				try {
-					void Promise.resolve(handler(msg.args)).catch((err) =>
-						log('error', `command "${commandId}" threw: ${String(err)}`)
-					);
-				} catch (err) {
-					log('error', `command "${commandId}" threw: ${String(err)}`);
-				}
-			} else {
-				log('warn', `no handler registered for command "${commandId}"`);
-			}
+			activeRealm?.invokeCommand(JSON.stringify({ commandId: msg.commandId, args: msg.args }));
 			return;
 		}
 		if (msg.kind === 'invokeTool') {
 			const id = typeof msg.id === 'number' ? msg.id : -1;
-			const commandId = typeof msg.commandId === 'string' ? msg.commandId : '';
 			const reply = (res: Omit<ToolResult, 'kind' | 'id'>): void => {
 				parentPort?.postMessage({ kind: 'toolResult', id, ...res });
 			};
-			const handler = commandHandlers.get(commandId);
-			if (!handler) {
-				log('warn', `no handler registered for tool "${commandId}"`);
-				reply({ ok: false, error: `no handler registered for tool "${commandId}"` });
+			if (!activeRealm) {
+				reply({ ok: false, error: 'plugin is not running' });
 				return;
 			}
-			try {
-				void Promise.resolve(handler(msg.args)).then(
-					(result) => reply({ ok: true, result }),
-					(err) => {
-						log('error', `tool "${commandId}" threw: ${String(err)}`);
-						reply({ ok: false, error: err instanceof Error ? err.message : String(err) });
+			void activeRealm
+				.invokeTool(JSON.stringify({ commandId: msg.commandId, args: msg.args }))
+				.then((json) => {
+					try {
+						reply(JSON.parse(json) as Omit<ToolResult, 'kind' | 'id'>);
+					} catch {
+						reply({ ok: false, error: 'malformed tool result' });
 					}
-				);
-			} catch (err) {
-				log('error', `tool "${commandId}" threw: ${String(err)}`);
-				reply({ ok: false, error: err instanceof Error ? err.message : String(err) });
-			}
+				});
 			return;
 		}
 		if (msg.kind === 'event') {
-			const topic = typeof msg.topic === 'string' ? msg.topic : '';
-			const handlers = eventHandlers.get(topic);
-			if (handlers) {
-				const meta = { topic, at: typeof msg.at === 'string' ? msg.at : '' };
-				for (const handler of handlers) {
-					try {
-						void Promise.resolve(handler(msg.payload, meta)).catch((err) =>
-							log('error', `event "${topic}" handler threw: ${String(err)}`)
-						);
-					} catch (err) {
-						log('error', `event "${topic}" handler threw: ${String(err)}`);
-					}
-				}
-			}
+			activeRealm?.deliverEvent(
+				JSON.stringify({ topic: msg.topic, at: msg.at, payload: msg.payload })
+			);
 			return;
 		}
 		if (msg.kind === 'shutdown') {
-			void Promise.resolve(deactivate?.()).finally(() => process.exit(0));
+			const done = activeRealm ? activeRealm.deactivate() : Promise.resolve();
+			void done.finally(() => process.exit(0));
 			return;
 		}
 
 		// Otherwise it must be a HostResponse to one of our calls.
 		if (typeof msg.id === 'number' && typeof msg.ok === 'boolean' && !isHostMethod(msg.method)) {
-			handleResponse(msg as unknown as HostResponse);
+			activeRealm?.deliverResponse(JSON.stringify(msg as unknown as HostResponse));
 		}
 	});
 }

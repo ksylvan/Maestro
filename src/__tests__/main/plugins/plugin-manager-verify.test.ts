@@ -31,6 +31,11 @@ import { pluginsDir } from '../../../main/plugins/plugin-store-main';
 import type { PluginRecord } from '../../../shared/plugins/plugin-registry';
 import type { PermissionGrant } from '../../../shared/plugins/permissions';
 import { packPluginArchive } from '../../../shared/plugins/plugin-archive';
+import { makeSigningKeys, signPluginDir } from './plugin-signing-helper';
+
+// FC1 Option-B gate: code only RUNS with a trusted signature. Tests asserting a
+// sandbox START sign their fixture with this key and register it as trusted.
+const signingKeys = makeSigningKeys();
 
 /** Materialize a plugin folder directly under the plugins data dir. */
 function writePlugin(id: string, tier: 0 | 1, contributes?: Record<string, unknown>): void {
@@ -273,6 +278,9 @@ describe('PluginManager refresh-time verifyRecord gate', () => {
 		fs.writeFileSync(path.join(source, 'assets', 'nested', 'runtime.txt'), 'runtime-asset');
 		fs.mkdirSync(path.join(source, 'node_modules', 'unsigned-dep'), { recursive: true });
 		fs.writeFileSync(path.join(source, 'node_modules', 'unsigned-dep', 'index.js'), 'leak');
+		// Sign BEFORE packing: the shared exclusion policy keeps node_modules out
+		// of both the signed set and the archive, so the install verifies trusted.
+		signPluginDir(source, signingKeys);
 
 		const running = new Set<string>();
 		const starts: Array<{ id: string; pluginDir: string; entry: string }> = [];
@@ -292,7 +300,7 @@ describe('PluginManager refresh-time verifyRecord gate', () => {
 			invokeCommand: () => false,
 			invokeTool: () => Promise.reject(new Error('not wired')),
 		};
-		const m = manager({ sandbox });
+		const m = manager({ sandbox, trustedKeys: () => [signingKeys.publicKeyB64] });
 
 		const archivePath = path.join(workDir, 'packed-archive.tgz');
 		await packPluginArchive(source, archivePath);
