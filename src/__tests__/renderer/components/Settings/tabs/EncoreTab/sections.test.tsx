@@ -134,18 +134,12 @@ const directorNotesSettings: DirectorNotesSettings = {
 };
 
 describe('EncoreTab section components', () => {
-	it('wires the Usage & Stats feature card and lookback selector', () => {
-		const onManage = vi.fn();
-		const onToggleOpen = vi.fn();
+	it('renders the Usage & Stats lookback selector and persists changes', () => {
 		const setDefaultStatsTimeRange = vi.fn();
 
 		const { rerender } = render(
 			<UsageStatsSection
 				theme={mockTheme}
-				enabled={false}
-				open={false}
-				onToggleOpen={onToggleOpen}
-				onManage={onManage}
 				defaultStatsTimeRange="week"
 				setDefaultStatsTimeRange={setDefaultStatsTimeRange}
 				wakatimeEnabled={false}
@@ -157,26 +151,21 @@ describe('EncoreTab section components', () => {
 			/>
 		);
 
-		// Management moved to the marketplace: the header shows a state pill and
-		// a "Manage in Extensions" affordance instead of a toggle switch.
-		expect(screen.getByTestId('encore-feature-state')).toHaveTextContent('Disabled');
-		fireEvent.click(screen.getByTestId('encore-feature-manage'));
-		expect(onManage).toHaveBeenCalledTimes(1);
-		// Manage stopPropagations: it must NOT also toggle the accordion open.
-		expect(onToggleOpen).not.toHaveBeenCalled();
-		expect(screen.queryByText('Default lookback window')).not.toBeInTheDocument();
+		// Chromeless body: no card header/state pill/Manage — the detail pane
+		// owns those. The config controls render directly.
+		expect(document.querySelector('[data-setting-id="encore-usage-stats"]')).toBeInTheDocument();
+		expect(screen.queryByTestId('encore-feature-header')).not.toBeInTheDocument();
+		expect(screen.queryByTestId('encore-feature-manage')).not.toBeInTheDocument();
+		expect(screen.getByText('Default lookback window')).toBeInTheDocument();
 
-		// The header is the accordion toggle — clicking it asks the parent to open.
-		fireEvent.click(screen.getByTestId('encore-feature-header'));
-		expect(onToggleOpen).toHaveBeenCalledTimes(1);
+		const select = screen.getByLabelText('Select default lookback window') as HTMLSelectElement;
+		expect(select.value).toBe('week');
+		fireEvent.change(select, { target: { value: 'quarter' } });
+		expect(setDefaultStatsTimeRange).toHaveBeenCalledWith('quarter');
 
 		rerender(
 			<UsageStatsSection
 				theme={mockTheme}
-				enabled
-				open
-				onToggleOpen={onToggleOpen}
-				onManage={onManage}
 				defaultStatsTimeRange="month"
 				setDefaultStatsTimeRange={setDefaultStatsTimeRange}
 				wakatimeEnabled={false}
@@ -187,13 +176,9 @@ describe('EncoreTab section components', () => {
 				wakatimeState={wakatimeState()}
 			/>
 		);
-
-		expect(screen.getByTestId('encore-feature-state')).toHaveTextContent('Enabled');
-
-		const select = screen.getByLabelText('Select default lookback window') as HTMLSelectElement;
-		expect(select.value).toBe('month');
-		fireEvent.change(select, { target: { value: 'quarter' } });
-		expect(setDefaultStatsTimeRange).toHaveBeenCalledWith('quarter');
+		expect(
+			(screen.getByLabelText('Select default lookback window') as HTMLSelectElement).value
+		).toBe('month');
 	});
 
 	it('wires WakaTime controls, validation indicators, and clear action', () => {
@@ -243,15 +228,14 @@ describe('EncoreTab section components', () => {
 		render(
 			<SymphonyRegistrySection
 				theme={mockTheme}
-				enabled
-				open
-				onToggleOpen={vi.fn()}
-				onManage={vi.fn()}
 				symphonyRegistryUrls={['https://custom.example/registry.json']}
 				registryState={state}
 			/>
 		);
 
+		// Chromeless body: config controls render directly, no accordion header.
+		expect(document.querySelector('[data-setting-id="encore-symphony"]')).toBeInTheDocument();
+		expect(screen.queryByTestId('encore-feature-header')).not.toBeInTheDocument();
 		expect(screen.getByText('Registry Sources')).toBeInTheDocument();
 		expect(screen.getByText('default')).toBeInTheDocument();
 		expect(screen.getByText('https://custom.example/registry.json')).toBeInTheDocument();
@@ -271,17 +255,9 @@ describe('EncoreTab section components', () => {
 	it('wires Cue loading, save status, and setting inputs', () => {
 		const state = cueState({ cueSettingsSaveState: 'no-targets' });
 
-		const { rerender } = render(
-			<CueSettingsSection
-				theme={mockTheme}
-				enabled
-				open
-				onToggleOpen={vi.fn()}
-				onManage={vi.fn()}
-				cueState={state}
-			/>
-		);
+		const { rerender } = render(<CueSettingsSection theme={mockTheme} cueState={state} />);
 
+		expect(document.querySelector('[data-setting-id="encore-cue"]')).toBeInTheDocument();
 		expect(screen.getByText('Global Cue Settings')).toBeInTheDocument();
 		expect(screen.getByText(/No cue.yaml yet/)).toBeInTheDocument();
 
@@ -300,14 +276,7 @@ describe('EncoreTab section components', () => {
 		expect(state.handleQueueSizeBlur).toHaveBeenCalledTimes(1);
 
 		rerender(
-			<CueSettingsSection
-				theme={mockTheme}
-				enabled
-				open
-				onToggleOpen={vi.fn()}
-				onManage={vi.fn()}
-				cueState={cueState({ cueSettingsLoaded: false })}
-			/>
+			<CueSettingsSection theme={mockTheme} cueState={cueState({ cueSettingsLoaded: false })} />
 		);
 		expect(screen.getByText(/Loading settings/)).toBeInTheDocument();
 	});
@@ -319,15 +288,14 @@ describe('EncoreTab section components', () => {
 		render(
 			<DirectorNotesSection
 				theme={mockTheme}
-				enabled
-				open
-				onToggleOpen={vi.fn()}
-				onManage={vi.fn()}
 				directorNotesSettings={directorNotesSettings}
 				setDirectorNotesSettings={setDirectorNotesSettings}
 				directorNotesAgentState={state}
 			/>
 		);
+
+		expect(document.querySelector('[data-setting-id="encore-director-notes"]')).toBeInTheDocument();
+		expect(screen.queryByTestId('encore-feature-header')).not.toBeInTheDocument();
 
 		const select = screen.getByLabelText('Select synopsis provider agent');
 		expect(within(select).getAllByRole('option')).toHaveLength(2);
@@ -349,17 +317,13 @@ describe('EncoreTab section components', () => {
 		const { rerender } = render(
 			<DirectorNotesSection
 				theme={mockTheme}
-				enabled
-				open
-				onToggleOpen={vi.fn()}
-				onManage={vi.fn()}
 				directorNotesSettings={directorNotesSettings}
 				setDirectorNotesSettings={vi.fn()}
 				directorNotesAgentState={directorState({
 					agentConfiguration: {
 						...directorState().agentConfiguration,
 						isDetecting: true,
-					} as any,
+					},
 				})}
 			/>
 		);
@@ -369,10 +333,6 @@ describe('EncoreTab section components', () => {
 		rerender(
 			<DirectorNotesSection
 				theme={mockTheme}
-				enabled
-				open
-				onToggleOpen={vi.fn()}
-				onManage={vi.fn()}
 				directorNotesSettings={directorNotesSettings}
 				setDirectorNotesSettings={vi.fn()}
 				directorNotesAgentState={directorState({ availableTiles: [] })}
@@ -386,10 +346,6 @@ describe('EncoreTab section components', () => {
 		rerender(
 			<DirectorNotesSection
 				theme={mockTheme}
-				enabled
-				open
-				onToggleOpen={vi.fn()}
-				onManage={vi.fn()}
 				directorNotesSettings={directorNotesSettings}
 				setDirectorNotesSettings={vi.fn()}
 				directorNotesAgentState={expanded}
@@ -400,75 +356,27 @@ describe('EncoreTab section components', () => {
 		expect(screen.getByText('Customized')).toBeInTheDocument();
 		expect(screen.getByTestId('agent-config-agent-id')).toHaveTextContent('claude-code');
 	});
-	// ── Collapsed-by-default accordion contract (EncoreFeatureCard) ────────
 
-	it('hides config content while collapsed even when the feature is enabled', () => {
+	it('renders the Director Notes default reading-mode toggle and persists changes', () => {
+		const setDirectorNotesSettings = vi.fn();
+
 		render(
-			<SymphonyRegistrySection
+			<DirectorNotesSection
 				theme={mockTheme}
-				enabled
-				open={false}
-				onToggleOpen={vi.fn()}
-				onManage={vi.fn()}
-				symphonyRegistryUrls={[]}
-				registryState={registryState()}
+				directorNotesSettings={directorNotesSettings}
+				setDirectorNotesSettings={setDirectorNotesSettings}
+				directorNotesAgentState={directorState()}
 			/>
 		);
 
-		expect(screen.getByTestId('encore-feature-header')).toHaveAttribute('aria-expanded', 'false');
-		expect(screen.queryByText('Registry Sources')).not.toBeInTheDocument();
-		expect(screen.queryByTestId('encore-feature-disabled-hint')).not.toBeInTheDocument();
-	});
-
-	it('shows the enable-in-Extensions hint when open but disabled', () => {
-		render(
-			<SymphonyRegistrySection
-				theme={mockTheme}
-				enabled={false}
-				open
-				onToggleOpen={vi.fn()}
-				onManage={vi.fn()}
-				symphonyRegistryUrls={[]}
-				registryState={registryState()}
-			/>
-		);
-
-		expect(screen.getByTestId('encore-feature-header')).toHaveAttribute('aria-expanded', 'true');
-		// Open but disabled: config controls stay hidden; the hint points at the
-		// marketplace, which owns enable/disable.
-		expect(screen.queryByText('Registry Sources')).not.toBeInTheDocument();
-		expect(screen.getByTestId('encore-feature-disabled-hint')).toHaveTextContent(
-			'Enable this plugin in Extensions above to configure it.'
-		);
-	});
-
-	it('exposes Manage as a role=button affordance that does not toggle the accordion', () => {
-		const onToggleOpen = vi.fn();
-		const onManage = vi.fn();
-
-		render(
-			<SymphonyRegistrySection
-				theme={mockTheme}
-				enabled
-				open={false}
-				onToggleOpen={onToggleOpen}
-				onManage={onManage}
-				symphonyRegistryUrls={[]}
-				registryState={registryState()}
-			/>
-		);
-
-		// Manage is a NATIVE <button> SIBLING of the header toggle (nested
-		// interactive controls are invalid ARIA; native buttons get keyboard
-		// activation from the platform, no manual keydown handler needed).
-		const manage = screen.getByRole('button', { name: 'Manage' });
-		expect(manage).toHaveAttribute('data-testid', 'encore-feature-manage');
-		expect(manage.tagName).toBe('BUTTON');
-		const header = screen.getByTestId('encore-feature-header');
-		expect(header.contains(manage)).toBe(false);
-
-		fireEvent.click(manage);
-		expect(onManage).toHaveBeenCalledTimes(1);
-		expect(onToggleOpen).not.toHaveBeenCalled();
+		// Defaults to 'rich' when defaultMode is unset.
+		const richButton = screen.getByRole('button', { name: 'rich', pressed: true });
+		expect(richButton).toBeInTheDocument();
+		fireEvent.click(screen.getByRole('button', { name: 'plain' }));
+		expect(setDirectorNotesSettings).toHaveBeenCalledWith({
+			provider: 'claude-code',
+			defaultLookbackDays: 7,
+			defaultMode: 'plain',
+		});
 	});
 });

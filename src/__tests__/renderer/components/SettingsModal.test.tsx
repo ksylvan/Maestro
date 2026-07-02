@@ -390,28 +390,20 @@ const createDefaultProps = (overrides = {}) => ({
 	...overrides,
 });
 
-const getEncoreSetting = (id: string) => {
-	const section = document.querySelector(`[data-setting-id="${id}"]`);
-	expect(section).toBeInTheDocument();
-	return within(section as HTMLElement);
-};
-
-const getEncoreSettingButton = (id: string): HTMLElement => {
-	const button = document.querySelector(`[data-setting-id="${id}"] button`);
-	expect(button).toBeInTheDocument();
-	return button as HTMLElement;
-};
-
 /**
- * Expand a collapsed per-feature config section on the Plugins tab by
- * clicking its accordion header (config children render only when open).
+ * Open a marketplace tile's detail pane by clicking its card. Per-feature
+ * config now lives inside the tile detail (a Settings sub-tab), not a separate
+ * accordion list. Assumes the Plugins tab is already active.
  */
-const openEncoreSection = (name: string): void => {
-	const header = screen
-		.getAllByTestId('encore-feature-header')
-		.find((h) => h.textContent?.includes(name));
-	expect(header).toBeDefined();
-	fireEvent.click(header as HTMLElement);
+const openExtensionDetail = (extensionId: string): void => {
+	const card = document.querySelector(`[data-extension-id="${extensionId}"]`);
+	expect(card).toBeInTheDocument();
+	fireEvent.click(card as HTMLElement);
+};
+
+/** Select a detail-pane sub-tab (Settings or Permissions). */
+const selectSubTab = (which: 'settings' | 'permissions'): void => {
+	fireEvent.click(screen.getByTestId(`extension-subtab-${which}`));
 };
 
 describe('SettingsModal', () => {
@@ -2243,10 +2235,10 @@ describe('SettingsModal', () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			// The marketplace's own header is the single voice of the tab.
+			// The marketplace's own header is the single voice of the tab; the
+			// separate "Feature settings" accordion list is gone.
 			expect(screen.getByText('Plugins', { selector: 'h3' })).toBeInTheDocument();
-			// The per-feature config group renders below it.
-			expect(screen.getByText('Feature settings', { selector: 'h3' })).toBeInTheDocument();
+			expect(screen.queryByText('Feature settings')).not.toBeInTheDocument();
 		});
 
 		it('should show description text for the Plugins tab', async () => {
@@ -2265,7 +2257,6 @@ describe('SettingsModal', () => {
 			expect(
 				screen.getByText(/Built-in Encore features and community plugins/)
 			).toBeInTheDocument();
-			expect(screen.getByText(/Configuration for the built-in plugins above/)).toBeInTheDocument();
 		});
 
 		it('should open Pianola modal from enabled Pianola extension details', async () => {
@@ -2481,345 +2472,192 @@ describe('SettingsModal', () => {
 			);
 		});
 
-		it("should show Director's Notes config section defaulting to off", async () => {
+		it("Director's Notes tile: Settings sub-tab shows the disabled hint when off", async () => {
+			// Store default has directorNotes disabled.
 			render(<SettingsModal {...createDefaultProps()} />);
-
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
-
 			fireEvent.click(screen.getByTitle('Plugins'));
-
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			// Director's Notes config section is visible but DN settings are hidden
-			expect(
-				getEncoreSetting('encore-director-notes').getByText("Director's Notes")
-			).toBeInTheDocument();
-			expect(screen.queryByText('Synopsis Provider')).not.toBeInTheDocument();
+			openExtensionDetail('directorNotes');
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
 
-			// Even expanded, the disabled feature shows the marketplace hint
-			// instead of its config.
-			openEncoreSection("Director's Notes");
+			// Configurable tile opens on Settings; disabled → hint, not config.
+			expect(screen.getByTestId('extension-subtab-settings')).toHaveAttribute(
+				'aria-selected',
+				'true'
+			);
+			expect(screen.getByTestId('extension-settings-disabled-hint')).toHaveTextContent(
+				'Enable this plugin to configure it.'
+			);
 			expect(screen.queryByText('Synopsis Provider')).not.toBeInTheDocument();
-			expect(
-				getEncoreSetting('encore-director-notes').getByTestId('encore-feature-disabled-hint')
-			).toHaveTextContent('Enable this plugin in Extensions above to configure it.');
 		});
 
-		it("expands Director's Notes from its header without writing encore flags", async () => {
-			mockSetEncoreFeatures.mockClear();
-
+		it('Usage & Stats tile: Settings shows lookback config; Permissions reveals caps + services', async () => {
+			// Store default has usageStats enabled.
 			render(<SettingsModal {...createDefaultProps()} />);
-
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
-
 			fireEvent.click(screen.getByTitle('Plugins'));
-
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			// The section's first button is now the accordion header — clicking
-			// it expands the card; enable/disable moved to the marketplace tile.
-			const dnHeader = getEncoreSettingButton('encore-director-notes');
-			expect(dnHeader).toHaveAttribute('aria-expanded', 'false');
-			fireEvent.click(dnHeader);
-
-			expect(dnHeader).toHaveAttribute('aria-expanded', 'true');
-			expect(mockSetEncoreFeatures).not.toHaveBeenCalled();
-		});
-
-		it('should show Usage & Stats config with settings visible once expanded (default on)', async () => {
-			render(<SettingsModal {...createDefaultProps()} />);
-
+			openExtensionDetail('usageStats');
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			fireEvent.click(screen.getByTitle('Plugins'));
+			// Settings sub-tab (default) renders the Usage & Stats config body.
+			const panel = screen.getByTestId('extension-settings-panel');
+			expect(panel).toBeInTheDocument();
+			expect(within(panel).getByText('Default lookback window')).toBeInTheDocument();
+			expect(within(panel).getByLabelText('Select default lookback window')).toBeInTheDocument();
 
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			expect(getEncoreSetting('encore-usage-stats').getByText('Usage & Stats')).toBeInTheDocument();
-			// Collapsed by default; enabled features reveal config on expand.
-			expect(screen.queryByText('Default lookback window')).not.toBeInTheDocument();
-			openEncoreSection('Usage & Stats');
+			// The capability disclosure + supervised service live behind Permissions.
+			expect(screen.queryByTestId('extension-background-service')).not.toBeInTheDocument();
+			selectSubTab('permissions');
+			expect(screen.getAllByTestId('extension-permission').length).toBeGreaterThan(0);
+			expect(screen.getByTestId('extension-background-service').getAttribute('data-service')).toBe(
+				'stats.sampler'
+			);
+			// Back to Settings restores the config body.
+			selectSubTab('settings');
 			expect(screen.getByText('Default lookback window')).toBeInTheDocument();
 		});
 
-		it('expands Usage & Stats from its header without writing encore flags', async () => {
-			mockSetEncoreFeatures.mockClear();
-
+		it('Maestro Symphony tile: Settings shows Registry Sources when enabled', async () => {
+			// Store default has symphony enabled.
 			render(<SettingsModal {...createDefaultProps()} />);
-
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
-
 			fireEvent.click(screen.getByTitle('Plugins'));
-
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			const usHeader = getEncoreSettingButton('encore-usage-stats');
-			fireEvent.click(usHeader);
-			expect(usHeader).toHaveAttribute('aria-expanded', 'true');
+			openExtensionDetail('symphony');
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
 
-			// The stats-collection gate is synced by the marketplace toggle
-			// (useExtensions.toggleBuiltin, covered by its own suite), not by
-			// this config section's header.
-			expect(mockSetEncoreFeatures).not.toHaveBeenCalled();
+			const panel = screen.getByTestId('extension-settings-panel');
+			expect(within(panel).getByText('Registry Sources')).toBeInTheDocument();
 		});
 
-		it('should show Maestro Symphony config with settings visible once expanded (default on)', async () => {
+		it('Maestro Symphony tile: Settings shows the disabled hint when off', async () => {
+			useSettingsStore.setState({
+				encoreFeatures: {
+					directorNotes: false,
+					usageStats: true,
+					symphony: false,
+					maestroCue: false,
+					pianola: false,
+					plugins: false,
+				},
+			});
 			render(<SettingsModal {...createDefaultProps()} />);
-
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
-
 			fireEvent.click(screen.getByTitle('Plugins'));
-
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(50);
 			});
 
-			expect(getEncoreSetting('encore-symphony').getByText('Maestro Symphony')).toBeInTheDocument();
+			openExtensionDetail('symphony');
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(50);
+			});
+
+			expect(screen.getByTestId('extension-settings-disabled-hint')).toBeInTheDocument();
 			expect(screen.queryByText('Registry Sources')).not.toBeInTheDocument();
-			openEncoreSection('Maestro Symphony');
-			expect(screen.getByText('Registry Sources')).toBeInTheDocument();
-		});
-
-		it('expands Maestro Symphony from its header without writing encore flags', async () => {
-			mockSetEncoreFeatures.mockClear();
-
-			render(<SettingsModal {...createDefaultProps()} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			fireEvent.click(screen.getByTitle('Plugins'));
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			const symphonyHeader = getEncoreSettingButton('encore-symphony');
-			fireEvent.click(symphonyHeader);
-			expect(symphonyHeader).toHaveAttribute('aria-expanded', 'true');
-			expect(mockSetEncoreFeatures).not.toHaveBeenCalled();
-		});
-
-		it('should hide Symphony registry settings when symphony is disabled', async () => {
-			mockUseSettingsOverrides = {
-				encoreFeatures: { directorNotes: false, usageStats: true, symphony: false },
-			};
-
-			render(<SettingsModal {...createDefaultProps()} />);
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			fireEvent.click(screen.getByTitle('Plugins'));
-
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(50);
-			});
-
-			expect(getEncoreSetting('encore-symphony').getByText('Maestro Symphony')).toBeInTheDocument();
-			// Even expanded, a disabled feature never leaks its config — the
-			// hint renders in its place.
-			openEncoreSection('Maestro Symphony');
-			expect(screen.queryByText('Registry Sources')).not.toBeInTheDocument();
-			expect(
-				getEncoreSetting('encore-symphony').getByTestId('encore-feature-disabled-hint')
-			).toBeInTheDocument();
 		});
 
 		describe("with Director's Notes enabled", () => {
 			beforeEach(() => {
+				// Both sources must agree: the store drives the tile's enabled
+				// state (so the config body renders), the useSettings mock drives
+				// the detection hook (so the provider dropdown populates).
 				mockUseSettingsOverrides = {
 					encoreFeatures: { directorNotes: true, usageStats: true, symphony: true },
 				};
+				useSettingsStore.setState({
+					encoreFeatures: {
+						directorNotes: true,
+						usageStats: true,
+						symphony: true,
+						maestroCue: false,
+						pianola: false,
+						plugins: false,
+					},
+				});
 			});
 
-			it('should render provider dropdown with detected available agents', async () => {
+			it('renders the DN config body (provider dropdown + lookback slider) in the Settings sub-tab', async () => {
 				render(<SettingsModal {...createDefaultProps()} />);
-
 				await act(async () => {
 					await vi.advanceTimersByTimeAsync(50);
 				});
-
 				fireEvent.click(screen.getByTitle('Plugins'));
-
 				await act(async () => {
 					await vi.advanceTimersByTimeAsync(100);
 				});
 
-				openEncoreSection("Director's Notes");
-
-				expect(screen.getByText('Synopsis Provider')).toBeInTheDocument();
-
-				// With the default mock, only claude-code is available and supported
-				const select = screen.getByLabelText('Select synopsis provider agent');
-				expect(select).toBeInTheDocument();
-
-				const options = select.querySelectorAll('option');
-				expect(options.length).toBeGreaterThanOrEqual(1);
-				expect(options[0]).toHaveValue('claude-code');
-				expect(options[0]).toHaveTextContent('Claude Code');
-			});
-
-			it('should render Customize button for provider configuration', async () => {
-				render(<SettingsModal {...createDefaultProps()} />);
-
-				await act(async () => {
-					await vi.advanceTimersByTimeAsync(50);
-				});
-
-				fireEvent.click(screen.getByTitle('Plugins'));
-
+				openExtensionDetail('directorNotes');
 				await act(async () => {
 					await vi.advanceTimersByTimeAsync(100);
 				});
 
-				openEncoreSection("Director's Notes");
-
-				const customizeButton = screen.getByTitle('Customize provider settings');
-				expect(customizeButton).toBeInTheDocument();
-				expect(customizeButton).toHaveTextContent('Customize');
-			});
-
-			it('should render default lookback period slider with range 1-90', async () => {
-				render(<SettingsModal {...createDefaultProps()} />);
-
-				await act(async () => {
-					await vi.advanceTimersByTimeAsync(50);
-				});
-
-				fireEvent.click(screen.getByTitle('Plugins'));
-
-				await act(async () => {
-					await vi.advanceTimersByTimeAsync(50);
-				});
-
-				openEncoreSection("Director's Notes");
-
-				expect(screen.getByText(/Default Lookback Period: 7 days/)).toBeInTheDocument();
-
-				const slider = screen.getByRole('slider');
-				expect(slider).toBeInTheDocument();
+				const panel = screen.getByTestId('extension-settings-panel');
+				expect(within(panel).getByText('Synopsis Provider')).toBeInTheDocument();
+				// detect() returns claude-code + codex; both supported → 2 options.
+				const select = within(panel).getByLabelText('Select synopsis provider agent');
+				expect(select.querySelectorAll('option')).toHaveLength(2);
+				// Lookback slider present with the persisted value.
+				const slider = within(panel).getByRole('slider');
 				expect(slider).toHaveAttribute('min', '1');
 				expect(slider).toHaveAttribute('max', '90');
 				expect(slider).toHaveValue('7');
 			});
 
-			it('should show DN description text when enabled', async () => {
-				render(<SettingsModal {...createDefaultProps()} />);
-
-				await act(async () => {
-					await vi.advanceTimersByTimeAsync(50);
-				});
-
-				fireEvent.click(screen.getByTitle('Plugins'));
-
-				await act(async () => {
-					await vi.advanceTimersByTimeAsync(50);
-				});
-
-				openEncoreSection("Director's Notes");
-
-				expect(
-					getEncoreSetting('encore-director-notes').getByText(
-						/Unified history view and AI-generated synopsis across all sessions/
-					)
-				).toBeInTheDocument();
-				expect(
-					screen.getByText(/AI agent used to generate synopsis summaries/)
-				).toBeInTheDocument();
-				expect(screen.getByText(/How far back to look when generating notes/)).toBeInTheDocument();
-			});
-
-			it('should call setDirectorNotesSettings when provider is changed', async () => {
+			it('persists provider + lookback changes end-to-end via setDirectorNotesSettings', async () => {
 				mockSetDirectorNotesSettings.mockClear();
-
 				render(<SettingsModal {...createDefaultProps()} />);
-
 				await act(async () => {
 					await vi.advanceTimersByTimeAsync(50);
 				});
-
 				fireEvent.click(screen.getByTitle('Plugins'));
-
 				await act(async () => {
-					await vi.advanceTimersByTimeAsync(50);
+					await vi.advanceTimersByTimeAsync(100);
 				});
 
-				openEncoreSection("Director's Notes");
-
-				const select = screen.getByDisplayValue('Claude Code');
-				fireEvent.change(select, { target: { value: 'codex' } });
-
-				expect(mockSetDirectorNotesSettings).toHaveBeenCalledWith({
-					provider: 'codex',
-					defaultLookbackDays: 7,
+				openExtensionDetail('directorNotes');
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(100);
 				});
-			});
 
-			it('should call setDirectorNotesSettings when lookback slider is changed', async () => {
+				const panel = screen.getByTestId('extension-settings-panel');
+				fireEvent.change(within(panel).getByLabelText('Select synopsis provider agent'), {
+					target: { value: 'codex' },
+				});
+				expect(mockSetDirectorNotesSettings).toHaveBeenCalledWith(
+					expect.objectContaining({ provider: 'codex' })
+				);
+
 				mockSetDirectorNotesSettings.mockClear();
-
-				render(<SettingsModal {...createDefaultProps()} />);
-
-				await act(async () => {
-					await vi.advanceTimersByTimeAsync(50);
-				});
-
-				fireEvent.click(screen.getByTitle('Plugins'));
-
-				await act(async () => {
-					await vi.advanceTimersByTimeAsync(50);
-				});
-
-				openEncoreSection("Director's Notes");
-
-				const slider = screen.getByRole('slider');
-				fireEvent.change(slider, { target: { value: '30' } });
-
-				expect(mockSetDirectorNotesSettings).toHaveBeenCalledWith({
-					provider: 'claude-code',
-					defaultLookbackDays: 30,
-				});
-			});
-
-			it('should render lookback scale markers', async () => {
-				render(<SettingsModal {...createDefaultProps()} />);
-
-				await act(async () => {
-					await vi.advanceTimersByTimeAsync(50);
-				});
-
-				fireEvent.click(screen.getByTitle('Plugins'));
-
-				await act(async () => {
-					await vi.advanceTimersByTimeAsync(50);
-				});
-
-				openEncoreSection("Director's Notes");
-
-				expect(screen.getByText('1 day')).toBeInTheDocument();
-				// "90 days" appears in both the scale marker <span> and a <select> <option>
-				expect(screen.getAllByText('90 days').length).toBeGreaterThanOrEqual(1);
+				fireEvent.change(within(panel).getByRole('slider'), { target: { value: '30' } });
+				expect(mockSetDirectorNotesSettings).toHaveBeenCalledWith(
+					expect.objectContaining({ defaultLookbackDays: 30 })
+				);
 			});
 		});
 	});

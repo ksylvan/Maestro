@@ -6,7 +6,7 @@
  *   rendered statically as "Granted on enable" — grants are minted host-side
  *   by the lifecycle bridge, so no getGrants IPC round-trip for builtins.
  */
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { ExtensionDetails } from '../../../../../renderer/components/Settings/Extensions/ExtensionDetails';
@@ -57,6 +57,10 @@ function renderBuiltin(flag: keyof EncoreFeatureFlags, enabled: boolean): void {
 			getGrants={vi.fn(async () => ({ requested: [], granted: [] }))}
 		/>
 	);
+	// Background services + permission disclosure live under the Permissions
+	// sub-tab. Tiles with a Settings tab (e.g. Pianola) open on Settings, so
+	// select Permissions explicitly; for Permissions-only tiles this is a no-op.
+	fireEvent.click(screen.getByTestId('extension-subtab-permissions'));
 }
 
 afterEach(cleanup);
