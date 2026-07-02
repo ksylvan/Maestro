@@ -8,6 +8,7 @@
 import { useMemo, useState } from 'react';
 import { Search, FolderPlus, Puzzle } from 'lucide-react';
 import type { EncoreFeatureFlags, Theme } from '../../../types';
+import type { ReactNode } from 'react';
 import { useExtensions } from './useExtensions';
 import { ExtensionsGrid } from './ExtensionsGrid';
 import { ExtensionDetails } from './ExtensionDetails';
@@ -20,12 +21,12 @@ import {
 
 interface ExtensionsViewProps {
 	theme: Theme;
-	/** First-party tiles' Configure action: expand + jump to the feature's
-	 * config card below the marketplace (wired by the Plugins tab). */
-	onConfigureBuiltin?: (flag: keyof EncoreFeatureFlags) => void;
+	/** Config bodies for first-party tiles' Settings sub-tab, keyed by Encore
+	 * flag. Supplied by the Plugins tab; absent when mounted standalone. */
+	settingsBodies?: Partial<Record<keyof EncoreFeatureFlags, ReactNode>>;
 }
 
-export function ExtensionsView({ theme, onConfigureBuiltin }: ExtensionsViewProps) {
+export function ExtensionsView({ theme, settingsBodies }: ExtensionsViewProps) {
 	const {
 		extensions,
 		contributions,
@@ -112,7 +113,7 @@ export function ExtensionsView({ theme, onConfigureBuiltin }: ExtensionsViewProp
 					onUninstall={uninstallPlugin}
 					onRevoke={revokePlugin}
 					getGrants={getGrants}
-					onConfigureBuiltin={onConfigureBuiltin}
+					settingsBody={selected.flag ? settingsBodies?.[selected.flag] : undefined}
 				/>
 			) : (
 				<>

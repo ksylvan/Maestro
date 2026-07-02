@@ -9,7 +9,7 @@
  * it shows the description and an enable toggle.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ChevronLeft, Power, Settings as SettingsIcon, Trash2, KeyRound } from 'lucide-react';
 import type { Theme } from '../../../types';
 import {
@@ -43,9 +43,10 @@ interface ExtensionDetailsProps {
 	onUninstall: (record: PluginRecord) => void;
 	onRevoke: (id: string) => void;
 	getGrants: (id: string) => Promise<PluginGrantsSnapshot>;
-	/** First-party tiles: expand + jump to the feature's config card in the
-	 * Plugins tab. Absent when the marketplace is mounted standalone. */
-	onConfigureBuiltin?: (flag: NonNullable<UnifiedExtension['flag']>) => void;
+	/** First-party feature config body rendered in the Settings sub-tab (from
+	 * the Plugins tab). Absent for plugins and for features with no inline
+	 * config (e.g. Pianola, whose config is its own modal). */
+	settingsBody?: ReactNode;
 }
 
 const RISK_COLOR: Record<CapabilityRisk, 'success' | 'warning' | 'error'> = {
@@ -83,11 +84,12 @@ export function ExtensionDetails({
 	onUninstall,
 	onRevoke,
 	getGrants,
-	onConfigureBuiltin,
+	settingsBody,
 }: ExtensionDetailsProps) {
 	const [grants, setGrants] = useState<PluginGrantsSnapshot | null>(null);
 	const [configureOpen, setConfigureOpen] = useState(false);
 	const [settingValues, setSettingValues] = useState<Record<string, boolean | string | number>>({});
+	const [activeSubTab, setActiveSubTab] = useState<'settings' | 'permissions'>('settings');
 
 	const isPlugin = ext.kind === 'plugin';
 	const record = ext.record;
@@ -114,16 +116,24 @@ export function ExtensionDetails({
 		};
 	}, [isPlugin, ext.id, getGrants]);
 
-	// Reset the configure editor when switching extensions.
-	useEffect(() => {
-		setConfigureOpen(false);
-		setSettingValues({});
-	}, [ext.key]);
+	const isPianola = !isPlugin && ext.flag === 'pianola';
 
 	const pluginSettings: SettingContribution[] = contributions
 		? contributions.settings.filter((s) => s.pluginId === ext.id)
 		: [];
 	const canConfigurePlugin = isPlugin && ext.state === 'enabled' && pluginSettings.length > 0;
+
+	// The Settings sub-tab exists when there's something to configure: a
+	// first-party config body, a configurable plugin, or Pianola's modal entry.
+	const hasSettingsTab = Boolean(settingsBody) || canConfigurePlugin || isPianola;
+
+	// Reset transient editor + sub-tab when switching extensions. Default to
+	// Settings when it exists, else Permissions.
+	useEffect(() => {
+		setConfigureOpen(false);
+		setSettingValues({});
+		setActiveSubTab(hasSettingsTab ? 'settings' : 'permissions');
+	}, [ext.key, hasSettingsTab]);
 
 	const openConfigure = useCallback(async () => {
 		if (!canConfigurePlugin) {
@@ -280,45 +290,6 @@ export function ExtensionDetails({
 					<Power className="w-4 h-4" /> {toggleLabel}
 				</button>
 
-				{canConfigurePlugin && (
-					<button
-						type="button"
-						data-testid="extension-configure"
-						onClick={() => void openConfigure()}
-						className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors hover:bg-white/5"
-						style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
-					>
-						<SettingsIcon className="w-4 h-4" /> Configure
-					</button>
-				)}
-
-				{/* First-party features with an inline config card in the Plugins tab:
-				    Configure expands + jumps to it. Pianola's config lives in its own
-				    modal (button below), so it is excluded here. */}
-				{!isPlugin && ext.flag && ext.flag !== 'pianola' && onConfigureBuiltin && (
-					<button
-						type="button"
-						data-testid="extension-configure-builtin"
-						onClick={() => onConfigureBuiltin(ext.flag!)}
-						className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors hover:bg-white/5"
-						style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
-					>
-						<SettingsIcon className="w-4 h-4" /> Configure
-					</button>
-				)}
-
-				{!isPlugin && ext.flag === 'pianola' && ext.state === 'enabled' && (
-					<button
-						type="button"
-						data-testid="extension-open-pianola"
-						onClick={() => getModalActions().setPianolaModalOpen(true)}
-						className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors hover:bg-white/5"
-						style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
-					>
-						<SettingsIcon className="w-4 h-4" /> Open Pianola
-					</button>
-				)}
-
 				{isPlugin && isCodeTier && (
 					<button
 						type="button"
@@ -346,278 +317,367 @@ export function ExtensionDetails({
 				)}
 			</div>
 
-			{/* First-party background services (supervised via the lifecycle bridge) */}
-			{firstPartyServices.length > 0 && (
-				<div className="mt-5">
-					<div
-						className="text-xs font-bold uppercase opacity-70 mb-2"
-						style={{ color: theme.colors.textMain }}
+			{/* Sub-tabs: Settings (config) and Permissions (capabilities, services,
+			    contributions). Settings only shows when there's something to
+			    configure; otherwise the pane opens straight on Permissions. */}
+			<div
+				className="flex items-center gap-1 mt-5 border-b"
+				style={{ borderColor: theme.colors.border }}
+				role="tablist"
+			>
+				{hasSettingsTab && (
+					<button
+						type="button"
+						role="tab"
+						data-testid="extension-subtab-settings"
+						aria-selected={activeSubTab === 'settings'}
+						onClick={() => setActiveSubTab('settings')}
+						className="px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors"
+						style={{
+							borderColor: activeSubTab === 'settings' ? theme.colors.accent : 'transparent',
+							color: activeSubTab === 'settings' ? theme.colors.textMain : theme.colors.textDim,
+						}}
 					>
-						Background services
-					</div>
-					<div className="space-y-1.5">
-						{firstPartyServices.map((service) => (
+						Settings
+					</button>
+				)}
+				<button
+					type="button"
+					role="tab"
+					data-testid="extension-subtab-permissions"
+					aria-selected={activeSubTab === 'permissions'}
+					onClick={() => setActiveSubTab('permissions')}
+					className="px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors"
+					style={{
+						borderColor: activeSubTab === 'permissions' ? theme.colors.accent : 'transparent',
+						color: activeSubTab === 'permissions' ? theme.colors.textMain : theme.colors.textDim,
+					}}
+				>
+					Permissions
+				</button>
+			</div>
+
+			{activeSubTab === 'permissions' && (
+				<>
+					{/* First-party background services (supervised via the lifecycle bridge) */}
+					{firstPartyServices.length > 0 && (
+						<div className="mt-5">
 							<div
-								key={service.id}
-								data-testid="extension-background-service"
-								data-service={service.id}
-								className="flex items-start gap-2 rounded-lg border p-2"
-								style={{ borderColor: theme.colors.border }}
+								className="text-xs font-bold uppercase opacity-70 mb-2"
+								style={{ color: theme.colors.textMain }}
 							>
-								<div className="min-w-0 flex-1">
-									<div className="text-xs font-mono" style={{ color: theme.colors.textMain }}>
-										{service.id}
-									</div>
-									<div className="text-[10px] mt-0.5" style={{ color: theme.colors.textDim }}>
-										{service.description}
-									</div>
-								</div>
-								<span
-									data-testid="extension-background-service-status"
-									className="text-[10px] font-medium flex-shrink-0 mt-0.5"
-									style={{
-										color: ext.state === 'enabled' ? theme.colors.success : theme.colors.textDim,
-									}}
-								>
-									{ext.state === 'enabled' ? 'Running (supervised)' : 'Stopped'}
-								</span>
+								Background services
 							</div>
-						))}
-					</div>
-				</div>
-			)}
-
-			{/* Requested permissions */}
-			{isPlugin && grants && grants.requested.length > 0 && (
-				<div className="mt-5">
-					<div
-						className="text-xs font-bold uppercase opacity-70 mb-2"
-						style={{ color: theme.colors.textMain }}
-					>
-						Requested permissions
-					</div>
-					<div className="space-y-1.5">
-						{grants.requested.map((req) => {
-							const risk = capabilityRisk(req.capability);
-							const color = theme.colors[RISK_COLOR[risk]];
-							const granted = grantedCaps.has(req.capability);
-							return (
-								<div
-									key={req.capability}
-									data-testid="extension-permission"
-									data-cap={req.capability}
-									className="flex items-start gap-2 rounded-lg border p-2"
-									style={{ borderColor: theme.colors.border }}
-								>
-									<span
-										className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase flex-shrink-0 mt-0.5"
-										style={{ backgroundColor: color + '22', color }}
+							<div className="space-y-1.5">
+								{firstPartyServices.map((service) => (
+									<div
+										key={service.id}
+										data-testid="extension-background-service"
+										data-service={service.id}
+										className="flex items-start gap-2 rounded-lg border p-2"
+										style={{ borderColor: theme.colors.border }}
 									>
-										{risk}
-									</span>
-									<div className="min-w-0 flex-1">
-										<div className="text-xs" style={{ color: theme.colors.textMain }}>
-											{describeCapability(req.capability)}
-										</div>
-										{req.scope && (
-											<div
-												className="text-[10px] font-mono mt-0.5"
-												style={{ color: theme.colors.textDim }}
-											>
-												{req.scope}
+										<div className="min-w-0 flex-1">
+											<div className="text-xs font-mono" style={{ color: theme.colors.textMain }}>
+												{service.id}
 											</div>
-										)}
+											<div className="text-[10px] mt-0.5" style={{ color: theme.colors.textDim }}>
+												{service.description}
+											</div>
+										</div>
+										<span
+											data-testid="extension-background-service-status"
+											className="text-[10px] font-medium flex-shrink-0 mt-0.5"
+											style={{
+												color:
+													ext.state === 'enabled' ? theme.colors.success : theme.colors.textDim,
+											}}
+										>
+											{ext.state === 'enabled' ? 'Running (supervised)' : 'Stopped'}
+										</span>
 									</div>
-									<span
-										className="text-[10px] font-medium flex-shrink-0 mt-0.5"
-										style={{ color: granted ? theme.colors.success : theme.colors.textDim }}
-									>
-										{granted ? 'Granted' : 'Not granted'}
-									</span>
-								</div>
-							);
-						})}
-					</div>
-				</div>
-			)}
+								))}
+							</div>
+						</div>
+					)}
 
-			{/* First-party permission disclosure: the capabilities the feature's
+					{/* Requested permissions */}
+					{isPlugin && grants && grants.requested.length > 0 && (
+						<div className="mt-5">
+							<div
+								className="text-xs font-bold uppercase opacity-70 mb-2"
+								style={{ color: theme.colors.textMain }}
+							>
+								Requested permissions
+							</div>
+							<div className="space-y-1.5">
+								{grants.requested.map((req) => {
+									const risk = capabilityRisk(req.capability);
+									const color = theme.colors[RISK_COLOR[risk]];
+									const granted = grantedCaps.has(req.capability);
+									return (
+										<div
+											key={req.capability}
+											data-testid="extension-permission"
+											data-cap={req.capability}
+											className="flex items-start gap-2 rounded-lg border p-2"
+											style={{ borderColor: theme.colors.border }}
+										>
+											<span
+												className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase flex-shrink-0 mt-0.5"
+												style={{ backgroundColor: color + '22', color }}
+											>
+												{risk}
+											</span>
+											<div className="min-w-0 flex-1">
+												<div className="text-xs" style={{ color: theme.colors.textMain }}>
+													{describeCapability(req.capability)}
+												</div>
+												{req.scope && (
+													<div
+														className="text-[10px] font-mono mt-0.5"
+														style={{ color: theme.colors.textDim }}
+													>
+														{req.scope}
+													</div>
+												)}
+											</div>
+											<span
+												className="text-[10px] font-medium flex-shrink-0 mt-0.5"
+												style={{ color: granted ? theme.colors.success : theme.colors.textDim }}
+											>
+												{granted ? 'Granted' : 'Not granted'}
+											</span>
+										</div>
+									);
+								})}
+							</div>
+						</div>
+					)}
+
+					{/* First-party permission disclosure: the capabilities the feature's
 			    definition declares. Grants are minted host-side by the lifecycle
 			    bridge when the tile is enabled (trusted by construction), so this
 			    is static disclosure — no ledger round-trip. */}
-			{!isPlugin && (ext.permissions?.length ?? 0) > 0 && (
-				<div className="mt-5">
-					<div
-						className="text-xs font-bold uppercase opacity-70 mb-2"
-						style={{ color: theme.colors.textMain }}
-					>
-						Permissions
-					</div>
-					<div className="space-y-1.5">
-						{(ext.permissions ?? []).map((req) => {
-							const risk = capabilityRisk(req.capability);
-							const color = theme.colors[RISK_COLOR[risk]];
-							return (
-								<div
-									key={req.capability + (req.scope ?? '')}
-									data-testid="extension-permission"
-									data-cap={req.capability}
-									className="flex items-start gap-2 rounded-lg border p-2"
-									style={{ borderColor: theme.colors.border }}
-								>
-									<span
-										className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase flex-shrink-0 mt-0.5"
-										style={{ backgroundColor: color + '22', color }}
-									>
-										{risk}
-									</span>
-									<div className="min-w-0 flex-1">
-										<div className="text-xs" style={{ color: theme.colors.textMain }}>
-											{describeCapability(req.capability)}
-										</div>
-										{req.scope && (
-											<div
-												className="text-[10px] font-mono mt-0.5"
+					{!isPlugin && (ext.permissions?.length ?? 0) > 0 && (
+						<div className="mt-5">
+							<div
+								className="text-xs font-bold uppercase opacity-70 mb-2"
+								style={{ color: theme.colors.textMain }}
+							>
+								Permissions
+							</div>
+							<div className="space-y-1.5">
+								{(ext.permissions ?? []).map((req) => {
+									const risk = capabilityRisk(req.capability);
+									const color = theme.colors[RISK_COLOR[risk]];
+									return (
+										<div
+											key={req.capability + (req.scope ?? '')}
+											data-testid="extension-permission"
+											data-cap={req.capability}
+											className="flex items-start gap-2 rounded-lg border p-2"
+											style={{ borderColor: theme.colors.border }}
+										>
+											<span
+												className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase flex-shrink-0 mt-0.5"
+												style={{ backgroundColor: color + '22', color }}
+											>
+												{risk}
+											</span>
+											<div className="min-w-0 flex-1">
+												<div className="text-xs" style={{ color: theme.colors.textMain }}>
+													{describeCapability(req.capability)}
+												</div>
+												{req.scope && (
+													<div
+														className="text-[10px] font-mono mt-0.5"
+														style={{ color: theme.colors.textDim }}
+													>
+														{req.scope}
+													</div>
+												)}
+												{req.reason && (
+													<div
+														className="text-[10px] mt-0.5"
+														style={{ color: theme.colors.textDim }}
+													>
+														{req.reason}
+													</div>
+												)}
+											</div>
+											<span
+												data-testid="extension-permission-status"
+												className="text-[10px] font-medium flex-shrink-0 mt-0.5"
 												style={{ color: theme.colors.textDim }}
 											>
-												{req.scope}
-											</div>
-										)}
-										{req.reason && (
-											<div className="text-[10px] mt-0.5" style={{ color: theme.colors.textDim }}>
-												{req.reason}
-											</div>
-										)}
-									</div>
-									<span
-										data-testid="extension-permission-status"
-										className="text-[10px] font-medium flex-shrink-0 mt-0.5"
-										style={{ color: theme.colors.textDim }}
-									>
-										Granted on enable
-									</span>
-								</div>
-							);
-						})}
-					</div>
-				</div>
-			)}
-
-			{/* Contributions summary */}
-			{isPlugin && contributions && (
-				<div className="mt-5">
-					<div
-						className="text-xs font-bold uppercase opacity-70 mb-2"
-						style={{ color: theme.colors.textMain }}
-					>
-						Contributions
-					</div>
-					<div className="flex flex-wrap gap-1.5">
-						{CONTRIB_BUCKETS.map((bucket) => {
-							const count = bucket.pick(contributions).filter((i) => i.pluginId === ext.id).length;
-							if (count === 0) return null;
-							return (
-								<span
-									key={bucket.label}
-									className="px-1.5 py-0.5 rounded text-[10px]"
-									style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}
-								>
-									{bucket.label}: {count}
-								</span>
-							);
-						})}
-						{CONTRIB_BUCKETS.every(
-							(b) => b.pick(contributions).filter((i) => i.pluginId === ext.id).length === 0
-						) && (
-							<span className="text-xs" style={{ color: theme.colors.textDim }}>
-								No contributions.
-							</span>
-						)}
-					</div>
-				</div>
-			)}
-
-			{/* Configure: live editor for the plugin's contributed settings */}
-			{isPlugin && canConfigurePlugin && configureOpen && (
-				<div className="mt-5">
-					<div
-						className="text-xs font-bold uppercase opacity-70 mb-2"
-						style={{ color: theme.colors.textMain }}
-					>
-						Configure
-					</div>
-					{pluginSettings.length === 0 ? (
-						<div className="text-xs" style={{ color: theme.colors.textDim }}>
-							This plugin contributes no configurable settings.
-						</div>
-					) : (
-						<div className="space-y-3">
-							{pluginSettings.map((setting) => {
-								const current = settingValues[setting.key] ?? setting.default;
-								return (
-									<div key={setting.key} className="flex items-center justify-between gap-3">
-										<div className="min-w-0">
-											<div className="text-sm" style={{ color: theme.colors.textMain }}>
-												{setting.key}
-											</div>
-											{setting.description && (
-												<div className="text-[11px]" style={{ color: theme.colors.textDim }}>
-													{setting.description}
-												</div>
-											)}
+												Granted on enable
+											</span>
 										</div>
-										{setting.type === 'boolean' && (
-											<input
-												type="checkbox"
-												data-testid="extension-setting-input"
-												data-key={setting.key}
-												checked={current === true}
-												onChange={(e) => writeSetting(setting.key, e.target.checked)}
-											/>
-										)}
-										{setting.type === 'string' && (
-											<input
-												type="text"
-												data-testid="extension-setting-input"
-												data-key={setting.key}
-												value={typeof current === 'string' ? current : ''}
-												onChange={(e) => writeSetting(setting.key, e.target.value)}
-												className="px-2 py-1 rounded border text-sm w-48"
-												style={{
-													backgroundColor: theme.colors.bgMain,
-													borderColor: theme.colors.border,
-													color: theme.colors.textMain,
-												}}
-											/>
-										)}
-										{setting.type === 'number' && (
-											<input
-												type="number"
-												data-testid="extension-setting-input"
-												data-key={setting.key}
-												value={typeof current === 'number' ? current : 0}
-												onChange={(e) => writeSetting(setting.key, Number(e.target.value))}
-												className="px-2 py-1 rounded border text-sm w-28"
-												style={{
-													backgroundColor: theme.colors.bgMain,
-													borderColor: theme.colors.border,
-													color: theme.colors.textMain,
-												}}
-											/>
-										)}
-									</div>
-								);
-							})}
+									);
+								})}
+							</div>
+						</div>
+					)}
+
+					{/* Contributions summary */}
+					{isPlugin && contributions && (
+						<div className="mt-5">
+							<div
+								className="text-xs font-bold uppercase opacity-70 mb-2"
+								style={{ color: theme.colors.textMain }}
+							>
+								Contributions
+							</div>
+							<div className="flex flex-wrap gap-1.5">
+								{CONTRIB_BUCKETS.map((bucket) => {
+									const count = bucket
+										.pick(contributions)
+										.filter((i) => i.pluginId === ext.id).length;
+									if (count === 0) return null;
+									return (
+										<span
+											key={bucket.label}
+											className="px-1.5 py-0.5 rounded text-[10px]"
+											style={{
+												backgroundColor: theme.colors.bgActivity,
+												color: theme.colors.textDim,
+											}}
+										>
+											{bucket.label}: {count}
+										</span>
+									);
+								})}
+								{CONTRIB_BUCKETS.every(
+									(b) => b.pick(contributions).filter((i) => i.pluginId === ext.id).length === 0
+								) && (
+									<span className="text-xs" style={{ color: theme.colors.textDim }}>
+										No contributions.
+									</span>
+								)}
+							</div>
+						</div>
+					)}
+				</>
+			)}
+
+			{/* Settings sub-tab: first-party config body, plugin config editor, or
+			    Pianola's modal entry — whichever applies to this extension. */}
+			{activeSubTab === 'settings' && (
+				<div className="mt-5" data-testid="extension-settings-panel">
+					{/* First-party feature with an inline config body */}
+					{!isPlugin && settingsBody ? (
+						ext.state === 'enabled' ? (
+							settingsBody
+						) : (
+							<div
+								data-testid="extension-settings-disabled-hint"
+								className="text-xs rounded-lg border p-3"
+								style={{ borderColor: theme.colors.border, color: theme.colors.textDim }}
+							>
+								Enable this plugin to configure it.
+							</div>
+						)
+					) : null}
+
+					{/* Pianola: config lives in its dedicated modal */}
+					{isPianola &&
+						(ext.state === 'enabled' ? (
+							<button
+								type="button"
+								data-testid="extension-open-pianola"
+								onClick={() => getModalActions().setPianolaModalOpen(true)}
+								className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors hover:bg-white/5"
+								style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
+							>
+								<SettingsIcon className="w-4 h-4" /> Open Pianola
+							</button>
+						) : (
+							<div
+								data-testid="extension-settings-disabled-hint"
+								className="text-xs rounded-lg border p-3"
+								style={{ borderColor: theme.colors.border, color: theme.colors.textDim }}
+							>
+								Enable Pianola to open its manager and rules.
+							</div>
+						))}
+
+					{/* Plugin: consent-gated live editor for contributed settings */}
+					{isPlugin && canConfigurePlugin && (
+						<div>
+							{!configureOpen ? (
+								<button
+									type="button"
+									data-testid="extension-configure"
+									onClick={() => void openConfigure()}
+									className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors hover:bg-white/5"
+									style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
+								>
+									<SettingsIcon className="w-4 h-4" /> Configure (grant + edit)
+								</button>
+							) : (
+								<div className="space-y-3">
+									{pluginSettings.map((setting) => {
+										const current = settingValues[setting.key] ?? setting.default;
+										return (
+											<div key={setting.key} className="flex items-center justify-between gap-3">
+												<div className="min-w-0">
+													<div className="text-sm" style={{ color: theme.colors.textMain }}>
+														{setting.key}
+													</div>
+													{setting.description && (
+														<div className="text-[11px]" style={{ color: theme.colors.textDim }}>
+															{setting.description}
+														</div>
+													)}
+												</div>
+												{setting.type === 'boolean' && (
+													<input
+														type="checkbox"
+														data-testid="extension-setting-input"
+														data-key={setting.key}
+														checked={current === true}
+														onChange={(e) => writeSetting(setting.key, e.target.checked)}
+													/>
+												)}
+												{setting.type === 'string' && (
+													<input
+														type="text"
+														data-testid="extension-setting-input"
+														data-key={setting.key}
+														value={typeof current === 'string' ? current : ''}
+														onChange={(e) => writeSetting(setting.key, e.target.value)}
+														className="px-2 py-1 rounded border text-sm w-48"
+														style={{
+															backgroundColor: theme.colors.bgMain,
+															borderColor: theme.colors.border,
+															color: theme.colors.textMain,
+														}}
+													/>
+												)}
+												{setting.type === 'number' && (
+													<input
+														type="number"
+														data-testid="extension-setting-input"
+														data-key={setting.key}
+														value={typeof current === 'number' ? current : 0}
+														onChange={(e) => writeSetting(setting.key, Number(e.target.value))}
+														className="px-2 py-1 rounded border text-sm w-28"
+														style={{
+															backgroundColor: theme.colors.bgMain,
+															borderColor: theme.colors.border,
+															color: theme.colors.textMain,
+														}}
+													/>
+												)}
+											</div>
+										);
+									})}
+								</div>
+							)}
 						</div>
 					)}
 				</div>
-			)}
-
-			{!isPlugin && (
-				<p className="text-xs mt-4" style={{ color: theme.colors.textDim }}>
-					This is a built-in Maestro feature. Detailed configuration lives in its section on the
-					Encore Features tab.
-				</p>
 			)}
 		</div>
 	);
