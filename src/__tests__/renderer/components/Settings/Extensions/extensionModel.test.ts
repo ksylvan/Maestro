@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import type { PluginRecord } from '../../../../../shared/plugins/plugin-registry';
 import {
+	FIRST_PARTY_PLUGINS,
 	PIANOLA_FIRST_PARTY_PLUGIN_ID,
 	PIANOLA_FIRST_PARTY_PLUGIN_PERMISSIONS,
-} from '../../../../../shared/pianola/first-party-plugin';
+} from '../../../../../shared/plugins/first-party';
 import {
 	buildExtensions,
 	builtinExtension,
@@ -79,5 +80,65 @@ describe('extensionModel Pianola first-party plugin backing', () => {
 		});
 		expect(plugin?.kind).toBe('plugin');
 		expect(plugin?.pluginBacked).toBeUndefined();
+	});
+});
+
+describe('extensionModel first-party projection (all Encore features)', () => {
+	it('projects EVERY built-in feature as plugin-backed from the shared registry', () => {
+		expect(BUILTIN_FEATURES.map((def) => def.flag)).toEqual([
+			'usageStats',
+			'symphony',
+			'maestroCue',
+			'directorNotes',
+			'pianola',
+		]);
+
+		for (const def of BUILTIN_FEATURES) {
+			const backing = FIRST_PARTY_PLUGINS[def.flag as keyof typeof FIRST_PARTY_PLUGINS];
+			const ext = builtinExtension(def, flags({ [def.flag]: true }));
+			expect(ext).toMatchObject({
+				key: `builtin:${def.flag}`,
+				kind: 'builtin',
+				id: def.flag,
+				name: backing.name,
+				description: backing.description,
+				category: backing.category,
+				state: 'enabled',
+				pluginBacked: true,
+				firstParty: true,
+				pluginId: backing.id,
+				settingsNamespace: backing.settingsNamespace,
+			});
+			expect(ext.permissions).toEqual(backing.permissions);
+			expect(ext.backgroundServiceId).toBe(backing.backgroundServices[0]?.id);
+		}
+	});
+
+	it('surfaces the plan-table identities on the details pane fields', () => {
+		const byFlag = (flag: keyof EncoreFeatureFlags) =>
+			builtinExtension(BUILTIN_FEATURES.find((d) => d.flag === flag)!, flags());
+		expect(byFlag('directorNotes')).toMatchObject({
+			pluginId: 'com.maestro.director-notes',
+			category: 'insights',
+		});
+		expect(byFlag('usageStats')).toMatchObject({
+			pluginId: 'com.maestro.usage-stats',
+			category: 'insights',
+		});
+		expect(byFlag('symphony')).toMatchObject({
+			pluginId: 'com.maestro.symphony',
+			category: 'agents',
+		});
+		expect(byFlag('maestroCue')).toMatchObject({
+			pluginId: 'com.maestro.cue',
+			category: 'automation',
+		});
+	});
+
+	it('off flags project as not-installed tiles', () => {
+		const extensions = buildExtensions(flags(), []);
+		for (const ext of extensions) {
+			expect(ext.state).toBe('not-installed');
+		}
 	});
 });

@@ -13,9 +13,10 @@
 
 import type { PluginCategory } from '../../../../shared/plugins/plugin-manifest';
 import {
-	PIANOLA_FIRST_PARTY_PLUGIN_METADATA,
-	type PianolaFirstPartyPluginMetadata,
-} from '../../../../shared/pianola/first-party-plugin';
+	FIRST_PARTY_PLUGIN_DEFINITIONS,
+	type FirstPartyEncoreFlag,
+	type FirstPartyPluginDefinition,
+} from '../../../../shared/plugins/first-party';
 import type { PluginRecord, PluginSignatureInfo } from '../../../../shared/plugins/plugin-registry';
 import { PLUGIN_CATEGORIES } from '../../../../shared/plugins/plugin-manifest';
 import type { EncoreFeatureFlags } from '../../../types';
@@ -34,15 +35,22 @@ export type ExtensionState = 'not-installed' | 'installed' | 'enabled';
 /** Trust status mirrored from a plugin's signature verification. */
 export type ExtensionTrust = PluginSignatureInfo['status'];
 
-/** A first-party Encore feature surfaced as a tile. */
+/** A first-party Encore feature surfaced as a tile. Every built-in is
+ * plugin-backed: its identity/category/permissions come from the shared
+ * first-party registry (src/shared/plugins/first-party.ts). */
 export interface BuiltinFeatureDef {
 	flag: keyof EncoreFeatureFlags;
-	name: string;
-	description: string;
-	category: PluginCategory;
 	beta?: boolean;
-	pluginBacking?: PianolaFirstPartyPluginMetadata;
+	pluginBacking: FirstPartyPluginDefinition;
 }
+
+// The registry's flag union must stay a subset of the renderer's
+// EncoreFeatureFlags (shared code cannot import renderer types directly).
+type _FirstPartyFlagsAreEncoreFlags = FirstPartyEncoreFlag extends keyof EncoreFeatureFlags
+	? true
+	: never;
+const _firstPartyFlagsAssignable: _FirstPartyFlagsAreEncoreFlags = true;
+void _firstPartyFlagsAssignable;
 
 /** One tile in the grid, regardless of source. */
 export interface UnifiedExtension {
@@ -59,7 +67,7 @@ export interface UnifiedExtension {
 	pluginBacked?: boolean;
 	firstParty?: boolean;
 	pluginId?: string;
-	permissions?: PianolaFirstPartyPluginMetadata['permissions'];
+	permissions?: FirstPartyPluginDefinition['permissions'];
 	settingsNamespace?: string;
 	backgroundServiceId?: string;
 	// --- plugin-only ---
@@ -74,49 +82,25 @@ export interface UnifiedExtension {
 }
 
 /** The first-party Encore features the marketplace surfaces (NOT the `plugins`
- * subsystem flag itself, which is the master switch handled separately). */
-export const BUILTIN_FEATURES: readonly BuiltinFeatureDef[] = [
-	{
-		flag: 'usageStats',
-		name: 'Usage & Stats',
-		description: 'Track queries, Auto Run sessions, and view the Usage Dashboard.',
-		category: 'data',
-	},
-	{
-		flag: 'symphony',
-		name: 'Maestro Symphony',
-		description: 'Contribute to open-source projects through curated repositories.',
-		category: 'devtools',
-	},
-	{
-		flag: 'maestroCue',
-		name: 'Maestro Cue',
-		description:
-			'Event-driven automation — trigger agent prompts on timers, file changes, and completions.',
-		category: 'automation',
-		beta: true,
-	},
-	{
-		flag: 'directorNotes',
-		name: "Director's Notes",
-		description: 'Unified history view and AI-generated synopsis across all sessions.',
-		category: 'agents',
-		beta: true,
-	},
-	{
-		flag: 'pianola',
-		name: 'Pianola',
-		description: PIANOLA_FIRST_PARTY_PLUGIN_METADATA.description,
-		category: PIANOLA_FIRST_PARTY_PLUGIN_METADATA.category,
-		pluginBacking: PIANOLA_FIRST_PARTY_PLUGIN_METADATA,
-		beta: true,
-	},
-];
+ * subsystem flag itself, which is the master switch handled separately).
+ * Projected from the shared first-party plugin registry; `beta` is a
+ * marketplace-presentation concern, so it stays here. */
+export const BUILTIN_FEATURES: readonly BuiltinFeatureDef[] = FIRST_PARTY_PLUGIN_DEFINITIONS.map(
+	(def) => ({
+		flag: def.encoreFlag,
+		beta:
+			def.encoreFlag === 'maestroCue' ||
+			def.encoreFlag === 'directorNotes' ||
+			def.encoreFlag === 'pianola',
+		pluginBacking: def,
+	})
+);
 
 /** Display labels for the category filter bar + tile badge. */
 export const CATEGORY_LABELS: Record<PluginCategory, string> = {
 	automation: 'Automation',
 	agents: 'Agents',
+	insights: 'Insights',
 	ui: 'UI',
 	data: 'Data',
 	devtools: 'Dev Tools',
@@ -140,21 +124,22 @@ export function builtinExtension(
 	flags: EncoreFeatureFlags
 ): UnifiedExtension {
 	const on = flags[def.flag] === true;
+	const backing = def.pluginBacking;
 	return {
 		key: `builtin:${def.flag}`,
 		kind: 'builtin',
 		id: def.flag,
-		name: def.name,
-		description: def.description,
-		category: def.category,
+		name: backing.name,
+		description: backing.description,
+		category: backing.category,
 		state: on ? 'enabled' : 'not-installed',
 		beta: def.beta,
-		pluginBacked: def.pluginBacking ? true : undefined,
-		firstParty: def.pluginBacking?.firstParty,
-		pluginId: def.pluginBacking?.id,
-		permissions: def.pluginBacking?.permissions,
-		settingsNamespace: def.pluginBacking?.settings.namespace,
-		backgroundServiceId: def.pluginBacking?.backgroundService.id,
+		pluginBacked: true,
+		firstParty: backing.firstParty,
+		pluginId: backing.id,
+		permissions: backing.permissions,
+		settingsNamespace: backing.settingsNamespace,
+		backgroundServiceId: backing.backgroundServices[0]?.id,
 		flag: def.flag,
 	};
 }

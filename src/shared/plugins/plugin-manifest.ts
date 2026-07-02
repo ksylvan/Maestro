@@ -34,11 +34,19 @@ export const PLUGIN_TIERS: readonly PluginTier[] = [0, 1, 2];
  * Coarse marketplace category used to group and filter extensions in the
  * Extensions view. Optional in a manifest; absent is treated as 'other'.
  */
-export type PluginCategory = 'automation' | 'agents' | 'ui' | 'data' | 'devtools' | 'other';
+export type PluginCategory =
+	| 'automation'
+	| 'agents'
+	| 'insights'
+	| 'ui'
+	| 'data'
+	| 'devtools'
+	| 'other';
 
 export const PLUGIN_CATEGORIES: readonly PluginCategory[] = [
 	'automation',
 	'agents',
+	'insights',
 	'ui',
 	'data',
 	'devtools',

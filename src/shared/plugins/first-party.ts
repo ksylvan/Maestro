@@ -1,0 +1,228 @@
+/**
+ * First-party plugin registry (pure, bundle-safe).
+ *
+ * Every Encore feature is surfaced in the Extensions marketplace as a
+ * first-party plugin: a stable plugin id, category, an HONEST permission
+ * disclosure (the broker capabilities the feature's host code actually
+ * touches), a settings namespace, and its supervised background services.
+ *
+ * This is intentionally metadata, not an installed third-party plugin.json:
+ * the implementation code stays first-party (host code, trusted by
+ * construction, no vm sandbox), while the marketplace exposes the same
+ * category/permissions/service shape users expect from plugin-backed
+ * features and lifecycle routes through the host-owned
+ * `FirstPartyPluginBridge` (src/main/plugins/first-party-bridge.ts).
+ *
+ * Definitions land statically: feature workers edit their entry in
+ * `FIRST_PARTY_PLUGIN_DEFINITIONS` in place (refining permissions against
+ * what the feature ACTUALLY touches and registering their background
+ * services). The registry is keyed by Encore flag because the flag is the
+ * lifecycle handle the settings store, IPC togglers, and bridges share.
+ */
+
+import type { PluginCategory } from './plugin-manifest';
+import type { PermissionRequest } from './permissions';
+
+/**
+ * The Encore feature flags that are first-party plugins. This is the
+ * marketplace-managed subset of the renderer's `EncoreFeatureFlags` — the
+ * `plugins` master switch itself is deliberately NOT here (it gates the
+ * community-plugin subsystem and is handled separately). extensionModel
+ * compile-time-asserts this stays assignable to `keyof EncoreFeatureFlags`.
+ */
+export type FirstPartyEncoreFlag =
+	| 'directorNotes'
+	| 'usageStats'
+	| 'symphony'
+	| 'maestroCue'
+	| 'pianola';
+
+/** A supervised background service a first-party plugin runs. */
+export interface FirstPartyBackgroundService {
+	id: string;
+	kind: 'supervised';
+	description: string;
+}
+
+/** One Encore feature's first-party plugin metadata. */
+export interface FirstPartyPluginDefinition {
+	/** Stable, reverse-DNS plugin identity (`com.maestro.*`). */
+	id: string;
+	name: string;
+	description: string;
+	/** Always true: these are host-code features, trusted by construction. */
+	firstParty: true;
+	category: PluginCategory;
+	/** Honest disclosure of the broker capabilities the feature touches. */
+	permissions: readonly PermissionRequest[];
+	/** Namespace used by the feature's settings/storage surfaces. */
+	settingsNamespace: string;
+	/** The Encore feature flag that authorizes the first-party surface. */
+	encoreFlag: FirstPartyEncoreFlag;
+	/** Supervised background services the feature runs (empty when none). */
+	backgroundServices: readonly FirstPartyBackgroundService[];
+}
+
+/** Stable first-party plugin identity for Pianola's plugin-backed Encore surface. */
+export const PIANOLA_FIRST_PARTY_PLUGIN_ID = 'com.maestro.pianola';
+
+/** Broker capabilities Pianola's supervised manager flow actually depends on. */
+export const PIANOLA_FIRST_PARTY_PLUGIN_PERMISSIONS: readonly PermissionRequest[] = [
+	{
+		capability: 'settings:read',
+		reason: 'Re-read the Pianola Encore consent flag before every supervised action.',
+	},
+	{
+		capability: 'agents:read',
+		reason: 'List agent sessions and status so Pianola can detect who is awaiting input.',
+	},
+	{
+		capability: 'transcripts:read',
+		reason: 'Read projected agent transcript content to classify waiting prompts and risk.',
+	},
+	// NOTE: `agents:dispatch` is deliberately ABSENT. FC2 promoted it to an
+	// allowlist scope naming exact agent targets; Pianola dispatches to
+	// dynamically-discovered waiting sessions, which a static manifest scope
+	// cannot name. Pianola's dispatch authority today is HOST-OWNED (supervised
+	// CLI path gated by the Encore consent flag + risk engine + audit), not a
+	// broker grant. The plugin lift must design a runtime per-agent grant seam
+	// (or host-mediated dispatch) before this can become a broker capability.
+	{
+		capability: 'decisions:write',
+		reason: 'Record Pianola decisions before any dispatch and record the dispatch outcome.',
+	},
+	{
+		capability: 'notifications:toast',
+		reason: 'Escalate uncovered, failed, timed-out, or high-risk prompts to the user.',
+	},
+	{
+		capability: 'background:service',
+		reason:
+			'Run supervised watch/orchestrate and scheduled re-learn work with host lifecycle control.',
+	},
+] as const;
+
+/** Pianola: the complete definition (the pattern the other features follow). */
+export const PIANOLA_FIRST_PARTY_PLUGIN: FirstPartyPluginDefinition = {
+	id: PIANOLA_FIRST_PARTY_PLUGIN_ID,
+	name: 'Pianola',
+	description:
+		'Autonomous manager agent that watches your agents and auto-answers or escalates prompts.',
+	firstParty: true,
+	category: 'agents',
+	permissions: PIANOLA_FIRST_PARTY_PLUGIN_PERMISSIONS,
+	settingsNamespace: 'pianola',
+	encoreFlag: 'pianola',
+	backgroundServices: [
+		{
+			id: 'pianola.supervisor',
+			kind: 'supervised',
+			description:
+				'Supervises Pianola watch/orchestrate targets and stops them when consent is off.',
+		},
+	],
+};
+
+/**
+ * The remaining Encore features, as MINIMAL placeholder definitions per the
+ * encore-lifts plan (L0). Feature workers (L2..L5) refine their own permission
+ * lists against what the feature ACTUALLY touches and register their
+ * background services — the plan table is the starting claim, not the
+ * contract, so L0 deliberately declares only `settings:read` here.
+ */
+export const DIRECTOR_NOTES_FIRST_PARTY_PLUGIN: FirstPartyPluginDefinition = {
+	id: 'com.maestro.director-notes',
+	name: "Director's Notes",
+	description: 'Unified history view and AI-generated synopsis across all sessions.',
+	firstParty: true,
+	category: 'insights',
+	permissions: [
+		{
+			capability: 'settings:read',
+			reason: "Re-read the Director's Notes Encore flag and synopsis settings.",
+		},
+	],
+	settingsNamespace: 'directorNotes',
+	encoreFlag: 'directorNotes',
+	backgroundServices: [],
+};
+
+export const USAGE_STATS_FIRST_PARTY_PLUGIN: FirstPartyPluginDefinition = {
+	id: 'com.maestro.usage-stats',
+	name: 'Usage & Stats',
+	description: 'Track queries, Auto Run sessions, and view the Usage Dashboard.',
+	firstParty: true,
+	category: 'insights',
+	permissions: [
+		{
+			capability: 'settings:read',
+			reason: 'Re-read the Usage & Stats Encore flag and dashboard settings.',
+		},
+	],
+	settingsNamespace: 'usageStats',
+	encoreFlag: 'usageStats',
+	backgroundServices: [],
+};
+
+export const SYMPHONY_FIRST_PARTY_PLUGIN: FirstPartyPluginDefinition = {
+	id: 'com.maestro.symphony',
+	name: 'Maestro Symphony',
+	description: 'Contribute to open-source projects through curated repositories.',
+	firstParty: true,
+	category: 'agents',
+	permissions: [
+		{
+			capability: 'settings:read',
+			reason: 'Re-read the Symphony Encore flag and registry source settings.',
+		},
+	],
+	settingsNamespace: 'symphony',
+	encoreFlag: 'symphony',
+	backgroundServices: [],
+};
+
+export const MAESTRO_CUE_FIRST_PARTY_PLUGIN: FirstPartyPluginDefinition = {
+	id: 'com.maestro.cue',
+	name: 'Maestro Cue',
+	description:
+		'Event-driven automation — trigger agent prompts on timers, file changes, and completions.',
+	firstParty: true,
+	category: 'automation',
+	permissions: [
+		{
+			capability: 'settings:read',
+			reason: 'Re-read the Maestro Cue Encore flag and global Cue settings.',
+		},
+	],
+	settingsNamespace: 'maestroCue',
+	encoreFlag: 'maestroCue',
+	backgroundServices: [],
+};
+
+/**
+ * Every first-party plugin definition, in marketplace display order (matches
+ * the pre-lift BUILTIN_FEATURES tile order).
+ */
+export const FIRST_PARTY_PLUGIN_DEFINITIONS: readonly FirstPartyPluginDefinition[] = [
+	USAGE_STATS_FIRST_PARTY_PLUGIN,
+	SYMPHONY_FIRST_PARTY_PLUGIN,
+	MAESTRO_CUE_FIRST_PARTY_PLUGIN,
+	DIRECTOR_NOTES_FIRST_PARTY_PLUGIN,
+	PIANOLA_FIRST_PARTY_PLUGIN,
+];
+
+/**
+ * The registry: one definition per first-party Encore flag. A static
+ * `Record` keyed by the flag union, so the compiler enforces that EVERY
+ * first-party flag has exactly one definition (a new flag without an entry
+ * is a type error, not a runtime miss).
+ */
+export const FIRST_PARTY_PLUGINS: Readonly<
+	Record<FirstPartyEncoreFlag, FirstPartyPluginDefinition>
+> = {
+	directorNotes: DIRECTOR_NOTES_FIRST_PARTY_PLUGIN,
+	usageStats: USAGE_STATS_FIRST_PARTY_PLUGIN,
+	symphony: SYMPHONY_FIRST_PARTY_PLUGIN,
+	maestroCue: MAESTRO_CUE_FIRST_PARTY_PLUGIN,
+	pianola: PIANOLA_FIRST_PARTY_PLUGIN,
+};

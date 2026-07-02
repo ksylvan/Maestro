@@ -73,6 +73,13 @@ import {
 	shouldDisablePluginForVerifyResult,
 	type AuthorizationStore,
 } from './plugins/authorization-ledger';
+import {
+	FirstPartyPluginBridge,
+	createFirstPartyGrantMinter,
+	setFirstPartyBridges,
+	type FirstPartySupervisorHooks,
+} from './plugins/first-party-bridge';
+import { FIRST_PARTY_PLUGINS, type FirstPartyEncoreFlag } from '../shared/plugins/first-party';
 import { pluginIdentity } from './plugins/plugin-identity';
 import { PLUGIN_ID_PATTERN } from '../shared/plugins/plugin-manifest';
 import { ConsentNonceRegistry, ConsentMinter } from './plugins/consent-minter';
@@ -1244,6 +1251,36 @@ app
 		// The live grant source every enforcement seam now reads (sealed, identity-
 		// bound, anti-rollback) instead of the forgeable on-disk store.
 		const grantsOf = (pluginId: string) => authStore.readGrants(pluginId);
+
+		// First-party plugin bridges (encore-lifts L0): one host-owned lifecycle
+		// bridge per Encore feature definition. Enable mints the definition's
+		// declared grants through the SAME sealed ledger community consents use
+		// (first-party = trusted by construction; the marketplace tile shows the
+		// permission list as disclosure); disable/revoke stop supervised work and
+		// clear the flag. Feature workers (L1..L5) look their bridge up via
+		// getFirstPartyBridge(flag) — this is the single construction site.
+		const mintFirstPartyGrants = createFirstPartyGrantMinter(authStore);
+		const firstPartySupervisors: Partial<Record<FirstPartyEncoreFlag, FirstPartySupervisorHooks>> =
+			{
+				pianola: {
+					reconcile: () => pianolaSupervisor?.reconcile(),
+					stopAll: () => pianolaSupervisor?.stopAll(),
+				},
+			};
+		const firstPartyBridges: Partial<Record<FirstPartyEncoreFlag, FirstPartyPluginBridge>> = {};
+		for (const flag of Object.keys(FIRST_PARTY_PLUGINS) as FirstPartyEncoreFlag[]) {
+			firstPartyBridges[flag] = new FirstPartyPluginBridge(FIRST_PARTY_PLUGINS[flag], {
+				settingsStore: store as unknown as {
+					get: (key: string) => unknown;
+					set: (key: string, value: unknown) => void;
+				},
+				readGrants: grantsOf,
+				mintFirstPartyGrants,
+				revokeGrants: (pluginId) => authStore.revoke(pluginId),
+				supervisor: firstPartySupervisors[flag],
+			});
+		}
+		setFirstPartyBridges(firstPartyBridges);
 
 		const pluginBroker = new PermissionBroker({
 			getGrants: (pluginId) => grantsOf(pluginId),
