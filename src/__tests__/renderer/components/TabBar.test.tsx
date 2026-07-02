@@ -83,6 +83,11 @@ vi.mock('lucide-react', () => ({
 			⬆
 		</span>
 	),
+	VenetianMask: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+		<span data-testid="venetian-mask-icon" className={className} style={style}>
+			🎭
+		</span>
+	),
 	Terminal: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
 		<span data-testid="terminal-icon" className={className} style={style}>
 			⌨
