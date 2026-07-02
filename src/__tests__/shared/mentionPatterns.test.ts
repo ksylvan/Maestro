@@ -88,6 +88,17 @@ describe('tokenizeMentions', () => {
 		]);
 	});
 
+	it('does not treat a URL/path segment (host/@codex) as a mention', () => {
+		// `/` before `@` glues it to the path, so a known agent name embedded in a
+		// URL must not light up as an agent mention.
+		expect(tokenizeMentions('see https://github.com/@codex/repo', KNOWN)).toEqual([
+			{ kind: 'text', value: 'see https://github.com/@codex/repo' },
+		]);
+		expect(tokenizeMentions('path is ./@codex', KNOWN)).toEqual([
+			{ kind: 'text', value: 'path is ./@codex' },
+		]);
+	});
+
 	it('trims trailing sentence punctuation off a file mention', () => {
 		expect(tokenizeMentions('open @docs/releases.md.', KNOWN)).toEqual([
 			{ kind: 'text', value: 'open ' },

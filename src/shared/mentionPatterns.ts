@@ -35,8 +35,15 @@ export const AGENT_MENTION_PATTERN_SOURCE = '@[A-Za-z0-9-]+';
 /** A bare agent/group name: the entire body is name characters (no `/`, `.`, `_`). */
 const AGENT_NAME_RE = /^[A-Za-z0-9-]+$/;
 
-/** A `\w`-equivalent char immediately before a mention marks a mid-word hit. */
-const WORD_CHAR = /[A-Za-z0-9_]/;
+/**
+ * A char that, sitting immediately before an `@`, glues the `@…` to a preceding
+ * token so it is NOT a standalone mention. Covers word chars, another `@`
+ * (`@@x`), and the path/URL separators a mention body can itself contain
+ * (`_ . / -`). This is what keeps `foo@bar`, `email@host`, and a URL segment
+ * like `https://host/@codex` from being read as a mention - a mention must
+ * begin at a real boundary (start of text, whitespace, or non-path punctuation).
+ */
+const MENTION_PREV_BLOCK = /[A-Za-z0-9_@./-]/;
 
 /**
  * A single scan alternative covers both mention kinds: a leading `@` plus a
@@ -119,9 +126,10 @@ export function scanMentionSpans(text: string): MentionSpan[] {
 		const start = match.index;
 		const prevChar = start > 0 ? text[start - 1] : '';
 
-		// Mid-word / `@`-run guard: a preceding word char or `@` glues this to
-		// another token, so it is not a standalone mention.
-		if (prevChar && (prevChar === '@' || WORD_CHAR.test(prevChar))) {
+		// Boundary guard: a preceding word/path char or `@` glues this to another
+		// token (mid-word `foo@bar`, a URL segment `host/@codex`, an `@@x` run), so
+		// it is not a standalone mention.
+		if (prevChar && MENTION_PREV_BLOCK.test(prevChar)) {
 			continue;
 		}
 

@@ -56,6 +56,11 @@ describe('parseAgentMentions', () => {
 		expect(parseAgentMentions('foo@bar')).toEqual([]);
 	});
 
+	it('does not dispatch a mention embedded in a URL/path (host/@name)', () => {
+		expect(parseAgentMentions('see https://github.com/@codex')).toEqual([]);
+		expect(parseAgentMentions('open ./@codex')).toEqual([]);
+	});
+
 	it('skips malformed "@@" and "@@@" runs rather than crashing', () => {
 		expect(parseAgentMentions('@@double')).toEqual([]);
 		expect(parseAgentMentions('@@@triple')).toEqual([]);

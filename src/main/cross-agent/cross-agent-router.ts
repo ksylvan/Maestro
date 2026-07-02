@@ -66,6 +66,8 @@ export interface CrossAgentTargetSession {
 	customArgs?: string;
 	customEnvVars?: Record<string, string>;
 	customModel?: string;
+	/** Per-session reasoning/effort override (threaded through like model/args). */
+	customEffort?: string;
 	/** Claude token-source opt-in (Claude Code targets only). */
 	enableMaestroP?: boolean;
 	maestroPMode?: 'interactive' | 'dynamic';
@@ -219,6 +221,7 @@ export async function startCrossAgentRequest(
 	const configResolution = applyAgentConfigOverrides(agent, baseArgs, {
 		agentConfigValues,
 		sessionCustomModel: target.customModel,
+		sessionCustomEffort: target.customEffort,
 		sessionCustomArgs: target.customArgs,
 		sessionCustomEnvVars: target.customEnvVars,
 	});
