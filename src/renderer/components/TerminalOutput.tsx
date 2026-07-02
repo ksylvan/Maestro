@@ -492,6 +492,14 @@ const LogItemComponent = memo(
 				ref={logItemRef}
 				className={`flex gap-4 group ${isReversed ? 'flex-row-reverse' : ''} px-6 py-2`}
 				data-log-index={index}
+				// PERF: the transcript is not virtualized, so every message stays in the
+				// DOM. content-visibility:auto lets the browser skip style/layout/paint for
+				// off-screen rows (the dominant scroll cost - a huge static layer tree the
+				// compositor re-walked every frame). contain-intrinsic-size: 'auto <fallback>'
+				// reserves height so the scrollbar stays stable; `auto` makes the browser
+				// remember each row's real rendered size after it's been shown once. No DOM,
+				// React, or behavior change - purely a rendering hint.
+				style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 120px' }}
 			>
 				<div
 					className={`w-20 shrink-0 text-[10px] pt-2 ${isReversed ? 'text-right' : 'text-left'}`}
@@ -1087,10 +1095,11 @@ const LogItemComponent = memo(
 								</span>
 							);
 						})()}
-					{/* Mode pill — shows which CLI captured this Claude turn (TUI = maestro-p,
-					    API = claude --print). "Adaptive " prefix indicates the session has
-					    Adaptive Mode enabled (auto-switching between the two). Suppressed on
-					    cross-agent entries so the attribution pill above replaces it. */}
+					{/* Mode pill — shows which CLI captured this Claude turn (TUI Wrapper =
+					    maestro-p, claude -p = claude --print). "Dynamic " prefix indicates the
+					    session has Dynamic Mode enabled (auto-switching between the two).
+					    Suppressed on cross-agent entries so the attribution pill above
+					    replaces it. */}
 					{!crossAgent &&
 						isClaudeCode &&
 						log.source !== 'user' &&
@@ -1355,6 +1364,7 @@ interface TerminalOutputProps {
 	onDeleteLog?: (logId: string) => number | null; // Returns the index to scroll to after deletion
 	onRemoveQueuedItem?: (itemId: string) => void; // Callback to remove a queued item from execution queue
 	onTogglePauseQueuedItem?: (itemId: string) => void; // Callback to toggle held/paused state of a queued item
+	onEditQueuedItem?: (itemId: string, patch: { text: string; images: string[] }) => void; // Edit a queued message's text + images
 	onReorderQueuedItem?: (fromIndex: number, toIndex: number, tabId?: string) => void; // Reorder a queued item within the active tab's queue
 	onForceSendQueuedItem?: (itemId: string) => void; // Callback to Force Send a queued item (parallel execution)
 	forcedParallelEnabled?: boolean; // Whether forcedParallelExecution setting is on (gates Force Send button)
@@ -1421,6 +1431,7 @@ export const TerminalOutput = memo(
 			onDeleteLog,
 			onRemoveQueuedItem,
 			onTogglePauseQueuedItem,
+			onEditQueuedItem,
 			onReorderQueuedItem,
 			onForceSendQueuedItem,
 			forcedParallelEnabled,
@@ -2435,6 +2446,7 @@ export const TerminalOutput = memo(
 							theme={theme}
 							onRemoveQueuedItem={onRemoveQueuedItem}
 							onTogglePauseQueuedItem={onTogglePauseQueuedItem}
+							onEditQueuedItem={onEditQueuedItem}
 							onReorderItems={
 								onReorderQueuedItem
 									? (fromIndex, toIndex) =>

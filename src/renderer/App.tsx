@@ -156,6 +156,7 @@ import { GitStatusProvider } from './contexts/GitStatusContext';
 import { InputProvider, useInputContext } from './contexts/InputContext';
 import { useGroupChatStore } from './stores/groupChatStore';
 import { useBatchStore } from './stores/batchStore';
+import { registerBatchResumer } from './stores/retryStore';
 // All session state is read directly from useSessionStore in MaestroConsoleInner.
 import {
 	useSessionStore,
@@ -1506,6 +1507,13 @@ function MaestroConsoleInner() {
 		handleClearAgentError,
 	});
 
+	// Agent Resilience: give the retry engine a way to resume a parked Auto Run
+	// batch so batch turns can auto-continue after transient upstream/quota errors.
+	useEffect(() => {
+		registerBatchResumer(resumeAutoRunAfterError);
+		return () => registerBatchResumer(null);
+	}, [resumeAutoRunAfterError]);
+
 	// --- AGENT IPC LISTENERS ---
 	// Extracted hook for all window.maestro.process.onXxx listeners
 	// (onData, onExit, onSessionId, onSlashCommands, onStderr, onCommandExit,
@@ -1544,6 +1552,19 @@ function MaestroConsoleInner() {
 			),
 		}));
 	}, []);
+
+	// Edit a queued message's prompt text and attached images in place.
+	const handleEditQueuedItem = useCallback(
+		(itemId: string, patch: { text: string; images: string[] }) => {
+			updateSessionWith(activeSessionIdRef.current, (s) => ({
+				...s,
+				executionQueue: s.executionQueue.map((item) =>
+					item.id === itemId ? { ...item, text: patch.text, images: patch.images } : item
+				),
+			}));
+		},
+		[]
+	);
 
 	// Reorder a queued item within the active session's inline chat list. The
 	// inline list is filtered to a single tab, so fromIndex/toIndex address that
@@ -2283,6 +2304,7 @@ function MaestroConsoleInner() {
 		handleSwitchQueueSession,
 		handleReorderQueueItems,
 		handleTogglePauseQueueItem,
+		handleEditQueueItem,
 	} = useQueueHandlers();
 
 	// Symphony contribution handler — extracted to useSymphonyContribution hook
@@ -2628,6 +2650,7 @@ function MaestroConsoleInner() {
 		handleDeleteLog,
 		handleRemoveQueuedItem,
 		handleToggleQueuedItemPause,
+		handleEditQueuedItem,
 		handleReorderQueuedItem,
 		handleForceSendQueuedItem,
 		forcedParallelEnabled: settings.forcedParallelExecution,
@@ -3221,6 +3244,7 @@ function MaestroConsoleInner() {
 					onSwitchQueueSession={handleSwitchQueueSession}
 					onReorderQueueItems={handleReorderQueueItems}
 					onTogglePauseQueueItem={handleTogglePauseQueueItem}
+					onEditQueueItem={handleEditQueueItem}
 					// AppGroupChatModals props
 					onCloseNewGroupChatModal={handleCloseNewGroupChatModal}
 					onCreateGroupChat={handleCreateGroupChat}

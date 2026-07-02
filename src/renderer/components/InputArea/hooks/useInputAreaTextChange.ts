@@ -9,6 +9,12 @@ interface UseInputAreaTextChangeArgs {
 	slashCommandOpen: boolean;
 	/** Current picker open state - used to detect the closed->open transition. */
 	atMentionOpen?: boolean;
+	/**
+	 * Set true here (and cleared in the resize rAF) so useInputAreaAutosize skips
+	 * its own synchronous resize for this keystroke - the rAF below owns it. See
+	 * the comment on the ref in InputArea.tsx.
+	 */
+	keystrokeResizeScheduledRef: React.MutableRefObject<boolean>;
 	setInputValue: (value: string) => void;
 	setSlashCommandOpen: (open: boolean) => void;
 	setSelectedSlashCommandIndex: (index: number) => void;
@@ -23,6 +29,7 @@ export function useInputAreaTextChange({
 	isTerminalMode,
 	slashCommandOpen,
 	atMentionOpen,
+	keystrokeResizeScheduledRef,
 	setInputValue,
 	setSlashCommandOpen,
 	setSelectedSlashCommandIndex,
@@ -74,15 +81,22 @@ export function useInputAreaTextChange({
 				}
 			});
 
+			// Claim the resize for this keystroke so the autosize effect (which fires
+			// synchronously during commit) doesn't also reflow. Deferred to a rAF to
+			// coalesce rapid keystrokes into one resize per frame, off the input-latency
+			// critical path.
 			const textarea = e.target;
+			keystrokeResizeScheduledRef.current = true;
 			requestAnimationFrame(() => {
 				resizeTextareaToContent(textarea, KEYSTROKE_TEXTAREA_MAX_HEIGHT);
+				keystrokeResizeScheduledRef.current = false;
 			});
 		},
 		[
 			isTerminalMode,
 			atMentionOpen,
 			setAtMentionCategory,
+			keystrokeResizeScheduledRef,
 			setAtMentionFilter,
 			setAtMentionOpen,
 			setAtMentionStartIndex,
