@@ -1800,6 +1800,12 @@ app
 				// target + separate high-risk consent (+ unattended for scheduler
 				// paths) + ActionGuard high caps + audit-before-effect. These sinks
 				// are the LAST hop, not a gate.
+				// Trust source for assertTrustedActVerb: the live registry's verified
+				// signature status. Lazy — pluginManager is assigned below; handlers
+				// only run once the sandbox is up. Fail-closed when absent.
+				isPluginTrusted: (pluginId) =>
+					pluginManager?.getRegistry().records.find((r) => r.id === pluginId)?.signature?.status ===
+					'trusted',
 				dispatch: async (agentId, prompt) => dispatchPromptToSession(agentId, prompt),
 				spawn: async (pluginId, spec) => {
 					logger.info(
