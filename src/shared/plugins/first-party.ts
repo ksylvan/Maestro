@@ -188,6 +188,10 @@ export const DIRECTOR_NOTES_FIRST_PARTY_PLUGIN: FirstPartyPluginDefinition = {
 	backgroundServices: [],
 };
 
+/** Broker capabilities Usage & Stats actually touches (L5 refinement).
+ * Grepped from `src/main/ipc/handlers/stats.ts`, `src/main/stats/`,
+ * `src/main/agents/usage-refresh-scheduler.ts` (+ the Claude/Codex samplers),
+ * `src/main/wakatime-manager.ts`, and `src/renderer/components/UsageDashboard/`. */
 export const USAGE_STATS_FIRST_PARTY_PLUGIN: FirstPartyPluginDefinition = {
 	id: 'com.maestro.usage-stats',
 	name: 'Usage & Stats',
@@ -197,12 +201,70 @@ export const USAGE_STATS_FIRST_PARTY_PLUGIN: FirstPartyPluginDefinition = {
 	permissions: [
 		{
 			capability: 'settings:read',
-			reason: 'Re-read the Usage & Stats Encore flag and dashboard settings.',
+			reason:
+				'Re-read the Usage & Stats Encore flag, stats collection opt-out, default lookback window, dashboard auto-refresh intervals, and WakaTime settings.',
+		},
+		{
+			capability: 'sessions:read',
+			reason:
+				'Discover recent Claude/Codex sessions (metadata only) so the quota samplers know which accounts to sample, and label dashboard drill-downs.',
+		},
+		{
+			capability: 'agents:read',
+			reason:
+				'Read agent-level config (custom env vars, custom paths, detected binaries, usage account keys) to target the provider quota samplers.',
+		},
+		{
+			capability: 'net:fetch',
+			scope: 'github.com',
+			reason:
+				'Check for and download WakaTime CLI releases when WakaTime tracking is enabled (api.github.com release lookup + release-asset download).',
+		},
+		{
+			capability: 'net:fetch',
+			scope: 'githubusercontent.com',
+			reason:
+				'Follow the GitHub release-asset redirect to the CDN when auto-installing the WakaTime CLI.',
+		},
+		{
+			capability: 'net:fetch',
+			scope: 'runmaestro.ai',
+			reason:
+				'Submit anonymized Cue telemetry batches — gated on BOTH the Usage & Stats and Maestro Cue Encore flags (shared opt-out).',
+		},
+		{
+			capability: 'background:service',
+			reason:
+				'Run the background provider-quota sampling loop (Usage Dashboard auto-refresh) with host lifecycle control.',
 		},
 	],
+	// NOTE: the stats database (`src/main/stats/stats-db.ts`) is HOST-OWNED
+	// SQLite under userData — NOT the plugin `storage:sql` broker surface
+	// (that capability means "the plugin's OWN private SQLite store"), so
+	// declaring `storage:sql` would be dishonest. There is no plugin-
+	// vocabulary capability for host-owned storage; disclosure is this note.
+	// NOTE: `history:read` is deliberately ABSENT — the feature records its
+	// own query/auto-run/lifecycle events into the stats DB and never reads
+	// the history store.
+	// NOTE: `process:spawn` is deliberately ABSENT (same doctrine as
+	// Pianola/Symphony): the quota samplers and WakaTime heartbeats spawn
+	// host-blessed binaries (`maestro-p --status`, codex, wakatime-cli) as
+	// HOST-OWNED supervised calls with fixed argv. Act verbs are
+	// HIGH_RISK_ACT_CAPABILITIES and never ride the bundled first-party
+	// mint; spawn authority stays host-owned.
+	// NOTE: CSV export writes ONLY through the user-driven OS save dialog
+	// (explicit per-file consent, path chosen interactively), so no standing
+	// `fs:write` scope is claimed.
 	settingsNamespace: 'usageStats',
 	encoreFlag: 'usageStats',
-	backgroundServices: [],
+	backgroundServices: [
+		{
+			id: 'stats.sampler',
+			kind: 'supervised',
+			description:
+				'Periodic provider-quota sampling loop (Claude/Codex usage snapshots) driving the Usage Dashboard auto-refresh; stops when the feature is disabled.',
+		},
+	],
 };
 
 /** Broker capabilities Symphony's registry/contribution surface actually touches. */
