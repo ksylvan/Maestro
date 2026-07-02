@@ -11,12 +11,13 @@ import { InputArea } from '../InputArea';
 import type { FilePreviewHandle } from '../FilePreview';
 import { WizardConversationView, DocumentGenerationView } from '../InlineWizard';
 import { BrowserTabView, type BrowserTabViewHandle } from './BrowserTabView';
-import { TiledLayout } from './TiledLayout';
+import { TiledLayout, type PaneTabActions } from './TiledLayout';
 import { PaneDropZones } from './PaneDropZones';
 import {
 	findLeafById,
 	findLeafByTabRef,
 	focusPaneInSession,
+	normalizeTabGroups,
 	resolveTabRefTitle,
 	splitPaneRectsByKind,
 } from '../../utils/panelLayout';
@@ -205,6 +206,11 @@ export interface MainPanelContentProps {
 	// Inline wizard exit handler
 	onExitWizard?: () => void;
 
+	// Per-kind action handlers for a tiled pane's chevron dropdown (bundled in
+	// MainPanel where the same handlers already feed the TabBar). Forwarded to
+	// TiledLayout so a hidden tiled tab still exposes its full menu.
+	paneTabActions?: PaneTabActions;
+
 	// Props forwarded to child components (from MainPanelProps)
 	onDeleteLog?: (logId: string) => number | null;
 	onScrollPositionChange?: (scrollTop: number) => void;
@@ -378,6 +384,7 @@ export const MainPanelContent = React.memo(function MainPanelContent(props: Main
 		mergeTargetName,
 		onCancelMerge,
 		onExitWizard,
+		paneTabActions,
 		onDeleteLog,
 		onScrollPositionChange,
 		onAtBottomChange,
@@ -471,6 +478,30 @@ export const MainPanelContent = React.memo(function MainPanelContent(props: Main
 	// page state survives switching away. All mounted tabs render through the persistent
 	// overlay block below (mirroring the terminal keep-alive overlay).
 	const mountedBrowserTabIds = useBrowserTabMounting(activeSession);
+
+	// Self-heal tiled groups when a member tab is closed. Closing a tab removes it
+	// from aiTabs/filePreviewTabs/etc. but the per-kind close paths don't touch group
+	// layouts, so the pane's leaf is left referencing a now-dead tab (rendering the
+	// "no longer available" fallback or an empty webview). normalizeTabGroups prunes
+	// the dangling leaf, collapses the split, and dissolves the group if it drops
+	// below two panes - the same cleanup it does on restore. It is idempotent by
+	// reference (returns the same session when nothing dangles), so this only commits
+	// when a group actually needs healing, and never loops. Covers EVERY close path
+	// (single, close-all, bulk, pane-menu) in one place instead of patching each.
+	// useLayoutEffect (not useEffect) so the prune commits before paint - otherwise
+	// the dead pane flashes "no longer available" for one frame before healing.
+	React.useLayoutEffect(() => {
+		if (!activeSession.tabGroups?.length) return;
+		if (normalizeTabGroups(activeSession) === activeSession) return;
+		updateSessionWith(activeSession.id, (s) => normalizeTabGroups(s));
+	}, [
+		activeSession.id,
+		activeSession.tabGroups,
+		activeSession.aiTabs,
+		activeSession.filePreviewTabs,
+		activeSession.terminalTabs,
+		activeSession.browserTabs,
+	]);
 
 	// Tab tiling (split panes): when a tab group is active, it takes over the
 	// panel and renders its tiled layout instead of the single-view content. This
@@ -613,6 +644,7 @@ export const MainPanelContent = React.memo(function MainPanelContent(props: Main
 					theme={theme}
 					zoomedPaneId={zoomedPaneId}
 					onPaneRectsChange={setPaneRects}
+					paneTabActions={paneTabActions}
 				/>
 			) : /* Browser tabs render through the persistent keep-alive overlay block below (not
 			    inline) so their <webview> never remounts when switching tabs. Skip rendering
@@ -1004,8 +1036,12 @@ export const MainPanelContent = React.memo(function MainPanelContent(props: Main
 				// isolation stays intact. Falls back to standalone when no rect.
 				const browserPaneRect = browserPaneRects.get(tabId);
 				const isBrowserTiled = browserPaneRect != null;
+				// A tiled browser pane is only visible while the group is the active view
+				// (inputMode 'ai'). Gating on inputMode is defensive: if a standalone
+				// terminal is showing but pane rects haven't cleared yet, the tiled webview
+				// (z-index 2) would otherwise bleed over the terminal overlay (z-index 1).
 				const isBrowserVisible = isBrowserTiled
-					? true
+					? activeSession.inputMode === 'ai'
 					: activeSession.inputMode === 'ai' && activeSession.activeBrowserTabId === tabId;
 				// Hold keyboard focus only when no modal/overlay is layered above the
 				// page. The tab stays visually rendered (visibility/zIndex below are
@@ -1032,8 +1068,11 @@ export const MainPanelContent = React.memo(function MainPanelContent(props: Main
 										left: browserPaneRect.left,
 										width: browserPaneRect.width,
 										height: browserPaneRect.height,
-										pointerEvents: 'auto',
-										zIndex: 2,
+										// Hidden (and click-through, sent behind) when the group isn't the
+										// active view, so a stale pane rect can't bleed over a terminal.
+										visibility: isBrowserVisible ? 'visible' : 'hidden',
+										pointerEvents: isBrowserVisible ? 'auto' : 'none',
+										zIndex: isBrowserVisible ? 2 : -1,
 									}
 								: {
 										visibility: isBrowserVisible ? 'visible' : 'hidden',

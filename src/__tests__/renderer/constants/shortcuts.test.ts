@@ -119,6 +119,8 @@ describe('keyboard shortcut registry wiring', () => {
 				'cycleNext',
 				'cyclePrev',
 				'paneClose',
+				'paneCycleNext',
+				'paneCyclePrev',
 				'paneFocusDown',
 				'paneFocusLeft',
 				'paneFocusRight',

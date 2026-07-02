@@ -83,7 +83,6 @@ function TabBarInner({
 	onTerminalTabConfigureStartupCommand,
 	onCopyBrowserContent,
 	onSendBrowserContentToAgent,
-	tabGroups,
 	activeGroupId,
 	onGroupSelect,
 	onGroupRename,
@@ -578,7 +577,8 @@ function TabBarInner({
 							activeFileTabId,
 							activeBrowserTabId,
 							activeTerminalTabId,
-							inputMode
+							inputMode,
+							activeGroupId
 						);
 						const prevTab = index > 0 ? displayedUnifiedTabs[index - 1] : null;
 						const isPrevActive = prevTab
@@ -588,7 +588,8 @@ function TabBarInner({
 									activeFileTabId,
 									activeBrowserTabId,
 									activeTerminalTabId,
-									inputMode
+									inputMode,
+									activeGroupId
 								)
 							: false;
 
@@ -735,8 +736,25 @@ function TabBarInner({
 									/>
 								</React.Fragment>
 							);
+						} else if (unifiedTab.type === 'group') {
+							// A tiled group is one unified tab: render its chip inline at its order
+							// position (so navigation, indexing, and display all agree). Only the
+							// window that owns this agent shows the interactive chip.
+							if (!ownsActiveAgent) return null;
+							return (
+								<React.Fragment key={unifiedTab.id}>
+									{showSeparator && separator}
+									<GroupTabChip
+										group={unifiedTab.data}
+										isActive={isActive}
+										theme={theme}
+										onSelect={(groupId) => onGroupSelect?.(groupId)}
+										onRename={onGroupRename}
+										onBreakApart={onGroupBreakApart}
+									/>
+								</React.Fragment>
+							);
 						}
-						// Group refs are rendered as separate chips below, not inline here.
 						return null;
 					})
 				: /* Legacy mode — AI tabs only */
@@ -773,22 +791,9 @@ function TabBarInner({
 						);
 					})}
 
-			{/* Tab group chips - each tiled group shows as a single entry with a
-			    split/grid glyph so it reads as a group. Clicking activates the group;
-			    double-click (or the overlay menu) renames it; the overlay's "Break
-			    apart" splits it back into standalone tabs (gated by a confirm dialog). */}
-			{ownsActiveAgent &&
-				(tabGroups ?? []).map((group) => (
-					<GroupTabChip
-						key={group.id}
-						group={group}
-						isActive={group.id === activeGroupId}
-						theme={theme}
-						onSelect={(groupId) => onGroupSelect?.(groupId)}
-						onRename={onGroupRename}
-						onBreakApart={onGroupBreakApart}
-					/>
-				))}
+			{/* Tab group chips render inline within the unified tab loop above (each
+			    tiled group is a first-class `group` unified tab, ordered by its ref in
+			    unifiedTabOrder), so no separate append here. */}
 
 			{/* New tab button + popover */}
 			<NewTabPopover

@@ -11,6 +11,7 @@ import {
 	UnifiedTab,
 	UnifiedTabRef,
 	PanelLayoutNode,
+	TabGroup,
 	LogEntry,
 	UsageStats,
 	ToolType,
@@ -44,6 +45,9 @@ export function buildUnifiedTabs(session: Session): UnifiedTab[] {
 	const fileTabMap = new Map((filePreviewTabs || []).map((tab) => [tab.id, tab]));
 	const browserTabMap = new Map((browserTabs || []).map((tab) => [tab.id, tab]));
 	const terminalTabMap = new Map((terminalTabs || []).map((tab) => [tab.id, tab]));
+	// Groups are the 5th unified tab type: a tiled group appears as a single chip
+	// referenced by a `group` ref in the order. Resolve those refs to their TabGroup.
+	const groupMap = new Map((session.tabGroups || []).map((g) => [g.id, g]));
 
 	const result: UnifiedTab[] = [];
 
@@ -67,6 +71,12 @@ export function buildUnifiedTabs(session: Session): UnifiedTab[] {
 				result.push({ type: 'browser', id: ref.id, data: tab });
 				browserTabMap.delete(ref.id);
 			}
+		} else if (ref.type === 'group') {
+			const group = groupMap.get(ref.id);
+			if (group) {
+				result.push({ type: 'group', id: ref.id, data: group });
+				groupMap.delete(ref.id);
+			}
 		} else {
 			const tab = terminalTabMap.get(ref.id);
 			if (tab) {
@@ -88,6 +98,12 @@ export function buildUnifiedTabs(session: Session): UnifiedTab[] {
 	}
 	for (const [id, tab] of terminalTabMap) {
 		result.push({ type: 'terminal', id, data: tab });
+	}
+	// Any group not represented by a ref in the order (e.g. created by a path that
+	// didn't thread the ref, or a not-yet-normalized session): append so the group
+	// chip is never lost from the strip. normalizeTabGroups backfills the ref on load.
+	for (const [id, group] of groupMap) {
+		result.push({ type: 'group', id, data: group });
 	}
 
 	// Hide tabs that are tiled into a group: the group's chip stands in for them in
@@ -119,6 +135,27 @@ function collectGroupMemberTabKeys(session: Session): Set<string> {
 	};
 	for (const group of groups) walk(group.layout);
 	return keys;
+}
+
+/**
+ * Resolve a group's focused pane to its AI tab id, or null when the focused pane
+ * is non-AI (file/terminal/browser) or absent. Walks the layout locally to avoid a
+ * circular import with panelLayout (which imports from this module). Used when
+ * navigating to a group so the shared input area targets the focused pane's tab.
+ */
+function resolveFocusedAiTabId(group: TabGroup): string | null {
+	if (!group.focusedPaneId) return null;
+	let found: string | null = null;
+	const walk = (node: PanelLayoutNode): void => {
+		if (found) return;
+		if (node.kind === 'leaf') {
+			if (node.id === group.focusedPaneId && node.tab.type === 'ai') found = node.tab.id;
+			return;
+		}
+		node.children.forEach(walk);
+	};
+	walk(group.layout);
+	return found;
 }
 
 /**
@@ -155,6 +192,12 @@ export function getRepairedUnifiedTabOrder(session: Session): UnifiedTabRef[] {
 	const liveFileIds = new Set(fileTabs.map((t) => t.id));
 	const liveBrowserIds = new Set(browserTabs.map((t) => t.id));
 	const liveTerminalIds = new Set(terminalTabs.map((t) => t.id));
+	// Groups are the 5th unified type: a `group` ref is live while its TabGroup
+	// exists. Tabs tiled INTO a group are represented by the group ref, so they must
+	// NOT be re-appended as orphans below (that would double them in the strip and
+	// desync navigation from what buildUnifiedTabs renders).
+	const liveGroupIds = new Set((session.tabGroups || []).map((g) => g.id));
+	const groupMemberKeys = collectGroupMemberTabKeys(session);
 
 	// Prune stale entries and duplicates — refs whose tabs no longer exist, and
 	// later duplicate refs for the same type+id (buildUnifiedTabs also skips both).
@@ -167,6 +210,7 @@ export function getRepairedUnifiedTabOrder(session: Session): UnifiedTabRef[] {
 		if (ref.type === 'ai') return liveAiIds.has(ref.id);
 		if (ref.type === 'file') return liveFileIds.has(ref.id);
 		if (ref.type === 'browser') return liveBrowserIds.has(ref.id);
+		if (ref.type === 'group') return liveGroupIds.has(ref.id);
 		return liveTerminalIds.has(ref.id);
 	});
 
@@ -182,25 +226,27 @@ export function getRepairedUnifiedTabOrder(session: Session): UnifiedTabRef[] {
 		else terminalIdsInOrder.add(ref.id);
 	}
 
-	// Collect orphaned tabs (exist in data but missing from order)
+	// Collect orphaned tabs (exist in data but missing from order). Tabs tiled into a
+	// group are intentionally absent from the order (the group ref stands in), so skip
+	// them here - re-adding them would resurrect a duplicate standalone chip.
 	const orphanedRefs: UnifiedTabRef[] = [];
 	for (const tab of aiTabs) {
-		if (!aiIdsInOrder.has(tab.id)) {
+		if (!aiIdsInOrder.has(tab.id) && !groupMemberKeys.has(`ai:${tab.id}`)) {
 			orphanedRefs.push({ type: 'ai', id: tab.id });
 		}
 	}
 	for (const tab of fileTabs) {
-		if (!fileIdsInOrder.has(tab.id)) {
+		if (!fileIdsInOrder.has(tab.id) && !groupMemberKeys.has(`file:${tab.id}`)) {
 			orphanedRefs.push({ type: 'file', id: tab.id });
 		}
 	}
 	for (const tab of browserTabs) {
-		if (!browserIdsInOrder.has(tab.id)) {
+		if (!browserIdsInOrder.has(tab.id) && !groupMemberKeys.has(`browser:${tab.id}`)) {
 			orphanedRefs.push({ type: 'browser', id: tab.id });
 		}
 	}
 	for (const tab of terminalTabs) {
-		if (!terminalIdsInOrder.has(tab.id)) {
+		if (!terminalIdsInOrder.has(tab.id) && !groupMemberKeys.has(`terminal:${tab.id}`)) {
 			orphanedRefs.push({ type: 'terminal', id: tab.id });
 		}
 	}
@@ -2059,7 +2105,7 @@ export function navigateToLastTab(
  * Result of navigating to a unified tab (can be AI or file tab).
  */
 export interface NavigateToUnifiedTabResult {
-	type: 'ai' | 'file' | 'browser' | 'terminal';
+	type: 'ai' | 'file' | 'browser' | 'terminal' | 'group';
 	id: string;
 	session: Session;
 }
@@ -2130,6 +2176,7 @@ export function navigateToUnifiedTabByIndex(
 			session.activeFileTabId === null &&
 			session.activeBrowserTabId === null &&
 			session.activeTerminalTabId === null &&
+			session.activeGroupId == null &&
 			session.inputMode === 'ai'
 		) {
 			return {
@@ -2142,7 +2189,8 @@ export function navigateToUnifiedTabByIndex(
 		// Set the AI tab as active, clear terminal/file selection, and ensure inputMode is 'ai'.
 		// inputMode must be explicitly set because navigating from a terminal tab leaves inputMode
 		// as 'terminal' in the spread — without this, MainPanel would continue rendering the
-		// terminal view even though an AI tab is now active.
+		// terminal view even though an AI tab is now active. activeGroupId is cleared so an
+		// active tiled group stops taking over the panel when navigating to a standalone tab.
 		return {
 			type: 'ai',
 			id: targetTabRef.id,
@@ -2152,6 +2200,7 @@ export function navigateToUnifiedTabByIndex(
 				activeFileTabId: null,
 				activeBrowserTabId: null,
 				activeTerminalTabId: null,
+				activeGroupId: null,
 				inputMode: 'ai',
 			},
 		};
@@ -2168,6 +2217,7 @@ export function navigateToUnifiedTabByIndex(
 			session.activeFileTabId === targetTabRef.id &&
 			session.activeBrowserTabId === null &&
 			session.activeTerminalTabId === null &&
+			session.activeGroupId == null &&
 			session.inputMode === 'ai'
 		) {
 			return {
@@ -2179,7 +2229,8 @@ export function navigateToUnifiedTabByIndex(
 
 		// Set the file tab as active and ensure inputMode is 'ai' (file preview is shown in
 		// non-terminal mode; without this, navigating from a terminal tab would leave the
-		// terminal visible instead of showing the file preview).
+		// terminal visible instead of showing the file preview). activeGroupId is cleared so
+		// an active tiled group stops taking over the panel.
 		return {
 			type: 'file',
 			id: targetTabRef.id,
@@ -2188,6 +2239,7 @@ export function navigateToUnifiedTabByIndex(
 				activeFileTabId: targetTabRef.id,
 				activeBrowserTabId: null,
 				activeTerminalTabId: null,
+				activeGroupId: null,
 				inputMode: 'ai',
 			},
 		};
@@ -2203,6 +2255,7 @@ export function navigateToUnifiedTabByIndex(
 			session.activeBrowserTabId === targetTabRef.id &&
 			session.activeFileTabId === null &&
 			session.activeTerminalTabId === null &&
+			session.activeGroupId == null &&
 			session.inputMode === 'ai'
 		) {
 			return {
@@ -2220,6 +2273,43 @@ export function navigateToUnifiedTabByIndex(
 				activeFileTabId: null,
 				activeBrowserTabId: targetTabRef.id,
 				activeTerminalTabId: null,
+				activeGroupId: null,
+				inputMode: 'ai',
+			},
+		};
+	} else if (targetTabRef.type === 'group') {
+		// Navigate to a tiled group - it is a single unified tab. Verify it exists,
+		// then set activeGroupId so the group takes over the panel, clear the standalone
+		// active ids, and sync activeTabId to the group's focused AI pane (if any) so the
+		// shared input targets it. inputMode 'ai' so the group (not a terminal) renders.
+		const group = (session.tabGroups || []).find((g) => g.id === targetTabRef.id);
+		if (!group) return null;
+
+		if (
+			session.activeGroupId === targetTabRef.id &&
+			session.activeFileTabId === null &&
+			session.activeBrowserTabId === null &&
+			session.activeTerminalTabId === null &&
+			session.inputMode === 'ai'
+		) {
+			return {
+				type: 'group',
+				id: targetTabRef.id,
+				session: repairedSession,
+			};
+		}
+
+		const focusedAiId = resolveFocusedAiTabId(group);
+		return {
+			type: 'group',
+			id: targetTabRef.id,
+			session: {
+				...repairedSession,
+				activeGroupId: targetTabRef.id,
+				...(focusedAiId ? { activeTabId: focusedAiId } : {}),
+				activeFileTabId: null,
+				activeBrowserTabId: null,
+				activeTerminalTabId: null,
 				inputMode: 'ai',
 			},
 		};
@@ -2229,7 +2319,7 @@ export function navigateToUnifiedTabByIndex(
 		if (!terminalTab) return null;
 
 		// If already active, return current state (with repair if needed)
-		if (session.activeTerminalTabId === targetTabRef.id) {
+		if (session.activeTerminalTabId === targetTabRef.id && session.activeGroupId == null) {
 			return {
 				type: 'terminal',
 				id: targetTabRef.id,
@@ -2237,6 +2327,7 @@ export function navigateToUnifiedTabByIndex(
 			};
 		}
 
+		// activeGroupId is cleared so an active tiled group stops taking over the panel.
 		return {
 			type: 'terminal',
 			id: targetTabRef.id,
@@ -2245,6 +2336,7 @@ export function navigateToUnifiedTabByIndex(
 				activeTerminalTabId: targetTabRef.id,
 				activeFileTabId: null,
 				activeBrowserTabId: null,
+				activeGroupId: null,
 				inputMode: 'terminal',
 			},
 		};

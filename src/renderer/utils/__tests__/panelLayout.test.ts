@@ -34,6 +34,7 @@ import {
 	dropZoneToSplit,
 	insertRefIntoOrder,
 	tileTabIntoGroup,
+	movePaneInGroup,
 	createGroupFromDrop,
 	promotePaneToStandalone,
 	tabRefKey,
@@ -501,6 +502,21 @@ describe('dissolveGroup', () => {
 		expect(next.unifiedTabOrder).toEqual([aiRef('a'), aiRef('b')]);
 	});
 
+	it('replaces the group ref in place with its promoted members', () => {
+		const group = groupFrom(
+			rowSplit('root', [leaf('l1', aiRef('a')), leaf('l2', fileRef('b'))]),
+			'l1'
+		);
+		// Group ref sits between two standalone tabs; dissolving must restore its members
+		// at that position, not append them to the end.
+		const session = sessionWith(group, {
+			unifiedTabOrder: [aiRef('x'), { type: 'group', id: group.id }, aiRef('y')],
+		});
+		const next = dissolveGroup(session, group.id);
+		expect(next.unifiedTabOrder).toEqual([aiRef('x'), aiRef('a'), fileRef('b'), aiRef('y')]);
+		expect(next.tabGroups).toHaveLength(0);
+	});
+
 	it('leaves activeGroupId untouched when a different group is active', () => {
 		const group = groupFrom(
 			rowSplit('root', [leaf('l1', aiRef('a')), leaf('l2', aiRef('b'))]),
@@ -702,6 +718,70 @@ describe('tileTabIntoGroup', () => {
 	});
 });
 
+describe('movePaneInGroup', () => {
+	function sessionWith(group: TabGroup): Session {
+		return {
+			id: 'sess',
+			unifiedTabOrder: [{ type: 'group', id: group.id }],
+			tabGroups: [group],
+			activeGroupId: group.id,
+		} as unknown as Session;
+	}
+
+	it('moves a pane to the opposite side of a sibling (right edge of l1)', () => {
+		// [a | b | c] row; move c to the RIGHT of a -> [a, c, b].
+		const group = groupFrom(
+			rowSplit('root', [leaf('l1', aiRef('a')), leaf('l2', aiRef('b')), leaf('l3', aiRef('c'))]),
+			'l3'
+		);
+		const next = movePaneInGroup(sessionWith(group), 'grp', 'l3', 'l1', 'right');
+		expect(collectLeafTabRefs(next.tabGroups[0].layout)).toEqual([
+			aiRef('a'),
+			aiRef('c'),
+			aiRef('b'),
+		]);
+		// The tab stays in the group (unifiedTabOrder still just the group ref).
+		expect(next.unifiedTabOrder).toEqual([{ type: 'group', id: 'grp' }]);
+	});
+
+	it('nests a new split when moving across the perpendicular axis (bottom of l1)', () => {
+		// Row [a | b]; drop b onto the BOTTOM of a -> a column split [a / b] nested where a was.
+		const group = groupFrom(
+			rowSplit('root', [leaf('l1', aiRef('a')), leaf('l2', aiRef('b'))]),
+			'l2'
+		);
+		const next = movePaneInGroup(sessionWith(group), 'grp', 'l2', 'l1', 'bottom');
+		const layout = next.tabGroups[0].layout;
+		// Removing b collapsed the row into a; splitting a by column yields a lone column split.
+		if (layout.kind !== 'split') throw new Error('expected split');
+		expect(layout.direction).toBe('column');
+		expect(collectLeafTabRefs(layout)).toEqual([aiRef('a'), aiRef('b')]);
+		// The moved pane holds focus.
+		const moved = findLeafByTabRef(layout, aiRef('b'));
+		expect(next.tabGroups[0].focusedPaneId).toBe(moved?.kind === 'leaf' ? moved.id : null);
+	});
+
+	it('is a no-op when dropping a pane onto itself', () => {
+		const group = groupFrom(
+			rowSplit('root', [leaf('l1', aiRef('a')), leaf('l2', aiRef('b'))]),
+			'l1'
+		);
+		const session = sessionWith(group);
+		expect(movePaneInGroup(session, 'grp', 'l1', 'l1', 'left')).toBe(session);
+	});
+
+	it('is a no-op copy when the group or a leaf is unknown', () => {
+		const group = groupFrom(
+			rowSplit('root', [leaf('l1', aiRef('a')), leaf('l2', aiRef('b'))]),
+			'l1'
+		);
+		const session = sessionWith(group);
+		expect(movePaneInGroup(session, 'nope', 'l1', 'l2', 'left')).toBe(session);
+		expect(movePaneInGroup(session, 'grp', 'missing', 'l2', 'left')).toBe(session);
+		expect(movePaneInGroup(session, 'grp', 'l1', 'missing', 'left')).toBe(session);
+	});
+});
+
 describe('createGroupFromDrop', () => {
 	function sessionWith(order: UnifiedTabRef[]): Session {
 		return {
@@ -712,14 +792,16 @@ describe('createGroupFromDrop', () => {
 		} as unknown as Session;
 	}
 
-	it('creates a row group and removes BOTH refs from the strip', () => {
+	it('replaces BOTH member refs with a single group ref in the strip (in place)', () => {
 		const session = sessionWith([aiRef('a'), fileRef('b'), aiRef('c')]);
 		const next = createGroupFromDrop(session, aiRef('a'), fileRef('b'), 'right', 'New Group');
 
 		expect(next.tabGroups).toHaveLength(1);
 		expect(next.activeGroupId).toBe(next.tabGroups[0].id);
-		// Both the target (a) and dragged (b) refs are pulled from the order.
-		expect(next.unifiedTabOrder).toEqual([aiRef('c')]);
+		// The two members (a, b) are folded into a single `group` ref landing where the
+		// first member sat; the standalone 'c' is untouched. The group is the 5th unified
+		// tab type, so it lives in the order and navigates as one entry.
+		expect(next.unifiedTabOrder).toEqual([{ type: 'group', id: next.tabGroups[0].id }, aiRef('c')]);
 
 		const layout = next.tabGroups[0].layout;
 		if (layout.kind !== 'split') throw new Error('expected split');
@@ -1077,6 +1159,50 @@ describe('normalizeTabGroups', () => {
 		const legacy = { id: 'sess', unifiedTabOrder: [] } as unknown as Session;
 		const next = normalizeTabGroups(legacy);
 		expect(next.tabGroups).toEqual([]);
+	});
+
+	it('backfills a group ref into the order for a session persisted before groups were unified', () => {
+		// Migration case (matches real on-disk data): a valid group in tabGroups but no
+		// `group` ref in the order, and its members already stripped. Normalize must add
+		// the group ref so the group is navigable/rendered as one unified tab.
+		const group = groupFrom(
+			rowSplit('root', [leaf('l1', aiRef('a')), leaf('l2', fileRef('b'))]),
+			'l1'
+		);
+		const next = normalizeTabGroups(
+			sessionWith([group], { aiIds: ['a'], fileIds: ['b'], order: [aiRef('standalone')] })
+		);
+		expect(next.unifiedTabOrder).toEqual([aiRef('standalone'), { type: 'group', id: group.id }]);
+	});
+
+	it('replaces member refs left in the order with the single group ref (in place)', () => {
+		// A stale/migrated order still listing tiled members: normalize folds them into
+		// the group ref at the first member position and drops the rest.
+		const group = groupFrom(
+			rowSplit('root', [leaf('l1', aiRef('a')), leaf('l2', aiRef('b'))]),
+			'l1'
+		);
+		const next = normalizeTabGroups(
+			sessionWith([group], {
+				aiIds: ['a', 'b', 'z'],
+				order: [aiRef('a'), aiRef('z'), aiRef('b')],
+			})
+		);
+		expect(next.unifiedTabOrder).toEqual([{ type: 'group', id: group.id }, aiRef('z')]);
+	});
+
+	it('prunes a group ref whose group was removed (dropped below two panes)', () => {
+		// Group has only one live leaf -> torn down; its stale group ref must be pruned
+		// and the lone survivor promoted back as a standalone tab.
+		const group = groupFrom(
+			rowSplit('root', [leaf('l1', aiRef('a')), leaf('l2', aiRef('gone'))]),
+			'l1'
+		);
+		const next = normalizeTabGroups(
+			sessionWith([group], { aiIds: ['a'], order: [{ type: 'group', id: group.id }] })
+		);
+		expect(next.tabGroups).toHaveLength(0);
+		expect(next.unifiedTabOrder).toEqual([aiRef('a')]);
 	});
 
 	it('prunes a dangling leaf and keeps a still-valid group (renormalized, focus repointed)', () => {

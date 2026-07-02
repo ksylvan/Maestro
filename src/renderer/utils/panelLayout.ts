@@ -502,13 +502,30 @@ export function dissolveGroup(session: Session, groupId: string): Session {
 	const group = session.tabGroups.find((g) => g.id === groupId);
 	if (!group) return session;
 
+	const order = session.unifiedTabOrder ?? [];
+	const groupKey = `group:${groupId}`;
 	const remainingRefs = collectLeafTabRefs(group.layout);
-	const alreadyOrdered = new Set(session.unifiedTabOrder.map((ref) => `${ref.type}:${ref.id}`));
-	const promoted = remainingRefs.filter((ref) => !alreadyOrdered.has(`${ref.type}:${ref.id}`));
+	// Members already present in the strip aren't re-added (avoid dupes); the rest are
+	// promoted back where the group chip sat, so breaking a group apart restores its
+	// tabs in place rather than appending them to the end.
+	const alreadyOrdered = new Set(order.filter((ref) => tabRefKey(ref) !== groupKey).map(tabRefKey));
+	const promoted = remainingRefs.filter((ref) => !alreadyOrdered.has(tabRefKey(ref)));
+	const nextOrder: UnifiedTabRef[] = [];
+	let replaced = false;
+	for (const ref of order) {
+		if (tabRefKey(ref) === groupKey) {
+			nextOrder.push(...promoted);
+			replaced = true;
+			continue;
+		}
+		nextOrder.push(ref);
+	}
+	// No group ref in the order (legacy/migrated state): append the promoted members.
+	if (!replaced) nextOrder.push(...promoted);
 
 	return {
 		...session,
-		unifiedTabOrder: [...session.unifiedTabOrder, ...promoted],
+		unifiedTabOrder: nextOrder,
 		tabGroups: session.tabGroups.filter((g) => g.id !== groupId),
 		activeGroupId: session.activeGroupId === groupId ? null : session.activeGroupId,
 	};
@@ -696,6 +713,50 @@ export function tileTabIntoGroup(
 }
 
 /**
+ * Rearrange a pane WITHIN its group: move the pane `draggedLeafId` to the `zone`
+ * of the pane `targetLeafId` (both leaves of `groupId`). Unlike {@link tileTabIntoGroup},
+ * the dragged tab is already in the layout, so it is first removed from its current
+ * position (collapsing any split it leaves at a single child) and then re-inserted by
+ * splitting the target leaf in the drop direction (center adds it as a sibling in the
+ * target's parent direction). The moved pane keeps focus. No-ops (same-reference copy)
+ * when the group/leaves can't be found, the two leaves are the same pane, or removal
+ * would empty the layout. `unifiedTabOrder` is untouched: the tab stays in the group.
+ */
+export function movePaneInGroup(
+	session: Session,
+	groupId: string,
+	draggedLeafId: string,
+	targetLeafId: string,
+	zone: DropZone
+): Session {
+	if (draggedLeafId === targetLeafId) return session;
+	const group = (session.tabGroups ?? []).find((g) => g.id === groupId);
+	if (!group) return session;
+	const draggedLeaf = findLeafById(group.layout, draggedLeafId);
+	const targetLeaf = findLeafById(group.layout, targetLeafId);
+	if (!draggedLeaf || draggedLeaf.kind !== 'leaf') return session;
+	if (!targetLeaf || targetLeaf.kind !== 'leaf') return session;
+	const draggedTab = draggedLeaf.tab;
+
+	// Remove the pane from its current spot first (collapses a single-child split into
+	// its survivor, which preserves the target leaf's node id).
+	const withoutDragged = removeLeafByTabRef(group.layout, draggedTab);
+	if (!withoutDragged) return session;
+	// The target must survive the removal (it does unless it shared its only split with
+	// the dragged pane - but a collapse keeps the survivor's node id, so it's re-findable).
+	if (!findLeafById(withoutDragged, targetLeafId)) return session;
+
+	const split = dropZoneToSplit(zone);
+	const direction = split ? split.direction : parentSplitDirection(withoutDragged, targetLeafId);
+	const before = split ? split.before : false;
+	const nextLayout = splitLeaf(withoutDragged, targetLeafId, direction, draggedTab, before);
+	const newLeafId = findNewLeafId(withoutDragged, nextLayout, draggedTab);
+
+	const withGroup = updateGroupInSession(session, groupId, (g) => ({ ...g, layout: nextLayout }));
+	return newLeafId ? focusPaneInSession(withGroup, groupId, newLeafId) : withGroup;
+}
+
+/**
  * Create a brand-new tiled group from two standalone tabs: the drop-target tab
  * and the dragged tab, arranged per the drop `zone`. Used when a bar tab is
  * dropped onto the content of another standalone tab (no group active yet).
@@ -735,11 +796,27 @@ export function createGroupFromDrop(
 	// Legacy sessions persisted before tiling may have neither field defined; default
 	// both to arrays so the spread/filter below can't throw on a first-ever drop.
 	const removeKeys = new Set([tabRefKey(targetRef), tabRefKey(draggedRef)]);
+	const groupRef: UnifiedTabRef = { type: 'group', id: finalGroup.id };
+	// Replace the two member refs with a single `group` ref in the strip order,
+	// landing it where the first member sat so the group chip appears in place (not
+	// tacked onto the end). The group is now a first-class unified tab: it navigates,
+	// indexes, and renders as one entry. See UnifiedTabRef's 'group' kind.
+	const nextOrder: UnifiedTabRef[] = [];
+	let groupInserted = false;
+	for (const ref of session.unifiedTabOrder ?? []) {
+		if (removeKeys.has(tabRefKey(ref))) {
+			if (!groupInserted) {
+				nextOrder.push(groupRef);
+				groupInserted = true;
+			}
+			continue;
+		}
+		nextOrder.push(ref);
+	}
+	if (!groupInserted) nextOrder.push(groupRef);
 	const withGroup: Session = {
 		...session,
-		unifiedTabOrder: (session.unifiedTabOrder ?? []).filter(
-			(ref) => !removeKeys.has(tabRefKey(ref))
-		),
+		unifiedTabOrder: nextOrder,
 		tabGroups: [...(session.tabGroups ?? []), finalGroup],
 		activeGroupId: finalGroup.id,
 	};
@@ -978,16 +1055,59 @@ export function normalizeTabGroups(session: Session): Session {
 			: session.activeGroupId;
 	if (nextActiveGroupId !== session.activeGroupId) changed = true;
 
+	// Reconcile unifiedTabOrder with the kept groups so a group is a first-class
+	// unified tab: each kept group is represented by exactly one `group` ref, its
+	// member tabs are dropped from the strip (the group ref stands in for them), and
+	// group refs for removed groups are pruned. This also MIGRATES sessions persisted
+	// before groups joined the order (a group in tabGroups but no group ref in the
+	// order) by backfilling the ref where its first member sat. Members promoted out
+	// of sub-two-pane groups are appended.
+	const originalOrder = session.unifiedTabOrder ?? [];
+	const keptGroupIds = new Set(keptGroups.map((g) => g.id));
+	const memberKeyToGroupId = new Map<string, string>();
+	for (const g of keptGroups) {
+		for (const ref of collectLeafTabRefs(g.layout)) memberKeyToGroupId.set(tabRefKey(ref), g.id);
+	}
+	const represented = new Set<string>();
+	const reconciledOrder: UnifiedTabRef[] = [];
+	for (const ref of originalOrder) {
+		if (ref.type === 'group') {
+			// Keep a kept group's ref (once); drop refs for removed groups + duplicates.
+			if (keptGroupIds.has(ref.id) && !represented.has(ref.id)) {
+				reconciledOrder.push(ref);
+				represented.add(ref.id);
+			}
+			continue;
+		}
+		const owningGroupId = memberKeyToGroupId.get(tabRefKey(ref));
+		if (owningGroupId) {
+			// Replace the first member of a kept group with that group's ref (in place);
+			// drop any further member refs.
+			if (!represented.has(owningGroupId)) {
+				reconciledOrder.push({ type: 'group', id: owningGroupId });
+				represented.add(owningGroupId);
+			}
+			continue;
+		}
+		reconciledOrder.push(ref);
+	}
+	for (const g of keptGroups) {
+		if (!represented.has(g.id)) reconciledOrder.push({ type: 'group', id: g.id });
+	}
+	reconciledOrder.push(...promoted);
+
+	const orderChanged =
+		reconciledOrder.length !== originalOrder.length ||
+		reconciledOrder.some((ref, i) => tabRefKey(ref) !== tabRefKey(originalOrder[i]));
+	if (orderChanged) changed = true;
+
 	// Nothing changed: return the same reference so callers can cheaply skip work.
 	if (!changed) return session;
 
 	return {
 		...session,
 		tabGroups: keptGroups,
-		unifiedTabOrder:
-			promoted.length > 0
-				? [...(session.unifiedTabOrder ?? []), ...promoted]
-				: session.unifiedTabOrder,
+		unifiedTabOrder: orderChanged ? reconciledOrder : session.unifiedTabOrder,
 		activeGroupId: nextActiveGroupId,
 	};
 }

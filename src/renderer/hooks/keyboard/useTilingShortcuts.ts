@@ -30,13 +30,24 @@ import {
 } from '../../utils/panelLayout';
 import type { PanelLayoutNode, Session, TabGroup, UnifiedTabRef } from '../../types';
 
-/** All nine pane actions the Ctrl+Cmd family dispatches to. */
+/** All pane actions the tiling shortcut family dispatches to. */
 export interface TilingShortcutHandlers {
 	focusPane: (direction: 'left' | 'right' | 'up' | 'down') => void;
+	/** Cycle focus through the group's panes in document order (Alt+[ / Alt+]). */
+	cyclePane: (direction: 'prev' | 'next') => void;
 	splitFocusedPane: (direction: 'row' | 'column') => void;
 	closeFocusedPane: () => void;
 	toggleZoom: () => void;
 	rebalance: () => void;
+}
+
+/** Collect every leaf's node id in document order (left-to-right / top-to-bottom). */
+function collectLeafIdsOrdered(node: PanelLayoutNode, out: string[]): void {
+	if (node.kind === 'leaf') {
+		out.push(node.id);
+		return;
+	}
+	node.children.forEach((child) => collectLeafIdsOrdered(child, out));
 }
 
 /** The active session's active group, or null when nothing is tiled/active. */
@@ -66,6 +77,30 @@ export function useTilingShortcuts(
 				const neighbor = findPaneInDirection(group, group.focusedPaneId, direction);
 				if (!neighbor) return s;
 				return focusPaneInSession(s, group.id, neighbor);
+			});
+		},
+		[sessionId]
+	);
+
+	// Cycle focus through the group's panes in document order (Alt+[ prev, Alt+] next)
+	// with wrap-around. Unlike focusPane (spatial), this visits every pane in a fixed
+	// order so a user can round-robin through all panes regardless of geometry. No-op
+	// with no active group or fewer than two panes.
+	const cyclePane = useCallback(
+		(direction: 'prev' | 'next') => {
+			if (!sessionId) return;
+			updateSessionWith(sessionId, (s) => {
+				const group = activeGroupOf(s);
+				if (!group) return s;
+				const ids: string[] = [];
+				collectLeafIdsOrdered(group.layout, ids);
+				if (ids.length < 2) return s;
+				const currentIdx = group.focusedPaneId ? ids.indexOf(group.focusedPaneId) : -1;
+				// From no/unknown focus: next -> first pane, prev -> last pane.
+				const step = direction === 'next' ? 1 : -1;
+				const base = currentIdx === -1 ? (direction === 'next' ? -1 : 0) : currentIdx;
+				const nextIdx = (base + step + ids.length) % ids.length;
+				return focusPaneInSession(s, group.id, ids[nextIdx]);
 			});
 		},
 		[sessionId]
@@ -176,8 +211,8 @@ export function useTilingShortcuts(
 	}, [sessionId]);
 
 	return useMemo(
-		() => ({ focusPane, splitFocusedPane, closeFocusedPane, toggleZoom, rebalance }),
-		[focusPane, splitFocusedPane, closeFocusedPane, toggleZoom, rebalance]
+		() => ({ focusPane, cyclePane, splitFocusedPane, closeFocusedPane, toggleZoom, rebalance }),
+		[focusPane, cyclePane, splitFocusedPane, closeFocusedPane, toggleZoom, rebalance]
 	);
 }
 

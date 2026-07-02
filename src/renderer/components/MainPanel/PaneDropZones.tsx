@@ -6,6 +6,7 @@ import {
 	computeDropZone,
 	createGroupFromDrop,
 	generateGroupName,
+	movePaneInGroup,
 	tileTabIntoGroup,
 	type DropZone,
 } from '../../utils/panelLayout';
@@ -193,8 +194,24 @@ export function PaneDropZones({
 
 	const applyDrop = React.useCallback(
 		(payload: TabTilePayload, target: HoverTarget) => {
-			// A pane being dragged toward the tab bar must not re-tile onto the panel.
-			if (payload.source === 'pane') return;
+			// A pane dragged from within the group (source: 'pane') dropped back onto the
+			// tiled panel REARRANGES it to the target pane's quadrant. (A pane dropped on the
+			// TAB BAR promotes out - a different drop target, handled in TabBar.) Only applies
+			// while the same group is active and the drop lands on a different pane.
+			if (payload.source === 'pane') {
+				if (!activeGroup || !payload.groupId || !payload.leafId) return;
+				if (payload.groupId !== activeGroup.id) return;
+				if (!target.leafId || target.leafId === payload.leafId) return;
+				const groupId = activeGroup.id;
+				const draggedLeafId = payload.leafId;
+				const targetLeafId = target.leafId;
+				const zone = target.zone;
+				updateSessionWith(session.id, (s) =>
+					movePaneInGroup(s, groupId, draggedLeafId, targetLeafId, zone)
+				);
+				notifyCenterFlash({ color: 'green', message: 'Moved' });
+				return;
+			}
 			const dragged = payload.ref;
 
 			if (activeGroup) {

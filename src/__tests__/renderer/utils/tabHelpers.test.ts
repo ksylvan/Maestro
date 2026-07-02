@@ -1717,6 +1717,91 @@ describe('tabHelpers', () => {
 			expect(result!.session.activeFileTabId).toBeNull();
 		});
 
+		it('navigates to a group by unified index (sets activeGroupId, syncs focused AI pane)', () => {
+			const tab1 = createMockTab({ id: 'tab-1' });
+			const grouped = createMockTab({ id: 'grouped-ai' });
+			const session = createMockSession({
+				aiTabs: [tab1, grouped],
+				activeTabId: 'tab-1',
+				activeFileTabId: null,
+				unifiedTabOrder: [
+					{ type: 'ai', id: 'tab-1' },
+					{ type: 'group', id: 'g1' },
+				],
+				tabGroups: [
+					{
+						id: 'g1',
+						name: 'Group',
+						createdAt: 0,
+						focusedPaneId: 'leaf-a',
+						layout: {
+							kind: 'split',
+							id: 'split-1',
+							direction: 'row',
+							sizes: [0.5, 0.5],
+							children: [
+								{ kind: 'leaf', id: 'leaf-a', tab: { type: 'ai', id: 'grouped-ai' } },
+								{ kind: 'leaf', id: 'leaf-b', tab: { type: 'ai', id: 'tab-1' } },
+							],
+						},
+					},
+				] as never,
+				activeGroupId: null,
+			});
+
+			const result = navigateToUnifiedTabByIndex(session, 1);
+
+			expect(result!.type).toBe('group');
+			expect(result!.id).toBe('g1');
+			// The group takes over the panel; standalone selections clear; input targets
+			// the group's focused AI pane.
+			expect(result!.session.activeGroupId).toBe('g1');
+			expect(result!.session.activeTabId).toBe('grouped-ai');
+			expect(result!.session.activeFileTabId).toBeNull();
+			expect(result!.session.inputMode).toBe('ai');
+		});
+
+		it('clears activeGroupId when navigating from a group to a standalone tab', () => {
+			const tab1 = createMockTab({ id: 'tab-1' });
+			const grouped = createMockTab({ id: 'grouped-ai' });
+			const session = createMockSession({
+				aiTabs: [tab1, grouped],
+				activeTabId: 'grouped-ai',
+				activeFileTabId: null,
+				unifiedTabOrder: [
+					{ type: 'ai', id: 'tab-1' },
+					{ type: 'group', id: 'g1' },
+				],
+				tabGroups: [
+					{
+						id: 'g1',
+						name: 'Group',
+						createdAt: 0,
+						focusedPaneId: 'leaf-a',
+						layout: {
+							kind: 'split',
+							id: 'split-1',
+							direction: 'row',
+							sizes: [0.5, 0.5],
+							children: [
+								{ kind: 'leaf', id: 'leaf-a', tab: { type: 'ai', id: 'grouped-ai' } },
+								{ kind: 'leaf', id: 'leaf-b', tab: { type: 'ai', id: 'tab-1' } },
+							],
+						},
+					},
+				] as never,
+				activeGroupId: 'g1',
+			});
+
+			// Index 0 is the standalone tab-1; leaving the group must drop the takeover.
+			const result = navigateToUnifiedTabByIndex(session, 0);
+
+			expect(result!.type).toBe('ai');
+			expect(result!.id).toBe('tab-1');
+			expect(result!.session.activeGroupId).toBeNull();
+			expect(result!.session.activeTabId).toBe('tab-1');
+		});
+
 		it('navigates to file tab by unified index', () => {
 			const aiTab = createMockTab({ id: 'ai-tab-1' });
 			const fileTab = createMockFileTab({ id: 'file-tab-1' });
@@ -3630,11 +3715,56 @@ describe('tabHelpers', () => {
 
 			const result = buildUnifiedTabs(session);
 
-			// Only the standalone tab remains; the two tiled members are folded away.
-			expect(result).toHaveLength(1);
-			expect(result[0].id).toBe('ai-1');
+			// The two tiled members are folded away; the group shows as a single entry
+			// (appended here since this session has no group ref in unifiedTabOrder yet -
+			// the orphan-group safety net; normalizeTabGroups backfills the ref on load).
+			expect(result).toHaveLength(2);
+			expect(result.some((t) => t.id === 'ai-1' && t.type === 'ai')).toBe(true);
+			expect(result.some((t) => t.id === 'g1' && t.type === 'group')).toBe(true);
 			expect(result.some((t) => t.id === 'ai-tiled')).toBe(false);
 			expect(result.some((t) => t.id === 'file-tiled')).toBe(false);
+		});
+
+		it('renders a group ref inline at its position in unifiedTabOrder', () => {
+			const aiTab1 = createMockTab({ id: 'ai-1' });
+			const aiTab2 = createMockTab({ id: 'ai-tiled' });
+			const fileTab = createMockFileTab({ id: 'file-tiled' });
+			const session = createMockSession({
+				aiTabs: [aiTab1, aiTab2],
+				filePreviewTabs: [fileTab],
+				// The group ref sits BEFORE ai-1 in the order, so its chip renders first.
+				unifiedTabOrder: [
+					{ type: 'group', id: 'g1' },
+					{ type: 'ai', id: 'ai-1' },
+				],
+				tabGroups: [
+					{
+						id: 'g1',
+						name: 'Group',
+						createdAt: 0,
+						focusedPaneId: 'leaf-a',
+						layout: {
+							kind: 'split',
+							id: 'split-1',
+							direction: 'row',
+							sizes: [0.5, 0.5],
+							children: [
+								{ kind: 'leaf', id: 'leaf-a', tab: { type: 'ai', id: 'ai-tiled' } },
+								{ kind: 'leaf', id: 'leaf-b', tab: { type: 'file', id: 'file-tiled' } },
+							],
+						},
+					},
+				] as never,
+				activeGroupId: 'g1',
+			});
+
+			const result = buildUnifiedTabs(session);
+
+			expect(result).toHaveLength(2);
+			// Group chip renders inline at its order position (index 0), not appended last.
+			expect(result[0].type).toBe('group');
+			expect(result[0].id).toBe('g1');
+			expect(result[1]).toMatchObject({ type: 'ai', id: 'ai-1' });
 		});
 	});
 

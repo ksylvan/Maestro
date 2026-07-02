@@ -210,6 +210,22 @@ export const DEFAULT_SHORTCUTS: Record<string, Shortcut> = {
 		keys: ['Control', 'Meta', '='],
 		windowScoped: true,
 	},
+	// Cycle focus through the active group's panes in document order (prev/next with
+	// wrap). Unlike the rest of the family these live on Alt+[ / Alt+] (matched by the
+	// general isShortcut via its Alt+bracket e.code fallback, not isPaneShortcut) to
+	// mirror the plain Cmd+[ / Cmd+] "cycle agent" and Cmd+Shift+[ / ] "cycle tab" pair.
+	paneCyclePrev: {
+		id: 'paneCyclePrev',
+		label: 'Focus Previous Pane',
+		keys: ['Alt', '['],
+		windowScoped: true,
+	},
+	paneCycleNext: {
+		id: 'paneCycleNext',
+		label: 'Focus Next Pane',
+		keys: ['Alt', ']'],
+		windowScoped: true,
+	},
 };
 
 // Non-editable shortcuts (displayed in help but not configurable)

@@ -40,7 +40,8 @@ import { MainPanelHeader } from './MainPanelHeader';
 import { MainPanelContent } from './MainPanelContent';
 import { AgentErrorBanner } from './AgentErrorBanner';
 import { useWindowOwnsSession } from '../../contexts/WindowContext';
-import type { Theme } from '../../types';
+import type { PaneTabActions } from './TiledLayout';
+import type { Theme, UnifiedTabRef } from '../../types';
 import type { MainPanelHandle, MainPanelProps } from './types';
 
 /**
@@ -701,6 +702,64 @@ export const MainPanel = React.memo(
 			sendBrowserContentToAgent: handleSendBrowserContentToAgent,
 		};
 
+		// Bundle the per-kind pane dropdown actions once so a single stable object
+		// threads down to TiledLayout (instead of ~15 separate props). Mirrors the exact
+		// handlers + availability gates the TabBar chips use, so a tiled tab's chevron
+		// menu offers the same actions its strip chip would. Close dispatches per kind.
+		const paneTabActions = useMemo<PaneTabActions>(
+			() => ({
+				onStar: onTabStar,
+				onMarkUnread: onTabMarkUnread,
+				onCopyContext,
+				onExportHtml,
+				onPublishGist: props.onPublishTabGist,
+				onMergeWith,
+				onSendToAgent,
+				onSummarizeAndContinue,
+				onCopyTerminalBuffer: props.onCopyText ? handleCopyTerminalBuffer : undefined,
+				onSendTerminalBufferToAgent: props.onSendTextToAgent
+					? handleSendTerminalBufferToAgent
+					: undefined,
+				onPublishTerminalBufferGist: props.onPublishTextAsGist
+					? handlePublishTerminalBufferGist
+					: undefined,
+				onConfigureTerminalStartup: onTerminalTabConfigureStartupCommand,
+				onCopyBrowserContent: props.onCopyText ? handleCopyBrowserContent : undefined,
+				onSendBrowserContentToAgent: props.onSendTextToAgent
+					? handleSendBrowserContentToAgent
+					: undefined,
+				onCloseTab: (ref: UnifiedTabRef) => {
+					if (ref.type === 'ai') onTabClose?.(ref.id);
+					else if (ref.type === 'file') onFileTabClose?.(ref.id);
+					else if (ref.type === 'terminal') onTerminalTabClose?.(ref.id);
+					else if (ref.type === 'browser') onBrowserTabClose?.(ref.id);
+				},
+			}),
+			[
+				onTabStar,
+				onTabMarkUnread,
+				onCopyContext,
+				onExportHtml,
+				props.onPublishTabGist,
+				onMergeWith,
+				onSendToAgent,
+				onSummarizeAndContinue,
+				props.onCopyText,
+				props.onSendTextToAgent,
+				props.onPublishTextAsGist,
+				handleCopyTerminalBuffer,
+				handleSendTerminalBufferToAgent,
+				handlePublishTerminalBufferGist,
+				onTerminalTabConfigureStartupCommand,
+				handleCopyBrowserContent,
+				handleSendBrowserContentToAgent,
+				onTabClose,
+				onFileTabClose,
+				onTerminalTabClose,
+				onBrowserTabClose,
+			]
+		);
+
 		// Handler for input focus - select session in sidebar
 		// Memoized to avoid recreating on every render
 		const handleInputFocus = useCallback(() => {
@@ -1094,6 +1153,7 @@ export const MainPanel = React.memo(
 							mergeTargetName={mergeTargetName}
 							onCancelMerge={onCancelMerge}
 							onExitWizard={onExitWizard}
+							paneTabActions={paneTabActions}
 							onDeleteLog={props.onDeleteLog}
 							onScrollPositionChange={props.onScrollPositionChange}
 							onAtBottomChange={props.onAtBottomChange}

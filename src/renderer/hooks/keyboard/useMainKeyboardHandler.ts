@@ -483,6 +483,22 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
 				return;
 			}
 
+			// Alt+[ / Alt+] cycle focus through the active group's panes (prev/next). These
+			// live on Alt (not the Ctrl+Cmd family) so they're matched by the general
+			// isShortcut. Skip when typing in an input so Opt+[ / Opt+] can still produce
+			// their macOS characters ("/') in the AI input; only act on a live group.
+			if (hasActiveGroup && !isEditableTarget && ctx.isShortcut(e, 'paneCyclePrev')) {
+				e.preventDefault();
+				ctx.tilingShortcuts.cyclePane('prev');
+				trackShortcut('paneCyclePrev');
+				return;
+			} else if (hasActiveGroup && !isEditableTarget && ctx.isShortcut(e, 'paneCycleNext')) {
+				e.preventDefault();
+				ctx.tilingShortcuts.cyclePane('next');
+				trackShortcut('paneCycleNext');
+				return;
+			}
+
 			// General shortcuts
 			// Only allow collapsing left sidebar when there are sessions (prevent collapse on empty state)
 			if (ctx.isShortcut(e, 'toggleSidebar')) {
