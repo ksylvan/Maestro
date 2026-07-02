@@ -45,10 +45,11 @@ describe('browserOpNeedsConfirm', () => {
 		expect(browserOpNeedsConfirm('off', 'read')).toBe(false);
 	});
 
-	it('off confirms nothing', () => {
-		expect(browserOpNeedsConfirm('off', 'eval')).toBe(false);
+	it('off confirms nothing except eval (force-confirmed regardless of policy)', () => {
+		expect(browserOpNeedsConfirm('off', 'eval')).toBe(true);
 		expect(browserOpNeedsConfirm('off', 'navigate')).toBe(false);
 		expect(browserOpNeedsConfirm('off', 'click')).toBe(false);
+		expect(browserOpNeedsConfirm('off', 'type')).toBe(false);
 	});
 
 	it('all confirms every interaction op', () => {
@@ -58,11 +59,11 @@ describe('browserOpNeedsConfirm', () => {
 		expect(browserOpNeedsConfirm('all', 'reload')).toBe(true);
 	});
 
-	it('dangerous confirms only the sharp-edge ops', () => {
+	it('dangerous confirms only the sharp-edge ops (navigate, eval, type)', () => {
 		expect(browserOpNeedsConfirm('dangerous', 'eval')).toBe(true);
 		expect(browserOpNeedsConfirm('dangerous', 'navigate')).toBe(true);
+		expect(browserOpNeedsConfirm('dangerous', 'type')).toBe(true);
 		expect(browserOpNeedsConfirm('dangerous', 'click')).toBe(false);
-		expect(browserOpNeedsConfirm('dangerous', 'type')).toBe(false);
 		expect(browserOpNeedsConfirm('dangerous', 'reload')).toBe(false);
 		expect(browserOpNeedsConfirm('dangerous', 'back')).toBe(false);
 		expect(browserOpNeedsConfirm('dangerous', 'screenshot')).toBe(false);
