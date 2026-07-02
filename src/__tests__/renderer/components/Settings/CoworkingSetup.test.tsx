@@ -30,9 +30,10 @@ vi.mock('../../../../renderer/stores/notificationStore', () => ({
 // purpose: the component does not export these, and the visible wording is the
 // behavior under test.
 const DANGEROUS_DESCRIPTION =
-	'Asks before risky actions: navigating, running JavaScript, opening or closing tabs.';
+	'Asks before risky actions: navigating, running JavaScript, typing into fields, opening or closing tabs.';
 const ALL_DESCRIPTION = 'Asks before every browser action, including clicks and screenshots.';
-const OFF_DESCRIPTION = 'Never asks — every browser action runs immediately.';
+const OFF_DESCRIPTION =
+	'Only asks before running JavaScript (always required); every other action runs immediately.';
 const WARNING_TEXT = 'This agent can drive your browser without ever asking you.';
 
 interface InstallStatusRow {
@@ -60,7 +61,7 @@ describe('CoworkingSetup', () => {
 		return screen.getByRole('switch', { name: 'Browser interaction for Claude Code' });
 	}
 
-	function getRadio(label: 'Risky only' | 'Every action' | 'Never'): HTMLElement {
+	function getRadio(label: 'Risky only' | 'Every action' | 'JS only'): HTMLElement {
 		return screen.getByRole('radio', { name: label });
 	}
 
@@ -173,7 +174,7 @@ describe('CoworkingSetup', () => {
 			'aria-checked',
 			'false'
 		);
-		expect(within(group).getByRole('radio', { name: 'Never' })).toHaveAttribute(
+		expect(within(group).getByRole('radio', { name: 'JS only' })).toHaveAttribute(
 			'aria-checked',
 			'false'
 		);
@@ -181,7 +182,7 @@ describe('CoworkingSetup', () => {
 		expect(screen.queryByText(WARNING_TEXT)).not.toBeInTheDocument();
 	});
 
-	it("writes policy 'off' on a single click of Never, swaps the description, and shows the warning", async () => {
+	it("writes policy 'off' on a single click of JS only, swaps the description, and shows the warning", async () => {
 		// Another agent's stored policy must survive the write (merge, not replace).
 		useSettingsStore.setState({
 			coworkingBrowserInteraction: ['claude-code'],
@@ -193,12 +194,12 @@ describe('CoworkingSetup', () => {
 
 		// One click straight from the 'dangerous' default to 'off' — a cycling
 		// control would land elsewhere.
-		fireEvent.click(getRadio('Never'));
+		fireEvent.click(getRadio('JS only'));
 
 		const confirm = useSettingsStore.getState().coworkingBrowserInteractionConfirm;
 		expect(confirm['claude-code']).toBe('off');
 		expect(confirm['codex']).toBe('all');
-		expect(getRadio('Never')).toHaveAttribute('aria-checked', 'true');
+		expect(getRadio('JS only')).toHaveAttribute('aria-checked', 'true');
 		expect(getRadio('Risky only')).toHaveAttribute('aria-checked', 'false');
 		expect(screen.getByText(OFF_DESCRIPTION)).toBeInTheDocument();
 		expect(screen.queryByText(DANGEROUS_DESCRIPTION)).not.toBeInTheDocument();
@@ -222,7 +223,7 @@ describe('CoworkingSetup', () => {
 			'all'
 		);
 		expect(getRadio('Every action')).toHaveAttribute('aria-checked', 'true');
-		expect(getRadio('Never')).toHaveAttribute('aria-checked', 'false');
+		expect(getRadio('JS only')).toHaveAttribute('aria-checked', 'false');
 		expect(screen.getByText(ALL_DESCRIPTION)).toBeInTheDocument();
 		expect(screen.queryByText(WARNING_TEXT)).not.toBeInTheDocument();
 	});

@@ -1,5 +1,5 @@
 /**
- * Coworking Setup panel — shown inside the Coworking section of the Encore tab.
+ * Coworking Setup panel - shown inside the Coworking section of the Encore tab.
  *
  * Lists every supported agent with its current install status and per-agent
  * Install / Uninstall buttons, plus an "Install for all" convenience button.
@@ -7,7 +7,7 @@
  * Install writes the `maestro-coworking` MCP entry into the agent's user-level
  * config file (e.g. `~/.claude.json`, `~/.codex/config.toml`). After install,
  * the user must restart any open agent tabs of that type for the change to be
- * picked up — we surface that explicitly via toast.
+ * picked up - we surface that explicitly via toast.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -24,13 +24,14 @@ import type { BrowserConfirmPolicy } from '../../../shared/coworkingBrowser';
 const CONFIRM_POLICY_OPTIONS: ReadonlyArray<{ value: BrowserConfirmPolicy; label: string }> = [
 	{ value: 'dangerous', label: 'Risky only' },
 	{ value: 'all', label: 'Every action' },
-	{ value: 'off', label: 'Never' },
+	{ value: 'off', label: 'JS only' },
 ];
 
 const CONFIRM_POLICY_DESCRIPTIONS: Record<BrowserConfirmPolicy, string> = {
-	dangerous: 'Asks before risky actions: navigating, running JavaScript, opening or closing tabs.',
+	dangerous:
+		'Asks before risky actions: navigating, running JavaScript, typing into fields, opening or closing tabs.',
 	all: 'Asks before every browser action, including clicks and screenshots.',
-	off: 'Never asks — every browser action runs immediately.',
+	off: 'Only asks before running JavaScript (always required); every other action runs immediately.',
 };
 
 interface CoworkingInstallStatus {
@@ -216,6 +217,7 @@ export function CoworkingSetup({ theme }: CoworkingSetupProps) {
 			</div>
 
 			<div
+				data-setting-id="coworking-background-browsers"
 				className="flex items-center justify-between px-3 py-2 rounded"
 				style={{
 					backgroundColor: theme.colors.bgActivity,

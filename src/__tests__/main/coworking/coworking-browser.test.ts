@@ -5,6 +5,8 @@ import {
 	getBrowserUrl,
 	readBrowser,
 	browserInteract,
+	DEFAULT_BROWSER_MAX_CHARS,
+	MAX_BROWSER_MAX_CHARS,
 } from '../../../main/coworking/coworking-tools';
 import type { CoworkingBrowserInput, BrowserOpResult } from '../../../shared/coworkingBrowser';
 import { DEFAULT_BROWSER_CONFIRM_POLICY } from '../../../shared/coworkingBrowser';
@@ -261,6 +263,35 @@ describe('coworking browser tools', () => {
 		expect(out.content).toBe('abcd');
 		expect(out.truncated).toBe(true);
 		expect(out.totalChars).toBe(8);
+	});
+
+	it('readBrowser applies DEFAULT_BROWSER_MAX_CHARS when maxChars is omitted', async () => {
+		// An oversized page with no explicit cap is still head-truncated to the
+		// default; totalChars reports the true (untruncated) length.
+		const full = 'a'.repeat(DEFAULT_BROWSER_MAX_CHARS + 100);
+		const out = await readBrowser(
+			's1',
+			{ id: 'browser:1' },
+			{ registry, resolver: async (): Promise<BrowserOpResult> => ({ ok: true, content: full }) }
+		);
+		expect(out.truncated).toBe(true);
+		expect(out.totalChars).toBe(full.length);
+		expect(out.content).toHaveLength(DEFAULT_BROWSER_MAX_CHARS);
+	});
+
+	it('readBrowser clamps an explicit maxChars above MAX_BROWSER_MAX_CHARS to the ceiling', async () => {
+		// Page just over the ceiling; request a cap well past it. Without the clamp
+		// the requested cap exceeds the content and nothing truncates — the clamp
+		// forces the cap down to the ceiling, trimming content and flipping truncated.
+		const full = 'b'.repeat(MAX_BROWSER_MAX_CHARS + 10);
+		const out = await readBrowser(
+			's1',
+			{ id: 'browser:1', maxChars: MAX_BROWSER_MAX_CHARS * 2 },
+			{ registry, resolver: async (): Promise<BrowserOpResult> => ({ ok: true, content: full }) }
+		);
+		expect(out.truncated).toBe(true);
+		expect(out.totalChars).toBe(full.length);
+		expect(out.content).toHaveLength(MAX_BROWSER_MAX_CHARS);
 	});
 
 	it('readBrowser throws on unknown id, missing resolver, and cross-session reads', async () => {

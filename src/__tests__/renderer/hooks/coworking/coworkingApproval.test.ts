@@ -45,26 +45,38 @@ describe('browserOpNeedsConfirm', () => {
 		expect(browserOpNeedsConfirm('off', 'read')).toBe(false);
 	});
 
-	it('off confirms nothing', () => {
-		expect(browserOpNeedsConfirm('off', 'eval')).toBe(false);
+	it('off confirms only eval (force-confirmed); every other op runs immediately', () => {
+		expect(browserOpNeedsConfirm('off', 'eval')).toBe(true);
 		expect(browserOpNeedsConfirm('off', 'navigate')).toBe(false);
 		expect(browserOpNeedsConfirm('off', 'click')).toBe(false);
+		expect(browserOpNeedsConfirm('off', 'type')).toBe(false);
+		expect(browserOpNeedsConfirm('off', 'reload')).toBe(false);
+		expect(browserOpNeedsConfirm('off', 'newTab')).toBe(false);
+		expect(browserOpNeedsConfirm('off', 'closeTab')).toBe(false);
 	});
 
-	it('all confirms every interaction op', () => {
+	it('all confirms every interaction op (read still excluded)', () => {
 		expect(browserOpNeedsConfirm('all', 'eval')).toBe(true);
 		expect(browserOpNeedsConfirm('all', 'navigate')).toBe(true);
 		expect(browserOpNeedsConfirm('all', 'click')).toBe(true);
 		expect(browserOpNeedsConfirm('all', 'reload')).toBe(true);
+		expect(browserOpNeedsConfirm('all', 'type')).toBe(true);
+		expect(browserOpNeedsConfirm('all', 'newTab')).toBe(true);
+		expect(browserOpNeedsConfirm('all', 'closeTab')).toBe(true);
 	});
 
-	it('dangerous confirms only the sharp-edge ops', () => {
+	it('dangerous confirms the sharp-edge ops (navigate, eval, type, newTab, closeTab) and nothing else', () => {
 		expect(browserOpNeedsConfirm('dangerous', 'eval')).toBe(true);
 		expect(browserOpNeedsConfirm('dangerous', 'navigate')).toBe(true);
+		expect(browserOpNeedsConfirm('dangerous', 'type')).toBe(true);
+		expect(browserOpNeedsConfirm('dangerous', 'newTab')).toBe(true);
+		expect(browserOpNeedsConfirm('dangerous', 'closeTab')).toBe(true);
 		expect(browserOpNeedsConfirm('dangerous', 'click')).toBe(false);
-		expect(browserOpNeedsConfirm('dangerous', 'type')).toBe(false);
 		expect(browserOpNeedsConfirm('dangerous', 'reload')).toBe(false);
 		expect(browserOpNeedsConfirm('dangerous', 'back')).toBe(false);
+		expect(browserOpNeedsConfirm('dangerous', 'forward')).toBe(false);
+		expect(browserOpNeedsConfirm('dangerous', 'stop')).toBe(false);
 		expect(browserOpNeedsConfirm('dangerous', 'screenshot')).toBe(false);
+		expect(browserOpNeedsConfirm('dangerous', 'waitFor')).toBe(false);
 	});
 });

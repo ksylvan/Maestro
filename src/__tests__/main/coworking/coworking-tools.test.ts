@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { CoworkingRegistry } from '../../../main/coworking/coworking-registry';
-import { listTerminals, readTerminal } from '../../../main/coworking/coworking-tools';
+import { listTerminals, readTerminal, MAX_TERMINAL_LINES } from '../../../main/coworking/coworking-tools';
 
 describe('coworking-tools', () => {
 	let registry: CoworkingRegistry;
@@ -74,6 +74,25 @@ describe('coworking-tools', () => {
 		);
 		expect(out.truncated).toBe(false);
 		expect(out.content).toBe(buf);
+	});
+
+	it('readTerminal clamps a requested line count to MAX_TERMINAL_LINES', async () => {
+		// Buffer one line past the ceiling and ask for far more than the cap.
+		// Without the clamp the whole buffer returns untruncated; the clamp forces
+		// exactly MAX_TERMINAL_LINES tail lines back and flips truncated true.
+		const total = MAX_TERMINAL_LINES + 1;
+		const buf = Array.from({ length: total }, (_, i) => `l${i}`).join('\n');
+		const out = await readTerminal(
+			'sess-1',
+			{ id: 'term:1', lines: MAX_TERMINAL_LINES * 5 },
+			{ registry, resolver: async () => buf }
+		);
+		expect(out.truncated).toBe(true);
+		expect(out.totalLines).toBe(total);
+		expect(out.content.split('\n')).toHaveLength(MAX_TERMINAL_LINES);
+		// Tail semantics: the oldest line (l0) is dropped, the newest retained.
+		expect(out.content.split('\n')[0]).toBe('l1');
+		expect(out.content.endsWith(`l${total - 1}`)).toBe(true);
 	});
 
 	it('treats a single trailing newline as a terminator, not a line', async () => {

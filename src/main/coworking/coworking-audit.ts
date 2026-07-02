@@ -11,7 +11,7 @@
  * Redaction: page/terminal content is never recorded; free-form `eval` code and
  * typed text are reduced to lengths; navigate/newTab URLs are stripped to
  * origin+path (query strings and fragments — where auth tokens live — are
- * reduced to character counts).
+ * reduced to character counts). The JSONL sink is written owner-only (0600).
  */
 
 import * as fs from 'fs';
@@ -98,7 +98,9 @@ export function createDefaultBrowserAuditSink(): BrowserAuditSink {
 		);
 		try {
 			const file = path.join(app.getPath('userData'), 'coworking-browser-audit.jsonl');
-			fs.appendFileSync(file, JSON.stringify(entry) + '\n');
+			// mode 0600 applies when the file is first created so the audit trail
+			// isn't world/group-readable.
+			fs.appendFileSync(file, JSON.stringify(entry) + '\n', { mode: 0o600 });
 		} catch (err) {
 			captureException(err instanceof Error ? err : new Error(String(err)), {
 				operation: 'coworking:browserAudit',
