@@ -178,7 +178,7 @@ export function SessionContextMenu({
 					title={
 						session.state === 'busy'
 							? 'Pianola is busy — interrupt it before clearing'
-							: 'Start a fresh conversation (the old chat is discarded)'
+							: 'Discard every Pianola chat and start fresh'
 					}
 					onClick={() => {
 						onClearChat();
@@ -188,7 +188,7 @@ export function SessionContextMenu({
 					style={{ color: theme.colors.textMain }}
 				>
 					<Eraser className="w-3.5 h-3.5" />
-					Clear chat
+					Clear all chats
 				</button>
 			)}
 

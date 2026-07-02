@@ -22,9 +22,10 @@ import { useSessionStore, selectActiveSession } from '../../stores/sessionStore'
 import { useTabStore } from '../../stores/tabStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { notifyCenterFlash } from '../../stores/centerFlashStore';
+import { getModalActions } from '../../stores/modalStore';
 import { useTerminalMounting } from '../../hooks/terminal/useTerminalMounting';
 import { getTerminalTabDisplayName } from '../../utils/terminalTabHelpers';
-import { aiTabFocusFields } from '../../utils/tabHelpers';
+import { aiTabFocusFields, clearAiTabConversation } from '../../utils/tabHelpers';
 import { useSshRemoteName } from '../../hooks/mainPanel/useSshRemoteName';
 import { useContextWindow } from '../../hooks/mainPanel/useContextWindow';
 import { useFilePreviewHandlers } from '../../hooks/mainPanel/useFilePreviewHandlers';
@@ -160,6 +161,41 @@ export const MainPanel = React.memo(
 				s.sessions.filter((x) => !x.isPianola && !x.parentSessionId && x.state === 'waiting_input')
 					.length
 		);
+
+		// Pianola: clear ONLY the active chat tab (its transcript + agent session),
+		// leaving the other chat tabs and the Dashboard untouched. Busy is guarded
+		// twice — the button is disabled while busy, and re-checked inside the
+		// confirm callback so a run started between opening and confirming can't
+		// stream into a freshly cleared chat. The active tab id is re-read LIVE (not
+		// closed over) so switching chats before confirming clears the RIGHT tab.
+		const handleClearActivePianolaChat = useCallback(() => {
+			const sessionId = activeSession?.id;
+			if (!sessionId) return;
+			getModalActions().showConfirmation(
+				'Clear this Pianola chat and start fresh? The old conversation is discarded.',
+				() => {
+					const { sessions, setSessions } = useSessionStore.getState();
+					const live = sessions.find((s) => s.id === sessionId);
+					if (!live?.isPianola) return;
+					const targetTabId = live.activeTabId ?? live.aiTabs[0]?.id;
+					if (!targetTabId) return;
+					const targetTab = live.aiTabs.find((t) => t.id === targetTabId);
+					if (live.state === 'busy' || targetTab?.state === 'busy') {
+						notifyCenterFlash({
+							message: 'Pianola is busy — interrupt it first, then clear the chat.',
+							color: 'yellow',
+							duration: 3000,
+						});
+						return;
+					}
+					setSessions((prev) =>
+						prev.map((s) =>
+							s.id === sessionId && s.isPianola ? clearAiTabConversation(s, targetTabId) : s
+						)
+					);
+				}
+			);
+		}, [activeSession?.id]);
 
 		// isCurrentSessionAutoMode: THIS session has active batch run (for all UI indicators)
 		const isCurrentSessionAutoMode = currentSessionBatchState?.isRunning || false;
@@ -837,8 +873,21 @@ export const MainPanel = React.memo(
 							<PianolaWorkspaceTabs
 								theme={theme}
 								activeView={pianolaView}
-								onSelect={setPianolaView}
+								onSelectView={setPianolaView}
 								needsInputCount={pianolaNeedsInputCount}
+								tabs={activeSession.aiTabs}
+								activeTabId={activeSession.activeTabId}
+								onSelectTab={(tabId) => {
+									setPianolaView('chat');
+									onTabSelect?.(tabId);
+								}}
+								onNewTab={() => {
+									setPianolaView('chat');
+									onNewTab?.();
+								}}
+								onCloseTab={(tabId) => onTabClose?.(tabId)}
+								onClearActiveChat={handleClearActivePianolaChat}
+								clearDisabled={activeSession.state === 'busy' || activeTab?.state === 'busy'}
 							/>
 						) : (
 							/* Tab Bar - shown in AI and terminal modes when we have tabs (AI + file + terminal) */

@@ -68,7 +68,7 @@ describe('SessionContextMenu — Pianola Clear chat', () => {
 	it('renders for the pinned Pianola session and fires onClearChat + dismiss', () => {
 		const onClearChat = vi.fn();
 		const { onDismiss } = renderMenu(session(), onClearChat);
-		const item = screen.getByText('Clear chat');
+		const item = screen.getByText('Clear all chats');
 		fireEvent.click(item);
 		expect(onClearChat).toHaveBeenCalledTimes(1);
 		expect(onDismiss).toHaveBeenCalledTimes(1);
@@ -77,7 +77,7 @@ describe('SessionContextMenu — Pianola Clear chat', () => {
 	it('is disabled while the session is busy', () => {
 		const onClearChat = vi.fn();
 		renderMenu(session({ state: 'busy' }), onClearChat);
-		const item = screen.getByText('Clear chat').closest('button');
+		const item = screen.getByText('Clear all chats').closest('button');
 		expect(item).not.toBeNull();
 		expect(item!.disabled).toBe(true);
 		fireEvent.click(item!);
@@ -86,11 +86,11 @@ describe('SessionContextMenu — Pianola Clear chat', () => {
 
 	it('never renders for a normal (non-Pianola) session', () => {
 		renderMenu(session({ isPianola: false }), vi.fn());
-		expect(screen.queryByText('Clear chat')).toBeNull();
+		expect(screen.queryByText('Clear all chats')).toBeNull();
 	});
 
 	it('never renders when no handler is wired', () => {
 		renderMenu(session(), undefined);
-		expect(screen.queryByText('Clear chat')).toBeNull();
+		expect(screen.queryByText('Clear all chats')).toBeNull();
 	});
 });
