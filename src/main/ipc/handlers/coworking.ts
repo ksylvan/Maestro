@@ -27,7 +27,10 @@ import type {
 	CoworkingInstallStatus,
 	CoworkingTerminalRecord,
 } from '../../coworking/coworking-types';
-import { browserOpNeedsConfirm } from '../../../shared/coworkingBrowser';
+import {
+	browserOpNeedsConfirm,
+	BROWSER_INTERACT_TIMEOUT_MS,
+} from '../../../shared/coworkingBrowser';
 
 const LOG_CTX = '[Coworking][IPC]';
 
@@ -132,10 +135,9 @@ export function registerCoworkingHandlers(deps: CoworkingHandlerDependencies): v
 	// 10s per-RPC timeout so the main side fails first with a clean message
 	// instead of leaking a listener past the agent-facing timeout.
 	const BROWSER_OP_TIMEOUT_MS = 8000;
-	// Interaction ops can block on a human approval dialog; give them a much
-	// longer cap than reads. Kept under the server-script's interaction RPC cap so
-	// the main side fails first with a clean message.
-	const BROWSER_INTERACT_TIMEOUT_MS = 300000;
+	// Interaction ops can block on a human approval dialog; they use the shared
+	// BROWSER_INTERACT_TIMEOUT_MS (from shared/coworkingBrowser) so the renderer
+	// approval auto-decline stays in lockstep with this cap.
 
 	setTerminalBufferResolver(async (sessionId: string, tabUuid: string): Promise<string> => {
 		const win = deps.getMainWindow();

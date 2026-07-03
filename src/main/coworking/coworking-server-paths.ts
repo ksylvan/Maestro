@@ -52,18 +52,27 @@ export async function ensureCoworkingServerScript(): Promise<string> {
 }
 
 /**
- * Best-effort resolution of an absolute path to a `node` binary on the system,
- * cached after the first lookup. Falls back to the literal `"node"` so the agent's
- * MCP client tries its own PATH if nothing better is available.
+ * Resolves the runtime used to launch the bundled MCP server, cached after the
+ * first lookup. Prefers an absolute `node` on the system (via which/where) so
+ * GUI-launched agents that don't inherit a shell's PATH (nvm/fnm/volta on macOS
+ * Finder launches) still find a Node binary matching the user's environment.
  *
- * We do this so GUI-launched agents that don't inherit a shell's PATH (common
- * with version managers like nvm/fnm/volta on macOS Finder launches) still find
- * a Node binary. Resolution is cached because PATH doesn't change per Maestro
- * launch and `which`/`where` is cheap but not free.
+ * When no system Node is found (common on hosts that only have Codex/Factory and
+ * no standalone Node), it falls back to THIS Electron binary in Node mode
+ * (`process.execPath` + `ELECTRON_RUN_AS_NODE=1`), which always exists, instead
+ * of a bare `"node"` that may not be on PATH and would leave the feature
+ * "installed" but unable to start.
  */
-let resolvedNodeCommand: string | null = null;
-export async function resolveNodeCommand(): Promise<string> {
-	if (resolvedNodeCommand) return resolvedNodeCommand;
+/** Runtime resolved for launching the bundled MCP server. */
+export interface ResolvedNodeRuntime {
+	/** Absolute path to a node binary, or this Electron binary in the fallback. */
+	command: string;
+	/** True when `command` is the Electron binary and needs ELECTRON_RUN_AS_NODE=1. */
+	runAsElectronNode: boolean;
+}
+let resolvedNode: ResolvedNodeRuntime | null = null;
+export async function resolveNodeCommand(): Promise<ResolvedNodeRuntime> {
+	if (resolvedNode) return resolvedNode;
 	const cmd = getWhichCommand();
 	try {
 		const { stdout } = await execFileAsync(cmd, ['node'], { timeout: 2000 });
@@ -71,22 +80,29 @@ export async function resolveNodeCommand(): Promise<string> {
 			.split(/\r?\n/)
 			.map((s) => s.trim())
 			.filter(Boolean)[0];
-		resolvedNodeCommand = first && path.isAbsolute(first) ? first : 'node';
+		if (first && path.isAbsolute(first)) {
+			resolvedNode = { command: first, runAsElectronNode: false };
+			return resolvedNode;
+		}
 	} catch {
-		resolvedNodeCommand = 'node';
+		// Fall through to the Electron-as-node fallback below.
 	}
-	return resolvedNodeCommand;
+	resolvedNode = { command: process.execPath, runAsElectronNode: true };
+	return resolvedNode;
 }
 
-/** Build the spawn command + args + env for the bundled MCP server. */
+/** Build the spawn command + args + env for the bundled MCP server. When the
+ *  runtime is this Electron binary, ELECTRON_RUN_AS_NODE=1 makes it behave as a
+ *  plain Node interpreter for the (built-ins-only) server script. */
 export async function buildMcpServerSpec(env: Record<string, string>): Promise<{
 	command: string;
 	args: string[];
 	env: Record<string, string>;
 }> {
+	const { command, runAsElectronNode } = await resolveNodeCommand();
 	return {
-		command: await resolveNodeCommand(),
+		command,
 		args: [getCoworkingServerScriptPath()],
-		env,
+		env: runAsElectronNode ? { ...env, ELECTRON_RUN_AS_NODE: '1' } : env,
 	};
 }

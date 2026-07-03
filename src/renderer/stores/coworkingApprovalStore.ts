@@ -42,15 +42,39 @@ export const useCoworkingApprovalStore = create<CoworkingApprovalState>((set, ge
 }));
 
 /** Enqueue a per-call browser-interaction approval. Resolves true when the user
- *  allows, false when they decline or close the dialog (cancel-safe). */
-export function requestCoworkingApproval(input: {
-	agentId: string;
-	sessionId: string;
-	title: string;
-	message: string;
-}): Promise<boolean> {
+ *  allows, false when they decline or close the dialog (cancel-safe). When
+ *  `timeoutMs` is set, the request auto-declines and dismisses its dialog after
+ *  that long, so a belatedly-approved action can't execute after the caller's
+ *  round-trip has already timed out. */
+export function requestCoworkingApproval(
+	input: {
+		agentId: string;
+		sessionId: string;
+		title: string;
+		message: string;
+	},
+	timeoutMs?: number
+): Promise<boolean> {
 	const { promise, resolve } = Promise.withResolvers<boolean>();
-	const request: CoworkingApprovalRequest = { ...input, id: generateId(), resolve };
+	const id = generateId();
+	let timer: number | null = null;
+	// Wrap resolve so a user decision (or the auto-decline below) cancels the
+	// pending timer exactly once.
+	const resolveOnce = (approved: boolean) => {
+		if (timer !== null) {
+			window.clearTimeout(timer);
+			timer = null;
+		}
+		resolve(approved);
+	};
+	const request: CoworkingApprovalRequest = { ...input, id, resolve: resolveOnce };
 	useCoworkingApprovalStore.setState((s) => ({ queue: [...s.queue, request] }));
+	if (typeof timeoutMs === 'number' && timeoutMs > 0) {
+		timer = window.setTimeout(() => {
+			// settle() removes the request from the queue (dismissing the dialog)
+			// and calls resolveOnce(false).
+			useCoworkingApprovalStore.getState().settle(id, false);
+		}, timeoutMs);
+	}
 	return promise;
 }

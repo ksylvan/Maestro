@@ -116,3 +116,15 @@ export function browserOpNeedsConfirm(
 	// 'dangerous': only the sharp-edge ops.
 	return ALWAYS_CONFIRM_KINDS.includes(kind);
 }
+
+/** Main-process cap for a single interaction browser op (navigate/click/eval/...).
+ *  Long because these ops can block on a human approval dialog. Shared so the
+ *  main resolver and the renderer approval timeout can't drift apart. */
+export const BROWSER_INTERACT_TIMEOUT_MS = 300_000;
+
+/** Renderer-side cap on how long a per-call approval dialog may stay open before
+ *  auto-declining. Kept below BROWSER_INTERACT_TIMEOUT_MS so a late decision
+ *  resolves as a clean decline BEFORE the main resolver gives up - otherwise a
+ *  belatedly-approved navigate/eval would execute against a tool call the agent
+ *  already saw time out (the abandoned-action race). */
+export const BROWSER_APPROVAL_TIMEOUT_MS = BROWSER_INTERACT_TIMEOUT_MS - 10_000;

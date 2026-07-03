@@ -22,6 +22,7 @@ import type { BrowserOp, BrowserOpResult } from '../../../shared/coworkingBrowse
 import {
 	browserOpNeedsConfirm,
 	DEFAULT_BROWSER_CONFIRM_POLICY,
+	BROWSER_APPROVAL_TIMEOUT_MS,
 } from '../../../shared/coworkingBrowser';
 import { useSessionStore, selectActiveSession, selectSessionById } from '../../stores/sessionStore';
 import { captureException } from '../../utils/sentry';
@@ -107,12 +108,17 @@ async function defaultRequestApproval(
 	const policyMap = useSettingsStore.getState().coworkingBrowserInteractionConfirm;
 	const policy = policyMap[ctx.agentId] ?? DEFAULT_BROWSER_CONFIRM_POLICY;
 	if (!ctx.forceConfirm && !browserOpNeedsConfirm(policy, op.kind)) return true;
-	return requestCoworkingApproval({
-		agentId: ctx.agentId,
-		sessionId: ctx.sessionId,
-		title: 'Allow browser action?',
-		message: `The "${ctx.agentId}" agent wants to ${describeBrowserOp(op)}.`,
-	});
+	return requestCoworkingApproval(
+		{
+			agentId: ctx.agentId,
+			sessionId: ctx.sessionId,
+			title: 'Allow browser action?',
+			message: `The "${ctx.agentId}" agent wants to ${describeBrowserOp(op)}.`,
+		},
+		// Auto-decline before the main resolver's interaction timeout so a late
+		// decision never executes the op after the caller has already given up.
+		BROWSER_APPROVAL_TIMEOUT_MS
+	);
 }
 
 /** Create a browser tab in the requesting session (the `newTab` op). The tab is
