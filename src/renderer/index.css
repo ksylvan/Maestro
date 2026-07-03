@@ -1425,3 +1425,68 @@ svg.wand-profiling-active path:nth-child(8) {
 		opacity: 1;
 	}
 }
+
+/*
+ * ============================================================================
+ * Web-desktop mobile groundwork
+ * ============================================================================
+ * Touch/PWA hardening ported from the legacy mobile app (src/web/index.css
+ * ~lines 147-260). Every rule below is scoped under
+ * html[data-runtime='web-desktop'] (the attribute set by
+ * src/web-desktop/bootstrap.ts) so the native Electron desktop app - which
+ * loads this same stylesheet but never sets data-runtime - is unaffected.
+ * Additive only; no existing rule is modified.
+ */
+
+/*
+ * Kill the iOS Safari 300ms double-tap zoom on tappable surfaces. Harmless on
+ * desktop browsers (no double-tap gesture there).
+ */
+html[data-runtime='web-desktop'] body,
+html[data-runtime='web-desktop'] button,
+html[data-runtime='web-desktop'] a {
+	touch-action: manipulation;
+}
+
+/*
+ * Prevent accidental browser pull-to-refresh / overscroll chaining on the
+ * scroll root. `contain` stops the gesture at the app boundary without
+ * disabling normal scrolling inside it.
+ */
+html[data-runtime='web-desktop'] body,
+html[data-runtime='web-desktop'] .maestro-app-shell {
+	overscroll-behavior-y: contain;
+}
+
+/*
+ * Smooth momentum scrolling on scrollable containers (Tailwind overflow
+ * utilities). `-webkit-overflow-scrolling` is an iOS-only property and is
+ * silently ignored everywhere else.
+ */
+html[data-runtime='web-desktop'] .overflow-auto,
+html[data-runtime='web-desktop'] .overflow-y-auto,
+html[data-runtime='web-desktop'] .overflow-scroll,
+html[data-runtime='web-desktop'] .overflow-y-scroll {
+	-webkit-overflow-scrolling: touch;
+}
+
+/*
+ * iOS rubber-band fix. `@supports (-webkit-touch-callout: none)` matches iOS
+ * Safari only (desktop Safari and other browsers do not support the property),
+ * so this never fires on a laptop web-desktop client. Pin the body so the page
+ * itself cannot rubber-band, and hand scrolling to the app shell as the scroll
+ * container. Mirrors src/web/index.css ~lines 194-208.
+ */
+@supports (-webkit-touch-callout: none) {
+	html[data-runtime='web-desktop'] body {
+		position: fixed;
+		width: 100%;
+		height: 100%;
+		overflow: hidden;
+	}
+
+	html[data-runtime='web-desktop'] .maestro-app-shell {
+		overflow: auto;
+		-webkit-overflow-scrolling: touch;
+	}
+}
