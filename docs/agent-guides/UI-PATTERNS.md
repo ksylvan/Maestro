@@ -873,6 +873,19 @@ const handleToggleVoiceInput = useCallback(() => voiceToggleRef.current(), []);
 
 ---
 
+## Swipe Gestures (`useSwipeGestures`)
+
+`useSwipeGestures` (`src/renderer/hooks/utils/useSwipeGestures.ts`) is the canonical multi-directional swipe detector (distance/velocity thresholds, direction locking, optional offset tracking). It returns touch handlers to spread on a target element. Do NOT hand-roll `touchstart`/`touchmove` math - reuse this hook.
+
+Key caveat: `handleTouchMove` calls `e.preventDefault()` once it locks to a horizontal swipe, so it suppresses native horizontal scroll on whatever element it's attached to. Attach it only to elements where that's intended - screen-edge drawer zones or a modal backdrop - never a scrollable content region (terminal, tab bar, tables).
+
+App.tsx uses it for edge-swipe drawers on phones, gated on `isNarrowViewport && isWebDesktop() && isCoarsePointer()`:
+
+- Two thin (24px) fixed edge strips (`.maestro-edge-swipe-zone`, `touch-action: pan-y`) host the openers - a rightward swipe from the left edge opens the Left Bar (`setLeftSidebarOpen(true)`), a leftward swipe from the right edge opens the Right Panel. Because gestures can only START in the edge strips, center-content horizontal scrolling is never intercepted.
+- The mobile backdrop (only present while a drawer is open) hosts the closer - swipe left to close the left drawer, swipe right to close the right.
+
+---
+
 ## Tab System
 
 Each agent supports multiple AI tabs within its workspace. Tab management hooks live in `src/renderer/hooks/tabs/`.

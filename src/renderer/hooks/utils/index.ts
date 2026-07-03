@@ -23,3 +23,11 @@ export type { UseKeyboardVisibilityReturn } from './useKeyboardVisibility';
 // Voice-to-text via the Web Speech API (touch AI input dictation)
 export { useVoiceInput, isSpeechRecognitionSupported, getSpeechRecognition } from './useVoiceInput';
 export type { UseVoiceInputOptions, UseVoiceInputReturn } from './useVoiceInput';
+
+// Multi-directional touch swipe detection (edge-swipe drawers)
+export { useSwipeGestures } from './useSwipeGestures';
+export type {
+	UseSwipeGesturesOptions,
+	UseSwipeGesturesReturn,
+	SwipeDirection,
+} from './useSwipeGestures';

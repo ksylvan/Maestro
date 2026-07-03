@@ -10,6 +10,7 @@ import React, {
 } from 'react';
 import { useFocusAfterRender } from './hooks/utils/useFocusAfterRender';
 import { isWebDesktop } from './utils/runtimeContext';
+import { isCoarsePointer } from './utils/touch';
 // SettingsModal is now lazy-loaded inside AppStandaloneModals
 import { SessionList } from './components/SessionList';
 import { RightPanel, RightPanelHandle } from './components/RightPanel';
@@ -83,6 +84,7 @@ import {
 	useAppRemoteEventListeners,
 	useViewportBreakpoint,
 	useKeyboardVisibility,
+	useSwipeGestures,
 	// UI
 	useThemeStyles,
 	useAppHandlers,
@@ -655,6 +657,32 @@ function MaestroConsoleInner() {
 		setSelectedSidebarIndex,
 		setSidebarExtraSelection,
 	} = useUIStore.getState();
+
+	// --- EDGE-SWIPE DRAWERS (phones on the web-desktop bundle) ---
+	// Gated on coarse pointer so a narrow *desktop* browser window (mouse) never
+	// gets invisible edge zones that would swallow clicks in the outer 24px. The
+	// opener zones are thin fixed strips at the screen edges (see JSX), so drawer
+	// gestures can only START at the edge - horizontal scrolling inside the
+	// terminal, tab bar, or tables is untouched. Closing swipes ride the mobile
+	// backdrop, which only exists while a drawer is open.
+	const drawerSwipeEnabled = isNarrowViewport && isWebDesktop() && isCoarsePointer();
+	const leftEdgeSwipe = useSwipeGestures({
+		onSwipeRight: () => setLeftSidebarOpen(true),
+		enabled: drawerSwipeEnabled && !leftSidebarOpen && !rightPanelOpen,
+	});
+	const rightEdgeSwipe = useSwipeGestures({
+		onSwipeLeft: () => setRightPanelOpen(true),
+		enabled: drawerSwipeEnabled && !rightPanelOpen && !leftSidebarOpen,
+	});
+	// Backdrop closer: the left drawer closes by pushing it back left, the right
+	// drawer by pushing it back right. Only one drawer is open at a time (mutual
+	// exclusion above), and the setters are idempotent, so unconditional calls
+	// are safe.
+	const drawerCloseSwipe = useSwipeGestures({
+		onSwipeLeft: () => setLeftSidebarOpen(false),
+		onSwipeRight: () => setRightPanelOpen(false),
+		enabled: drawerSwipeEnabled && (leftSidebarOpen || rightPanelOpen),
+	});
 
 	const {
 		setSelectedFileIndex: _setSelectedFileIndex,
@@ -3392,7 +3420,7 @@ function MaestroConsoleInner() {
 					</ErrorBoundary>
 				)}
 
-				{/* --- MOBILE BACKDROP (taps anywhere outside a drawer to close it) --- */}
+				{/* --- MOBILE BACKDROP (tap or swipe-to-close outside a drawer) --- */}
 				{isNarrowViewport && sessions.length > 0 && (leftSidebarOpen || rightPanelOpen) && (
 					<div
 						className="maestro-mobile-backdrop"
@@ -3400,8 +3428,29 @@ function MaestroConsoleInner() {
 							setLeftSidebarOpen(false);
 							setRightPanelOpen(false);
 						}}
+						{...drawerCloseSwipe.handlers}
 						aria-hidden
 					/>
+				)}
+
+				{/* --- EDGE-SWIPE OPENER ZONES (phones only) --- thin fixed strips at
+				    the screen edges so a rightward swipe from the left edge opens the
+				    Left Bar drawer and a leftward swipe from the right edge opens the
+				    Right Panel drawer. Only rendered while no drawer is open, so they
+				    never overlap the backdrop. */}
+				{drawerSwipeEnabled && !leftSidebarOpen && !rightPanelOpen && (
+					<>
+						<div
+							className="maestro-edge-swipe-zone maestro-edge-swipe-zone--left"
+							{...leftEdgeSwipe.handlers}
+							aria-hidden
+						/>
+						<div
+							className="maestro-edge-swipe-zone maestro-edge-swipe-zone--right"
+							{...rightEdgeSwipe.handlers}
+							aria-hidden
+						/>
+					</>
 				)}
 
 				{/* Sidebar-show opener is now rendered inline inside the
