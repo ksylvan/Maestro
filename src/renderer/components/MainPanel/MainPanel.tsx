@@ -35,7 +35,10 @@ import { MainPanelHeader } from './MainPanelHeader';
 import { MainPanelContent } from './MainPanelContent';
 import { AgentErrorBanner } from './AgentErrorBanner';
 import { PianolaDashboard } from '../PianolaDashboard';
-import { PianolaWorkspaceTabs } from '../PianolaDashboard/PianolaWorkspaceTabs';
+import {
+	PianolaDashboardTab,
+	PianolaClearChatButton,
+} from '../PianolaDashboard/PianolaTabControls';
 import type { MainPanelHandle, MainPanelProps } from './types';
 
 // PERFORMANCE: Wrap with React.memo to prevent re-renders when parent (App.tsx) re-renders
@@ -200,6 +203,49 @@ export const MainPanel = React.memo(
 		// isCurrentSessionAutoMode: THIS session has active batch run (for all UI indicators)
 		const isCurrentSessionAutoMode = currentSessionBatchState?.isRunning || false;
 		const isCurrentSessionStopping = currentSessionBatchState?.isStopping || false;
+
+		// Pianola uses the standard multi-type TabBar. Selecting or creating ANY
+		// tab must leave the pinned Dashboard view and show that tab's content, so
+		// wrap the tab handlers to flip pianolaView→'chat' first. Memoized to keep
+		// TabBar's React.memo effective (stable identities across renders).
+		const pianolaTabHandlers = useMemo(() => {
+			// Required handlers stay functions (safe no-op if the raw prop is
+			// missing); optional handlers preserve `undefined` so NewTabPopover
+			// doesn't show dead File/Browser/Terminal actions.
+			const req =
+				<A extends unknown[]>(fn?: (...a: A) => void) =>
+				(...a: A) => {
+					setPianolaView('chat');
+					fn?.(...a);
+				};
+			const opt = <A extends unknown[]>(fn?: (...a: A) => void) =>
+				fn
+					? (...a: A) => {
+							setPianolaView('chat');
+							fn(...a);
+						}
+					: undefined;
+			return {
+				onTabSelect: req(props.onTabSelect),
+				onNewTab: req(props.onNewTab),
+				onNewFileTab: opt(props.onNewFileTab),
+				onNewBrowserTab: opt(props.onNewBrowserTab),
+				onNewTerminalTab: opt(props.onNewTerminalTab),
+				onFileTabSelect: opt(props.onFileTabSelect),
+				onBrowserTabSelect: opt(props.onBrowserTabSelect),
+				onTerminalTabSelect: opt(props.onTerminalTabSelect),
+			};
+		}, [
+			setPianolaView,
+			props.onTabSelect,
+			props.onNewTab,
+			props.onNewFileTab,
+			props.onNewBrowserTab,
+			props.onNewTerminalTab,
+			props.onFileTabSelect,
+			props.onBrowserTabSelect,
+			props.onTerminalTabSelect,
+		]);
 
 		const filePreviewContainerRef = useRef<HTMLDivElement>(null);
 		const filePreviewRef = useRef<FilePreviewHandle>(null);
@@ -866,29 +912,95 @@ export const MainPanel = React.memo(
 							/>
 						)}
 
-						{/* Pianola is a manager surface: its workspace shows two pinned views
-						    (Dashboard | Chat) instead of the normal file/terminal/browser tab
-						    bar. Every other agent keeps the normal TabBar. */}
+						{/* Pianola is a manager surface: it uses the standard multi-type TabBar
+						    (chat/file/terminal/browser tabs, same "+" menu) with a pinned
+						    Dashboard view button + a Clear-chat action slotted in. */}
 						{activeSession.isPianola ? (
-							<PianolaWorkspaceTabs
-								theme={theme}
-								activeView={pianolaView}
-								onSelectView={setPianolaView}
-								needsInputCount={pianolaNeedsInputCount}
-								tabs={activeSession.aiTabs}
-								activeTabId={activeSession.activeTabId}
-								onSelectTab={(tabId) => {
-									setPianolaView('chat');
-									onTabSelect?.(tabId);
-								}}
-								onNewTab={() => {
-									setPianolaView('chat');
-									onNewTab?.();
-								}}
-								onCloseTab={(tabId) => onTabClose?.(tabId)}
-								onClearActiveChat={handleClearActivePianolaChat}
-								clearDisabled={activeSession.state === 'busy' || activeTab?.state === 'busy'}
-							/>
+							onTabSelect && onTabClose && onNewTab ? (
+								<TabBar
+									tabs={activeSession.aiTabs}
+									activeTabId={pianolaView === 'dashboard' ? '' : activeSession.activeTabId}
+									theme={theme}
+									sessionId={activeSession.id}
+									sessionAgentSessionId={activeSession.agentSessionId}
+									onTabSelect={pianolaTabHandlers.onTabSelect}
+									onTabClose={onTabClose}
+									onNewTab={pianolaTabHandlers.onNewTab}
+									onRequestRename={onRequestTabRename}
+									onTabReorder={onTabReorder}
+									onUnifiedTabReorder={onUnifiedTabReorder}
+									onTabStar={onTabStar}
+									onTabMarkUnread={onTabMarkUnread}
+									onMergeWith={onMergeWith}
+									onSendToAgent={onSendToAgent}
+									onSummarizeAndContinue={onSummarizeAndContinue}
+									onCopyContext={onCopyContext}
+									onExportHtml={onExportHtml}
+									onPublishGist={props.onPublishTabGist}
+									ghCliAvailable={props.ghCliAvailable}
+									showUnreadOnly={showUnreadOnly}
+									onToggleUnreadFilter={onToggleUnreadFilter}
+									onOpenTabSearch={onOpenTabSearch}
+									onOpenOutputSearch={onOpenOutputSearch}
+									onCloseAllTabs={onCloseAllTabs}
+									onCloseOtherTabs={onCloseOtherTabs}
+									onCloseTabsLeft={onCloseTabsLeft}
+									onCloseTabsRight={onCloseTabsRight}
+									unifiedTabs={unifiedTabs}
+									activeFileTabId={pianolaView === 'dashboard' ? null : activeFileTabId}
+									activeBrowserTabId={pianolaView === 'dashboard' ? null : activeBrowserTabId}
+									onFileTabSelect={pianolaTabHandlers.onFileTabSelect}
+									onFileTabClose={onFileTabClose}
+									onNewFileTab={pianolaTabHandlers.onNewFileTab}
+									onNewBrowserTab={pianolaTabHandlers.onNewBrowserTab}
+									onBrowserTabSelect={pianolaTabHandlers.onBrowserTabSelect}
+									onBrowserTabClose={onBrowserTabClose}
+									onBrowserTabRename={onBrowserTabRename}
+									onBrowserTabResetName={onBrowserTabResetName}
+									onNewTerminalTab={pianolaTabHandlers.onNewTerminalTab}
+									activeTerminalTabId={
+										pianolaView === 'dashboard' ? null : activeSession.activeTerminalTabId
+									}
+									inputMode={pianolaView === 'dashboard' ? 'ai' : activeSession.inputMode}
+									onTerminalTabSelect={pianolaTabHandlers.onTerminalTabSelect}
+									onTerminalTabClose={onTerminalTabClose}
+									onTerminalTabRename={onTerminalTabRename}
+									onTerminalTabConfigureStartupCommand={onTerminalTabConfigureStartupCommand}
+									onCopyTerminalBuffer={props.onCopyText ? handleCopyTerminalBuffer : undefined}
+									onPublishTerminalBufferGist={
+										props.onPublishTextAsGist ? handlePublishTerminalBufferGist : undefined
+									}
+									onSendTerminalBufferToAgent={
+										props.onSendTextToAgent ? handleSendTerminalBufferToAgent : undefined
+									}
+									onCopyBrowserContent={props.onCopyText ? handleCopyBrowserContent : undefined}
+									onSendBrowserContentToAgent={
+										props.onSendTextToAgent ? handleSendBrowserContentToAgent : undefined
+									}
+									colorBlindMode={colorBlindMode}
+									sshRemote={Boolean(filePreviewSshRemoteId)}
+									leadingSlot={
+										<PianolaDashboardTab
+											theme={theme}
+											active={pianolaView === 'dashboard'}
+											needsInputCount={pianolaNeedsInputCount}
+											onClick={() => setPianolaView('dashboard')}
+										/>
+									}
+									trailingSlot={
+										pianolaView !== 'dashboard' &&
+										!activeFileTabId &&
+										!activeBrowserTabId &&
+										activeSession.inputMode !== 'terminal' ? (
+											<PianolaClearChatButton
+												theme={theme}
+												disabled={activeSession.state === 'busy' || activeTab?.state === 'busy'}
+												onClick={handleClearActivePianolaChat}
+											/>
+										) : undefined
+									}
+								/>
+							) : null
 						) : (
 							/* Tab Bar - shown in AI and terminal modes when we have tabs (AI + file + terminal) */
 							activeSession.aiTabs &&

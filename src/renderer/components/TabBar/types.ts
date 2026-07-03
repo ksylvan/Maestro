@@ -1,4 +1,5 @@
 import type { AITab, Theme, UnifiedTab } from '../../types';
+import type { ReactNode } from 'react';
 import type { CopyContextOptions } from '../../hooks/tabs/useTabExportHandlers';
 
 export interface TabBarProps {
@@ -100,4 +101,13 @@ export interface TabBarProps {
 
 	/** True when the owning agent is running on an SSH remote — hides local-only OS actions in tab menus */
 	sshRemote?: boolean;
+
+	// === Optional pinned slots (used by Pianola's manager surface) ===
+	/** Pinned content rendered inside the sticky-left group, before the tab
+	 * strip — stays visible while tabs overflow/scroll (e.g. Pianola's
+	 * Dashboard view button). */
+	leadingSlot?: ReactNode;
+	/** Pinned content rendered in the sticky-left group after `leadingSlot`
+	 * (e.g. Pianola's Clear-chat button). */
+	trailingSlot?: ReactNode;
 }
