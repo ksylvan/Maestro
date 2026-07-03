@@ -1476,6 +1476,7 @@ function setupIpcHandlers() {
 	registerMarketplaceHandlers({
 		app,
 		settingsStore: store,
+		getMainWindow: () => mainWindow,
 	});
 
 	// Register Stats handlers for usage tracking
