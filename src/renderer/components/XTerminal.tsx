@@ -16,6 +16,7 @@ import {
 import { openUrl } from '../utils/openUrl';
 import { safeClipboardWrite } from '../utils/clipboard';
 import { toControlChar } from '../utils/terminalKeys';
+import { isTapGesture, type TouchPoint } from '../utils/touch';
 import { logger } from '../utils/logger';
 
 // ============================================================================
@@ -647,6 +648,30 @@ export const XTerminal = forwardRef<XTerminalHandle, XTerminalProps>(function XT
 		};
 		termElement.addEventListener('contextmenu', handleContextMenu);
 
+		// Mobile: reliably summon the on-screen keyboard on tap. xterm focuses its
+		// hidden `.xterm-helper-textarea` on mousedown, but the synthesized mouse
+		// events from a touch are unreliable on phones - iOS in particular only shows
+		// the soft keyboard when .focus() runs synchronously inside a user gesture. We
+		// focus the terminal explicitly on touchend for a genuine tap (not a scroll or
+		// selection drag, guarded by the shared tap tolerance) so the keyboard appears
+		// every time. Inert on desktop: touch events never fire from a mouse.
+		let touchStart: TouchPoint | null = null;
+		const handleTouchStart = (e: TouchEvent) => {
+			const touch = e.touches[0];
+			touchStart = touch ? { x: touch.clientX, y: touch.clientY } : null;
+		};
+		const handleTouchEnd = (e: TouchEvent) => {
+			if (!touchStart) return;
+			const touch = e.changedTouches[0];
+			const end: TouchPoint = touch ? { x: touch.clientX, y: touch.clientY } : touchStart;
+			if (isTapGesture(touchStart, end)) {
+				term.focus();
+			}
+			touchStart = null;
+		};
+		termElement.addEventListener('touchstart', handleTouchStart, { passive: true });
+		termElement.addEventListener('touchend', handleTouchEnd, { passive: true });
+
 		const selectionChangeDisposable = term.onSelectionChange(() => {
 			if (selectionCopyTimerRef.current) {
 				clearTimeout(selectionCopyTimerRef.current);
@@ -695,6 +720,8 @@ export const XTerminal = forwardRef<XTerminalHandle, XTerminalProps>(function XT
 
 		return () => {
 			termElement.removeEventListener('contextmenu', handleContextMenu);
+			termElement.removeEventListener('touchstart', handleTouchStart);
+			termElement.removeEventListener('touchend', handleTouchEnd);
 			selectionChangeDisposable.dispose();
 			linkProviderDisposable.dispose();
 			titleChangeDisposable?.dispose();

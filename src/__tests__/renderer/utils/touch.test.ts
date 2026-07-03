@@ -8,6 +8,8 @@ import {
 	isCoarsePointer,
 	triggerHaptic,
 	supportsHaptics,
+	isTapGesture,
+	GESTURE_THRESHOLDS,
 	HAPTIC_PATTERNS,
 } from '../../../renderer/utils/touch';
 
@@ -67,6 +69,31 @@ describe('touch primitives', () => {
 			expect(supportsHaptics()).toBe(false);
 			// Should not throw.
 			expect(() => triggerHaptic(HAPTIC_PATTERNS.success)).not.toThrow();
+		});
+	});
+
+	describe('isTapGesture', () => {
+		it('treats a stationary touch as a tap', () => {
+			expect(isTapGesture({ x: 100, y: 100 }, { x: 100, y: 100 })).toBe(true);
+		});
+
+		it('treats sub-tolerance jitter on both axes as a tap', () => {
+			const tol = GESTURE_THRESHOLDS.tapMoveTolerance;
+			expect(isTapGesture({ x: 0, y: 0 }, { x: tol, y: tol })).toBe(true);
+			expect(isTapGesture({ x: 20, y: 20 }, { x: 20 - tol, y: 20 - tol })).toBe(true);
+		});
+
+		it('treats travel past the tolerance on either axis as a scroll (not a tap)', () => {
+			const tol = GESTURE_THRESHOLDS.tapMoveTolerance;
+			expect(isTapGesture({ x: 0, y: 0 }, { x: tol + 1, y: 0 })).toBe(false);
+			expect(isTapGesture({ x: 0, y: 0 }, { x: 0, y: tol + 1 })).toBe(false);
+			// A vertical scroll gesture (common on a terminal scrollback).
+			expect(isTapGesture({ x: 50, y: 50 }, { x: 52, y: 140 })).toBe(false);
+		});
+
+		it('honors an explicit tolerance override', () => {
+			expect(isTapGesture({ x: 0, y: 0 }, { x: 40, y: 0 }, 50)).toBe(true);
+			expect(isTapGesture({ x: 0, y: 0 }, { x: 60, y: 0 }, 50)).toBe(false);
 		});
 	});
 });

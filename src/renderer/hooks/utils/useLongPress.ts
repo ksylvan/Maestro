@@ -12,13 +12,10 @@
  */
 
 import { useRef, useCallback, useEffect } from 'react';
-import { triggerHaptic, HAPTIC_PATTERNS } from '../../utils/touch';
+import { triggerHaptic, HAPTIC_PATTERNS, isTapGesture } from '../../utils/touch';
 
 /** Duration in ms to trigger long-press */
 const LONG_PRESS_DURATION = 500;
-
-/** Minimum touch movement (in pixels) to cancel tap and consider it a scroll */
-const SCROLL_THRESHOLD = 10;
 
 export interface UseLongPressOptions {
 	/** Callback fired on long-press with the element's bounding rect */
@@ -84,9 +81,8 @@ export function useLongPress({ onLongPress, onTap }: UseLongPressOptions): UseLo
 		(e: React.TouchEvent) => {
 			if (!touchStartRef.current) return;
 			const touch = e.touches[0];
-			const deltaX = Math.abs(touch.clientX - touchStartRef.current.x);
-			const deltaY = Math.abs(touch.clientY - touchStartRef.current.y);
-			if (deltaX > SCROLL_THRESHOLD || deltaY > SCROLL_THRESHOLD) {
+			// Once the finger travels past the tap tolerance it's a scroll, not a press.
+			if (!isTapGesture(touchStartRef.current, { x: touch.clientX, y: touch.clientY })) {
 				isScrollingRef.current = true;
 				clearTimer();
 			}

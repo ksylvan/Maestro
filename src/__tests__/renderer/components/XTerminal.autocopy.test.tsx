@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, act } from '@testing-library/react';
+import { render, act, cleanup } from '@testing-library/react';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { XTerminal } from '../../../renderer/components/XTerminal';
 import type { Theme } from '../../../shared/theme-types';
@@ -11,6 +11,7 @@ const { mockSafeClipboardWrite, mockTerminalInstances, mockFit, mockResize, mock
 			selection: string;
 			selectionListeners: Array<() => void>;
 			triggerSelectionChange(): void;
+			focus: ReturnType<typeof vi.fn>;
 		}>,
 		mockFit: vi.fn(),
 		mockResize: vi.fn(),
@@ -194,5 +195,99 @@ describe('XTerminal auto-copy selection', () => {
 		expect(mockSafeClipboardWrite).toHaveBeenCalledTimes(2);
 		expect(mockSafeClipboardWrite).toHaveBeenNthCalledWith(1, 'same text');
 		expect(mockSafeClipboardWrite).toHaveBeenNthCalledWith(2, 'same text');
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Tap-to-focus (mobile keyboard). Tapping the viewport must focus the terminal
+// (its hidden helper textarea) so mobile browsers summon the soft keyboard. A
+// scroll/drag gesture must NOT focus, so the keyboard doesn't pop while the user
+// is scrolling the scrollback. Reuses the shared xterm mocks above; the mock
+// Terminal exposes `focus` as a vi.fn() per instance.
+// ---------------------------------------------------------------------------
+
+/** Dispatch a native touch event with a single point. jsdom lacks TouchEvent, so
+ *  we synthesize the touches/changedTouches lists the handler reads. */
+function fireTouch(el: Element, type: 'touchstart' | 'touchend', x: number, y: number): void {
+	const event = new Event(type, { bubbles: true, cancelable: true });
+	const point = { clientX: x, clientY: y } as Touch;
+	Object.defineProperty(event, 'touches', {
+		value: type === 'touchend' ? [] : [point],
+	});
+	Object.defineProperty(event, 'changedTouches', { value: [point] });
+	el.dispatchEvent(event);
+}
+
+describe('XTerminal tap-to-focus (mobile keyboard)', () => {
+	beforeEach(() => {
+		mockTerminalInstances.length = 0;
+		window.maestro.process.onData = vi.fn().mockReturnValue(() => {});
+		window.maestro.process.resize = vi.fn().mockResolvedValue(undefined);
+	});
+
+	function renderTerminal(): { container: Element } {
+		const { container } = render(
+			<XTerminal
+				sessionId="session-1-terminal-tab-1"
+				theme={theme}
+				fontFamily="Menlo"
+				fontSize={12}
+			/>
+		);
+		return { container };
+	}
+
+	/** The inner div holds the xterm viewport and carries the touch listeners. */
+	function viewport(container: Element): Element {
+		return container.querySelectorAll('div')[1];
+	}
+
+	it('focuses the terminal when the viewport is tapped (no movement)', () => {
+		const { container } = renderTerminal();
+		const term = mockTerminalInstances[0];
+		expect(term.focus).not.toHaveBeenCalled();
+
+		const el = viewport(container);
+		act(() => {
+			fireTouch(el, 'touchstart', 100, 100);
+			fireTouch(el, 'touchend', 101, 102);
+		});
+
+		expect(term.focus).toHaveBeenCalledTimes(1);
+	});
+
+	it('does NOT focus the terminal on a scroll gesture (finger travels past tolerance)', () => {
+		const { container } = renderTerminal();
+		const term = mockTerminalInstances[0];
+
+		const el = viewport(container);
+		act(() => {
+			fireTouch(el, 'touchstart', 100, 100);
+			// Scrolled ~80px down the scrollback — not a tap.
+			fireTouch(el, 'touchend', 102, 180);
+		});
+
+		expect(term.focus).not.toHaveBeenCalled();
+	});
+
+	it('stops focusing after unmount (listeners are torn down)', () => {
+		const { container } = renderTerminal();
+		const term = mockTerminalInstances[0];
+		const el = viewport(container);
+
+		act(() => {
+			fireTouch(el, 'touchstart', 50, 50);
+			fireTouch(el, 'touchend', 50, 50);
+		});
+		expect(term.focus).toHaveBeenCalledTimes(1);
+
+		cleanup();
+
+		// A tap on the detached element must not reach the disposed terminal.
+		act(() => {
+			fireTouch(el, 'touchstart', 50, 50);
+			fireTouch(el, 'touchend', 50, 50);
+		});
+		expect(term.focus).toHaveBeenCalledTimes(1);
 	});
 });

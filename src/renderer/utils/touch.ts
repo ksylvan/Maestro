@@ -27,7 +27,30 @@ export const GESTURE_THRESHOLDS = {
 	pullToRefresh: 80,
 	/** Long press duration (ms) */
 	longPress: 500,
+	/** Max touch travel (px, per-axis) still counted as a tap rather than a scroll/drag */
+	tapMoveTolerance: 10,
 } as const;
+
+/** A point in client coordinates, as read from a Touch (clientX/clientY). */
+export interface TouchPoint {
+	x: number;
+	y: number;
+}
+
+/**
+ * True when a touch moved little enough (within `tolerance` on both axes) between
+ * `start` and `end` to count as a tap rather than a scroll or drag. Lets callers
+ * decide tap-only affordances (summon the keyboard, activate a control) from raw
+ * touch coordinates without wiring up a full gesture hook. Defaults to
+ * `GESTURE_THRESHOLDS.tapMoveTolerance`.
+ */
+export function isTapGesture(
+	start: TouchPoint,
+	end: TouchPoint,
+	tolerance: number = GESTURE_THRESHOLDS.tapMoveTolerance
+): boolean {
+	return Math.abs(end.x - start.x) <= tolerance && Math.abs(end.y - start.y) <= tolerance;
+}
 
 /**
  * Haptic patterns for different interactions.
