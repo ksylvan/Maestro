@@ -123,6 +123,7 @@ export function registerCrossAgentHandlers(deps: CrossAgentHandlerDependencies):
 					userPrompt: payload.userPrompt,
 					transcript: payload.transcript,
 					strategy: payload.strategy,
+					sourceCwd: payload.sourceCwd,
 					createdAt: Date.now(),
 				};
 

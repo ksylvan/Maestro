@@ -12,7 +12,7 @@
 import { useCallback } from 'react';
 import type { TabCompletionSuggestion, TabCompletionFilter } from '../input/useTabCompletion';
 import {
-	getMentionCategoryCycle,
+	MENTION_CATEGORY_CYCLE,
 	buildMentionAccept,
 	type MentionPickerItem,
 } from '../input/useMentionPicker';
@@ -190,11 +190,7 @@ export function useInputKeyDown(deps: InputKeyDownDeps): InputKeyDownReturn {
 				// Left/Right cycle the category filter and MUST NOT move the caret.
 				if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
 					e.preventDefault();
-					// Respect the Cross-Agent Mentions flag: with it off, `agents`
-					// is dropped from the cycle so Left/Right never lands on it.
-					const cycle = getMentionCategoryCycle(
-						useSettingsStore.getState().encoreFeatures.crossAgentMentions
-					);
+					const cycle = MENTION_CATEGORY_CYCLE;
 					const currentIdx = cycle.indexOf(atMentionCategory);
 					const delta = e.key === 'ArrowRight' ? 1 : -1;
 					const nextIdx = (currentIdx + delta + cycle.length) % cycle.length;
@@ -224,6 +220,13 @@ export function useInputKeyDown(deps: InputKeyDownDeps): InputKeyDownReturn {
 							selected
 						);
 						setInputValue(accept.value);
+						// Land the caret right after the inserted token (past its
+						// trailing space) so typing continues seamlessly. Deferred a
+						// frame so it runs after the controlled value commits.
+						requestAnimationFrame(() => {
+							const el = inputRef.current;
+							if (el) el.selectionStart = el.selectionEnd = accept.caretPos;
+						});
 						if (accept.keepOpen) {
 							// Directory drill-in: keep the picker open and re-filter
 							// inside the chosen folder (category preserved).

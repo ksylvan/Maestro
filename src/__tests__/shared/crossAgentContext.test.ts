@@ -7,6 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import {
 	parseAgentMentions,
+	messageStartsWithAgentMention,
 	inferContextStrategy,
 	selectContextWindow,
 	DEFAULT_RECENT_TURNS,
@@ -76,6 +77,35 @@ describe('parseAgentMentions', () => {
 		const [mention] = parseAgentMentions(input);
 		expect(input.slice(mention.startIndex, mention.endIndex)).toBe(mention.token);
 		expect(mention.token).toBe('@bob');
+	});
+});
+
+// ============================================================================
+// messageStartsWithAgentMention (gates "route to remote agents only")
+// ============================================================================
+
+describe('messageStartsWithAgentMention', () => {
+	it('is true when an agent mention leads the message', () => {
+		expect(messageStartsWithAgentMention('@Backend what do you think?')).toBe(true);
+		expect(messageStartsWithAgentMention('@review-bot @codex thoughts?')).toBe(true);
+	});
+
+	it('ignores leading whitespace before the mention', () => {
+		expect(messageStartsWithAgentMention('   @Backend hi')).toBe(true);
+	});
+
+	it('is false when the mention appears later in the message', () => {
+		expect(messageStartsWithAgentMention('hey @Backend, thoughts?')).toBe(false);
+	});
+
+	it('is false when the message leads with a FILE mention (a local question)', () => {
+		expect(messageStartsWithAgentMention('@src/app.ts explain this')).toBe(false);
+		expect(messageStartsWithAgentMention('@notes.md summarize')).toBe(false);
+	});
+
+	it('is false for plain text and empty input', () => {
+		expect(messageStartsWithAgentMention('just some prose')).toBe(false);
+		expect(messageStartsWithAgentMention('')).toBe(false);
 	});
 });
 

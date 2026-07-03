@@ -84,4 +84,20 @@ describe('buildCrossAgentPrompt', () => {
 		// No stray blank transcript section: header flows straight into the question.
 		expect(prompt).not.toContain('**User:**');
 	});
+
+	it('grants read access to the source cwd when forwarded, before the question', () => {
+		const prompt = buildCrossAgentPrompt(
+			request({ sourceCwd: '/Users/me/proj', userPrompt: 'Look at the config' })
+		);
+		expect(prompt).toContain('`/Users/me/proj`');
+		expect(prompt).toContain('permission to READ');
+		expect(prompt).toContain('Do NOT modify or create files');
+		// The grant rides with the header, ahead of the relayed question.
+		expect(prompt.indexOf('/Users/me/proj')).toBeLessThan(prompt.indexOf('Look at the config'));
+	});
+
+	it('omits the cwd grant entirely when no source cwd is forwarded', () => {
+		const prompt = buildCrossAgentPrompt(request({ sourceCwd: undefined }));
+		expect(prompt).not.toContain('permission to READ');
+	});
 });

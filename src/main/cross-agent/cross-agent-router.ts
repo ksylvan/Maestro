@@ -98,6 +98,22 @@ export interface StartCrossAgentRequestOptions {
 const CONSULT_HEADER =
 	'You are being consulted by another agent in Maestro. Below is the conversation transcript so far, followed by a question.';
 
+/**
+ * Read-access grant appended to the header when the source agent forwards its
+ * working directory. The consult runs in the TARGET agent's own cwd, so this is
+ * the only pointer it has to the user's project. It is a one-shot consultation
+ * (no interactive approval loop), so we grant read but ask it not to write -
+ * describe changes instead of applying them.
+ */
+function cwdGrant(sourceCwd: string): string {
+	return (
+		`The user is working in the directory \`${sourceCwd}\`. ` +
+		'You have permission to READ files under that directory to inform your answer. ' +
+		'Do NOT modify or create files: this is a one-shot consultation, so if changes are ' +
+		'needed, describe them in your reply and let the user apply them.'
+	);
+}
+
 /** Prefix for the relayed user question, appended after the transcript. */
 const QUESTION_PREFIX = '**Question from the user (relayed via the source agent):**';
 
@@ -138,7 +154,10 @@ export function serializeTranscript(transcript: CrossAgentTranscriptEntry[]): st
  */
 export function buildCrossAgentPrompt(request: CrossAgentRequest): string {
 	const transcriptBlock = serializeTranscript(request.transcript);
-	const sections = [CONSULT_HEADER];
+	const header = request.sourceCwd
+		? `${CONSULT_HEADER}\n\n${cwdGrant(request.sourceCwd)}`
+		: CONSULT_HEADER;
+	const sections = [header];
 	if (transcriptBlock) {
 		sections.push(transcriptBlock);
 	}

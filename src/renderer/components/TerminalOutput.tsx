@@ -14,7 +14,6 @@ import {
 	Share2,
 	Hammer,
 	GitFork,
-	Loader2,
 } from 'lucide-react';
 import type { Session, Theme, LogEntry, FocusArea, AgentError, QueuedItem } from '../types';
 import type { FileNode } from '../types/fileTree';
@@ -45,12 +44,76 @@ import { useSessionStore } from '../stores/sessionStore';
 import { SessionRecoveryCard } from './SessionRecoveryCard';
 import { getTokenSourcePill } from '../../shared/claudeTokenModeLabel';
 import { getClaudeTokenMode } from '../../shared/claudeTokenMode';
-import { getAgentDisplayName } from '../../shared/agentMetadata';
-import { truncateText } from '../../shared/formatters';
+import { CrossAgentResponseHeader } from './CrossAgentResponseHeader';
 
 // ============================================================================
 // Tool display helpers (pure functions, hoisted out of render path)
 // ============================================================================
+
+/**
+ * Collapse a tab's logs into render groups for the AI transcript.
+ *
+ * Consecutive LOCAL response entries (the active agent's own stdout/ai/system
+ * output for one turn) fold into ONE bubble per user message, so a turn made of
+ * several streamed entries reads as a single reply. Three kinds stay standalone:
+ *   - `user` messages,
+ *   - `tool` / `thinking` entries,
+ *   - cross-agent (`@mention`) replies. Each cross-agent reply already streams
+ *     into its own single entry and carries its own attribution header, so it
+ *     must never fold into the local response group OR into a sibling
+ *     cross-agent reply. Without this, several agents' answers (plus the local
+ *     one) merge into a single bubble that inherits the FIRST entry's provenance
+ *     - e.g. two remote replies and the local one all rendering inside one
+ *     agent's error bubble.
+ *
+ * Pure + exported so the grouping is unit-testable independent of the component.
+ */
+export function collapseAiResponseLogs(logs: LogEntry[]): LogEntry[] {
+	const result: LogEntry[] = [];
+	let currentResponseGroup: LogEntry[] = [];
+
+	// Flush the accumulated LOCAL response group into one combined entry.
+	const flushResponseGroup = () => {
+		if (currentResponseGroup.length > 0) {
+			const combinedText = currentResponseGroup.map((l) => l.text).join('');
+			// The token-source pill keys off `renderStyle === 'text-stream'`
+			// (maestro-p TUI capture). A response group can lead with a non-stream
+			// entry (e.g. the "Adaptive Mode: switched ..." system banner), and
+			// basing the combined entry only on `[0]` would inherit that entry's
+			// missing renderStyle and mislabel an interactive turn as "API".
+			// Preserve text-stream if ANY grouped entry carries it.
+			const hasTextStream = currentResponseGroup.some((l) => l.renderStyle === 'text-stream');
+			result.push({
+				...currentResponseGroup[0],
+				text: combinedText,
+				// Keep the first entry's timestamp and id.
+				...(hasTextStream ? { renderStyle: 'text-stream' as const } : {}),
+			});
+			currentResponseGroup = [];
+		}
+	};
+
+	for (const log of logs) {
+		if (log.source === 'user') {
+			flushResponseGroup();
+			result.push(log);
+		} else if (log.source === 'tool' || log.source === 'thinking') {
+			// Flush the response group, then keep tool/thinking as their own entries.
+			flushResponseGroup();
+			result.push(log);
+		} else if (log.metadata?.crossAgent) {
+			// Standalone, individually-attributed bubble (see fn doc).
+			flushResponseGroup();
+			result.push(log);
+		} else {
+			// Accumulate the local agent's own response entries.
+			currentResponseGroup.push(log);
+		}
+	}
+
+	flushResponseGroup();
+	return result;
+}
 
 /** Handle command values that may be strings or string arrays (Codex uses arrays) */
 const safeCommand = (v: unknown): string | null => {
@@ -554,6 +617,13 @@ const LogItemComponent = memo(
 							: {}),
 					}}
 				>
+					{/* Cross-agent attribution header - this AI reply was routed back from a
+					    DIFFERENT agent the user consulted via @mention. Names the agent,
+					    provider, and session id, and offers two ways to jump into that
+					    agent to continue the dialogue. Streaming shows a spinner; a failed
+					    consult tints it red. In a group fan-out it's what tells each
+					    response apart. */}
+					{crossAgent && <CrossAgentResponseHeader crossAgent={crossAgent} theme={theme} />}
 					{/* Local filter icon for system output only */}
 					{log.source !== 'user' && isTerminal && (
 						<div className="absolute top-2 right-2 flex items-center gap-2">
@@ -1064,37 +1134,8 @@ const LogItemComponent = memo(
 							onRecover={(opts) => onSessionRecover?.(opts)}
 						/>
 					)}
-					{/* Cross-agent attribution pill - this AI reply was routed back from a
-					    DIFFERENT agent the user consulted via @mention. Bottom-center,
-					    mirroring the mode pill's placement. It REPLACES the delivery-method
-					    (API/TUI) pill below so only one pill ever shows. Streaming adds a
-					    spinner; hover reveals full provenance for debugging. */}
-					{crossAgent &&
-						(() => {
-							const providerName = getAgentDisplayName(crossAgent.fromToolType);
-							// Long agent names truncate in the pill (full name in the
-							// tooltip); the display name stays intact.
-							const agentLabel = truncateText(crossAgent.fromAgentName, 24);
-							const label = `${providerName} · "${agentLabel}"`;
-							const title = isCrossAgentError
-								? `${providerName} agent "${crossAgent.fromAgentName}" could not respond: ${crossAgent.error}`
-								: `Response from ${providerName} agent "${crossAgent.fromAgentName}" (request ${crossAgent.requestId})`;
-							return (
-								<span
-									className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1 max-w-[80%] text-[10px] px-2 py-0.5 rounded-full pointer-events-auto select-none"
-									style={{
-										backgroundColor: isCrossAgentError ? theme.colors.error : theme.colors.accent,
-										color: theme.colors.accentForeground,
-									}}
-									title={title}
-								>
-									{isCrossAgentStreaming && (
-										<Loader2 className="w-3 h-3 shrink-0 animate-spin" aria-hidden="true" />
-									)}
-									<span className="truncate">{label}</span>
-								</span>
-							);
-						})()}
+					{/* Cross-agent attribution now lives in the header at the TOP of the
+					    bubble (CrossAgentResponseHeader); no bottom pill is rendered here. */}
 					{/* Mode pill — shows which CLI captured this Claude turn (TUI Wrapper =
 					    maestro-p, claude -p = claude --print). "Dynamic " prefix indicates the
 					    session has Dynamic Mode enabled (auto-switching between the two).
@@ -1711,55 +1752,10 @@ export const TerminalOutput = memo(
 		// TerminalOutput only handles AI mode; terminal mode renders via TerminalView
 		const activeLogs = useMemo((): LogEntry[] => activeTab?.logs ?? [], [activeTab?.logs]);
 
-		// In AI mode, collapse consecutive non-user entries into single response blocks
-		// This provides a cleaner view where each user message gets one response
-		// Tool and thinking entries are kept separate (not collapsed)
-		const collapsedLogs = useMemo(() => {
-			const result: LogEntry[] = [];
-			let currentResponseGroup: LogEntry[] = [];
-
-			// Helper to flush accumulated response group
-			const flushResponseGroup = () => {
-				if (currentResponseGroup.length > 0) {
-					// Combine all response entries into one
-					const combinedText = currentResponseGroup.map((l) => l.text).join('');
-					// The token-source pill keys off `renderStyle === 'text-stream'`
-					// (maestro-p TUI capture). A response group can lead with a
-					// non-stream entry — e.g. the "Adaptive Mode: switched ..." system
-					// banner — and basing the combined entry only on `[0]` would inherit
-					// that entry's missing renderStyle and mislabel an interactive turn
-					// as "API". Preserve text-stream if ANY grouped entry carries it.
-					const hasTextStream = currentResponseGroup.some((l) => l.renderStyle === 'text-stream');
-					result.push({
-						...currentResponseGroup[0],
-						text: combinedText,
-						// Keep the first entry's timestamp and id
-						...(hasTextStream ? { renderStyle: 'text-stream' as const } : {}),
-					});
-					currentResponseGroup = [];
-				}
-			};
-
-			for (const log of activeLogs) {
-				if (log.source === 'user') {
-					// Flush any accumulated response group before user message
-					flushResponseGroup();
-					result.push(log);
-				} else if (log.source === 'tool' || log.source === 'thinking') {
-					// Flush response group before tool/thinking, then add tool/thinking separately
-					flushResponseGroup();
-					result.push(log);
-				} else {
-					// Accumulate non-user entries (AI responses)
-					currentResponseGroup.push(log);
-				}
-			}
-
-			// Flush final response group
-			flushResponseGroup();
-
-			return result;
-		}, [activeLogs]);
+		// In AI mode, collapse consecutive local response entries into single blocks
+		// so each user message gets one bubble. Tool/thinking entries and cross-agent
+		// (@mention) replies stay standalone (see collapseAiResponseLogs).
+		const collapsedLogs = useMemo(() => collapseAiResponseLogs(activeLogs), [activeLogs]);
 
 		// PERF: Debounce search query so the highlight pass doesn't run on every keystroke
 		const debouncedSearchQuery = useDebouncedValue(outputSearchQuery, 150);

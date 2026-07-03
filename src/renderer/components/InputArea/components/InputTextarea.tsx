@@ -3,7 +3,7 @@ import type { Session, Group, Theme } from '../../../types';
 import { getProviderDisplayName } from '../../../utils/sessionValidation';
 import { useSettingsStore } from '../../../stores/settingsStore';
 import { tokenizeMentions } from '../../../../shared/mentionPatterns';
-import { MentionChip } from '../../MentionChip';
+import { getMentionChipColors } from '../../MentionChip';
 import {
 	resolveAgentMention,
 	resolveFileMentionIconColor,
@@ -28,7 +28,7 @@ interface InputTextareaProps {
 
 /**
  * Typography the transparent textarea and the highlight overlay MUST share
- * exactly, or the decorative chips drift away from the caret. Pulled into one
+ * exactly, or the mention highlights drift away from the caret. Pulled into one
  * constant so the two layers can never disagree (font size / line height /
  * family / letter spacing). Padding is kept in sync separately: the textarea
  * uses `pt-3 pl-3 pr-3` classes; the overlay mirrors them as `0.75rem` below.
@@ -65,15 +65,11 @@ export const InputTextarea = memo(function InputTextarea({
 	handlePaste,
 	handleDrop,
 }: InputTextareaProps) {
-	const crossAgentMentionsEnabled = useSettingsStore(
-		(state) => state.encoreFeatures.crossAgentMentions
-	);
 	const colorBlindMode = useSettingsStore((state) => state.colorBlindMode);
 
-	// The chip overlay is an AI-mode, Encore-gated enhancement. In terminal mode
-	// (shell commands) or with the feature off, the textarea behaves exactly as
-	// before: opaque text, no overlay.
-	const overlayEnabled = !isTerminalMode && crossAgentMentionsEnabled;
+	// The chip overlay is an AI-mode enhancement. In terminal mode (shell
+	// commands) the textarea behaves exactly as before: opaque text, no overlay.
+	const overlayEnabled = !isTerminalMode;
 
 	const overlayRef = useRef<HTMLDivElement>(null);
 
@@ -105,13 +101,48 @@ export const InputTextarea = memo(function InputTextarea({
 	);
 
 	// Keep the decorative overlay pinned to the textarea's scroll position so the
-	// chips track the text as the input grows past one line.
+	// mention highlights track the text as the input grows past one line.
 	const syncOverlayScroll = (target: HTMLTextAreaElement) => {
 		const el = overlayRef.current;
 		if (!el) return;
 		el.scrollTop = target.scrollTop;
 		el.scrollLeft = target.scrollLeft;
 	};
+
+	// Chip palette shared with the sent-transcript pill (same fill + border), so
+	// the mention reads as the same object whether the user is typing it or reading
+	// it back in a bubble.
+	const chipColors = useMemo(() => getMentionChipColors(theme), [theme]);
+
+	// Style for a single mention chip in the LIVE overlay. The overlay sits over a
+	// transparent <textarea> whose native caret is positioned by the RAW glyphs, so
+	// the decoration must add ZERO inline advance or the caret drifts off the text
+	// (measured >200px on a long path). Two tricks keep it width-exact:
+	//   1. The border is drawn with `inset box-shadow`, never `border`/`outline`,
+	//      because box-shadow does not participate in layout.
+	//   2. The horizontal padding is cancelled by an equal negative margin, so the
+	//      fill/rounding read as a padded chip while the glyph run advances exactly
+	//      as unstyled text.
+	// The bleed is kept SMALLER than the transcript pill's 6px (px-1.5) on purpose:
+	// because it adds zero advance, the fill overhangs into the single space that
+	// follows the token, and a 6px overhang swallowed nearly all of a ~8px
+	// monospace space - leaving the chip visually glued to the next word. 3px keeps
+	// a padded look while exposing most of the trailing space as real breathing room
+	// (the transcript pill has no caret to track, so it uses full real padding).
+	// The type color (file-extension / agent color that the sent pill puts on its
+	// icon) becomes a 2px inset accent stripe on the left, so files vs agents still
+	// read differently without an icon glyph (an icon WOULD change the advance).
+	// box-decoration-break keeps the fill/border intact if a long mention wraps.
+	const mentionChipStyle = (typeColor: string): React.CSSProperties => ({
+		backgroundColor: chipColors.bg,
+		color: chipColors.text,
+		borderRadius: '6px',
+		padding: '0 3px',
+		margin: '0 -3px',
+		boxShadow: `inset 0 0 0 1px ${chipColors.border}, inset 2px 0 0 ${typeColor}`,
+		boxDecorationBreak: 'clone',
+		WebkitBoxDecorationBreak: 'clone',
+	});
 
 	return (
 		<div className="relative flex items-start">
@@ -142,27 +173,20 @@ export const InputTextarea = memo(function InputTextarea({
 						if (seg.kind === 'text') {
 							return <span key={i}>{seg.value}</span>;
 						}
-						if (seg.kind === 'file') {
-							return (
-								<MentionChip
-									key={i}
-									kind="file"
-									theme={theme}
-									label={seg.path}
-									iconColor={resolveFileMentionIconColor(seg.extension, theme, colorBlindMode)}
-								/>
-							);
-						}
-						const agent = resolveAgentMention(seg.name, theme);
+						// Render the mention as a width-EXACT chip over the raw token
+						// (`@path` / `@name`). It keeps the sent pill's fill + border + a
+						// type-color accent, but NOT its icon or truncated label: those change
+						// the glyph advance and drift the native caret (see mentionChipStyle).
+						// The compact icon+truncation pill still renders in the sent transcript
+						// (RenderedMentionChip), where there is no caret to keep aligned.
+						const typeColor =
+							seg.kind === 'file'
+								? resolveFileMentionIconColor(seg.extension, theme, colorBlindMode)
+								: resolveAgentMention(seg.name, theme).color;
 						return (
-							<MentionChip
-								key={i}
-								kind="agent"
-								theme={theme}
-								label={agent.label}
-								tooltip={agent.label}
-								iconColor={agent.color}
-							/>
+							<span key={i} style={mentionChipStyle(typeColor)}>
+								{seg.value}
+							</span>
 						);
 					})}
 				</div>

@@ -1100,7 +1100,6 @@ export interface EncoreFeatureFlags {
 	usageStats: boolean;
 	symphony: boolean;
 	maestroCue: boolean;
-	crossAgentMentions: boolean;
 }
 
 // Director's Notes settings for synopsis generation

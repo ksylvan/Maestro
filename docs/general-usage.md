@@ -125,7 +125,7 @@ Reference files in your AI prompts using `@` mentions:
 2. Select from the autocomplete dropdown
 3. The file path is inserted, giving the AI context about that file
 
-The same `@` picker can also reference **other agents**. With the [Cross-Agent Mentions](./cross-agent-mentions) Encore Feature enabled, the picker adds an **Agents** section - pick one to consult it inline and stream its reply back into your chat. Maestro tells files and agents apart by shape: a path-like `@src/app.ts` is a file, while a bare `@codex` is an agent.
+The same `@` picker can also reference **other agents**. Alongside files, it has an **Agents** section - pick one to [consult it inline](./cross-agent-mentions) and stream its reply back into your chat. Maestro tells files and agents apart by shape: a path-like `@src/app.ts` is a file, while a bare `@codex` is an agent.
 
 ## Prompt Composer
 

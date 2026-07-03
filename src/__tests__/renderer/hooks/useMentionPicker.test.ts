@@ -3,7 +3,6 @@ import { renderHook } from '@testing-library/react';
 import {
 	useMentionPicker,
 	buildMentionAccept,
-	getMentionCategoryCycle,
 	MENTION_CATEGORY_CYCLE,
 	type MentionCategory,
 	type MentionPickerItem,
@@ -32,7 +31,6 @@ function pick(params: {
 	groups?: Group[];
 	currentSessionId?: string | null;
 	fileSuggestions?: AtMentionSuggestion[];
-	crossAgentMentionsEnabled?: boolean;
 }) {
 	const { result } = renderHook(() =>
 		useMentionPicker({
@@ -42,9 +40,6 @@ function pick(params: {
 			groups: params.groups,
 			currentSessionId: params.currentSessionId ?? 'current',
 			fileSuggestions: params.fileSuggestions ?? [],
-			// Default the Encore flag on so existing coverage exercises the full
-			// (ungated) picker; the gating case is covered explicitly below.
-			crossAgentMentionsEnabled: params.crossAgentMentionsEnabled ?? true,
 		})
 	);
 	return result.current;
@@ -118,75 +113,6 @@ describe('useMentionPicker', () => {
 		expect(kinds.has('directory')).toBe(true);
 		expect(kinds.has('agent')).toBe(true);
 	});
-
-	it('suppresses agents/groups entirely when the Encore flag is off', () => {
-		const sessions = [agent('a', 'Alpha', { groupId: 'g1' })];
-		const groups: Group[] = [{ id: 'g1', name: 'Squad', emoji: '', collapsed: false }];
-
-		const gated = pick({
-			category: 'all',
-			crossAgentMentionsEnabled: false,
-			fileSuggestions: [fileSug('a.ts', 'file'), fileSug('dir', 'folder')],
-			sessions,
-			groups,
-		});
-
-		// No agent/group rows; files/directories still counted.
-		expect(gated.items.every((i) => i.kind === 'file' || i.kind === 'directory')).toBe(true);
-		expect(gated.counts.agents).toBe(0);
-		expect(gated.counts.all).toBe(2);
-	});
-
-	it("falls back an 'agents' scope to files/directories when gated off", () => {
-		const gated = pick({
-			category: 'agents',
-			crossAgentMentionsEnabled: false,
-			fileSuggestions: [fileSug('a.ts', 'file')],
-			sessions: [agent('a', 'Alpha')],
-		});
-		// The picker never collapses to empty just because the flag is off.
-		expect(gated.items.map((i) => i.kind)).toContain('file');
-	});
-
-	it('recomputes when only crossAgentMentionsEnabled flips (memo dep guard)', () => {
-		// Every other input keeps a STABLE reference across the rerender, so if the
-		// flag were missing from the useMemo deps the result would stay stale.
-		const sessions = [agent('a', 'Alpha')];
-		const groups: Group[] = [];
-		const fileSuggestions = [fileSug('a.ts', 'file')];
-
-		const { result, rerender } = renderHook(
-			({ enabled }: { enabled: boolean }) =>
-				useMentionPicker({
-					filter: '',
-					category: 'all',
-					sessions,
-					groups,
-					currentSessionId: 'current',
-					fileSuggestions,
-					crossAgentMentionsEnabled: enabled,
-				}),
-			{ initialProps: { enabled: false } }
-		);
-
-		expect(result.current.counts.agents).toBe(0);
-
-		rerender({ enabled: true });
-		// The agent now surfaces even though filter/category/fileSuggestions/sessions
-		// are referentially unchanged - proving the flag is a real memo dependency.
-		expect(result.current.counts.agents).toBe(1);
-		expect(result.current.items.some((i) => i.kind === 'agent')).toBe(true);
-	});
-});
-
-describe('getMentionCategoryCycle', () => {
-	it('includes agents when the Encore flag is on', () => {
-		expect(getMentionCategoryCycle(true)).toEqual(['all', 'files', 'directories', 'agents']);
-	});
-
-	it('drops agents when the Encore flag is off', () => {
-		expect(getMentionCategoryCycle(false)).toEqual(['all', 'files', 'directories']);
-	});
 });
 
 describe('buildMentionAccept', () => {
@@ -205,12 +131,16 @@ describe('buildMentionAccept', () => {
 		const res = buildMentionAccept('look at @te', 8, 'te', fileItem('test.ts'));
 		expect(res.value).toBe('look at @test.ts ');
 		expect(res.keepOpen).toBe(false);
+		// Caret lands past the token's trailing space so typing continues cleanly.
+		expect(res.caretPos).toBe(res.value.length);
+		expect(res.value[res.caretPos - 1]).toBe(' ');
 	});
 
 	it('splices an agent token (single-at) and closes', () => {
 		const res = buildMentionAccept('ping @al', 5, 'al', agentItem('Alpha'));
 		expect(res.value).toBe('ping @Alpha ');
 		expect(res.keepOpen).toBe(false);
+		expect(res.caretPos).toBe(res.value.length);
 	});
 
 	it('drills into a directory: keeps open and re-filters inside it', () => {
@@ -218,11 +148,17 @@ describe('buildMentionAccept', () => {
 		expect(res.value).toBe('@src/');
 		expect(res.keepOpen).toBe(true);
 		expect(res.nextFilter).toBe('src/');
+		// Caret sits just past the `/` so the drill-in filter keeps typing inside it.
+		expect(res.caretPos).toBe('@src/'.length);
 	});
 
 	it('preserves text after the mention when accepting', () => {
 		// caret splice replaces only the `@filter` span, keeping the trailing text
 		const res = buildMentionAccept('@te done', 0, 'te', fileItem('test.ts'));
 		expect(res.value).toBe('@test.ts  done');
+		// Caret lands right after the inserted token (not jumped to end of field),
+		// so a mid-text mention keeps typing where the user was.
+		expect(res.caretPos).toBe('@test.ts '.length);
+		expect(res.value.slice(0, res.caretPos)).toBe('@test.ts ');
 	});
 });

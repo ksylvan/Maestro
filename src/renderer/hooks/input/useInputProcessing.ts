@@ -106,8 +106,13 @@ export interface UseInputProcessingDeps {
 	 * a regular AI message; resolves any `@target` mentions and fires a
 	 * non-blocking consultation to each. No-op when the message has no mentions.
 	 * Only invoked for direct input-box submits (not queued replays / force-sends).
+	 *
+	 * Returns `true` when the source agent's own send should be SUPPRESSED - the
+	 * message leads with an `@agent` mention, so it is addressed only at the
+	 * consulted agent(s). The caller then records the user's bubble but does not
+	 * dispatch to the source agent.
 	 */
-	onCrossAgentMentions?: (message: string, sourceSession: Session, sourceTabId: string) => void;
+	onCrossAgentMentions?: (message: string, sourceSession: Session, sourceTabId: string) => boolean;
 }
 
 /**
@@ -468,11 +473,72 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
 			// not on queued replays / force-sends, which pass an override value.
 			if (currentMode === 'ai' && overrideInputValue === undefined && onCrossAgentMentions) {
 				const sourceTab = getActiveTab(activeSession);
-				onCrossAgentMentions(
+				const suppressLocal = onCrossAgentMentions(
 					effectiveInputValue,
 					activeSession,
 					sourceTab?.id || activeSession.activeTabId
 				);
+
+				// The message leads with an `@agent` mention, so it is addressed only at
+				// the consulted agent(s). Record the user's bubble (so the streamed
+				// cross-agent replies have an anchor and the user sees what they asked),
+				// then STOP: do not queue or dispatch to the source agent, do not mark it
+				// busy. The consult already fired above.
+				if (suppressLocal) {
+					const mentionOnlyEntry = {
+						id: generateId(),
+						timestamp: Date.now(),
+						source: 'user',
+						text: effectiveInputValue,
+						images: [...effectiveImages],
+					} satisfies LogEntry;
+
+					setSessions((prev) =>
+						prev.map((s) => {
+							if (s.id !== activeSessionId) return s;
+							const tab = getActiveTab(s);
+							if (!tab) return s;
+							const trimmed = effectiveInputValue.trim();
+							const priorHistory = s.aiCommandHistory || [];
+							const aiCommandHistory =
+								trimmed && priorHistory[priorHistory.length - 1] !== trimmed
+									? [...priorHistory, trimmed].slice(-50)
+									: priorHistory;
+							return {
+								...s,
+								aiCommandHistory,
+								aiTabs: s.aiTabs.map((t) =>
+									t.id === tab.id ? { ...t, logs: [...t.logs, mentionOnlyEntry] } : t
+								),
+							};
+						})
+					);
+
+					// Mirror the bubble to other windows, matching the normal user-entry
+					// broadcast below (best-effort; a failed mirror must not block send).
+					window.maestro.process
+						.broadcastUserInput({
+							originId: getInputBroadcastOriginId(),
+							sessionId: activeSession.id,
+							tabId: sourceTab?.id,
+							inputMode: 'ai',
+							entry: mentionOnlyEntry,
+						})
+						.catch((error) => {
+							logger.error(
+								'[processInput] Failed to broadcast mention-only user input:',
+								undefined,
+								error
+							);
+						});
+
+					// Clear the composer.
+					setInputValue('');
+					if (!usingOverrideImages) setStagedImages([]);
+					syncAiInputToSession('');
+					if (inputRef.current) inputRef.current.style.height = 'auto';
+					return;
+				}
 			}
 
 			// Queue messages when AI is busy (only in AI mode)

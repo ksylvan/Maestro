@@ -34,6 +34,7 @@ import { useInputProcessing } from './useInputProcessing';
 import { useInputKeyDown } from './useInputKeyDown';
 import { useCrossAgentDispatch } from '../agent/useCrossAgentDispatch';
 import { resolveMentionedTargetSessionIds } from './useAgentMentionCompletion';
+import { messageStartsWithAgentMention } from '../../../shared/crossAgentContext';
 import { IMAGE_EXTENSIONS } from '../../utils/fileExplorerIcons/shared';
 import {
 	FILE_TREE_SINGLE_MIME,
@@ -216,9 +217,6 @@ export function useInputHandlers(deps: UseInputHandlersDeps): UseInputHandlersRe
 	);
 	const conductorProfile = useSettingsStore((s) => s.conductorProfile);
 	const automaticTabNamingEnabled = useSettingsStore((s) => s.automaticTabNamingEnabled);
-	// Cross-Agent Mentions Encore flag. Gates the Agents category of the `@`
-	// picker AND the `@`-token dispatch path; files/directories stay ungated.
-	const crossAgentMentionsEnabled = useSettingsStore((s) => s.encoreFeatures.crossAgentMentions);
 
 	// --- InputContext state (completion dropdowns) ---
 	const {
@@ -478,7 +476,6 @@ export function useInputHandlers(deps: UseInputHandlersDeps): UseInputHandlersRe
 		groups,
 		currentSessionId: activeSessionId,
 		fileSuggestions,
-		crossAgentMentionsEnabled,
 	});
 
 	// Sync file tree selection to match tab completion suggestion
@@ -510,11 +507,13 @@ export function useInputHandlers(deps: UseInputHandlersDeps): UseInputHandlersRe
 	// reuses the same agent/group resolution the `@` picker uses, so a typed
 	// `@name` dispatches identically to one chosen from the popover.
 	const { sendCrossAgentRequest } = useCrossAgentDispatch();
+	// Returns `true` when the source agent's own send should be SUPPRESSED - i.e.
+	// the message is addressed at the mentioned agent(s), so only they answer.
+	// That is the case when the message leads with an `@agent` mention and at
+	// least one target resolves. A trailing mention (`hey @Backend, thoughts?`)
+	// or a leading `@file` mention returns false, so the source agent answers too.
 	const handleCrossAgentMentions = useCallback(
-		(message: string, sourceSession: Session, sourceTabId: string) => {
-			// Encore-gated: no `@`-token dispatch fires when the feature is off.
-			if (!crossAgentMentionsEnabled) return;
-
+		(message: string, sourceSession: Session, sourceTabId: string): boolean => {
 			const { sessions: allSessions, groups: allGroups } = useSessionStore.getState();
 			const targetSessionIds = resolveMentionedTargetSessionIds(
 				message,
@@ -522,7 +521,7 @@ export function useInputHandlers(deps: UseInputHandlersDeps): UseInputHandlersRe
 				allGroups,
 				sourceSession.id
 			).filter((id) => id !== sourceSession.id); // Self-mention guard (defend at dispatch).
-			if (targetSessionIds.length === 0) return;
+			if (targetSessionIds.length === 0) return false;
 
 			const sourceTab = sourceSession.aiTabs.find((t) => t.id === sourceTabId);
 			const sourceLogs = sourceTab?.logs ?? [];
@@ -533,10 +532,15 @@ export function useInputHandlers(deps: UseInputHandlersDeps): UseInputHandlersRe
 					targetSessionId,
 					userPrompt: message,
 					sourceLogs,
+					// The source agent's working directory: the consulted agent is told it
+					// may READ files here to answer (see cross-agent-router prompt).
+					sourceCwd: sourceSession.cwd,
 				});
 			}
+
+			return messageStartsWithAgentMention(message);
 		},
-		[sendCrossAgentRequest, crossAgentMentionsEnabled]
+		[sendCrossAgentRequest]
 	);
 
 	const { processInput, processInputRef: _hookProcessInputRef } = useInputProcessing({

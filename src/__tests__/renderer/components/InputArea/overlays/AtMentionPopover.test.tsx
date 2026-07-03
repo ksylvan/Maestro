@@ -9,8 +9,8 @@ import { createItemRefs, inputAreaTheme } from '../_fixtures';
 
 /**
  * Post-Phase-01 the popover is driven by the unified `items` / `counts` /
- * `category` API (not the legacy `suggestions` prop). Phase 05 adds the
- * Encore-gated Agents category + the no-other-agents empty state.
+ * `category` API (not the legacy `suggestions` prop), with an Agents category
+ * alongside files/directories and a no-other-agents empty state.
  */
 describe('AtMentionPopover', () => {
 	const items: MentionPickerItem[] = [
@@ -106,15 +106,6 @@ describe('AtMentionPopover', () => {
 		expect(screen.getByText('src/utils')).toBeInTheDocument();
 		expect(screen.getByText('Auto Run')).toBeInTheDocument();
 		expect(screen.getByText('src/utils').closest('button')).toHaveClass('ring-1');
-	});
-
-	it('hides the Agents category segment when the Encore flag is off', () => {
-		renderPopover({ crossAgentMentionsEnabled: false });
-
-		expect(screen.getByText('All')).toBeInTheDocument();
-		expect(screen.getByText('Files')).toBeInTheDocument();
-		expect(screen.getByText('Directories')).toBeInTheDocument();
-		expect(screen.queryByText('Agents')).not.toBeInTheDocument();
 	});
 
 	it('shows the no-other-agents guidance for an empty Agents category', () => {

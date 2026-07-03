@@ -12,12 +12,22 @@ function reconstruct(segments: MentionSegment[]): string {
 }
 
 /** Roster used by the agent-mention cases below (lowercased, as callers pass). */
-const KNOWN = new Set(['review-bot', 'codex', 'squad']);
+const KNOWN = new Set(['review-bot', 'codex', 'squad', '☁-substrate', 'café-bot', '日本語-agent']);
 
 describe('AGENT_MENTION_PATTERN_SOURCE', () => {
 	it('matches @name (single at, case-insensitive, hyphens allowed)', () => {
-		const re = new RegExp(AGENT_MENTION_PATTERN_SOURCE, 'g');
+		// The source uses \p{...} escapes, so it MUST be compiled with the `u` flag.
+		const re = new RegExp(AGENT_MENTION_PATTERN_SOURCE, 'gu');
 		expect('@review-bot @Codex'.match(re)).toEqual(['@review-bot', '@Codex']);
+	});
+
+	it('matches non-ASCII names (emoji, accented, CJK)', () => {
+		const re = new RegExp(AGENT_MENTION_PATTERN_SOURCE, 'gu');
+		expect('@☁-Substrate @café-Bot @日本語-agent'.match(re)).toEqual([
+			'@☁-Substrate',
+			'@café-Bot',
+			'@日本語-agent',
+		]);
 	});
 });
 
@@ -50,6 +60,28 @@ describe('tokenizeMentions', () => {
 			{ kind: 'agent', value: '@review-bot', name: 'review-bot' },
 			{ kind: 'text', value: ' look' },
 		]);
+	});
+
+	it('tokenizes an emoji-named agent (the @☁-Substrate regression)', () => {
+		expect(tokenizeMentions('hey @☁-Substrate ping', KNOWN)).toEqual([
+			{ kind: 'text', value: 'hey ' },
+			{ kind: 'agent', value: '@☁-Substrate', name: '☁-Substrate' },
+			{ kind: 'text', value: ' ping' },
+		]);
+	});
+
+	it('tokenizes accented and CJK agent names', () => {
+		expect(tokenizeMentions('ask @café-Bot and @日本語-agent', KNOWN)).toEqual([
+			{ kind: 'text', value: 'ask ' },
+			{ kind: 'agent', value: '@café-Bot', name: 'café-Bot' },
+			{ kind: 'text', value: ' and ' },
+			{ kind: 'agent', value: '@日本語-agent', name: '日本語-agent' },
+		]);
+	});
+
+	it('reconstructs input containing a non-ASCII mention', () => {
+		const input = 'hey @☁-Substrate, what is up?';
+		expect(reconstruct(tokenizeMentions(input, KNOWN))).toBe(input);
 	});
 
 	it('leaves a bare @word that is NOT a known agent as plain text', () => {

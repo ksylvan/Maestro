@@ -4,10 +4,6 @@ description: Consult another agent inline by typing @name in any chat. Maestro f
 icon: at
 ---
 
-<Note>
-  Cross-Agent Mentions is an [Encore Feature](./encore-features). Enable it under **Settings → Encore Features → Cross-Agent Mentions** before the Agents section appears in the `@` picker.
-</Note>
-
 Cross-Agent Mentions let you pull another agent into your current conversation without leaving it. Type `@` in any AI input, pick an agent, and Maestro forwards the relevant slice of your chat to that agent, runs it in the background, and streams its answer back inline - stamped with who replied.
 
 It is the lightweight cousin of [Group Chat](./group-chat): no moderator, no shared room, no ceremony. Just a quick "what does the backend agent think about this?" from wherever you already are.
@@ -40,10 +36,25 @@ The consultation is **non-blocking and isolated**:
 - Your chat is never blocked. A small pill at the top of the input shows in-flight consultations (each agent's name and elapsed seconds); click it to expand the list. Keep typing while you wait.
 - When the target finishes, its reply streams back **inline into the chat you are already in**, attributed to the agent that answered.
 
+Every consulted reply lands in a tinted bubble topped by an **attribution header**: the answering agent's name, its provider, and its session id. That header is what tells replies apart when several agents answer at once, and it does double duty as a jump control. Click the agent name (or the jump button on the right) to open that agent in the Left Bar so you can continue the thread in its own context; click the session id to copy it. While a reply is still streaming the header shows a spinner, and a consult that failed tints the header red.
+
 Mention several agents in one message and each runs independently and concurrently, so a fan-out returns as fast as the slowest agent, not the sum of them.
+
+### Who answers: your agent, the mentioned agents, or both
+
+Whether your **current** agent also answers depends on where the mention sits:
+
+- **Start the message with an `@agent` mention** (`@Backend does this look right?`) and the message is treated as addressed to the mentioned agent(s) only. Your current agent stays quiet; you still see your message in the chat as the anchor for the replies that stream back.
+- **Put the mention later in the sentence** (`does this look right to @Backend?`) and your current agent answers too, with the consulted agent's reply arriving alongside it. Use this when you want both perspectives.
+
+A leading `@file` reference (`@src/app.ts what does this do?`) is a question for your current agent about that file, so it does not count as addressing another agent.
 
 <Note>
   Consulted agents run wherever they are configured, including [SSH remotes](./ssh-remote-execution) and their own model or token-mode settings. Terminal-only agents cannot be mentioned, and an agent cannot mention itself.
+</Note>
+
+<Note>
+  A consulted agent is told your **working directory** and may **read** files there to answer with real context. It will not write or modify files during a consultation: if changes are needed it describes them in its reply so you can apply them yourself.
 </Note>
 
 ## Controlling How Much Context You Share

@@ -21,38 +21,72 @@
  */
 
 /**
- * The bare-word shape of a single-`@` agent/group mention: one `@` followed by
- * name characters (letters, digits, hyphen). Case-insensitive to match
- * `normalizeMentionName` output (which preserves case, e.g. `@Review-Bot`);
- * downstream matching folds to lowercase.
- *
- * NOTE: this pattern only describes the SHAPE. A `@word` becomes an actual agent
- * mention when it also names a known agent/group - the roster check lives with
- * the callers (`tokenizeMentions`, the dispatch resolver).
+ * Emoji aren't a single code point: a base pictograph can be followed by a
+ * zero-width joiner (U+200D, e.g. 🧑‍💻) or the emoji variation selector
+ * (U+FE0F). Both count as name characters so an agent named with an emoji
+ * (`☁ Substrate` -> the `@☁-Substrate` token) tokenizes whole rather than
+ * dying at the first non-ASCII byte.
  */
-export const AGENT_MENTION_PATTERN_SOURCE = '@[A-Za-z0-9-]+';
+const EMOJI_JOIN = '\\u200d\\ufe0f';
 
+/**
+ * A name character: any script's letter/number/combining-mark, any emoji
+ * pictograph (plus the joiners above), and the hyphen `normalizeMentionName`
+ * produces from spaces. Unicode-aware on purpose - agent names can be emoji,
+ * accented, or CJK (`@☁-Substrate`, `@café-Bot`, `@日本語-agent`), not just
+ * `[A-Za-z0-9-]`. Keep `-` LAST so it stays a literal, not a range bound.
+ */
+const NAME_CHAR = `\\p{L}\\p{N}\\p{M}\\p{Extended_Pictographic}${EMOJI_JOIN}-`;
+
+/**
+ * A mention-body character: {@link NAME_CHAR} plus the path punctuation
+ * (`_ . /`) a file body carries, so `@src/app.ts` is captured whole before the
+ * file/agent split classifies it. `-` stays LAST (literal, not a range).
+ */
+const BODY_CHAR = `\\p{L}\\p{N}\\p{M}\\p{Extended_Pictographic}${EMOJI_JOIN}_./-`;
+
+/**
+ * The bare-word shape of a single-`@` agent/group mention: one `@` followed by
+ * name characters. Case-insensitive to match `normalizeMentionName` output
+ * (which preserves case, e.g. `@Review-Bot`); downstream matching folds to
+ * lowercase.
+ *
+ * REQUIRES the `u` flag when compiled (it uses `\p{...}` Unicode property
+ * escapes). NOTE: this pattern only describes the SHAPE. A `@word` becomes an
+ * actual agent mention when it also names a known agent/group - the roster
+ * check lives with the callers (`tokenizeMentions`, the dispatch resolver).
+ */
+export const AGENT_MENTION_PATTERN_SOURCE = `@[${NAME_CHAR}]+`;
+
+// The three regexes below include the emoji joiners (ZWJ/VS16) as INDIVIDUALLY
+// allowed body code points; the surrounding `+` quantifier reassembles a
+// multi-code-point emoji. `no-misleading-character-class` assumes a class
+// element is meant to be one grapheme and flags the joiners - not our intent
+// here (a code-point allow-set), so it's disabled per site.
 /** A bare agent/group name: the entire body is name characters (no `/`, `.`, `_`). */
-const AGENT_NAME_RE = /^[A-Za-z0-9-]+$/;
+// eslint-disable-next-line no-misleading-character-class
+const AGENT_NAME_RE = new RegExp(`^[${NAME_CHAR}]+$`, 'u');
 
 /**
  * A char that, sitting immediately before an `@`, glues the `@…` to a preceding
- * token so it is NOT a standalone mention. Covers word chars, another `@`
- * (`@@x`), and the path/URL separators a mention body can itself contain
- * (`_ . / -`). This is what keeps `foo@bar`, `email@host`, and a URL segment
- * like `https://host/@codex` from being read as a mention - a mention must
- * begin at a real boundary (start of text, whitespace, or non-path punctuation).
+ * token so it is NOT a standalone mention. Covers name chars (any script /
+ * emoji), another `@` (`@@x`), and the path/URL separators a mention body can
+ * itself contain (`_ . / -`). This is what keeps `foo@bar`, `email@host`, and a
+ * URL segment like `https://host/@codex` from being read as a mention - a
+ * mention must begin at a real boundary (start of text, whitespace, or non-path
+ * punctuation). `@` leads so the trailing `-` of BODY_CHAR stays a literal.
  */
-const MENTION_PREV_BLOCK = /[A-Za-z0-9_@./-]/;
+// eslint-disable-next-line no-misleading-character-class
+const MENTION_PREV_BLOCK = new RegExp(`[@${BODY_CHAR}]`, 'u');
 
 /**
  * A single scan alternative covers both mention kinds: a leading `@` plus a
  * path-ish body. Classification (file vs. agent vs. plain text) happens per
  * match in {@link scanMentionSpans}. The body class is a superset of
  * {@link AGENT_MENTION_PATTERN_SOURCE} so a bare name is captured whole before
- * being classified.
+ * being classified. Compiled with the `u` flag (see {@link scanMentionSpans}).
  */
-const MENTION_SCAN_SOURCE = '@[A-Za-z0-9_./-]+';
+const MENTION_SCAN_SOURCE = `@[${BODY_CHAR}]+`;
 
 /** Sentence-ending punctuation trimmed off the tail of a match. */
 const TRAILING_PUNCTUATION = /[.,;:!?)\]}>'"]+$/;
@@ -118,8 +152,11 @@ export function scanMentionSpans(text: string): MentionSpan[] {
 	const spans: MentionSpan[] = [];
 	if (!text) return spans;
 
-	// Fresh RegExp so the shared `lastIndex` never leaks between calls.
-	const scanner = new RegExp(MENTION_SCAN_SOURCE, 'g');
+	// Fresh RegExp so the shared `lastIndex` never leaks between calls. The `u`
+	// flag is required for the `\p{...}` classes and makes the scan iterate by
+	// code point, so astral emoji in a name are matched whole.
+	// eslint-disable-next-line no-misleading-character-class
+	const scanner = new RegExp(MENTION_SCAN_SOURCE, 'gu');
 	let match: RegExpExecArray | null;
 
 	while ((match = scanner.exec(text)) !== null) {

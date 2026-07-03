@@ -103,6 +103,28 @@ export function parseAgentMentions(input: string): CrossAgentMention[] {
 }
 
 /**
+ * True when the message LEADS with an agent/group mention - i.e. the first
+ * non-whitespace token is a bare `@name` (not an `@path/file` mention).
+ *
+ * This is the gate for "route to remote agents only": a message that starts
+ * with `@Backend ...` is addressed at the mentioned agent(s), so the source
+ * agent should NOT also answer it. A message where the `@mention` appears later
+ * (`hey @Backend, thoughts?`) still goes to the source agent too, and a leading
+ * FILE mention (`@src/app.ts explain this`) is a question for the source agent
+ * about that file, so it does not suppress the local send.
+ *
+ * Shape-only: whether the leading name resolves to a real agent is decided by
+ * the caller (it pairs this with a non-empty resolved-target list).
+ */
+export function messageStartsWithAgentMention(message: string): boolean {
+	if (!message) return false;
+	// Offset of the first non-whitespace character.
+	const leadingOffset = message.length - message.trimStart().length;
+	const [first] = scanMentionSpans(message);
+	return !!first && first.start === leadingOffset && first.isName && !first.isFile;
+}
+
+/**
  * Remove every `@mention` token from a message, leaving the surrounding text
  * (and any incidental whitespace) intact. Used so context-hint matching runs
  * against the user's prose, not the mention tokens.

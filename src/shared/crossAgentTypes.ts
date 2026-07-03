@@ -51,6 +51,13 @@ export interface CrossAgentRequest {
 	transcript: CrossAgentTranscriptEntry[];
 	/** How the transcript was windowed (for logging / provenance). */
 	strategy: ContextWindowStrategy;
+	/**
+	 * The source agent's working directory. The consulted agent runs in its OWN
+	 * cwd, so this is the only pointer it gets to the user's project; the router
+	 * tells the agent it may READ files here to inform its answer. Optional so
+	 * older payloads (and tests) stay valid.
+	 */
+	sourceCwd?: string;
 	/** When the request was created (epoch ms). */
 	createdAt: number;
 }

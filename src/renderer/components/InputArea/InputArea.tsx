@@ -132,9 +132,6 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 	} = props;
 
 	const spellCheckEnabled = useSettingsStore((state) => state.spellCheck);
-	const crossAgentMentionsEnabled = useSettingsStore(
-		(state) => state.encoreFeatures.crossAgentMentions
-	);
 	const openAnnotator = useImageAnnotatorStore((state) => state.openAnnotator);
 	const {
 		modelMenuOpen,
@@ -359,7 +356,7 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 
 			{/* CrossAgentResponseIndicator - "N agents responding…" while consulted
 			    agents stream replies into this tab. Only meaningful in AI mode. */}
-			{session.inputMode === 'ai' && crossAgentMentionsEnabled && (
+			{session.inputMode === 'ai' && (
 				<CrossAgentResponseIndicator
 					theme={theme}
 					sourceSessionId={session.id}
@@ -451,7 +448,6 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
 				counts={atMentionCounts}
 				category={atMentionCategory}
 				setCategory={setAtMentionCategory}
-				crossAgentMentionsEnabled={crossAgentMentionsEnabled}
 				selectedIndex={selectedAtMentionIndex}
 				filter={atMentionFilter}
 				startIndex={atMentionStartIndex}

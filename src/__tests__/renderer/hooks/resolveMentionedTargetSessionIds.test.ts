@@ -34,6 +34,25 @@ describe('resolveMentionedTargetSessionIds', () => {
 		).toEqual(['r']);
 	});
 
+	it('resolves an emoji-named agent (the @☁-Substrate regression)', () => {
+		const sessions = [agent('sub', '☁ Substrate'), agent('other', 'Other')];
+		expect(
+			resolveMentionedTargetSessionIds(
+				"@☁-Substrate what's the last thing you did?",
+				sessions,
+				[],
+				'cur'
+			)
+		).toEqual(['sub']);
+	});
+
+	it('resolves accented and CJK agent names', () => {
+		const sessions = [agent('c', 'Café Bot'), agent('j', '日本語 Agent')];
+		expect(
+			resolveMentionedTargetSessionIds('@café-Bot and @日本語-agent', sessions, [], 'cur')
+		).toEqual(['c', 'j']);
+	});
+
 	it('excludes the source session (an agent cannot mention itself)', () => {
 		const sessions = [agent('self', 'Self'), agent('other', 'Other')];
 		expect(resolveMentionedTargetSessionIds('@Self hey', sessions, [], 'self')).toEqual([]);

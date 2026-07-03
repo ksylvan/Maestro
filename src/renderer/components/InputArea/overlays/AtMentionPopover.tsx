@@ -4,7 +4,7 @@ import { File, Folder, Users } from 'lucide-react';
 import type { Theme } from '../../../types';
 import {
 	buildMentionAccept,
-	getMentionCategoryCycle,
+	MENTION_CATEGORY_CYCLE,
 	type MentionCategory,
 	type MentionPickerItem,
 } from '../../../hooks/input/useMentionPicker';
@@ -21,12 +21,6 @@ interface AtMentionPopoverProps {
 	/** Active filter scope. */
 	category: MentionCategory;
 	setCategory?: (category: MentionCategory) => void;
-	/**
-	 * Cross-Agent Mentions Encore flag. When false the Agents category segment is
-	 * dropped from the bar (files/directories stay). Defaults to true so callers
-	 * that don't opt into gating keep the full picker.
-	 */
-	crossAgentMentionsEnabled?: boolean;
 	selectedIndex: number;
 	filter: string;
 	startIndex: number;
@@ -78,7 +72,6 @@ export const AtMentionPopover = memo(function AtMentionPopover({
 	counts,
 	category,
 	setCategory,
-	crossAgentMentionsEnabled = true,
 	selectedIndex,
 	filter,
 	startIndex,
@@ -113,6 +106,14 @@ export const AtMentionPopover = memo(function AtMentionPopover({
 			setStartIndex?.(-1);
 		}
 		inputRef.current?.focus();
+		// Land the caret right after the inserted token (past its trailing space)
+		// so the user keeps typing seamlessly instead of the caret jumping to the
+		// end of the whole field on a mid-text insertion. Deferred to a frame so it
+		// runs after the controlled value commits.
+		requestAnimationFrame(() => {
+			const el = inputRef.current;
+			if (el) el.selectionStart = el.selectionEnd = accept.caretPos;
+		});
 	};
 
 	const selectCategory = (next: MentionCategory) => {
@@ -120,10 +121,6 @@ export const AtMentionPopover = memo(function AtMentionPopover({
 		setSelectedIndex?.(0);
 		inputRef.current?.focus();
 	};
-
-	// The bar hides the Agents segment when the Encore flag is off (single source
-	// of truth shared with the keyboard cycle in useInputKeyDown).
-	const categoryCycle = getMentionCategoryCycle(crossAgentMentionsEnabled);
 
 	// Distinguish "no other agents exist" (empty filter + zero rows -> actionable
 	// guidance) from a plain filter miss.
@@ -140,7 +137,7 @@ export const AtMentionPopover = memo(function AtMentionPopover({
 				className="flex items-stretch border-b text-xs"
 				style={{ borderColor: theme.colors.border }}
 			>
-				{categoryCycle.map((cat) => {
+				{MENTION_CATEGORY_CYCLE.map((cat) => {
 					const isActive = cat === category;
 					return (
 						<button

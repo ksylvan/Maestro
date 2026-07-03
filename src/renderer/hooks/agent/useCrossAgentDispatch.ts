@@ -40,6 +40,12 @@ export interface SendCrossAgentRequestOptions {
 	userPrompt: string;
 	/** The source tab's logs (windowed before sending). */
 	sourceLogs: LogEntry[];
+	/**
+	 * The source agent's working directory. Forwarded so the consulted agent can
+	 * be told it may READ files here to inform its answer (it runs in its own
+	 * cwd, so this is the only pointer it has to the user's project).
+	 */
+	sourceCwd?: string;
 }
 
 /**
@@ -185,6 +191,7 @@ export function useCrossAgentDispatch(): UseCrossAgentDispatchResult {
 				userPrompt: opts.userPrompt,
 				transcript,
 				strategy,
+				sourceCwd: opts.sourceCwd,
 			})
 			.then(({ requestId }) => {
 				// The terminal chunk already landed (fast failure/short response that

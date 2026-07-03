@@ -20,19 +20,6 @@ export type MentionCategory = 'all' | 'files' | 'directories' | 'agents';
 export const MENTION_CATEGORY_CYCLE: MentionCategory[] = ['all', 'files', 'directories', 'agents'];
 
 /**
- * The visible/cyclable categories given the Cross-Agent Mentions Encore flag.
- * When the feature is off the `agents` scope is dropped entirely so the `@`
- * picker only offers files/directories (the single-`@` file experience is never
- * gated). Single source of truth for both the category bar (AtMentionPopover)
- * and the keyboard cycle (useInputKeyDown), so they can never disagree.
- */
-export function getMentionCategoryCycle(crossAgentMentionsEnabled: boolean): MentionCategory[] {
-	return crossAgentMentionsEnabled
-		? MENTION_CATEGORY_CYCLE
-		: MENTION_CATEGORY_CYCLE.filter((c) => c !== 'agents');
-}
-
-/**
  * A file or directory row. `value` is the *full literal token* to splice into
  * the textarea: `@path ` for files (trailing space, closes the picker) and
  * `@path/` for directories (trailing slash, no space, drills in and re-filters).
@@ -66,12 +53,6 @@ export interface UseMentionPickerParams {
 	currentSessionId: string | null | undefined;
 	/** File/directory suggestions from {@link useAtMentionCompletion}. */
 	fileSuggestions: AtMentionSuggestion[];
-	/**
-	 * Cross-Agent Mentions Encore flag. When false the Agents category is
-	 * suppressed (no agent/group rows, zero count) and, defensively, an `agents`
-	 * scope falls back to `all`. Files/directories are never affected.
-	 */
-	crossAgentMentionsEnabled: boolean;
 }
 
 export interface UseMentionPickerReturn {
@@ -103,15 +84,7 @@ const KIND_RANK: Record<MentionPickerItem['kind'], number> = {
  * empty scopes.
  */
 export function useMentionPicker(params: UseMentionPickerParams): UseMentionPickerReturn {
-	const {
-		filter,
-		category,
-		sessions,
-		groups,
-		currentSessionId,
-		fileSuggestions,
-		crossAgentMentionsEnabled,
-	} = params;
+	const { filter, category, sessions, groups, currentSessionId, fileSuggestions } = params;
 
 	const { getSuggestions: getAgentSuggestions } = useAgentMentionCompletion(
 		sessions,
@@ -146,10 +119,7 @@ export function useMentionPicker(params: UseMentionPickerParams): UseMentionPick
 			}
 		}
 
-		// Encore-gated: with the flag off the picker never surfaces agents/groups.
-		const agentItems: MentionPickerItem[] = crossAgentMentionsEnabled
-			? getAgentSuggestions(filter)
-			: [];
+		const agentItems: MentionPickerItem[] = getAgentSuggestions(filter);
 
 		const counts: Record<MentionCategory, number> = {
 			all: fileItems.length + dirItems.length + agentItems.length,
@@ -158,13 +128,8 @@ export function useMentionPicker(params: UseMentionPickerParams): UseMentionPick
 			agents: agentItems.length,
 		};
 
-		// Defensive: if the flag flips off while the picker sits on `agents`,
-		// fall back to `all` so the user still sees files/directories.
-		const effectiveCategory: MentionCategory =
-			!crossAgentMentionsEnabled && category === 'agents' ? 'all' : category;
-
 		let items: MentionPickerItem[];
-		switch (effectiveCategory) {
+		switch (category) {
 			case 'files':
 				items = fileItems.slice(0, MAX_ITEMS);
 				break;
@@ -190,12 +155,18 @@ export function useMentionPicker(params: UseMentionPickerParams): UseMentionPick
 		}
 
 		return { items, counts };
-	}, [filter, category, fileSuggestions, getAgentSuggestions, crossAgentMentionsEnabled]);
+	}, [filter, category, fileSuggestions, getAgentSuggestions]);
 }
 
 export interface MentionAcceptResult {
 	/** New textarea value after splicing the accepted token. */
 	value: string;
+	/**
+	 * Where the caret should land after acceptance: right after the spliced
+	 * token. For files/agents that includes the token's trailing space, so the
+	 * user can keep typing immediately without the caret sitting mid-mention.
+	 */
+	caretPos: number;
 	/** Directory drill-in keeps the picker open to re-filter inside the folder. */
 	keepOpen: boolean;
 	/** New mention filter when `keepOpen` (the directory path + `/`). */
@@ -216,10 +187,13 @@ export function buildMentionAccept(
 	const beforeAt = inputValue.substring(0, startIndex);
 	const afterFilter = inputValue.substring(startIndex + 1 + filter.length);
 	const value = beforeAt + item.value + afterFilter;
+	// Caret lands immediately after the spliced token (past its trailing space
+	// for files/agents; past the `/` for directories).
+	const caretPos = startIndex + item.value.length;
 
 	if (item.kind === 'directory') {
 		// `item.value` is `@path/`; the re-filter drops the leading `@`.
-		return { value, keepOpen: true, nextFilter: item.value.slice(1) };
+		return { value, caretPos, keepOpen: true, nextFilter: item.value.slice(1) };
 	}
-	return { value, keepOpen: false, nextFilter: '' };
+	return { value, caretPos, keepOpen: false, nextFilter: '' };
 }

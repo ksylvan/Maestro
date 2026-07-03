@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { ChevronRight, Loader2 } from 'lucide-react';
 import type { Theme } from '../types';
 import {
 	selectInFlightForTab,
@@ -65,7 +65,10 @@ export function CrossAgentResponseIndicator({
 		// Centered container with negative top margin to offset parent padding,
 		// matching QuitWhenIdleIndicator / ThinkingStatusPill so the pills stack.
 		<div className="relative flex justify-center pb-2 mb-2 -mt-2">
-			<div className="flex flex-col items-stretch">
+			{/* Pill + expanded agent chips share ONE row (wrapping if the fleet is
+			    large), so the agents reveal to the RIGHT of the pill instead of a
+			    dropdown below it. */}
+			<div className="flex flex-row flex-wrap items-center justify-center gap-2">
 				<button
 					type="button"
 					onClick={() => {
@@ -73,13 +76,13 @@ export function CrossAgentResponseIndicator({
 						setExpanded((v) => !v);
 					}}
 					aria-expanded={expanded}
-					className="flex items-center gap-2 pl-3 pr-3 py-1.5 rounded-full text-xs font-medium outline-none transition-colors hover:opacity-90"
+					className="flex items-center gap-2 pl-3 pr-2.5 py-1.5 rounded-full text-xs font-medium outline-none transition-colors hover:opacity-90"
 					style={{
 						backgroundColor: theme.colors.accent + '20',
 						border: `1px solid ${theme.colors.border}`,
 						color: theme.colors.textMain,
 					}}
-					title="Cross-agent responses in progress"
+					title={expanded ? 'Hide consulted agents' : 'Show consulted agents'}
 				>
 					<Loader2
 						className="w-3.5 h-3.5 shrink-0 animate-spin"
@@ -88,38 +91,41 @@ export function CrossAgentResponseIndicator({
 					<span className="shrink-0">
 						{count} {count === 1 ? 'agent' : 'agents'} responding…
 					</span>
+					{/* Disclosure chevron: points right when collapsed, rotates down when
+					    expanded, so the pill reads as clickable-to-reveal. */}
+					<ChevronRight
+						className={`w-3.5 h-3.5 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}
+						style={{ color: theme.colors.textDim }}
+						aria-hidden
+					/>
 				</button>
 
-				{expanded && (
-					<div
-						className="mt-1.5 rounded-lg border overflow-hidden shadow-lg"
-						style={{
-							backgroundColor: theme.colors.bgSidebar,
-							borderColor: theme.colors.border,
-						}}
-					>
-						{inFlight.map((req) => {
-							const elapsedSec = Math.max(0, Math.floor((now - req.startedAt) / 1000));
-							return (
-								<div
-									key={req.requestId}
-									className="flex items-center gap-2 px-3 py-1.5 text-xs"
-									style={{ color: theme.colors.textMain }}
-								>
-									<span className="w-4 shrink-0 text-center leading-none">
-										{getAgentIcon(req.targetToolType ?? '')}
-									</span>
-									<span className="flex-1 truncate" title={req.targetAgentName}>
-										{truncateText(req.targetAgentName, 24)}
-									</span>
-									<span className="shrink-0 tabular-nums" style={{ color: theme.colors.textDim }}>
-										{elapsedSec}s
-									</span>
-								</div>
-							);
-						})}
-					</div>
-				)}
+				{expanded &&
+					inFlight.map((req) => {
+						const elapsedSec = Math.max(0, Math.floor((now - req.startedAt) / 1000));
+						return (
+							<div
+								key={req.requestId}
+								className="flex items-center gap-1.5 pl-2 pr-2.5 py-1 rounded-full text-xs"
+								style={{
+									backgroundColor: theme.colors.bgSidebar,
+									border: `1px solid ${theme.colors.border}`,
+									color: theme.colors.textMain,
+								}}
+								title={`${req.targetAgentName} · ${elapsedSec}s`}
+							>
+								<span className="shrink-0 leading-none">
+									{getAgentIcon(req.targetToolType ?? '')}
+								</span>
+								<span className="truncate max-w-[10rem]">
+									{truncateText(req.targetAgentName, 24)}
+								</span>
+								<span className="shrink-0 tabular-nums" style={{ color: theme.colors.textDim }}>
+									{elapsedSec}s
+								</span>
+							</div>
+						);
+					})}
 			</div>
 		</div>
 	);
