@@ -6,6 +6,7 @@ import type { CopyContextOptions } from '../../hooks/tabs/useTabExportHandlers';
 import { safeClipboardWrite } from '../../utils/clipboard';
 import { buildSessionDeepLink } from '../../../shared/deep-link-urls';
 import { useTabHoverOverlay } from '../../hooks/tabs/useTabHoverOverlay';
+import { isCoarsePointer } from '../../utils/touch';
 import { getTabKindColor } from './tabBarUtils';
 import { AITabOverlayMenu } from './AITabOverlayMenu';
 import { WizardIndicator } from '../SessionList/WizardIndicator';
@@ -144,6 +145,7 @@ export const AITab = memo(function AITab({
 		setOverlayRef,
 		positionReady,
 		setTabRef,
+		openOverlay,
 		handleMouseEnter,
 		handleMouseLeave,
 		overlayMouseEnter,
@@ -355,8 +357,15 @@ export const AITab = memo(function AITab({
 
 	// Handlers for drag events using stable tabId
 	const handleTabSelect = useCallback(() => {
+		// Touch has no hover, so tapping the already-active tab opens the action
+		// overlay (close, rename, etc.) instead of re-selecting a no-op. Tapping
+		// an inactive tab still just selects it. Mouse/keyboard are unaffected.
+		if (isActive && isCoarsePointer()) {
+			openOverlay();
+			return;
+		}
 		onSelect(tabId);
-	}, [onSelect, tabId]);
+	}, [isActive, openOverlay, onSelect, tabId]);
 
 	const handleTabDragStart = useCallback(
 		(e: React.DragEvent) => {
