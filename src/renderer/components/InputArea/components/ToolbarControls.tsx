@@ -155,7 +155,7 @@ export const ToolbarControls = memo(function ToolbarControls({
 						}
 						title={isVoiceListening ? 'Stop voice input' : 'Voice input'}
 						aria-label={isVoiceListening ? 'Stop voice input' : 'Start voice input'}
-						aria-pressed={isVoiceListening}
+						aria-pressed={!!isVoiceListening}
 					>
 						<Mic className="w-4 h-4" />
 					</button>

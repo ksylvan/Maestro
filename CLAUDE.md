@@ -198,7 +198,7 @@ See [[CLAUDE-AGENTS.md]] for capabilities and integration details.
 ```bash
 npm run dev           # Development with hot reload (isolated data, can run alongside production)
 npm run dev:prod-data # Development using production data (close production app first)
-npm run dev:web       # Web interface development
+npm run dev:web-desktop # Browser build of the renderer (WebSocket IPC bridge, port 5176)
 npm run build         # Full production build
 npm run clean         # Clean build artifacts
 npm run lint          # TypeScript type checking (all configs)
