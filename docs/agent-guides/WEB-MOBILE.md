@@ -549,3 +549,83 @@ Main-to-renderer push events only reach browser clients when they go through `sa
 `src/main/web-server/web-server-factory.ts` was deliberately left out of that migration. Its ~58 direct `webContents.send(...)` calls are not new events originating in the main process: they mirror actions that a web client already performed (over the WebSocket bridge) back onto the desktop renderer so the two surfaces stay in sync. Bridging those sends through `safeSend` would echo each web-originated action straight back to the web client that initiated it, causing duplicate state updates and feedback loops.
 
 Wiring the factory into the bridge therefore requires an echo-suppression design (for example, tagging each mirrored event with its originating client id and having the bridge skip re-delivering it to that origin) before the sends can safely fan out. That work is out of scope for the safeSend parity pass and is tracked as a separate effort. Until then, leave the `web-server-factory.ts` sends as direct `webContents.send(...)` calls.
+
+---
+
+## Legacy mobile retirement inventory
+
+Compiled 2026-07-03 (Phase 06, retirement step 1). This is the pre-deletion catalog of every reference to the legacy mobile web app (`src/web/mobile/` and its entry points) that lives OUTSIDE `src/web/` itself, with a keep/remove verdict for each. Retirement step 2 acts on this catalog; nothing was deleted in step 1.
+
+### Halt check (safe to proceed)
+
+The legacy mobile React app is neither served nor imported at runtime by any non-legacy, non-test code:
+
+- Its `index.html` is never served. `src/main/web-server/routes/staticRoutes.ts` serves the web-desktop bundle's `index.html` for every SPA route (token root, `/desktop`, `/session/:id`, and the valid-token catch-all). See the comment at `staticRoutes.ts:75-80`.
+- No runtime module imports `src/web/mobile/*`. The two prescribed greps returned only comment strings mentioning the *concept* "web/mobile" (see below), plus test files under `src/__tests__/web/mobile/`. Zero `import`/`require`/`lazy()` of the mobile app exist outside `src/web/` and the legacy tests.
+
+Because the mobile bundle is not reachable at runtime, retirement is safe and no `maestro:halt` marker was written.
+
+### Greps run
+
+```bash
+# Grep 1: web/mobile references in src, excluding src/web/ and __tests__
+grep -rn "web/mobile\|from '\.\./mobile\|from './mobile" src --include="*.ts" --include="*.tsx" | grep -v "src/web/" | grep -v __tests__
+# -> all hits are documentation comments (see "Comment-only references" below); NO code imports.
+
+# Grep 2: src/web references in build config
+grep -rn "src/web" package.json vite.config*.mts scripts/ 2>/dev/null | grep -vi web-desktop
+# -> only vite.config.web.mts (the mobile bundle config). No scripts/ references.
+```
+
+### Inventory (references outside `src/web/`)
+
+| Location (file:line)                          | What it is                                                                 | Verdict         |
+| --------------------------------------------- | ------------------------------------------------------------------------- | --------------- |
+| `package.json:26` `dev:web`                   | Dev server for the mobile bundle (`vite --config vite.config.web.mts`)     | **REMOVE**      |
+| `package.json:37` `build:web`                 | Production build of the mobile bundle (`vite build --config vite.config.web.mts`) | **REMOVE** |
+| `package.json:30` `build`                     | Chains `... && npm run build:web && npm run build:web-desktop && ...`      | **EDIT** (drop `&& npm run build:web`) |
+| `vite.config.web.mts` (whole file)            | Vite config for the mobile bundle; entry `src/web/index.html`, `publicDir: src/web/public`, output `dist/web/` | **REMOVE** |
+| `src/main/web-server/WebServer.ts:775-783`    | Static mount of `dist/web/assets/` (compiled legacy mobile JS/CSS)         | **REMOVE**      |
+| `src/main/web-server/WebServer.ts:786-793`    | Static mount of `dist/web/icons/` (PWA icons; Phase 03 uses it)            | **KEEP**        |
+| `src/main/web-server/WebServer.ts:160,211,255-278,284+` | `webAssetsPath` field + `resolveWebAssetsPath()` + `isServableWebAssetsPath()` | **KEEP but REWORK** (see BLOCKER below) |
+| `src/main/web-server/routes/staticRoutes.ts:183-193` | `/<token>/manifest.json` route (reads `webAssetsPath`)             | **KEEP**        |
+| `src/main/web-server/routes/staticRoutes.ts:196-206` | `/<token>/sw.js` route (reads `webAssetsPath`)                     | **KEEP**        |
+| `src/main/web-server/routes/staticRoutes.ts:75-85` | `webAssetsPath` ctor param + comment ("Legacy mobile-web bundle root. Retained for the PWA manifest/service worker/icons") | **KEEP** (comment already scopes it to PWA) |
+| `src/__tests__/web/mobile/*` (25 suites)      | Unit tests that import `src/web/mobile/*` components/constants             | **REMOVE / rewrite** (step 2 item 6) |
+| `src/__tests__/web/utils/serviceWorker.test.ts` | Tests `src/web/utils/serviceWorker.ts` (kept module)                     | **KEEP**        |
+
+### npm scripts and vite configs to remove in step 2 (explicit)
+
+- Delete npm script `dev:web` (`package.json:26`).
+- Delete npm script `build:web` (`package.json:37`).
+- Edit the `build` script (`package.json:30`) to drop `&& npm run build:web`.
+- Delete the file `vite.config.web.mts`.
+
+`dev:web-desktop` (`package.json:27`), `build:web-desktop` (`package.json:28`), and `vite.config.web-desktop.mts` are the CURRENT browser interface and STAY untouched.
+
+### BLOCKER for step 2: PWA assets are built by the mobile config
+
+The PWA assets the task says to keep (manifest.json, sw.js, icons/) are currently produced only as a side effect of the legacy build:
+
+1. `vite.config.web.mts` sets `publicDir: src/web/public`, so building `build:web` copies `src/web/public/{manifest.json,sw.js,icons/}` into `dist/web/`.
+2. `WebServer.resolveWebAssetsPath()` resolves `webAssetsPath` to `dist/web` and, via `isServableWebAssetsPath()`, requires that directory to contain an `index.html` (not referencing the dev entrypoint) AND an `assets/` folder.
+3. The kept routes read from `webAssetsPath`: manifest.json (`staticRoutes.ts:187`), sw.js (`staticRoutes.ts:200`), icons/ mount (`WebServer.ts:786`).
+
+So removing `build:web` / `vite.config.web.mts` and deleting `src/web/index.html` (step 2) would leave `dist/web` unbuilt, `resolveWebAssetsPath()` returning `null`, and the manifest/sw.js/icons routes returning 404 - silently breaking the PWA that step 2 is supposed to preserve.
+
+Step 2 (or a dedicated follow-up) MUST provide a replacement so `src/web/public/` still lands in a served location, for example one of:
+
+- Add a lightweight copy step (or a `publicDir`) that emits `src/web/public/*` into `dist/web/` (or a renamed `dist/pwa/`), and repoint `resolveWebAssetsPath()` at it; AND
+- Relax `isServableWebAssetsPath()` so it no longer requires a mobile-app `index.html` + `assets/` (those disappear with the mobile bundle) - a PWA-assets root only needs `manifest.json`/`sw.js`/`icons/`.
+
+Until that replacement exists, do NOT delete `build:web`/`vite.config.web.mts` without also rewiring the PWA asset source, or the install prompt and service worker will break.
+
+### Cross-`src/web` keep dependency: serviceWorker.ts
+
+`src/web-desktop/bootstrap.ts:13` imports `registerServiceWorker` from `../web/utils/serviceWorker`. This is Phase 03 (web-desktop) consuming a module inside `src/web/` - it is the reason step 2 item (4) keeps `src/web/utils/serviceWorker.ts`. It is a KEEP dependency, not a reference to sever. The legacy importers of the same module (`src/web/App.tsx:20`, `src/web/utils/index.ts:25-26`) go away with the mobile app.
+
+### Comment-only references (no action)
+
+Grep 1's hits are documentation comments that mention the *concept* "web/mobile client" and reference no code path into the mobile app. They require no change:
+
+`src/renderer/utils/markdownConfig.ts:95`, `src/renderer/components/Markdown/config.ts:10`, `src/renderer/hooks/batch/internal/useBatchBroadcast.ts:25,60`, `src/renderer/hooks/remote/useRemoteHandlers.ts:133,383`, `src/renderer/hooks/remote/index.ts:41`, `src/renderer/global.d.ts:814,821`, `src/shared/cue/subscription-id.ts:3`, `src/shared/deep-link-urls.ts:46`, `src/shared/settingsMetadata.ts:694,700`, `src/shared/markdownPlugins.ts:5`, `src/main/web-server/web-settings-snapshot.ts:3`, `src/main/web-server/types.ts:644`, `src/main/ipc/handlers/notifications.ts:138`.
