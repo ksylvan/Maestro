@@ -1525,3 +1525,26 @@ html[data-runtime='web-desktop'][data-bp='sm'] select {
 	font-size: 16px !important;
 	line-height: 1.4;
 }
+
+/*
+ * Reveal hover-only row actions on coarse (touch) pointers.
+ *
+ * ~17 components hide their row / header controls behind Tailwind's
+ * `opacity-0 group-hover:opacity-100` pattern. There is no hover on touch, so
+ * those controls (delete, copy, worktree, etc.) are invisible and unreachable
+ * on a phone. Tailwind emits the variant name verbatim in the class attribute,
+ * so an attribute-contains selector matches every one of them at once.
+ *
+ * This is a DELIBERATE blanket rule: rather than touch 17 files, force the
+ * revealed state whenever the primary pointer is coarse. It is gated on
+ * `(pointer: coarse)` (not the web-desktop runtime) so a touchscreen laptop
+ * running the native app benefits too, while mouse users are unaffected.
+ * `!important` guarantees the reveal regardless of utility-class source order.
+ * A component that later wants a bespoke touch affordance can override this
+ * with a more specific rule.
+ */
+@media (pointer: coarse) {
+	[class*='group-hover:opacity-100'] {
+		opacity: 1 !important;
+	}
+}
