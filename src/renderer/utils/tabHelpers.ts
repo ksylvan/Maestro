@@ -727,9 +727,11 @@ export function createTab(
 	// Update the session with the new tab added and set as active.
 	// Clear activeFileTabId and activeTerminalTabId so the new AI tab is shown in the
 	// main panel, and set inputMode to 'ai' so callers don't need to patch it manually.
-	// Insert the new tab into unifiedTabOrder directly to the right of the
-	// currently active tab so "new tab" actions feel positional regardless of
-	// which tab type is currently focused.
+	// activeGroupId is cleared too: a new tab is a fresh standalone view, so it must
+	// leave any active tiled group - otherwise the group keeps taking over the panel
+	// and the new tab opens in the background (never gets focus). Insert the new tab
+	// into unifiedTabOrder directly to the right of the currently active tab so "new
+	// tab" actions feel positional regardless of which tab type is currently focused.
 	const newTabRef = { type: 'ai' as const, id: newTab.id };
 	const updatedSession: Session = {
 		...session,
@@ -738,6 +740,7 @@ export function createTab(
 		activeFileTabId: null,
 		activeBrowserTabId: null,
 		activeTerminalTabId: null,
+		activeGroupId: null,
 		inputMode: 'ai' as const,
 		unifiedTabOrder: insertAfterActiveInUnifiedTabOrder(session, newTabRef),
 	};

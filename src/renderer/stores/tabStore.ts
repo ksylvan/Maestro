@@ -309,6 +309,14 @@ export interface TabStoreActions {
 	toggleFileTabEditMode: (tabId: string) => void;
 
 	/**
+	 * Set edit mode on a file preview tab to an explicit value. FilePreview's
+	 * setMarkdownEditMode expects a boolean setter (not a toggle), so tiled panes -
+	 * which drive the store directly rather than through the active-tab handlers -
+	 * use this to enter/leave edit mode.
+	 */
+	setFileTabEditMode: (tabId: string, editMode: boolean) => void;
+
+	/**
 	 * Set or clear the preview tier override on a file preview tab.
 	 * Pass `undefined` to clear and fall back to the auto-tier from
 	 * `pickPreviewTier`. Pass a concrete tier to force it.
@@ -675,6 +683,8 @@ export const useTabStore = create<TabStore>()((set) => ({
 		if (!tab) return;
 		updateFileTab(tabId, { editMode: !tab.editMode });
 	},
+
+	setFileTabEditMode: (tabId, editMode) => updateFileTab(tabId, { editMode }),
 
 	setFileTabPreviewTier: (tabId, tier) => updateFileTab(tabId, { previewTierOverride: tier }),
 

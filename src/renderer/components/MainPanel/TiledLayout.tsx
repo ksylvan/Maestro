@@ -28,7 +28,7 @@ import { hasDraft } from '../../utils/tabHelpers';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useModalStore } from '../../stores/modalStore';
 import { useUIStore } from '../../stores/uiStore';
-import { updateSessionWith } from '../../stores/sessionStore';
+import { updateSessionWith, useSessionStore } from '../../stores/sessionStore';
 import {
 	breakApartGroup,
 	findLeafById,
@@ -44,6 +44,7 @@ import { safeClipboardWrite } from '../../utils/clipboard';
 import { flashCopiedToClipboard } from '../../utils/flashCopiedToClipboard';
 import { buildSessionDeepLink } from '../../../shared/deep-link-urls';
 import { useThrottledCallback } from '../../hooks/utils/useThrottle';
+import { useTabStore } from '../../stores/tabStore';
 import type {
 	PaneRects,
 	PanelLayoutNode,
@@ -158,6 +159,88 @@ function PaneMissingTab({ theme }: { theme: Theme }) {
 	);
 }
 
+/**
+ * A tiled file-preview pane wired to behave IDENTICALLY to the single-view file
+ * tab: edit/preview toggling, edit-content persistence, preview-tier and HTML-render
+ * mode, and save all flow through the same per-tab store fields the single view uses.
+ * The single-view handlers in MainPanelContent are keyed to the ACTIVE file tab, so a
+ * tiled pane (which may not be the active file tab) drives the tab-id-keyed store
+ * actions directly. Reads its own tab reactively so edit-mode/content changes re-render
+ * just this pane.
+ */
+function TiledFilePane({
+	fileTabId,
+	session,
+	theme,
+}: {
+	fileTabId: string;
+	session: Session;
+	theme: Theme;
+}) {
+	const shortcuts = useSettingsStore((s) => s.shortcuts);
+	// Subscribe to THIS tab via the session store so edit-mode / edit-content / tier /
+	// html-mode changes re-render the pane (the session prop is a snapshot that alone
+	// wouldn't update). The tabStore setters below all mutate the ACTIVE session's file
+	// tabs, and a tiled file pane's session IS the active session (its group is active).
+	const fileTab = useSessionStore((s) =>
+		s.sessions.find((x) => x.id === session.id)?.filePreviewTabs?.find((t) => t.id === fileTabId)
+	);
+	const store = useTabStore.getState();
+
+	// SSH remote id, resolved the same way MainPanelContent's file preview does, so
+	// stat/save target the remote workspace for SSH sessions.
+	const sshRemoteId =
+		session.sshRemoteId ||
+		(session.sessionSshRemoteConfig?.enabled
+			? session.sessionSshRemoteConfig.remoteId
+			: undefined) ||
+		undefined;
+
+	const handleSave = React.useCallback(
+		async (path: string, content: string): Promise<boolean> => {
+			if (!path) return false;
+			await window.maestro.fs.writeFile(path, content, sshRemoteId);
+			// Persist the saved content, clear the pending edit buffer, and leave edit
+			// mode - mirroring the single-view save. Written directly to the active
+			// session's file tab (a tiled file pane's session is the active session).
+			updateSessionWith(session.id, (s) => ({
+				...s,
+				filePreviewTabs: (s.filePreviewTabs ?? []).map((t) =>
+					t.id === fileTabId ? { ...t, content, editContent: undefined, editMode: false } : t
+				),
+			}));
+			return true;
+		},
+		[fileTabId, session.id, sshRemoteId]
+	);
+
+	if (!fileTab) return <PaneMissingTab theme={theme} />;
+
+	return (
+		<div className="flex-1 overflow-hidden select-text">
+			<React.Suspense fallback={null}>
+				<FilePreview
+					file={{ name: fileTab.name, path: fileTab.path, content: fileTab.content }}
+					onClose={() => {}}
+					isTabMode={true}
+					theme={theme}
+					shortcuts={shortcuts}
+					markdownEditMode={fileTab.editMode ?? false}
+					setMarkdownEditMode={(v: boolean) => store.setFileTabEditMode(fileTabId, v)}
+					onSave={handleSave}
+					externalEditContent={fileTab.editContent}
+					onEditContentChange={(content) => store.updateFileTabEditContent(fileTabId, content)}
+					previewTierOverride={fileTab.previewTierOverride}
+					onPreviewTierChange={(tier) => store.setFileTabPreviewTier(fileTabId, tier)}
+					htmlRenderMode={fileTab.htmlRenderMode}
+					onHtmlRenderModeChange={(value) => store.setFileTabHtmlRenderMode(fileTabId, value)}
+					sshRemoteId={sshRemoteId}
+				/>
+			</React.Suspense>
+		</div>
+	);
+}
+
 /** Render a single leaf's tab content, reusing existing view components. */
 function PaneContent({
 	tab,
@@ -171,7 +254,6 @@ function PaneContent({
 	const fontFamily = useSettingsStore((s) => s.fontFamily);
 	const maxOutputLines = useSettingsStore((s) => s.maxOutputLines);
 	const chatRawTextMode = useSettingsStore((s) => s.chatRawTextMode);
-	const shortcuts = useSettingsStore((s) => s.shortcuts);
 
 	// Local, per-pane refs. In this static read/display prototype the panes are not
 	// interactive (no input wiring, no output search), so search state and setters
@@ -217,21 +299,7 @@ function PaneContent({
 	if (tab.type === 'file') {
 		const fileTab = session.filePreviewTabs?.find((t) => t.id === tab.id);
 		if (!fileTab) return <PaneMissingTab theme={theme} />;
-		return (
-			<div className="flex-1 overflow-hidden select-text">
-				<React.Suspense fallback={null}>
-					<FilePreview
-						file={{ name: fileTab.name, path: fileTab.path, content: fileTab.content }}
-						onClose={noop}
-						isTabMode={true}
-						theme={theme}
-						shortcuts={shortcuts}
-						markdownEditMode={false}
-						setMarkdownEditMode={noop}
-					/>
-				</React.Suspense>
-			</div>
-		);
+		return <TiledFilePane fileTabId={fileTab.id} session={session} theme={theme} />;
 	}
 
 	// Terminal and browser tabs are kept-alive overlays mounted at the panel level
@@ -1045,6 +1113,27 @@ export const TiledLayout = React.memo(function TiledLayout({
 	// thrash the parent's state or the overlay repositioning.
 	const throttledMeasure = useThrottledCallback(measure, 16);
 
+	// Slot registration is a DISCRETE mount/unmount event, not a high-frequency
+	// resize stream, so it needs a GUARANTEED measure - not the throttled one. The
+	// throttle (kept for the ResizeObserver drag-storm path) can silently swallow a
+	// registration: on a re-render that re-registers slots, React fires each inline
+	// ref as cleanup(null) then set(el); the throttle's leading edge can publish
+	// mid-transition (a slot momentarily deleted), and its single trailing edge can
+	// be consumed before the re-add - so a just-(re)mounted terminal/browser slot
+	// sits in slotsRef, connected and sized, yet never reaches paneRects until an
+	// unrelated resize (this was the live-diagnosed "browser tile renders blank until
+	// you expand/contract it" bug - only the zoom toggle's DIRECT measure recovered
+	// it). A deduped rAF runs exactly one measure after the commit settles, reading
+	// the final slot set, so registration always publishes.
+	const measureRafRef = React.useRef<number | null>(null);
+	const scheduleMeasure = React.useCallback(() => {
+		if (measureRafRef.current != null) return;
+		measureRafRef.current = requestAnimationFrame(() => {
+			measureRafRef.current = null;
+			measure();
+		});
+	}, [measure]);
+
 	const registry = React.useMemo<PaneSlotRegistry>(
 		() => ({
 			register(key, el) {
@@ -1057,12 +1146,12 @@ export const TiledLayout = React.memo(function TiledLayout({
 				} else {
 					slotsRef.current.delete(key);
 				}
-				// Slot mount/unmount changes the set of panes, so re-measure now (a
-				// leading throttled call fires immediately) and reflect the new set.
-				throttledMeasure();
+				// Slot mount/unmount changes the set of panes; schedule a guaranteed
+				// post-commit re-measure so the new set is always published.
+				scheduleMeasure();
 			},
 		}),
-		[throttledMeasure]
+		[scheduleMeasure]
 	);
 
 	// Set up the ResizeObserver against the container + already-registered slots,
@@ -1090,9 +1179,14 @@ export const TiledLayout = React.memo(function TiledLayout({
 	}, [measure, group.layout, zoomedPaneId]);
 
 	// On unmount (group closed / switched away), clear any published rects so the
-	// overlays fall back to standalone positioning with no orphaned geometry.
+	// overlays fall back to standalone positioning with no orphaned geometry, and
+	// cancel any pending registration-triggered measure so it can't fire post-unmount.
 	React.useEffect(() => {
 		return () => {
+			if (measureRafRef.current != null) {
+				cancelAnimationFrame(measureRafRef.current);
+				measureRafRef.current = null;
+			}
 			if (lastKeysRef.current !== '') {
 				lastKeysRef.current = '';
 				onChangeRef.current?.(new Map());

@@ -169,6 +169,37 @@ describe('tabHelpers', () => {
 			expect(result.session.activeTabId).toBe('mock-generated-id');
 		});
 
+		it('leaves any active tiled group so the new tab gets focus', () => {
+			// Regression: a new AI tab created while a group is active must clear
+			// activeGroupId, otherwise the group keeps taking over the panel and the new
+			// tab opens in the background (never focused).
+			const session = createMockSession({
+				aiTabs: [{ id: 'a', name: null, logs: [] }] as never,
+				activeGroupId: 'g1',
+				tabGroups: [
+					{
+						id: 'g1',
+						name: 'G',
+						createdAt: 0,
+						focusedPaneId: 'l1',
+						layout: {
+							kind: 'split',
+							id: 's1',
+							direction: 'row',
+							sizes: [1],
+							children: [{ kind: 'leaf', id: 'l1', tab: { type: 'ai', id: 'a' } }],
+						},
+					},
+				] as never,
+			});
+
+			const result = createTab(session)!;
+
+			expect(result.session.activeGroupId).toBeNull();
+			expect(result.session.activeTabId).toBe('mock-generated-id');
+			expect(result.session.inputMode).toBe('ai');
+		});
+
 		it('creates a tab with custom options', () => {
 			const session = createMockSession({ aiTabs: [] });
 			const options = {

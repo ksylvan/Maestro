@@ -532,7 +532,15 @@ export const TerminalView = memo(
 					return (
 						<div
 							key={tab.id}
-							className={`absolute ${positioned ? '' : 'inset-0 '}${isActive ? '' : 'invisible'}`}
+							// overflow-hidden clips the xterm canvas to this layer's box. Critical for
+							// a tiled (positioned) pane: the layer is height-clamped to its pane rect,
+							// but xterm sizes its canvas from its own delayed ResizeObserver reflow. In
+							// the window between the pane shrinking (e.g. the AI input appearing when
+							// focus moves to an AI pane) and xterm reflowing, an over-tall canvas would
+							// otherwise spill past the pane's bottom - down to the panel's clip - and
+							// bleed over the input area. Harmless for the standalone `inset-0` case,
+							// which the panel container already clips.
+							className={`absolute overflow-hidden ${positioned ? '' : 'inset-0 '}${isActive ? '' : 'invisible'}`}
 							// Tiling: pressing a pane focuses it (the overlay sits over the
 							// transparent PaneFrame slot, so the frame's own click-to-focus never
 							// sees this press). Fires on mousedown-capture so focus lands before

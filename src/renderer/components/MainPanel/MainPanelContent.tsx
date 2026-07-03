@@ -853,9 +853,18 @@ export const MainPanelContent = React.memo(function MainPanelContent(props: Main
 			)}
 			{/* Shared AI input: one bar below whichever content the panel shows - the
 			    single-view routing above OR a tiled group - targeting the focused AI
-			    tab. See shouldShowInputArea for the visibility rules. */}
+			    tab. See shouldShowInputArea for the visibility rules.
+
+			    `relative z-[3]` lifts the input above the terminal (z-1) and browser
+			    (z-2) keep-alive overlays. Those overlays are `absolute inset-0` on this
+			    panel, so they span over the input's area; during the reflow after focus
+			    moves to an AI pane in a tiled group (the input appears, the tiled region
+			    shrinks, but a positioned terminal/browser layer still holds its pre-shrink
+			    rect for a frame), the layer would otherwise paint over the input. The
+			    input's own opaque chrome, stacked above, hides that transient bleed. Stays
+			    below the z-30 tiling drop overlay so drags still hit-test on top. */}
 			{shouldShowInputArea && (
-				<div data-tour="input-area">
+				<div data-tour="input-area" className="relative z-[3]">
 					<InputArea
 						session={activeSession}
 						theme={theme}
