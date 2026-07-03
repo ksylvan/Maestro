@@ -5,7 +5,7 @@ import { PercentilesCard } from '../../PercentilesCard';
 import { TasksByHourChart } from '../../TasksByHourChart';
 import { DashboardSection } from '../components';
 import { DashboardTabPanel } from './DashboardTabPanel';
-import type { DashboardViewProps } from './types';
+import type { AutoRunViewProps } from './types';
 
 export function AutoRunView({
 	data,
@@ -15,7 +15,7 @@ export function AutoRunView({
 	focusedSection,
 	setSectionRef,
 	handleSectionKeyDown,
-}: DashboardViewProps) {
+}: AutoRunViewProps) {
 	return (
 		<DashboardTabPanel viewMode="autorun">
 			<DashboardSection

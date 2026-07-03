@@ -142,7 +142,14 @@ export function UsageDashboardModal({
 	const layout = useUsageDashboardLayout(isOpen, contentRef);
 	const { isExporting, handleExport } = useUsageDashboardExport(timeRange);
 
-	const currentSections = useMemo(() => getSectionsForViewMode(viewMode), [viewMode]);
+	const hasWorktreeAnalytics = useMemo(
+		() => sessions.some((session) => !!session.parentSessionId),
+		[sessions]
+	);
+	const currentSections = useMemo(
+		() => getSectionsForViewMode(viewMode, { hasWorktreeAnalytics }),
+		[viewMode, hasWorktreeAnalytics]
+	);
 	const { handleTabKeyDown, handleSectionKeyDown, setSectionRef } = useUsageDashboardKeyboard({
 		isOpen,
 		viewMode,
@@ -155,6 +162,153 @@ export function UsageDashboardModal({
 		sectionRefs,
 		setFocusedSection,
 	});
+
+	const renderTabContent = () => {
+		if (loading && !data) {
+			return (
+				<DashboardSkeleton
+					theme={theme}
+					viewMode={
+						viewMode === 'cue' ||
+						viewMode === 'agent-overview' ||
+						viewMode === 'shortcuts' ||
+						viewMode === 'anthropic-usage' ||
+						viewMode === 'codex-usage'
+							? 'overview'
+							: viewMode
+					}
+					chartGridCols={layout.chartGridCols}
+					summaryCardsCols={layout.summaryCardsCols}
+					autoRunStatsCols={layout.autoRunStatsCols}
+				/>
+			);
+		}
+
+		if (error) {
+			return (
+				<div
+					className="h-full flex flex-col items-center justify-center gap-4"
+					style={{ color: theme.colors.textDim }}
+				>
+					<p>Failed to load usage data</p>
+					<button
+						onClick={() => fetchStats()}
+						className="px-4 py-2 rounded text-sm"
+						style={{
+							backgroundColor: theme.colors.accent,
+							color: theme.colors.bgMain,
+						}}
+					>
+						Retry
+					</button>
+				</div>
+			);
+		}
+
+		if (viewMode === 'shortcuts') {
+			return <ShortcutsView key={viewMode} timeRange={timeRange} theme={theme} />;
+		}
+
+		if (viewMode === 'anthropic-usage' || viewMode === 'codex-usage') {
+			return (
+				<ProviderQuotaUsageView
+					key={viewMode}
+					provider={viewMode === 'anthropic-usage' ? 'anthropic' : 'codex'}
+					theme={theme}
+					focusedSection={focusedSection}
+					setSectionRef={setSectionRef}
+					handleSectionKeyDown={handleSectionKeyDown}
+				/>
+			);
+		}
+
+		if (
+			!data ||
+			(data.totalQueries === 0 && data.bySource.user === 0 && data.bySource.auto === 0)
+		) {
+			return <EmptyState theme={theme} />;
+		}
+
+		switch (viewMode) {
+			case 'overview':
+				return (
+					<OverviewView
+						key={viewMode}
+						data={data}
+						timeRange={timeRange}
+						theme={theme}
+						colorBlindMode={colorBlindMode}
+						sessions={sessions}
+						layout={layout}
+						cueSourceTotals={cueSourceTotals}
+						focusedSection={focusedSection}
+						setSectionRef={setSectionRef}
+						handleSectionKeyDown={handleSectionKeyDown}
+					/>
+				);
+			case 'agents':
+				return (
+					<AgentsView
+						key={viewMode}
+						data={data}
+						theme={theme}
+						sessions={sessions}
+						focusedSection={focusedSection}
+						setSectionRef={setSectionRef}
+						handleSectionKeyDown={handleSectionKeyDown}
+						onShowAgentDetails={setDetailSession}
+					/>
+				);
+			case 'agent-overview':
+				return (
+					<AgentOverviewView
+						key={viewMode}
+						data={data}
+						timeRange={timeRange}
+						theme={theme}
+						colorBlindMode={colorBlindMode}
+						sessions={sessions}
+						focusedSection={focusedSection}
+						setSectionRef={setSectionRef}
+						handleSectionKeyDown={handleSectionKeyDown}
+					/>
+				);
+			case 'activity':
+				return (
+					<ActivityView
+						key={viewMode}
+						data={data}
+						timeRange={timeRange}
+						theme={theme}
+						colorBlindMode={colorBlindMode}
+						focusedSection={focusedSection}
+						setSectionRef={setSectionRef}
+						handleSectionKeyDown={handleSectionKeyDown}
+					/>
+				);
+			case 'autorun':
+				return (
+					<AutoRunView
+						key={viewMode}
+						data={data}
+						timeRange={timeRange}
+						theme={theme}
+						layout={layout}
+						focusedSection={focusedSection}
+						setSectionRef={setSectionRef}
+						handleSectionKeyDown={handleSectionKeyDown}
+					/>
+				);
+			case 'cue':
+				return (
+					<DashboardTabPanel key={viewMode} viewMode="cue">
+						<CueStats timeRange={timeRange} theme={theme} colorBlindMode={colorBlindMode} />
+					</DashboardTabPanel>
+				);
+			default:
+				return null;
+		}
+	};
 
 	if (!isOpen) return null;
 
@@ -220,134 +374,7 @@ export function UsageDashboardModal({
 					className="flex-1 overflow-y-auto scrollbar-thin p-6"
 					style={{ backgroundColor: theme.colors.bgMain }}
 				>
-					{loading && !data ? (
-						<DashboardSkeleton
-							theme={theme}
-							viewMode={
-								viewMode === 'cue' ||
-								viewMode === 'agent-overview' ||
-								viewMode === 'shortcuts' ||
-								viewMode === 'anthropic-usage' ||
-								viewMode === 'codex-usage'
-									? 'overview'
-									: viewMode
-							}
-							chartGridCols={layout.chartGridCols}
-							summaryCardsCols={layout.summaryCardsCols}
-							autoRunStatsCols={layout.autoRunStatsCols}
-						/>
-					) : error ? (
-						<div
-							className="h-full flex flex-col items-center justify-center gap-4"
-							style={{ color: theme.colors.textDim }}
-						>
-							<p>Failed to load usage data</p>
-							<button
-								onClick={() => fetchStats()}
-								className="px-4 py-2 rounded text-sm"
-								style={{
-									backgroundColor: theme.colors.accent,
-									color: theme.colors.bgMain,
-								}}
-							>
-								Retry
-							</button>
-						</div>
-					) : viewMode === 'shortcuts' ? (
-						<ShortcutsView key={viewMode} timeRange={timeRange} theme={theme} />
-					) : viewMode === 'anthropic-usage' ? (
-						<ProviderQuotaUsageView
-							key={viewMode}
-							provider="anthropic"
-							theme={theme}
-							focusedSection={focusedSection}
-							setSectionRef={setSectionRef}
-							handleSectionKeyDown={handleSectionKeyDown}
-						/>
-					) : viewMode === 'codex-usage' ? (
-						<ProviderQuotaUsageView
-							key={viewMode}
-							provider="codex"
-							theme={theme}
-							focusedSection={focusedSection}
-							setSectionRef={setSectionRef}
-							handleSectionKeyDown={handleSectionKeyDown}
-						/>
-					) : !data ||
-					  (data.totalQueries === 0 && data.bySource.user === 0 && data.bySource.auto === 0) ? (
-						<EmptyState theme={theme} />
-					) : viewMode === 'overview' ? (
-						<OverviewView
-							key={viewMode}
-							data={data}
-							timeRange={timeRange}
-							theme={theme}
-							colorBlindMode={colorBlindMode}
-							sessions={sessions}
-							layout={layout}
-							cueSourceTotals={cueSourceTotals}
-							focusedSection={focusedSection}
-							setSectionRef={setSectionRef}
-							handleSectionKeyDown={handleSectionKeyDown}
-						/>
-					) : viewMode === 'agents' ? (
-						<AgentsView
-							key={viewMode}
-							data={data}
-							timeRange={timeRange}
-							theme={theme}
-							colorBlindMode={colorBlindMode}
-							sessions={sessions}
-							layout={layout}
-							focusedSection={focusedSection}
-							setSectionRef={setSectionRef}
-							handleSectionKeyDown={handleSectionKeyDown}
-							onShowAgentDetails={setDetailSession}
-						/>
-					) : viewMode === 'agent-overview' ? (
-						<AgentOverviewView
-							key={viewMode}
-							data={data}
-							timeRange={timeRange}
-							theme={theme}
-							colorBlindMode={colorBlindMode}
-							sessions={sessions}
-							layout={layout}
-							focusedSection={focusedSection}
-							setSectionRef={setSectionRef}
-							handleSectionKeyDown={handleSectionKeyDown}
-						/>
-					) : viewMode === 'activity' ? (
-						<ActivityView
-							key={viewMode}
-							data={data}
-							timeRange={timeRange}
-							theme={theme}
-							colorBlindMode={colorBlindMode}
-							sessions={sessions}
-							layout={layout}
-							focusedSection={focusedSection}
-							setSectionRef={setSectionRef}
-							handleSectionKeyDown={handleSectionKeyDown}
-						/>
-					) : viewMode === 'autorun' ? (
-						<AutoRunView
-							key={viewMode}
-							data={data}
-							timeRange={timeRange}
-							theme={theme}
-							colorBlindMode={colorBlindMode}
-							sessions={sessions}
-							layout={layout}
-							focusedSection={focusedSection}
-							setSectionRef={setSectionRef}
-							handleSectionKeyDown={handleSectionKeyDown}
-						/>
-					) : viewMode === 'cue' ? (
-						<DashboardTabPanel key={viewMode} viewMode="cue">
-							<CueStats timeRange={timeRange} theme={theme} colorBlindMode={colorBlindMode} />
-						</DashboardTabPanel>
-					) : null}
+					{renderTabContent()}
 				</div>
 
 				<UsageDashboardFooter

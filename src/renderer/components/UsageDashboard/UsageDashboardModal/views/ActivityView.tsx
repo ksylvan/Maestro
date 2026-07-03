@@ -4,7 +4,7 @@ import { DurationTrendsChart } from '../../DurationTrendsChart';
 import { WeekdayComparisonChart } from '../../WeekdayComparisonChart';
 import { DashboardSection } from '../components';
 import { DashboardTabPanel } from './DashboardTabPanel';
-import type { DashboardViewProps } from './types';
+import type { ActivityViewProps } from './types';
 
 export function ActivityView({
 	data,
@@ -14,7 +14,7 @@ export function ActivityView({
 	focusedSection,
 	setSectionRef,
 	handleSectionKeyDown,
-}: DashboardViewProps) {
+}: ActivityViewProps) {
 	return (
 		<DashboardTabPanel viewMode="activity">
 			<DashboardSection

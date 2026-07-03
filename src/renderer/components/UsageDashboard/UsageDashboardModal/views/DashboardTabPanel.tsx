@@ -15,6 +15,7 @@ export function DashboardTabPanel({ viewMode, children }: DashboardTabPanelProps
 			role="tabpanel"
 			id={`tabpanel-${viewMode}`}
 			aria-labelledby={`tab-${viewMode}`}
+			tabIndex={0}
 		>
 			{children}
 		</div>

@@ -13,7 +13,7 @@ export const AGENT_OVERVIEW_SORT_OPTIONS: { value: SortMode; label: string }[] =
 ];
 
 const SPARKLINE_DAYS = 7;
-type ByDayEntry = StatsAggregation['byDay'][number];
+type SessionByDayEntry = StatsAggregation['bySessionByDay'][string][number];
 
 export function getStatusColor(state: SessionState, theme: Theme): string {
 	switch (state) {
@@ -28,7 +28,7 @@ export function getStatusColor(state: SessionState, theme: Theme): string {
 	}
 }
 
-export function buildSessionSparkline(sessionByDay: ByDayEntry[] | undefined): number[] {
+export function buildSessionSparkline(sessionByDay: SessionByDayEntry[] | undefined): number[] {
 	if (!sessionByDay || sessionByDay.length === 0) {
 		return new Array(SPARKLINE_DAYS).fill(0);
 	}

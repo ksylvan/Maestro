@@ -17,6 +17,12 @@ export const AGENT_OVERVIEW_SECTIONS = [
 	'agent-efficiency',
 	'agent-usage',
 ] as const;
+export const AGENT_OVERVIEW_WITH_WORKTREE_SECTIONS = [
+	'session-stats',
+	'worktree-analytics',
+	'agent-efficiency',
+	'agent-usage',
+] as const;
 export const ACTIVITY_SECTIONS = [
 	'activity-heatmap',
 	'weekday-comparison',
@@ -35,6 +41,7 @@ export type SectionId =
 	| (typeof OVERVIEW_SECTIONS)[number]
 	| (typeof AGENTS_SECTIONS)[number]
 	| (typeof AGENT_OVERVIEW_SECTIONS)[number]
+	| (typeof AGENT_OVERVIEW_WITH_WORKTREE_SECTIONS)[number]
 	| (typeof ACTIVITY_SECTIONS)[number]
 	| (typeof AUTORUN_SECTIONS)[number]
 	| (typeof ANTHROPIC_USAGE_SECTIONS)[number]
@@ -47,6 +54,7 @@ const SECTION_LABELS: Record<SectionId, string> = {
 	'autorun-task-percentiles': 'Auto Run Task Duration Percentiles',
 	'agent-overview-cards': 'Active Agents Overview',
 	'session-stats': 'Agent Statistics',
+	'worktree-analytics': 'Worktree Analytics',
 	'anthropic-usage': 'Anthropic Usage',
 	'codex-usage': 'OpenAI Usage',
 	'agent-efficiency': 'Agent Efficiency Chart',
@@ -64,14 +72,23 @@ const SECTION_LABELS: Record<SectionId, string> = {
 	'longest-autoruns': 'Top 25 Longest Auto Runs',
 };
 
-export function getSectionsForViewMode(viewMode: ViewMode): readonly SectionId[] {
+interface SectionOptions {
+	hasWorktreeAnalytics?: boolean;
+}
+
+export function getSectionsForViewMode(
+	viewMode: ViewMode,
+	options: SectionOptions = {}
+): readonly SectionId[] {
 	switch (viewMode) {
 		case 'overview':
 			return OVERVIEW_SECTIONS;
 		case 'agents':
 			return AGENTS_SECTIONS;
 		case 'agent-overview':
-			return AGENT_OVERVIEW_SECTIONS;
+			return options.hasWorktreeAnalytics
+				? AGENT_OVERVIEW_WITH_WORKTREE_SECTIONS
+				: AGENT_OVERVIEW_SECTIONS;
 		case 'activity':
 			return ACTIVITY_SECTIONS;
 		case 'autorun':

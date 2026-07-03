@@ -11,15 +11,35 @@ export interface SectionNavigationProps {
 	handleSectionKeyDown: (event: KeyboardEvent<HTMLDivElement>, sectionId: SectionId) => void;
 }
 
-export interface DashboardViewProps extends SectionNavigationProps {
-	data: StatsAggregation;
-	timeRange: StatsTimeRange;
+export interface DashboardViewBaseProps extends SectionNavigationProps {
 	theme: Theme;
-	colorBlindMode: boolean;
-	sessions: Session[];
-	layout: UsageDashboardLayout;
 }
 
-export interface OverviewViewProps extends DashboardViewProps {
+export interface StatsViewProps extends DashboardViewBaseProps {
+	data: StatsAggregation;
+	timeRange: StatsTimeRange;
+	colorBlindMode: boolean;
+}
+
+export interface OverviewViewProps extends StatsViewProps {
+	sessions: Session[];
+	layout: UsageDashboardLayout;
 	cueSourceTotals: CueSourceTotals | null;
+}
+
+export interface AgentOverviewViewProps extends StatsViewProps {
+	sessions: Session[];
+}
+
+export interface AgentsBaseViewProps extends DashboardViewBaseProps {
+	data: StatsAggregation;
+	sessions: Session[];
+}
+
+export interface ActivityViewProps extends StatsViewProps {}
+
+export interface AutoRunViewProps extends DashboardViewBaseProps {
+	data: StatsAggregation;
+	timeRange: StatsTimeRange;
+	layout: UsageDashboardLayout;
 }

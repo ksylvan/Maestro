@@ -3,9 +3,9 @@ import { AgentOverviewCards } from '../../AgentOverviewCards';
 import { ChartErrorBoundary } from '../../ChartErrorBoundary';
 import { DashboardSection } from '../components';
 import { DashboardTabPanel } from './DashboardTabPanel';
-import type { DashboardViewProps } from './types';
+import type { AgentsBaseViewProps } from './types';
 
-interface AgentsViewProps extends DashboardViewProps {
+interface AgentsViewProps extends AgentsBaseViewProps {
 	onShowAgentDetails: (session: Session) => void;
 }
 

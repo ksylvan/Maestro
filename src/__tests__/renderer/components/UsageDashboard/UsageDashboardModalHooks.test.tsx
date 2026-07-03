@@ -167,6 +167,30 @@ describe('UsageDashboardModal hooks', () => {
 		expect(result.current.showNewDataIndicator).toBe(false);
 	});
 
+	it('clears realtime indicator timers on unmount', async () => {
+		vi.useFakeTimers();
+		const controls = installMaestroMock();
+
+		const { unmount } = renderHook(() =>
+			useUsageDashboardData({
+				isOpen: true,
+				timeRange: 'week',
+				cueTabEnabled: true,
+			})
+		);
+
+		await flushPromises();
+		act(() => controls.emitStatsUpdate());
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(1000);
+		});
+		await flushPromises();
+		expect(vi.getTimerCount()).toBe(1);
+
+		unmount();
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
 	it('persists tabs, appends dynamic tabs, and falls back from disabled tabs', async () => {
 		installMaestroMock();
 		useUIStore.setState({ usageDashboardViewMode: 'cue' });

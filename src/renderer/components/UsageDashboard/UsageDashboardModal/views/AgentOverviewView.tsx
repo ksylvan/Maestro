@@ -5,7 +5,7 @@ import { SessionStats } from '../../SessionStats';
 import { WorktreeAnalytics } from '../../WorktreeAnalytics';
 import { DashboardSection } from '../components';
 import { DashboardTabPanel } from './DashboardTabPanel';
-import type { DashboardViewProps } from './types';
+import type { AgentOverviewViewProps } from './types';
 
 export function AgentOverviewView({
 	data,
@@ -16,7 +16,7 @@ export function AgentOverviewView({
 	focusedSection,
 	setSectionRef,
 	handleSectionKeyDown,
-}: DashboardViewProps) {
+}: AgentOverviewViewProps) {
 	return (
 		<DashboardTabPanel viewMode="agent-overview">
 			<DashboardSection
@@ -33,9 +33,18 @@ export function AgentOverviewView({
 			</DashboardSection>
 
 			{sessions.some((session) => !!session.parentSessionId) && (
-				<ChartErrorBoundary theme={theme} chartName="Worktree Analytics">
-					<WorktreeAnalytics sessions={sessions} data={data} theme={theme} />
-				</ChartErrorBoundary>
+				<DashboardSection
+					sectionId="worktree-analytics"
+					focusedSection={focusedSection}
+					setSectionRef={setSectionRef}
+					handleSectionKeyDown={handleSectionKeyDown}
+					theme={theme}
+					style={{ animationDelay: '25ms' }}
+				>
+					<ChartErrorBoundary theme={theme} chartName="Worktree Analytics">
+						<WorktreeAnalytics sessions={sessions} data={data} theme={theme} />
+					</ChartErrorBoundary>
+				</DashboardSection>
 			)}
 
 			<DashboardSection

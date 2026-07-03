@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { StatsAggregation, StatsTimeRange } from '../../../../../shared/stats-types';
 import { PERFORMANCE_THRESHOLDS } from '../../../../../shared/performance-metrics';
 import type { CueSourceTotals } from '../../SourceDistributionChart';
@@ -23,6 +23,7 @@ export function useUsageDashboardData({
 	const [error, setError] = useState<string | null>(null);
 	const [showNewDataIndicator, setShowNewDataIndicator] = useState(false);
 	const [databaseSize, setDatabaseSize] = useState<number | null>(null);
+	const newDataIndicatorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	const fetchStats = useCallback(
 		async (isRealTimeUpdate = false) => {
@@ -71,7 +72,13 @@ export function useUsageDashboardData({
 
 				if (isRealTimeUpdate) {
 					setShowNewDataIndicator(true);
-					setTimeout(() => setShowNewDataIndicator(false), 3000);
+					if (newDataIndicatorTimerRef.current) {
+						clearTimeout(newDataIndicatorTimerRef.current);
+					}
+					newDataIndicatorTimerRef.current = setTimeout(() => {
+						setShowNewDataIndicator(false);
+						newDataIndicatorTimerRef.current = null;
+					}, 3000);
 				}
 			} catch (err) {
 				logger.error('Failed to fetch usage stats:', undefined, err);
@@ -100,6 +107,10 @@ export function useUsageDashboardData({
 		return () => {
 			unsubscribe();
 			if (debounceTimer) clearTimeout(debounceTimer);
+			if (newDataIndicatorTimerRef.current) {
+				clearTimeout(newDataIndicatorTimerRef.current);
+				newDataIndicatorTimerRef.current = null;
+			}
 		};
 	}, [isOpen, fetchStats]);
 

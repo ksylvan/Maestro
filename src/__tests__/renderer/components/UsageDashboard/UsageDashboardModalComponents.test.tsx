@@ -164,6 +164,13 @@ const session = {
 	createdAt: 0,
 } as Session;
 
+const worktreeSession = {
+	...session,
+	id: 's2',
+	name: 'Codex Worktree',
+	parentSessionId: 's1',
+} as Session;
+
 const layout = {
 	isNarrow: false,
 	isMedium: false,
@@ -339,6 +346,12 @@ describe('UsageDashboardModal view modules', () => {
 		const { rerender } = render(<AgentOverviewView {...common} />);
 		expect(screen.getByText('SessionStats mock')).toBeInTheDocument();
 		expect(screen.getByText('AgentUsageChart mock')).toBeInTheDocument();
+		expect(screen.queryByText('WorktreeAnalytics mock')).not.toBeInTheDocument();
+		expect(screen.getByRole('tabpanel')).toHaveAttribute('tabindex', '0');
+
+		rerender(<AgentOverviewView {...common} sessions={[session, worktreeSession]} />);
+		expect(screen.getByText('WorktreeAnalytics mock')).toBeInTheDocument();
+		expect(screen.getByTestId('section-worktree-analytics')).toBeInTheDocument();
 
 		rerender(<ActivityView {...common} />);
 		expect(screen.getByText('ActivityHeatmap mock')).toBeInTheDocument();

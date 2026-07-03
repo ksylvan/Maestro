@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useClaudeUsageStore } from '../../../../stores/claudeUsageStore';
 import { useCodexUsageStore } from '../../../../stores/codexUsageStore';
+import { logger } from '../../../../utils/logger';
 import { hasUsefulAnthropicQuotaDetails, hasUsefulCodexQuotaDetails } from '../quotaDetails';
 
 export function useQuotaTabDiscovery(isOpen: boolean, usageStatsTabEnabled: boolean): void {
@@ -34,7 +35,9 @@ export function useQuotaTabDiscovery(isOpen: boolean, usageStatsTabEnabled: bool
 					window.maestro.agents
 						.refreshClaudeUsageSnapshots()
 						.then(() => useClaudeUsageStore.getState().refresh())
-						.catch(() => {})
+						.catch((err) => {
+							logger.warn('Failed to sample Anthropic usage details:', undefined, err);
+						})
 				);
 			}
 			if (!codexHasData) {
@@ -42,7 +45,9 @@ export function useQuotaTabDiscovery(isOpen: boolean, usageStatsTabEnabled: bool
 					window.maestro.agents
 						.refreshCodexUsageSnapshots()
 						.then(() => useCodexUsageStore.getState().refresh())
-						.catch(() => {})
+						.catch((err) => {
+							logger.warn('Failed to sample OpenAI usage details:', undefined, err);
+						})
 				);
 			}
 			await Promise.all(jobs);
