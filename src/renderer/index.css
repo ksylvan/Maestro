@@ -1548,3 +1548,26 @@ html[data-runtime='web-desktop'][data-bp='sm'] select {
 		opacity: 1 !important;
 	}
 }
+
+/*
+ * Panel resize handles (left sidebar, right panel, group-chat panel).
+ *
+ * `touch-action: none` tells the browser NOT to treat a drag on the handle as a
+ * scroll / pan, so the pointer-events drag in useResizablePanel gets the whole
+ * gesture on touch. On coarse pointers the visible handle (a thin ~12px line)
+ * is too small to grab with a finger, so a transparent ::before extends the hit
+ * area outward on both sides without changing the handle's appearance.
+ */
+.resize-handle {
+	touch-action: none;
+}
+@media (pointer: coarse) {
+	.resize-handle::before {
+		content: '';
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		left: -10px;
+		right: -10px;
+	}
+}
