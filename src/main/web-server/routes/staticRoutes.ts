@@ -140,7 +140,17 @@ export class StaticRoutes {
           wsUrl: "/${token}/ws"
         };
       </script>`;
-			html = html.replace('</head>', `${configScript}</head>`);
+
+			// Wire the PWA manifest and iOS home-screen icon into the served page.
+			// Both are HTTP-served under the token prefix (see registerRoutes and
+			// WebServer's icons mount). The manifest uses relative start_url/scope
+			// ("./"), which the browser resolves against the manifest URL, so it
+			// works under the token prefix unchanged.
+			const pwaLinks =
+				`<link rel="manifest" href="/${token}/manifest.json" />` +
+				`<link rel="apple-touch-icon" href="/${token}/icons/icon-192x192.png" />`;
+
+			html = html.replace('</head>', `${configScript}${pwaLinks}</head>`);
 
 			reply.type('text/html').send(html);
 		} catch (err) {
