@@ -11,3 +11,7 @@ export { useDebouncedValue, useThrottledCallback, useDebouncedCallback } from '.
 // Debounced session persistence
 export { useDebouncedPersistence, DEFAULT_DEBOUNCE_DELAY } from './useDebouncedPersistence';
 export type { UseDebouncedPersistenceReturn } from './useDebouncedPersistence';
+
+// Long-press gesture detection (touch context menus / tab action overlays)
+export { useLongPress } from './useLongPress';
+export type { UseLongPressOptions, UseLongPressReturn } from './useLongPress';

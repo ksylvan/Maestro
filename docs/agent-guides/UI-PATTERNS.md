@@ -797,6 +797,33 @@ This rule applies to **content containers** sized to wrap text. It does NOT appl
 
 ---
 
+## Touch Gestures (`useLongPress`)
+
+The desktop renderer also runs on phones (web-desktop build), where several interactions are right-click-only or hover-only and thus unreachable. `useLongPress` (`src/renderer/hooks/utils/useLongPress.ts`) is the canonical way to expose a right-click affordance (context menu, tab action overlay) to touch users. Do NOT hand-roll a `setTimeout` + `touchmove` gesture; reuse this hook.
+
+It differentiates tap, scroll, and long-press:
+
+- A ~500ms press without moving past a 10px threshold fires `onLongPress(rect)` with the element's bounding rect (so callers can anchor a menu at the touch position) and a `success` haptic.
+- A `touchmove` past the threshold cancels the long-press (scroll-aware): the menu does NOT pop while the user is scrolling a list.
+- A short press fires the optional `onTap` with a `tap` haptic.
+- `handleContextMenu` triggers the same `onLongPress` immediately on desktop right-click, so mouse behavior is preserved when you wire both.
+
+```tsx
+const { elementRef, handlers, handleContextMenu } = useLongPress({
+	onLongPress: (rect) => openMenuAt(rect.left, rect.bottom),
+});
+
+<div
+	ref={elementRef as React.RefObject<HTMLDivElement>}
+	{...handlers}
+	onContextMenu={handleContextMenu} // keep existing right-click behavior
+/>;
+```
+
+Gate any touch-only wiring behind `isCoarsePointer()` from `src/renderer/utils/touch.ts` when you must not change mouse/keyboard behavior.
+
+---
+
 ## Tab System
 
 Each agent supports multiple AI tabs within its workspace. Tab management hooks live in `src/renderer/hooks/tabs/`.
