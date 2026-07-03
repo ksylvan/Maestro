@@ -10,6 +10,7 @@ import {
 	ChevronRight,
 } from 'lucide-react';
 import { GhostIconButton } from './ui/GhostIconButton';
+import { LongPressable, longPressMouseEvent } from './shared/LongPressable';
 import { WorktreePill } from './ui/WorktreePill';
 import { CueIndicator } from './SessionList/CueIndicator';
 import { StartupCommandIndicator } from './SessionList/StartupCommandIndicator';
@@ -243,7 +244,7 @@ export const SessionItem = memo(function SessionItem({
 	};
 
 	return (
-		<div
+		<LongPressable
 			key={`${variant}-${groupId || ''}-${session.id}`}
 			data-nav-key={navDomKey}
 			draggable={!dragDisabled}
@@ -252,6 +253,8 @@ export const SessionItem = memo(function SessionItem({
 			onDrop={dragDisabled ? undefined : onDrop}
 			onClick={onSelect}
 			onContextMenu={onContextMenu}
+			// Touch: a long-press opens the same context menu right-click opens.
+			onLongPress={(rect) => onContextMenu(longPressMouseEvent(rect))}
 			className={getContainerClassName()}
 			style={{
 				borderColor: isActive || isKeyboardSelected ? theme.colors.accent : 'transparent',
@@ -587,7 +590,7 @@ export const SessionItem = memo(function SessionItem({
 					)}
 				</div>
 			</div>
-		</div>
+		</LongPressable>
 	);
 });
 
