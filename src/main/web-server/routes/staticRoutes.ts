@@ -72,8 +72,9 @@ function getCachedFile(filePath: string): string | null {
  */
 export class StaticRoutes {
 	private securityToken: string;
-	// Legacy mobile-web bundle root. Retained for the PWA manifest/service
-	// worker/icons it still ships; its index.html is no longer served.
+	// Directory that ships the PWA manifest/service worker/icons. These are
+	// copied into the web-desktop bundle by its vite publicDir, so this points at
+	// the same bundle root as webDesktopPath.
 	private webAssetsPath: string | null;
 	// Web-desktop bundle root — the default browser interface, served at the
 	// token root and at /<token>/desktop. Null when the bundle hasn't been built.
