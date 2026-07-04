@@ -484,6 +484,10 @@ export async function* runPlaybook(
 						customEnvVars: session.customEnvVars,
 						sshRemoteConfig: session.sessionSshRemoteConfig,
 						appendSystemPrompt: playbookSystemPrompt,
+						// Honor the agent's Claude token source for Auto Run task turns.
+						enableMaestroP: session.enableMaestroP,
+						maestroPMode: session.maestroPMode,
+						maestroPPath: session.maestroPPath,
 					});
 
 					const elapsedMs = Date.now() - taskStartTime;
@@ -529,6 +533,10 @@ export async function* runPlaybook(
 								customArgs: session.customArgs,
 								customEnvVars: session.customEnvVars,
 								sshRemoteConfig: session.sessionSshRemoteConfig,
+								// Honor the token source for the Auto Run synopsis turn too.
+								enableMaestroP: session.enableMaestroP,
+								maestroPMode: session.maestroPMode,
+								maestroPPath: session.maestroPPath,
 							}
 						);
 
