@@ -1269,6 +1269,65 @@ describe('TabBar', () => {
 			// Tab should no longer have opacity-50 class (dragging state)
 			expect(tab).not.toHaveClass('opacity-50');
 		});
+
+		it('clears a stuck drag highlight when the dragged tab leaves the strip without a dragend', () => {
+			// Repro for the "dimmed tab after break-apart" bug: dragging a chip into a
+			// tiled group unmounts it before the browser fires `dragend`, so
+			// draggingTabId stays pinned. When the tab returns (break-apart) it must not
+			// render at opacity-50.
+			const tabs = [
+				createTab({ id: 'tab-1', name: 'Tab 1' }),
+				createTab({ id: 'tab-2', name: 'Tab 2' }),
+			];
+
+			const { rerender } = render(
+				<TabBar
+					tabs={tabs}
+					activeTabId="tab-2"
+					theme={mockTheme}
+					onTabSelect={mockOnTabSelect}
+					onTabClose={mockOnTabClose}
+					onNewTab={mockOnNewTab}
+					onTabReorder={mockOnTabReorder}
+				/>
+			);
+
+			// Start dragging tab-1 (sets draggingTabId) but never fire dragEnd - the
+			// chip's DOM node vanishes when it joins the group.
+			const draggedTab = screen.getByText('Tab 1').closest('[data-tab-id]')!;
+			fireEvent.dragStart(draggedTab, {
+				dataTransfer: { effectAllowed: '', setData: vi.fn() },
+			});
+
+			// Tab-1 leaves the strip (joined a tiled group).
+			rerender(
+				<TabBar
+					tabs={[createTab({ id: 'tab-2', name: 'Tab 2' })]}
+					activeTabId="tab-2"
+					theme={mockTheme}
+					onTabSelect={mockOnTabSelect}
+					onTabClose={mockOnTabClose}
+					onNewTab={mockOnNewTab}
+					onTabReorder={mockOnTabReorder}
+				/>
+			);
+
+			// Tab-1 comes back (group broken apart).
+			rerender(
+				<TabBar
+					tabs={tabs}
+					activeTabId="tab-2"
+					theme={mockTheme}
+					onTabSelect={mockOnTabSelect}
+					onTabClose={mockOnTabClose}
+					onNewTab={mockOnNewTab}
+					onTabReorder={mockOnTabReorder}
+				/>
+			);
+
+			const restoredTab = screen.getByText('Tab 1').closest('[data-tab-id]')!;
+			expect(restoredTab).not.toHaveClass('opacity-50');
+		});
 	});
 
 	describe('hover overlay', () => {

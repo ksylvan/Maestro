@@ -292,6 +292,25 @@ function TabBarInner({
 		setDragOverTabId(null);
 	}, []);
 
+	// Defensive cleanup for a stuck drag highlight. When a chip is dragged out of
+	// the strip and into a tiled group, its ref is pulled from unifiedTabOrder and
+	// the chip unmounts the instant the group takes over - often before the browser
+	// fires `dragend` on the source node, so handleDragEnd never runs and
+	// draggingTabId stays pinned to that id. It then rides along as `opacity-50`
+	// when the tab is later promoted back out (break-apart), leaving the chip
+	// visibly dimmed. Once the dragged tab is no longer in the strip, drop the stale
+	// id so a normal re-render restores full opacity.
+	useEffect(() => {
+		if (!draggingTabId) return;
+		const stillPresent = unifiedTabs
+			? unifiedTabs.some((ut) => ut.id === draggingTabId)
+			: tabs.some((t) => t.id === draggingTabId);
+		if (!stillPresent) {
+			setDraggingTabId(null);
+			setDragOverTabId(null);
+		}
+	}, [draggingTabId, unifiedTabs, tabs]);
+
 	// Promote a tiled pane back to a standalone tab when its title bar is dropped
 	// onto the tab bar. `insertIndex` is the target position in unifiedTabOrder
 	// (append when null). Reuses the pure promote helper (removes the leaf, re-adds
