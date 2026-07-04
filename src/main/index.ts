@@ -418,7 +418,9 @@ const cliWatcher = createCliWatcher({
 
 // Create settings file watcher for external changes (e.g., from maestro-cli)
 const settingsWatcher = createSettingsWatcher({
-	getMainWindow: () => mainWindow,
+	// Broadcast to EVERY open window so a settings change (from maestro-cli or
+	// another Maestro window) reloads in all of them - not just the main window.
+	getBroadcastWindows: () => BrowserWindow.getAllWindows(),
 	getSettingsPath: () => syncPath,
 	getAgentConfigsPath: () => productionDataPath,
 });
@@ -1573,6 +1575,7 @@ function setupIpcHandlers() {
 		sessionsStore,
 		groupsStore,
 		getWebServer: () => webServer,
+		safeSend,
 	});
 
 	// System operations - extracted to src/main/ipc/handlers/system.ts

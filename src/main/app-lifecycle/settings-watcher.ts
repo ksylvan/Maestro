@@ -5,14 +5,19 @@
  */
 
 import fsSync from 'fs';
-import type { BrowserWindow } from 'electron';
 import { logger } from '../utils/logger';
-import { createSafeSend } from '../utils/safe-send';
+import { createSafeSend, type GetBroadcastWindows } from '../utils/safe-send';
 
 /** Dependencies for settings watcher */
 export interface SettingsWatcherDependencies {
-	/** Function to get the main window (may be null if not created yet) */
-	getMainWindow: () => BrowserWindow | null;
+	/**
+	 * Enumerator for the windows the reload signal should reach. Must return
+	 * EVERY open window (not just the main one) so a settings change - whether
+	 * from maestro-cli or from another Maestro window - reloads settings in all
+	 * windows. Targeting only the main window left secondary windows stuck on
+	 * their mount-time settings (e.g. a theme switch never propagated to them).
+	 */
+	getBroadcastWindows: GetBroadcastWindows;
 	/** Function to get the settings file directory (may differ from userData for synced settings) */
 	getSettingsPath: () => string;
 	/** Function to get the agent configs file directory */
@@ -35,8 +40,8 @@ export interface SettingsWatcher {
  * Uses debouncing to avoid excessive reloads from rapid writes.
  */
 export function createSettingsWatcher(deps: SettingsWatcherDependencies): SettingsWatcher {
-	const { getMainWindow, getSettingsPath, getAgentConfigsPath } = deps;
-	const safeSend = createSafeSend(getMainWindow);
+	const { getBroadcastWindows, getSettingsPath, getAgentConfigsPath } = deps;
+	const safeSend = createSafeSend(getBroadcastWindows);
 	const watchers: fsSync.FSWatcher[] = [];
 
 	// Debounce: ignore changes within 500ms of an IPC-driven write
