@@ -42,6 +42,8 @@ import type { ToastWidth } from '../../shared/toastWidth';
 import { isToastWidth } from '../../shared/toastWidth';
 import { logger } from '../utils/logger';
 import { useUIStore } from './uiStore';
+import type { ModalResizeKey, ModalSize, ModalSizes } from '../utils/modalSizing';
+import { sanitizeModalSizes } from '../utils/modalSizing';
 
 // ============================================================================
 // Prompt cache (loaded via IPC at startup)
@@ -326,6 +328,7 @@ export interface SettingsStoreState {
 	defaultShowThinking: ThinkingMode;
 	leftSidebarWidth: number;
 	rightPanelWidth: number;
+	modalSizes: ModalSizes;
 	markdownEditMode: boolean;
 	chatRawTextMode: boolean;
 	groupChatAutoScroll: boolean;
@@ -480,6 +483,8 @@ export interface SettingsStoreActions {
 	setDefaultShowThinking: (value: ThinkingMode) => void;
 	setLeftSidebarWidth: (value: number) => void;
 	setRightPanelWidth: (value: number) => void;
+	setModalSize: (key: ModalResizeKey, value: ModalSize) => void;
+	resetModalSizes: () => void;
 	setMarkdownEditMode: (value: boolean) => void;
 	setChatRawTextMode: (value: boolean) => void;
 	setGroupChatAutoScroll: (value: boolean) => void;
@@ -695,6 +700,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 		defaultShowThinking: 'off',
 		leftSidebarWidth: 256,
 		rightPanelWidth: 384,
+		modalSizes: {},
 		markdownEditMode: false,
 		chatRawTextMode: false,
 		groupChatAutoScroll: true,
@@ -947,6 +953,22 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => {
 			const clamped = Math.max(RIGHT_PANEL_MIN_WIDTH, Math.min(RIGHT_PANEL_MAX_WIDTH, value));
 			set({ rightPanelWidth: clamped });
 			window.maestro.settings.set('rightPanelWidth', clamped);
+		},
+
+		setModalSize: (key, value) => {
+			const normalized = sanitizeModalSizes({ [key]: value })[key];
+			if (!normalized) return;
+			const next = {
+				...get().modalSizes,
+				[key]: normalized,
+			};
+			set({ modalSizes: next });
+			window.maestro.settings.set('modalSizes', next);
+		},
+
+		resetModalSizes: () => {
+			set({ modalSizes: {} });
+			window.maestro.settings.set('modalSizes', {});
 		},
 
 		setMarkdownEditMode: (value) => {
@@ -2282,6 +2304,9 @@ export async function loadAllSettings(): Promise<void> {
 				Math.min(RIGHT_PANEL_MAX_WIDTH, allSettings['rightPanelWidth'] as number)
 			);
 
+		if (allSettings['modalSizes'] !== undefined)
+			patch.modalSizes = sanitizeModalSizes(allSettings['modalSizes']);
+
 		if (allSettings['markdownEditMode'] !== undefined)
 			patch.markdownEditMode = allSettings['markdownEditMode'] as boolean;
 
@@ -2956,6 +2981,8 @@ export function getSettingsActions() {
 		setDefaultShowThinking: state.setDefaultShowThinking,
 		setLeftSidebarWidth: state.setLeftSidebarWidth,
 		setRightPanelWidth: state.setRightPanelWidth,
+		setModalSize: state.setModalSize,
+		resetModalSizes: state.resetModalSizes,
 		setMarkdownEditMode: state.setMarkdownEditMode,
 		setChatRawTextMode: state.setChatRawTextMode,
 		setGroupChatAutoScroll: state.setGroupChatAutoScroll,

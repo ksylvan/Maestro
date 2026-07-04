@@ -17,7 +17,9 @@ import {
 import { useSettings } from '../../hooks';
 import type { Theme, LLMProvider } from '../../types';
 import { useModalLayer } from '../../hooks/ui/useModalLayer';
+import { useResizableModal } from '../../hooks/ui/useResizableModal';
 import { MODAL_PRIORITIES } from '../../constants/modalPriorities';
+import { ResizeHandles } from '../ui/ResizeHandles';
 import { AICommandsPanel } from '../AICommandsPanel';
 import { MaestroPromptsTab } from './tabs/MaestroPromptsTab';
 import { SpecKitCommandsPanel } from '../SpecKitCommandsPanel';
@@ -185,6 +187,11 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 		status: 'success' | 'error' | null;
 		message: string;
 	}>({ status: null, message: '' });
+	const resizableModal = useResizableModal({
+		resizeKey: 'settings',
+		defaultSize: { width: 980, height: 900 },
+		minSize: { width: 720, height: 480 },
+	});
 	// Search state
 	const [searchActive, setSearchActive] = useState(false);
 	const contentRef = useRef<HTMLDivElement>(null);
@@ -467,14 +474,20 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
 			aria-label="Settings"
 		>
 			<div
-				className="h-[900px] rounded-xl border shadow-2xl overflow-hidden flex flex-col select-none"
+				ref={resizableModal.modalRef}
+				className="relative rounded-xl border shadow-2xl overflow-hidden flex flex-col select-none"
 				style={{
-					width: 'min(calc(980px * var(--font-scale, 1)), 95vw)',
-					maxHeight: 'calc(100vh - 2rem)',
+					...resizableModal.style,
 					backgroundColor: theme.colors.bgSidebar,
 					borderColor: theme.colors.border,
 				}}
+				data-modal-resize-key="settings"
 			>
+				<ResizeHandles
+					onResizeStart={resizableModal.onResizeStart}
+					accentColor={theme.colors.accent}
+				/>
+
 				{/* Search Bar + Close Button */}
 				<div className="flex items-center border-b" style={{ borderColor: theme.colors.border }}>
 					<div className="flex-1">

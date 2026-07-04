@@ -36,3 +36,5 @@ export { WorktreePill } from './WorktreePill';
 
 export { HoverTooltip } from './HoverTooltip';
 export type { HoverTooltipProps } from './HoverTooltip';
+
+export { ResizeHandles } from './ResizeHandles';

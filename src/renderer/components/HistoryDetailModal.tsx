@@ -21,6 +21,7 @@ import type { Theme, HistoryEntry, ToolType } from '../types';
 import type { FileNode } from '../types/fileTree';
 import { useEventListener } from '../hooks/utils/useEventListener';
 import { useModalLayer } from '../hooks/ui/useModalLayer';
+import { useResizableModal } from '../hooks/ui/useResizableModal';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { formatElapsedTime } from '../utils/formatters';
 import { formatTimestamp } from '../../shared/formatters';
@@ -35,6 +36,7 @@ import { getContextColor } from '../utils/theme';
 import { DoubleCheck } from './History';
 import { safeClipboardWrite } from '../utils/clipboard';
 import { useSettingsStore } from '../stores/settingsStore';
+import { ResizeHandles } from './ui/ResizeHandles';
 
 interface HistoryDetailModalProps {
 	theme: Theme;
@@ -194,6 +196,11 @@ export function HistoryDetailModal({
 	// Strip ANSI, then the internal `<!-- maestro:... -->` control markers the Auto
 	// Run engine reads (progress/goal-complete/deadlock/halt) - users shouldn't see them.
 	const cleanResponse = stripMaestroMarkers(stripAnsiCodes(rawResponse));
+	const resizableModal = useResizableModal({
+		resizeKey: 'history-detail',
+		defaultSize: { width: 960, height: 720 },
+		minSize: { width: 640, height: 420 },
+	});
 
 	return (
 		<div className="fixed inset-0 flex items-center justify-center z-[9999]">
@@ -202,12 +209,23 @@ export function HistoryDetailModal({
 
 			{/* Modal */}
 			<div
-				className="relative w-full max-w-3xl max-h-[80vh] overflow-hidden rounded-lg border shadow-2xl flex flex-col select-text"
+				ref={resizableModal.modalRef}
+				role="dialog"
+				aria-modal="true"
+				aria-label="History Detail"
+				className="relative overflow-hidden rounded-lg border shadow-2xl flex flex-col select-text"
 				style={{
+					...resizableModal.style,
 					backgroundColor: theme.colors.bgSidebar,
 					borderColor: theme.colors.border,
 				}}
+				data-modal-resize-key="history-detail"
 			>
+				<ResizeHandles
+					onResizeStart={resizableModal.onResizeStart}
+					accentColor={theme.colors.accent}
+				/>
+
 				{/* Header */}
 				<div
 					className="relative px-6 py-4 border-b shrink-0"
