@@ -366,7 +366,7 @@ describe('SessionList', () => {
 			expect(addNewSession).toHaveBeenCalled();
 		});
 
-		it('cycles sidebar through open → collapsed strip → hidden', () => {
+		it('collapses the sidebar on collapse-button click', () => {
 			const session = createMockSession();
 			useSessionStore.setState({ sessions: [session] });
 			useUIStore.setState({ leftSidebarOpen: true, leftSidebarHidden: false });
@@ -375,13 +375,12 @@ describe('SessionList', () => {
 			});
 			render(<SessionList {...props} />);
 
-			// Single button cycles open → collapsed-strip → hidden. The first
-			// click transitions to the collapsed-strip state.
-			const collapseButton = screen.getByTitle(/Collapse to status strip/i);
+			// The sidebar button is a two-state toggle: open collapses to the
+			// status strip, collapsed expands back out.
+			const collapseButton = screen.getByTitle(/Collapse Sidebar/i);
 			fireEvent.click(collapseButton);
 
 			expect(useUIStore.getState().leftSidebarOpen).toBe(false);
-			expect(useUIStore.getState().leftSidebarHidden).toBe(false);
 		});
 	});
 
