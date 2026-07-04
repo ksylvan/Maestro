@@ -20,6 +20,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useSessionStore } from '../../../stores/sessionStore';
+import { clearRetryIfSettled } from '../../../stores/retryStore';
 import { useSettingsStore } from '../../../stores/settingsStore';
 import { notifyToast, triggerCustomNotification } from '../../../stores/notificationStore';
 import { REGEX_AI_TAB } from '../../../utils/sessionIdParser';
@@ -189,6 +190,10 @@ export function useAgentExitListener(deps: UseAgentExitListenerDeps): void {
 
 			if (isFromAi && tabIdFromSession) {
 				deps.activeHiddenToolRef.current?.delete(`${actualSessionId}:${tabIdFromSession}`);
+				// Agent Resilience: if an auto-retry resend is still 'in-flight' at
+				// exit, no retryable error re-scheduled it (agent-error fires before
+				// exit), so the resent turn settled — clear the pending retry.
+				clearRetryIfSettled(actualSessionId, tabIdFromSession);
 			}
 
 			let toastData: {
@@ -821,7 +826,12 @@ export function useAgentExitListener(deps: UseAgentExitListenerDeps): void {
 						// silently dropped whenever you watch an agent finish - the synopsis
 						// toast that does appear sets skipCustomNotification, so without this
 						// the completion would make no sound at all.
-						triggerCustomNotification(toastData!.summary);
+						triggerCustomNotification(toastData!.summary, {
+							agent: toastData!.projectName,
+							tab: toastData!.tabName,
+							group: toastData!.groupName,
+							task: toastData!.title,
+						});
 					}
 				}, 0);
 			}

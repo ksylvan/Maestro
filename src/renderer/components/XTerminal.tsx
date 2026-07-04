@@ -56,8 +56,8 @@ function getTerminalNavSequence(e: KeyboardEvent): string | null {
 
 	// Cmd (Meta) + Arrow → line navigation
 	if (e.metaKey && !e.altKey && !e.ctrlKey) {
-		if (e.key === 'ArrowLeft') return '\x01'; // Ctrl-A — beginning of line
-		if (e.key === 'ArrowRight') return '\x05'; // Ctrl-E — end of line
+		if (e.key === 'ArrowLeft') return '\x01'; // Ctrl-A - beginning of line
+		if (e.key === 'ArrowRight') return '\x05'; // Ctrl-E - end of line
 	}
 
 	return null;

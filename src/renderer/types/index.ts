@@ -252,6 +252,13 @@ export interface LogEntry {
 		lastUserPrompt: string;
 		tabId: string;
 	};
+	// Agent Resilience: anchors a live "outage status" card in the transcript.
+	// When set, this (source:'system') entry renders as a RetryStatusCard driven
+	// by the persistent outage record `retryStore.outages[retryOutageId]` instead
+	// of plain text. One marker is appended per outage (the first failure); the
+	// card collapses all subsequent auto-retry attempts into a single live stat
+	// readout (attempt count, elapsed, next-retry countdown, Retry now / Stop).
+	retryOutageId?: string;
 }
 
 // Queued item for the session-level execution queue
@@ -958,6 +965,15 @@ export interface Session {
 	// the spawner uses the bundled script (`process.resourcesPath/maestro-p.js`
 	// in packaged builds, `dist/cli/maestro-p.js` in dev).
 	maestroPPath?: string;
+
+	// Agent Resilience (auto-retry). Both default ON — `undefined` reads as
+	// enabled via `resilienceEnabled` in shared/agentConstants, so existing
+	// agents get the behavior without a migration; only an explicit `false`
+	// opts out. `retryOnAvailabilityErrors` covers transient upstream failures
+	// (Overloaded/529/5xx) with 30s→30m backoff; `retryOnTokenExhaustion`
+	// covers plan-quota exhaustion (wait-until-reset, else hourly).
+	retryOnAvailabilityErrors?: boolean;
+	retryOnTokenExhaustion?: boolean;
 
 	// Last resolved Claude headless-mode state (only meaningful for Claude Code
 	// sessions with `enableMaestroP === true`). The spawner writes this after

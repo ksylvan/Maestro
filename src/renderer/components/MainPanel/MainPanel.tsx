@@ -130,6 +130,7 @@ export const MainPanel = React.memo(
 			onStopBatchRun,
 			onRemoveQueuedItem,
 			onTogglePauseQueuedItem,
+			onEditQueuedItem,
 			onReorderQueuedItem,
 			onForceSendQueuedItem,
 			forcedParallelEnabled,
@@ -1142,6 +1143,7 @@ export const MainPanel = React.memo(
 							onStopBatchRun={onStopBatchRun}
 							onRemoveQueuedItem={onRemoveQueuedItem}
 							onTogglePauseQueuedItem={onTogglePauseQueuedItem}
+							onEditQueuedItem={onEditQueuedItem}
 							onReorderQueuedItem={onReorderQueuedItem}
 							onForceSendQueuedItem={onForceSendQueuedItem}
 							forcedParallelEnabled={forcedParallelEnabled}

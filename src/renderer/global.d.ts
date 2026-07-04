@@ -1951,7 +1951,13 @@ interface MaestroAPI {
 		) => Promise<{ success: boolean; error?: string }>;
 		speak: (
 			text: string,
-			command?: string
+			command?: string,
+			vars?: {
+				agent?: string;
+				tab?: string;
+				group?: string;
+				task?: string;
+			}
 		) => Promise<{ success: boolean; notificationId?: number; error?: string }>;
 		stopSpeak: (notificationId: number) => Promise<{ success: boolean; error?: string }>;
 		onCommandCompleted: (handler: (notificationId: number) => void) => () => void;
@@ -2354,6 +2360,17 @@ interface MaestroAPI {
 			durationMs: number;
 			error?: string;
 		}>;
+		onProfilingProgress: (
+			handler: (event: {
+				phase: 'stopping' | 'awaiting-save' | 'compressing' | 'done' | 'cancelled' | 'error';
+				percent?: number;
+				bytesProcessed?: number;
+				totalBytes?: number;
+				path?: string | null;
+				bundleSizeBytes?: number;
+				error?: string;
+			}) => void
+		) => () => void;
 	};
 	// Sync API (custom storage location)
 	sync: {
@@ -3836,6 +3853,16 @@ interface MaestroAPI {
 		onHighlightDropZone: (
 			callback: (payload: { windowId: string; active: boolean }) => void
 		) => () => void;
+	};
+	/**
+	 * Session Images API. Pasted transcript images are stored content-addressed
+	 * on disk and referenced as `maestro-image://store/<sha>.<ext>` (loaded
+	 * directly by `<img src>` via the maestro-image protocol). `resolve` turns a
+	 * ref back into a data URL for consumers that need the raw bytes (export,
+	 * clipboard, replay).
+	 */
+	images: {
+		resolve: (ref: string) => Promise<string | null>;
 	};
 }
 

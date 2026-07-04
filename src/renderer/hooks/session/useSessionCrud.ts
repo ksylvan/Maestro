@@ -75,7 +75,9 @@ export interface UseSessionCrudReturn {
 		groupId?: string,
 		enableMaestroP?: boolean,
 		maestroPPath?: string,
-		maestroPMode?: 'interactive' | 'dynamic'
+		maestroPMode?: 'interactive' | 'dynamic',
+		retryOnAvailabilityErrors?: boolean,
+		retryOnTokenExhaustion?: boolean
 	) => Promise<void>;
 	/** Opens the delete agent confirmation modal */
 	deleteSession: (id: string) => void;
@@ -162,7 +164,9 @@ export function useSessionCrud(deps: UseSessionCrudDeps): UseSessionCrudReturn {
 			groupId?: string,
 			enableMaestroP?: boolean,
 			maestroPPath?: string,
-			maestroPMode?: 'interactive' | 'dynamic'
+			maestroPMode?: 'interactive' | 'dynamic',
+			retryOnAvailabilityErrors?: boolean,
+			retryOnTokenExhaustion?: boolean
 		) => {
 			try {
 				// Get agent definition to get correct command
@@ -293,6 +297,11 @@ export function useSessionCrud(deps: UseSessionCrudDeps): UseSessionCrudReturn {
 					enableMaestroP,
 					maestroPPath,
 					maestroPMode,
+					// Agent Resilience: only persist an explicit OFF; leaving these
+					// undefined reads as ON via `resilienceEnabled`, so the default
+					// behavior needs no stored value.
+					retryOnAvailabilityErrors,
+					retryOnTokenExhaustion,
 					claudeInteractive:
 						agentId === 'claude-code' ? { mode: 'api', modeReason: 'auto' } : undefined,
 				};
