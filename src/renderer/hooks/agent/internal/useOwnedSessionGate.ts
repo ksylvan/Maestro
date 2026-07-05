@@ -16,8 +16,10 @@
  * re-subscribing every time ownership changes (re-subscribing would risk
  * dropping events mid-swap - keyboard/event reliability is non-negotiable).
  *
- * Null-safe: outside a `WindowProvider` (web build / isolation tests) the gate
- * permits everything, so single-window behaviour is unchanged.
+ * Null-safe: outside a `WindowProvider` (isolation tests) the gate permits
+ * everything, so single-window behaviour is unchanged. The web-desktop build
+ * mounts a `WindowProvider` but its `ownsSession` is a permit-all by design
+ * (a browser client mirrors every agent - see `WindowContext`).
  */
 
 import { useEffect, useRef, type RefObject } from 'react';
@@ -63,7 +65,7 @@ export function useOwnedSessionGate(): OwnedSessionGate {
 
 	useEffect(() => {
 		gateRef.current = (rawSessionId: string) => {
-			// No window scoping in play (web build / isolation tests): permit all.
+			// No window scoping in play (isolation tests): permit all.
 			if (!ownsSession) return true;
 			return ownsSession(agentIdFromProcessSessionId(rawSessionId));
 		};

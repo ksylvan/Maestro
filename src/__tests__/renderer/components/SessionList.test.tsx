@@ -1358,8 +1358,44 @@ describe('SessionList', () => {
 			expect(menuContainer).toBeInTheDocument();
 			expect(menuContainer).toHaveClass('overflow-y-auto');
 			expect(menuContainer).toHaveClass('scrollbar-thin');
-			// Verify max-height is set via inline style for scroll support
-			expect(menuContainer?.style.maxHeight).toBe('calc(100vh - 120px)');
+			// Verify the max-height cap (scroll support) - a utility class since
+			// the HamburgerDropdown extraction.
+			expect(menuContainer).toHaveClass('max-h-[calc(100vh-120px)]');
+		});
+
+		it('renders the hamburger menu as a full-screen sheet with a close button on phones', () => {
+			// Drive useViewportBreakpoint to xs; the dropdown becomes a body-portal
+			// full-screen sheet there (the drawer's CSS transform would trap a
+			// fixed-position dropdown inside the ~320px drawer box).
+			const originalWidth = window.innerWidth;
+			Object.defineProperty(window, 'innerWidth', {
+				configurable: true,
+				writable: true,
+				value: 390,
+			});
+			try {
+				useUIStore.setState({ leftSidebarOpen: true });
+				const props = createDefaultProps({});
+				render(<SessionList {...props} />);
+
+				fireEvent.click(screen.getByTitle('Menu'));
+
+				const sheet = document.querySelector('[data-hamburger-sheet]') as HTMLElement;
+				expect(sheet).toBeInTheDocument();
+				expect(sheet).toHaveClass('fixed');
+				expect(sheet).toHaveClass('inset-0');
+
+				// The sheet closes via its own X button (no outside-click exists on
+				// a full-screen surface).
+				fireEvent.click(screen.getByLabelText('Close menu'));
+				expect(document.querySelector('[data-hamburger-sheet]')).toBeNull();
+			} finally {
+				Object.defineProperty(window, 'innerWidth', {
+					configurable: true,
+					writable: true,
+					value: originalWidth,
+				});
+			}
 		});
 
 		it("shows Director's Notes menu item in hamburger menu", () => {

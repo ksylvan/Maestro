@@ -56,6 +56,12 @@ class BridgeClient {
 	private listeners = new Map<string, Set<Listener>>();
 	private nextRequestId = 1;
 	private queue: string[] = [];
+	// True once any connection has been established. A LATER successful open is
+	// a RE-connect: every push event during the gap is gone for good (the
+	// bridge has no replay), so the renderer's in-memory state - transcripts,
+	// busy pills, tabs - is stale beyond repair. Mobile Safari makes this the
+	// common case: it suspends the socket on every app switch / screen lock.
+	private hadOpenConnection = false;
 
 	constructor(config: BridgeConfig) {
 		this.ready = new Promise((r) => (this.resolveReady = r));
@@ -75,6 +81,14 @@ class BridgeClient {
 			return;
 		}
 		this.ws.addEventListener('open', () => {
+			if (this.hadOpenConnection) {
+				// Reconnected after a drop: resync by reloading the page. The app
+				// re-bootstraps from the desktop's live store, which is the only
+				// source of truth for whatever happened while we were away.
+				window.location.reload();
+				return;
+			}
+			this.hadOpenConnection = true;
 			this.resolveReady();
 			for (const frame of this.queue.splice(0)) this.ws?.send(frame);
 		});

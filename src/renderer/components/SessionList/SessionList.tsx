@@ -23,12 +23,13 @@ import {
 	Star,
 } from 'lucide-react';
 import { GhostIconButton } from '../ui/GhostIconButton';
+import { HamburgerDropdown } from './HamburgerDropdown';
 import type { Session, Group, Theme } from '../../types';
 import { getBadgeForTime } from '../../constants/conductorBadges';
 import { SessionItem } from '../SessionItem';
 import { LongPressable, longPressMouseEvent } from '../shared/LongPressable';
 import { GroupChatList } from '../GroupChatList';
-import { useLiveOverlay, useResizablePanel } from '../../hooks';
+import { useLiveOverlay, useResizablePanel, useViewportBreakpoint } from '../../hooks';
 import { useGitFileStatus } from '../../contexts/GitStatusContext';
 import { useUIStore } from '../../stores/uiStore';
 import { useSessionStore } from '../../stores/sessionStore';
@@ -516,6 +517,8 @@ function SessionListInner(props: SessionListProps) {
 		? sessions.filter((s) => s.groupId === groupContextMenu.groupId && !s.parentSessionId).length
 		: 0;
 	const menuRef = useRef<HTMLDivElement>(null);
+	// Phones swap the anchored hamburger dropdown for a full-screen sheet.
+	const { isXs } = useViewportBreakpoint();
 	const ignoreNextBlurRef = useRef(false);
 	// Scrollable list viewport - used to keep the keyboard-selected row in view.
 	const listScrollRef = useRef<HTMLDivElement>(null);
@@ -612,9 +615,12 @@ function SessionListInner(props: SessionListProps) {
 		);
 	};
 
-	// Close menu when clicking outside
+	// Close menu when clicking outside. Clicks inside the phone full-screen
+	// sheet don't count as outside - it renders through a body portal (see
+	// HamburgerDropdown), so menuRef.contains() can't see it.
 	useEffect(() => {
 		const handleClickOutside = (e: MouseEvent) => {
+			if ((e.target as Element).closest?.('[data-hamburger-sheet]')) return;
 			if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
 				setMenuOpen(false);
 			}
@@ -1135,14 +1141,11 @@ function SessionListInner(props: SessionListProps) {
 								</GhostIconButton>
 								{/* Menu Overlay */}
 								{menuOpen && (
-									<div
-										className="absolute top-full left-0 -mt-px w-[22rem] rounded-lg shadow-2xl z-[100] overflow-y-auto scrollbar-thin"
-										data-tour="hamburger-menu-contents"
-										style={{
-											backgroundColor: theme.colors.bgSidebar,
-											border: `1px solid ${theme.colors.border}`,
-											maxHeight: 'calc(100vh - 120px)',
-										}}
+									<HamburgerDropdown
+										theme={theme}
+										isPhone={isXs}
+										onClose={() => setMenuOpen(false)}
+										dataTour="hamburger-menu-contents"
 									>
 										<HamburgerMenuContent
 											theme={theme}
@@ -1151,7 +1154,7 @@ function SessionListInner(props: SessionListProps) {
 											startTour={startTour}
 											setMenuOpen={setMenuOpen}
 										/>
-									</div>
+									</HamburgerDropdown>
 								)}
 							</div>
 						</div>
@@ -1168,14 +1171,7 @@ function SessionListInner(props: SessionListProps) {
 						</GhostIconButton>
 						{/* Menu Overlay for Collapsed Sidebar */}
 						{menuOpen && (
-							<div
-								className="absolute top-full left-0 -mt-px w-[22rem] rounded-lg shadow-2xl z-[100] overflow-y-auto scrollbar-thin"
-								style={{
-									backgroundColor: theme.colors.bgSidebar,
-									border: `1px solid ${theme.colors.border}`,
-									maxHeight: 'calc(100vh - 120px)',
-								}}
-							>
+							<HamburgerDropdown theme={theme} isPhone={isXs} onClose={() => setMenuOpen(false)}>
 								<HamburgerMenuContent
 									theme={theme}
 									onNewAgentSession={onNewAgentSession}
@@ -1183,7 +1179,7 @@ function SessionListInner(props: SessionListProps) {
 									startTour={startTour}
 									setMenuOpen={setMenuOpen}
 								/>
-							</div>
+							</HamburgerDropdown>
 						)}
 					</div>
 				)}

@@ -38,6 +38,7 @@ import {
 import { formatWindowTitle, type WindowInfo } from '../../shared/window-types';
 import { useSessionStore } from '../stores/sessionStore';
 import { notifyToast } from '../stores/notificationStore';
+import { isWebDesktop } from '../utils/runtimeContext';
 
 /**
  * Reads the `windowId` query param from the renderer URL. Returns `null` for
@@ -191,6 +192,15 @@ function removeFromScope(prev: WindowScope, sessionId: string): WindowScope {
 }
 
 export function WindowProvider({ children }: { children: ReactNode }) {
+	// Window scoping is a DESKTOP display concept: it decides which Electron
+	// window surfaces an agent. A web-desktop client is not a window - it
+	// mirrors every agent, always. It must therefore never hydrate the window
+	// registry (whose ownership map would make useOwnedSessionGate and
+	// useWindowOwnsSession silently drop events/views for agents owned by a
+	// secondary desktop window) and must answer ownsSession with a permit-all.
+	// This makes the web build's permissiveness explicit by design rather than
+	// an accident of `windows:getState` failing over the bridge.
+	const windowScoped = useMemo(() => !isWebDesktop(), []);
 	// isMainWindow and the initial windowId are known synchronously from the URL,
 	// so the very first render already reflects the correct window identity.
 	const paramWindowId = useMemo(() => readWindowIdParam(), []);
@@ -213,16 +223,22 @@ export function WindowProvider({ children }: { children: ReactNode }) {
 	 * ownership changed.
 	 */
 	const hydrate = useCallback(async () => {
+		// Never hydrate on web-desktop: the registry describes Electron windows,
+		// and adopting its ownership map would scope (i.e. drop) agents here.
+		if (!windowScoped) return;
+		// Each call degrades to null independently so one failed invoke (e.g. a
+		// transient IPC error) can't kill the whole hydrate with an unhandled
+		// rejection - this runs behind `void hydrate()`.
 		const [state, allWindows] = await Promise.all([
-			window.maestro.windows.getState(),
-			window.maestro.windows.list(),
+			window.maestro.windows.getState().catch(() => null),
+			window.maestro.windows.list().catch(() => null),
 		]);
 		if (!state) return;
 		// The primary window has no URL param, so adopt the registry's id for it.
 		setWindowId((prev) => prev ?? state.id);
 		setScope({ sessionIds: state.sessionIds, activeSessionId: state.activeSessionId });
 		setWindows(allWindows ?? []);
-	}, []);
+	}, [windowScoped]);
 
 	useEffect(() => {
 		void hydrate();
@@ -350,11 +366,16 @@ export function WindowProvider({ children }: { children: ReactNode }) {
 	}, [isMainWindow, windowNumber, ownName]);
 
 	const ownsSession = useCallback(
-		(sessionId: string): boolean =>
+		(sessionId: string): boolean => {
+			// A web-desktop client mirrors every agent - permit-all by design.
+			if (!windowScoped) return true;
 			// The primary window surfaces every agent that no secondary window has
 			// explicitly claimed; a secondary window owns exactly its scoped set.
-			isMainWindow ? !sessionsOwnedElsewhere.has(sessionId) : scope.sessionIds.includes(sessionId),
-		[isMainWindow, sessionsOwnedElsewhere, scope.sessionIds]
+			return isMainWindow
+				? !sessionsOwnedElsewhere.has(sessionId)
+				: scope.sessionIds.includes(sessionId);
+		},
+		[windowScoped, isMainWindow, sessionsOwnedElsewhere, scope.sessionIds]
 	);
 
 	const getSessionWindow = useCallback(

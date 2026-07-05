@@ -19,6 +19,7 @@ import {
 import type { WindowInfo, WindowState } from '../../../shared/window-types';
 import { useSessionStore } from '../../../renderer/stores/sessionStore';
 import { notifyToast } from '../../../renderer/stores/notificationStore';
+import { isWebDesktop } from '../../../renderer/utils/runtimeContext';
 import { createMockSession } from '../../helpers/mockSession';
 
 // The primary-window-empty guard surfaces a toast; mock it so tests assert the
@@ -26,6 +27,14 @@ import { createMockSession } from '../../helpers/mockSession';
 vi.mock('../../../renderer/stores/notificationStore', async () => {
 	const actual = await vi.importActual('../../../renderer/stores/notificationStore');
 	return { ...actual, notifyToast: vi.fn() };
+});
+
+// Web-desktop detection drives the provider's window-scoping opt-out (a
+// browser client mirrors every agent). Default to the Electron desktop
+// (false); the web-desktop describe block flips it per test.
+vi.mock('../../../renderer/utils/runtimeContext', async () => {
+	const actual = await vi.importActual('../../../renderer/utils/runtimeContext');
+	return { ...actual, isWebDesktop: vi.fn(() => false) };
 });
 
 const windows = () => window.maestro.windows;
@@ -84,6 +93,8 @@ describe('WindowContext', () => {
 		// The empty-primary guard reads the live agent list; start each test from a
 		// clean store so a prior test's seed can't leak into one that doesn't seed.
 		useSessionStore.setState({ sessions: [] });
+		// Default to the Electron desktop; web-desktop tests flip this.
+		vi.mocked(isWebDesktop).mockReturnValue(false);
 		// Reset the windows IPC mocks to their neutral baseline; tests override.
 		vi.mocked(windows().getState).mockResolvedValue(null);
 		vi.mocked(windows().list).mockResolvedValue([]);
@@ -992,6 +1003,41 @@ describe('WindowContext', () => {
 
 			const { result: other } = renderHook(() => useWindowOwnsSession('b'), { wrapper });
 			expect(other.current).toBe(false);
+		});
+	});
+
+	describe('web-desktop client (not window-scoped)', () => {
+		it('permits every agent and never hydrates the registry ownership map', async () => {
+			vi.mocked(isWebDesktop).mockReturnValue(true);
+			// The registry says a secondary window claimed agent-x. A web client
+			// mirrors every agent, so it must NOT adopt that ownership map (doing
+			// so would silently drop process events + views for agent-x).
+			vi.mocked(windows().getState).mockResolvedValue(makeState({ id: 'primary-1' }));
+			vi.mocked(windows().list).mockResolvedValue([
+				makeInfo({ id: 'primary-1', isMain: true }),
+				makeInfo({ id: 'win-2', sessionIds: ['agent-x'], activeSessionId: 'agent-x' }),
+			]);
+
+			const { result } = renderHook(() => useWindowContext(), { wrapper });
+			await act(async () => {});
+
+			expect(result.current.ownsSession('agent-x')).toBe(true);
+			expect(result.current.windows).toEqual([]);
+			expect(windows().getState).not.toHaveBeenCalled();
+		});
+
+		it('stays permissive when a hydrate invoke rejects (bridge without a real window)', async () => {
+			// Desktop path, but getState fails (e.g. transient IPC error). The
+			// hydrate must degrade to "no scoping" instead of dying with an
+			// unhandled rejection and leaving half-initialized state.
+			vi.mocked(windows().getState).mockRejectedValue(new Error('no sender'));
+			vi.mocked(windows().list).mockResolvedValue([makeInfo({ id: 'w1', isMain: true })]);
+
+			const { result } = renderHook(() => useWindowContext(), { wrapper });
+			await act(async () => {});
+
+			expect(result.current.ownsSession('anything')).toBe(true);
+			expect(result.current.windowId).toBeNull();
 		});
 	});
 });

@@ -542,11 +542,11 @@ const LogItemComponent = memo(
 			return (
 				<div
 					ref={logItemRef}
-					className="flex gap-4 px-6 py-2"
+					className="flex gap-4 px-3 sm:px-6 py-2"
 					data-log-index={index}
 					style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 120px' }}
 				>
-					<div className="w-20 shrink-0" />
+					<div className="hidden sm:block w-20 shrink-0" />
 					<div className="flex-1 min-w-0">
 						<RetryStatusCard outageId={log.retryOutageId} theme={theme} fallbackText={log.text} />
 					</div>
@@ -576,7 +576,11 @@ const LogItemComponent = memo(
 		return (
 			<div
 				ref={logItemRef}
-				className={`flex gap-4 group ${isReversed ? 'flex-row-reverse' : ''} px-6 py-2`}
+				// Narrow screens (phones / web-desktop mobile): the fixed side gutter
+				// for the timestamp costs ~96px of bubble width, so the row stacks -
+				// timestamp above, bubble full-width. From `sm` up it's the classic
+				// side-by-side layout with the w-20 timestamp column.
+				className={`flex flex-col gap-1 sm:gap-4 group ${isReversed ? 'sm:flex-row-reverse' : 'sm:flex-row'} px-3 sm:px-6 py-2`}
 				data-log-index={index}
 				// PERF: the transcript is not virtualized, so every message stays in the
 				// DOM. content-visibility:auto lets the browser skip style/layout/paint for
@@ -588,7 +592,7 @@ const LogItemComponent = memo(
 				style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 120px' }}
 			>
 				<div
-					className={`w-20 shrink-0 text-[10px] pt-2 ${isReversed ? 'text-right' : 'text-left'}`}
+					className={`shrink-0 text-[10px] sm:w-20 sm:pt-2 flex gap-1 sm:block ${isReversed ? 'text-right justify-end' : 'text-left'}`}
 					style={{ fontFamily, color: theme.colors.textDim, opacity: 0.6 }}
 				>
 					{(() => {

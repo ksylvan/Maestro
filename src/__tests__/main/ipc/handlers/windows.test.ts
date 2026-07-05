@@ -344,6 +344,21 @@ describe('Windows IPC Handlers', () => {
 			expect(result).toBeNull();
 		});
 
+		it('returns null (not a throw) for a senderless bridge event', async () => {
+			// The web-desktop bridge dispatches invokes with a synthetic event that
+			// has no sender (FAKE_EVENT). getState must resolve to null so the web
+			// client's WindowContext hydrate degrades gracefully instead of the
+			// handler crashing on BrowserWindow.fromWebContents(undefined).
+			const bridgeEvent = {
+				senderFrame: null,
+				frameId: -1,
+				processId: -1,
+				type: 'bridge',
+			} as unknown as Electron.IpcMainInvokeEvent;
+			const result = await handlers.get('windows:getState')!(bridgeEvent);
+			expect(result).toBeNull();
+		});
+
 		it('reflects panel state persisted via windows:setPanelState', async () => {
 			const win = makeFakeWindow();
 			registry.create({ browserWindow: win, sessionIds: [], isMain: false });

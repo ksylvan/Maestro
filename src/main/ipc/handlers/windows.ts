@@ -77,6 +77,11 @@ function resolveCallingWindow(
 	event: Electron.IpcMainInvokeEvent,
 	registry: WindowRegistry
 ): RegisteredWindow | undefined {
+	// Web-desktop bridge invokes arrive with a synthetic event that has no
+	// sender (FAKE_EVENT in web-server/handlers/bridgeHandlers.ts). A web
+	// client is not a window; resolve to "no window" instead of letting
+	// BrowserWindow.fromWebContents throw on the missing WebContents.
+	if (!event?.sender) return undefined;
 	const browserWindow = BrowserWindow.fromWebContents(event.sender);
 	if (!browserWindow) return undefined;
 	return registry.getAll().find((entry) => entry.browserWindow === browserWindow);

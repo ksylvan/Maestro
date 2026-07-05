@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
 	X,
 	Bot,
@@ -195,7 +196,12 @@ export function HistoryDetailModal({
 	// Run engine reads (progress/goal-complete/deadlock/halt) - users shouldn't see them.
 	const cleanResponse = stripMaestroMarkers(stripAnsiCodes(rawResponse));
 
-	return (
+	// Body portal: this modal mounts inside the right-panel drawer, which is
+	// CSS-transformed on narrow viewports. A transformed ancestor becomes the
+	// containing block for position:fixed, so without the portal the overlay
+	// (and the xs full-screen layout from index.css) gets trapped inside the
+	// ~320px drawer instead of covering the screen.
+	return createPortal(
 		<div className="fixed inset-0 flex items-center justify-center z-[9999]">
 			{/* Backdrop */}
 			<div className="absolute inset-0 bg-black/60" onClick={onClose} />
@@ -752,6 +758,7 @@ export function HistoryDetailModal({
 					</div>
 				</div>
 			)}
-		</div>
+		</div>,
+		document.body
 	);
 }

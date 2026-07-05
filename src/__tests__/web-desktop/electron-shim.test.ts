@@ -1,5 +1,6 @@
 /**
- * Unit tests for the web-desktop electron shim's webFrame zoom emulation.
+ * Unit tests for the web-desktop electron shim: webFrame zoom emulation and
+ * the bridge's reconnect-resync behavior.
  *
  * In the real desktop app Electron's webFrame scales the WebFrame contents; the
  * web-desktop bundle emulates that with the document `zoom` CSS property. These
@@ -12,14 +13,33 @@ import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 // The shim constructs a BridgeClient (and therefore a WebSocket) at module
 // load. Stub WebSocket with an inert class BEFORE importing the module so the
 // test never opens a real socket or schedules reconnect timers. The dynamic
-// import below evaluates the module only after this stub is in place.
+// import below evaluates the module only after this stub is in place. The stub
+// records instances and listeners so the reconnect tests can drive the socket
+// lifecycle (open -> close -> reopen) by hand.
 class InertWebSocket {
 	static readonly CONNECTING = 0;
+	static instances: InertWebSocket[] = [];
 	readyState = 0;
+	private listeners = new Map<string, Set<(ev?: unknown) => void>>();
+	constructor() {
+		InertWebSocket.instances.push(this);
+	}
 	send(): void {}
 	close(): void {}
-	addEventListener(): void {}
-	removeEventListener(): void {}
+	addEventListener(type: string, cb: (ev?: unknown) => void): void {
+		let set = this.listeners.get(type);
+		if (!set) {
+			set = new Set();
+			this.listeners.set(type, set);
+		}
+		set.add(cb);
+	}
+	removeEventListener(type: string, cb: (ev?: unknown) => void): void {
+		this.listeners.get(type)?.delete(cb);
+	}
+	emit(type: string, ev?: unknown): void {
+		for (const cb of this.listeners.get(type) ?? []) cb(ev);
+	}
 	set onopen(_v: unknown) {}
 	set onmessage(_v: unknown) {}
 	set onclose(_v: unknown) {}
@@ -27,10 +47,24 @@ class InertWebSocket {
 }
 vi.stubGlobal('WebSocket', InertWebSocket);
 
+// jsdom's location.reload throws "not implemented"; the reconnect-resync test
+// asserts the shim calls it, so swap in a spyable stand-in before import.
+const originalLocation = window.location;
+Object.defineProperty(window, 'location', {
+	configurable: true,
+	writable: true,
+	value: { ...originalLocation, reload: vi.fn() },
+});
+
 const { webFrame } = await import('../../web-desktop/electron-shim');
 
 afterAll(() => {
 	vi.unstubAllGlobals();
+	Object.defineProperty(window, 'location', {
+		configurable: true,
+		writable: true,
+		value: originalLocation,
+	});
 });
 
 describe('web-desktop electron-shim webFrame zoom', () => {
@@ -70,5 +104,33 @@ describe('web-desktop electron-shim webFrame zoom', () => {
 	it('getZoomLevel derives the level from a factor set via setZoomFactor', () => {
 		webFrame.setZoomFactor(1.2);
 		expect(webFrame.getZoomLevel()).toBeCloseTo(1, 10);
+	});
+});
+
+describe('web-desktop electron-shim bridge reconnect', () => {
+	it('reloads the page on a RE-connect (drop + reopen), not on the first open', () => {
+		const first = InertWebSocket.instances[0];
+		expect(first).toBeDefined();
+
+		// First successful open: a normal boot, no reload.
+		first.emit('open');
+		expect(window.location.reload).not.toHaveBeenCalled();
+
+		// Drop the socket. The shim schedules a reconnect in 1s; every push
+		// event during the gap is lost (no replay), so the renderer's state is
+		// stale beyond repair - the reopened connection must trigger a reload
+		// to re-bootstrap from the desktop's live store.
+		vi.useFakeTimers();
+		try {
+			first.emit('close');
+			vi.advanceTimersByTime(1000);
+		} finally {
+			vi.useRealTimers();
+		}
+
+		const second = InertWebSocket.instances[1];
+		expect(second).toBeDefined();
+		second.emit('open');
+		expect(window.location.reload).toHaveBeenCalledTimes(1);
 	});
 });

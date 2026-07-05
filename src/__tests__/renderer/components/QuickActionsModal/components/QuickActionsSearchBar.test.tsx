@@ -19,6 +19,7 @@ describe('QuickActionsSearchBar', () => {
 				setRenameValue={vi.fn()}
 				inputRef={{ current: null }}
 				onKeyDown={vi.fn()}
+				onClose={vi.fn()}
 			/>
 		);
 
@@ -42,6 +43,7 @@ describe('QuickActionsSearchBar', () => {
 				setRenameValue={vi.fn()}
 				inputRef={{ current: null }}
 				onKeyDown={vi.fn()}
+				onClose={vi.fn()}
 			/>
 		);
 
@@ -59,6 +61,7 @@ describe('QuickActionsSearchBar', () => {
 				setRenameValue={vi.fn()}
 				inputRef={{ current: null }}
 				onKeyDown={vi.fn()}
+				onClose={vi.fn()}
 			/>
 		);
 		expect(screen.getByPlaceholderText('Move Atlas to...')).toBeInTheDocument();
@@ -75,6 +78,7 @@ describe('QuickActionsSearchBar', () => {
 				setRenameValue={vi.fn()}
 				inputRef={{ current: null }}
 				onKeyDown={vi.fn()}
+				onClose={vi.fn()}
 			/>
 		);
 		expect(screen.getByPlaceholderText('Enter new name...')).toHaveValue('Atlas');

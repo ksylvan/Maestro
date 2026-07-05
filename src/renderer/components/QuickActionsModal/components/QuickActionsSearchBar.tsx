@@ -2,6 +2,7 @@ import type React from 'react';
 import { Search } from 'lucide-react';
 import type { Session, Theme } from '../../../types';
 import type { QuickActionMode } from '../types';
+import { EscCloseHint } from '../../ui/EscCloseHint';
 
 interface QuickActionsSearchBarProps {
 	theme: Theme;
@@ -15,6 +16,7 @@ interface QuickActionsSearchBarProps {
 	setRenameValue: (value: string) => void;
 	inputRef: React.Ref<HTMLInputElement>;
 	onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+	onClose: () => void;
 }
 
 export function QuickActionsSearchBar({
@@ -28,6 +30,7 @@ export function QuickActionsSearchBar({
 	setRenameValue,
 	inputRef,
 	onKeyDown,
+	onClose,
 }: QuickActionsSearchBarProps) {
 	return (
 		<div
@@ -63,12 +66,7 @@ export function QuickActionsSearchBar({
 					onKeyDown={onKeyDown}
 				/>
 			)}
-			<div
-				className="px-2 py-0.5 rounded text-xs font-bold"
-				style={{ backgroundColor: theme.colors.bgMain, color: theme.colors.textDim }}
-			>
-				ESC
-			</div>
+			<EscCloseHint theme={theme} onClose={onClose} />
 		</div>
 	);
 }

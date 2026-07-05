@@ -324,18 +324,22 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	const activeTabInfo = getActiveTabInfo(activeSession, isAiMode);
 	const activeTabType = activeTabInfo.activeTabType;
 
-	// Register layer on mount - escape behavior depends on current mode.
+	// Dismissal shared by the Escape layer handler and the touch X button in
+	// the search bar (EscCloseHint), so both paths behave identically.
 	// Only fall back to the main menu if the user actually came from there;
 	// when the modal was opened directly into move-to-group via a hotkey,
-	// escape should dismiss it entirely rather than reveal the cmd+k menu.
-	useModalLayer(MODAL_PRIORITIES.QUICK_ACTION, 'Quick Actions', () => {
+	// dismissing should close it entirely rather than reveal the cmd+k menu.
+	const handleDismiss = useCallback(() => {
 		if (mode === 'move-to-group' && initialMode === 'main') {
 			setMode('main');
 			// Note: Selection will be reset by the search/mode change useEffect
 		} else {
 			setQuickActionOpen(false);
 		}
-	});
+	}, [mode, initialMode, setQuickActionOpen]);
+
+	// Register layer on mount - escape behavior depends on current mode.
+	useModalLayer(MODAL_PRIORITIES.QUICK_ACTION, 'Quick Actions', handleDismiss);
 
 	useFocusAfterRender(inputRef, true, 0);
 
@@ -910,6 +914,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 					setRenameValue={renamingWindow ? setWindowRenameValue : setRenameValue}
 					inputRef={inputRef}
 					onKeyDown={handleKeyDown}
+					onClose={handleDismiss}
 				/>
 				{!renamingSession && !renamingWindow && (
 					<QuickActionsList

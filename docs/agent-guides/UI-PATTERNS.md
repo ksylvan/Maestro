@@ -139,6 +139,14 @@ The expanded Prompt Composer (`src/renderer/components/PromptComposerModal.tsx`)
 3. `closeTopLayer` checks `onBeforeClose` for dirty modals, then calls the top layer's `onEscape` handler from the handler ref map.
 4. The handler ref map (`handlerRefs`) is updated via `updateLayerHandler` without re-sorting the stack - this is a performance optimization.
 
+### Dismissal Affordance in Search Headers (`EscCloseHint`)
+
+Modals with a search header (Tab Switcher, Quick Actions, Agent Sessions) show a keycap-style "ESC" hint next to the input. Do NOT hand-roll that badge - use `<EscCloseHint theme={theme} onClose={...} />` from `src/renderer/components/ui/EscCloseHint.tsx`. On fine pointers it renders the passive ESC hint; on coarse pointers (touch, where no Escape key exists) it renders a real X button wired to `onClose`, so the modal stays closable on phones/tablets.
+
+### Fixed-Position UI Inside the Mobile Drawers (portal or it's trapped)
+
+On narrow viewports the Left Bar and Right Bar float as CSS-transformed drawers (`index.css`, `[data-panel='left'|'right']`). A transformed ancestor becomes the containing block for `position: fixed`, so any full-screen overlay rendered inside them (modals, sheets) gets trapped to the ~320px drawer box instead of covering the viewport. Render such overlays through `createPortal(..., document.body)` - see `HistoryDetailModal.tsx` and `SessionList/HamburgerDropdown.tsx` (which also swaps the anchored dropdown for a full-screen sheet at the xs breakpoint). If the overlay must survive outside-click closers keyed on a container ref, mark it (e.g. `data-hamburger-sheet`) and have the closer ignore clicks inside the marker.
+
 ### Querying the Stack
 
 Components that need to know whether modals are open (for example, to suppress global shortcuts) use `LayerStackAPI`:
