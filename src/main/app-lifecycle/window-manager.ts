@@ -503,10 +503,7 @@ export function createWindowManager(deps: WindowManagerDependencies): WindowMana
 
 		// The plugin-panel preload lives next to the main preload bundle
 		// (dist/main/plugin-panel-preload.js, built by scripts/build-preload.mjs).
-		const pluginPanelPreloadPath = path.join(
-			path.dirname(preloadPath),
-			'plugin-panel-preload.js'
-		);
+		const pluginPanelPreloadPath = path.join(path.dirname(preloadPath), 'plugin-panel-preload.js');
 
 		// Restrict renderer-created webviews to the two sanctioned surfaces:
 		// browser tabs (persist:maestro-browser-session-*) and plugin panels
@@ -524,14 +521,10 @@ export function createWindowManager(deps: WindowManagerDependencies): WindowMana
 				// its protocol handler + egress/permission denial installed.
 				if (!isAllowedPluginPanelAttachment(partition, src)) {
 					event.preventDefault();
-					logger.warn(
-						`Blocked unsafe plugin panel attachment: ${src || '<empty src>'}`,
-						'Window',
-						{
-							src,
-							partition,
-						}
-					);
+					logger.warn(`Blocked unsafe plugin panel attachment: ${src || '<empty src>'}`, 'Window', {
+						src,
+						partition,
+					});
 					return;
 				}
 				hardenPluginPanelWebPreferences(

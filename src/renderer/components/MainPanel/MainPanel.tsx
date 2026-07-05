@@ -1259,7 +1259,9 @@ export const MainPanel = React.memo(
 									mountedTerminalSessionsRef={mountedTerminalSessionsRef}
 									terminalSearchOpen={terminalSearchOpen}
 									setTerminalSearchOpen={setTerminalSearchOpen}
-									onTerminalCopySelection={props.onCopyText ? handleCopyTerminalSelection : undefined}
+									onTerminalCopySelection={
+										props.onCopyText ? handleCopyTerminalSelection : undefined
+									}
 									onTerminalSendSelectionToAgent={
 										props.onSendTextToAgent ? handleSendTerminalSelectionToAgent : undefined
 									}

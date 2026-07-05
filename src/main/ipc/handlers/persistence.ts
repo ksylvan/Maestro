@@ -84,7 +84,8 @@ export interface PersistenceHandlerDependencies {
  * Register all persistence-related IPC handlers.
  */
 export function registerPersistenceHandlers(deps: PersistenceHandlerDependencies): void {
-	const { settingsStore, sessionsStore, groupsStore, getWebServer, emitPluginEvent, safeSend } = deps;
+	const { settingsStore, sessionsStore, groupsStore, getWebServer, emitPluginEvent, safeSend } =
+		deps;
 
 	// PERF: coalesce activeSessionId disk writes.
 	//

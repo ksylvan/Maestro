@@ -150,7 +150,8 @@ export const COWORKING_FIRST_PARTY_PLUGIN: FirstPartyPluginDefinition = {
 		{
 			capability: 'fs:write',
 			scope: '~/.claude.json',
-			reason: 'Install or remove the maestro-coworking MCP server entry in the Claude Code user config.',
+			reason:
+				'Install or remove the maestro-coworking MCP server entry in the Claude Code user config.',
 		},
 		{
 			capability: 'fs:write',
@@ -160,12 +161,14 @@ export const COWORKING_FIRST_PARTY_PLUGIN: FirstPartyPluginDefinition = {
 		{
 			capability: 'fs:write',
 			scope: '~/.config/opencode/opencode.json',
-			reason: 'Install or remove the maestro-coworking MCP server entry in the OpenCode user config (XDG-aware).',
+			reason:
+				'Install or remove the maestro-coworking MCP server entry in the OpenCode user config (XDG-aware).',
 		},
 		{
 			capability: 'fs:write',
 			scope: '~/.factory/mcp.json',
-			reason: 'Install or remove the maestro-coworking MCP server entry in the Factory Droid user config.',
+			reason:
+				'Install or remove the maestro-coworking MCP server entry in the Factory Droid user config.',
 		},
 		// NOTE: reading terminal scrollback and driving browser webviews happen
 		// over the HOST-OWNED socket/named-pipe bridge to the agent's own MCP
