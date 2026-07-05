@@ -1227,6 +1227,10 @@ export interface EncoreFeatureFlags {
 	// Optional so existing literals (older fixtures, persisted settings without
 	// the key) continue to type-check.
 	opencodeServer?: boolean;
+	// Agent Views - agents compose native canvas panels + satellite HUD cards.
+	// Off by default. Optional so existing literals (older test fixtures, persisted
+	// settings without the key) continue to type-check.
+	agentViews?: boolean;
 }
 
 // Director's Notes settings for synopsis generation

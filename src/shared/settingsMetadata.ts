@@ -1034,6 +1034,7 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 			plugins: false,
 			coworking: false,
 			opencodeServer: false,
+			agentViews: false,
 		},
 		category: 'advanced',
 	},

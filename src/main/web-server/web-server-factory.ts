@@ -920,9 +920,12 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 			return true;
 		});
 
-		// Canvas ops go to the main renderer, which applies them and opens the
-		// canvas view (it's a full main-window surface, not a floating overlay).
+		// Canvas ops go to the main renderer, which applies them to the in-app
+		// floating canvas overlay. Gated by the Agent Views Encore feature: when
+		// off, drop the payload so the opt-in feature stays fully inert.
 		server.setCanvasViewCallback(async (params) => {
+			if (settingsStore.get<{ agentViews?: boolean }>('encoreFeatures', {}).agentViews !== true)
+				return false;
 			const mainWindow = getMainWindow();
 			if (!mainWindow) {
 				logger.warn('mainWindow is null for canvasView', 'WebServer');
@@ -939,6 +942,8 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 		// `canvas state` read: ask the renderer for the current snapshot (items +
 		// size) and return it, so an agent can place items around what's there.
 		server.setGetCanvasStateCallback(async () => {
+			if (settingsStore.get<{ agentViews?: boolean }>('encoreFeatures', {}).agentViews !== true)
+				return null;
 			const mainWindow = getMainWindow();
 			if (!mainWindow || !isWebContentsAvailable(mainWindow)) return null;
 			return new Promise<CanvasStateSnapshot | null>((resolve) => {

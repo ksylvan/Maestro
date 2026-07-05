@@ -37,6 +37,7 @@ export interface AppShellProps {
 	isMobileLandscape: boolean;
 	useNativeTitleBar: boolean;
 	isMdDownViewport: boolean;
+	agentViewsEnabled: boolean;
 
 	activeGroupChatId: string | null;
 	groupChats: GroupChat[];
@@ -79,6 +80,7 @@ export function AppShell({
 	isMobileLandscape,
 	useNativeTitleBar,
 	isMdDownViewport,
+	agentViewsEnabled,
 	activeGroupChatId,
 	groupChats,
 	groups,
@@ -250,8 +252,12 @@ export function AppShell({
 			<ThoughtStreamPanel theme={theme} />
 			{/* --- PERMISSION PROMPT (Claude Code standard mode; portal) --- */}
 			<PermissionPrompt theme={theme} />
-			<SatelliteLayer theme={theme} />
-			<CanvasOverlay theme={theme} />
+			{agentViewsEnabled && (
+				<>
+					<SatelliteLayer theme={theme} />
+					<CanvasOverlay theme={theme} />
+				</>
+			)}
 		</div>
 	);
 }

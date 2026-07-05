@@ -641,6 +641,9 @@ const satelliteHudDeps = { isDevelopment, preloadPath, rendererProductionUrl, de
  */
 function deliverSatellite(payload: Parameters<typeof deliverSatelliteToHud>[2]): boolean {
 	if (!mainWindow) return false;
+	// Agent Views is an opt-in Encore feature: don't spawn the HUD window (or
+	// route anything) unless the user enabled it in Extensions.
+	if (store.get('encoreFeatures')?.agentViews !== true) return false;
 	// The HUD window has no session store, so resolve the owning agent's display
 	// name here (for the "opened by X" attribution chip) and stamp it on.
 	let stamped = payload;

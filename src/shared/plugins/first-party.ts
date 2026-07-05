@@ -37,7 +37,8 @@ export type FirstPartyEncoreFlag =
 	| 'maestroCue'
 	| 'pianola'
 	| 'coworking'
-	| 'opencodeServer';
+	| 'opencodeServer'
+	| 'agentViews';
 
 /** A supervised background service a first-party plugin runs. */
 export interface FirstPartyBackgroundService {
@@ -511,6 +512,49 @@ export const MAESTRO_CUE_FIRST_PARTY_PLUGIN: FirstPartyPluginDefinition = {
 	],
 };
 
+/** Broker capabilities Agent Views actually touches. The feature lets an agent
+ * compose native, style-mandated data views: a floating in-app Canvas of block
+ * panels plus always-on-top Satellite/HUD cards, driven over the CLI. Grepped
+ * from `src/main/index.ts` (deliverSatellite), `src/main/web-server/*` (the
+ * view/canvas bridge callbacks), `src/cli/commands/{view,canvas}.ts`, and
+ * `src/renderer/components/{Canvas,Satellite,BlockView}/`. */
+export const AGENT_VIEWS_FIRST_PARTY_PLUGIN: FirstPartyPluginDefinition = {
+	id: 'com.maestro.agent-views',
+	name: 'Agent Views',
+	description:
+		'Let agents compose rich data views from native building blocks: a floating canvas of panels plus always-on-top satellite HUD cards.',
+	firstParty: true,
+	category: 'ui',
+	permissions: [
+		{
+			capability: 'settings:read',
+			reason: 'Re-read the Agent Views Encore flag before rendering canvas panels or HUD cards.',
+		},
+		{
+			capability: 'sessions:read',
+			reason:
+				'Resolve the owning agent’s display name for a satellite card’s "opened by" attribution chip (the HUD window has no session store of its own).',
+		},
+		// NOTE: the CLI->renderer view/canvas bridge is HOST-OWNED and app-scoped
+		// (the web server started/stopped with the app in main/index, NOT gated by
+		// the Encore flag beyond the per-command render gate). No broker verb models
+		// "push an agent-composed view into the desktop UI", so that authority stays
+		// host-owned - the same precedent as Coworking's terminal/browser bridge.
+		// NOTE: a `decision` satellite's chosen option is injected as a live prompt
+		// into the owning agent's existing session (host-owned dispatch, same
+		// constraint as Pianola/Cue: a dynamically-resolved target a static
+		// `agents:dispatch` allowlist scope cannot name), so it is disclosed here
+		// rather than declared as a broker capability.
+	],
+	settingsNamespace: 'agentViews',
+	encoreFlag: 'agentViews',
+	// No supervised background service: the canvas overlay + satellite HUD are
+	// purely reactive to CLI-pushed payloads (dropped at the render gate when the
+	// flag is off), and the bridge that carries them is app-scoped. Disable =
+	// flag off + overlays unmount + payloads dropped; nothing keeps running.
+	backgroundServices: [],
+};
+
 /**
  * Every first-party plugin definition, in marketplace display order (matches
  * the pre-lift BUILTIN_FEATURES tile order).
@@ -523,6 +567,7 @@ export const FIRST_PARTY_PLUGIN_DEFINITIONS: readonly FirstPartyPluginDefinition
 	PIANOLA_FIRST_PARTY_PLUGIN,
 	COWORKING_FIRST_PARTY_PLUGIN,
 	OPENCODE_SERVER_FIRST_PARTY_PLUGIN,
+	AGENT_VIEWS_FIRST_PARTY_PLUGIN,
 ];
 
 /**
@@ -541,4 +586,5 @@ export const FIRST_PARTY_PLUGINS: Readonly<
 	pianola: PIANOLA_FIRST_PARTY_PLUGIN,
 	coworking: COWORKING_FIRST_PARTY_PLUGIN,
 	opencodeServer: OPENCODE_SERVER_FIRST_PARTY_PLUGIN,
+	agentViews: AGENT_VIEWS_FIRST_PARTY_PLUGIN,
 };
