@@ -129,6 +129,8 @@ export function usePianolaAgent(encoreFeatures: EncoreFeatureFlags): void {
 						activeTerminalTabId: null,
 						unifiedTabOrder: [{ type: 'ai' as const, id: initialTabId }],
 						unifiedClosedTabHistory: [],
+						tabGroups: [],
+						activeGroupId: null,
 						autoRunFolderPath: `${workingDir}/${PLAYBOOKS_DIR}`,
 						claudeInteractive: { mode: 'api', modeReason: 'auto' },
 						isPianola: true,

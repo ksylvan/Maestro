@@ -366,7 +366,7 @@ describe('SessionList', () => {
 			expect(addNewSession).toHaveBeenCalled();
 		});
 
-		it('cycles sidebar through open → collapsed strip → hidden', () => {
+		it('collapses the sidebar on collapse-button click', () => {
 			const session = createMockSession();
 			useSessionStore.setState({ sessions: [session] });
 			useUIStore.setState({ leftSidebarOpen: true, leftSidebarHidden: false });
@@ -375,13 +375,12 @@ describe('SessionList', () => {
 			});
 			render(<SessionList {...props} />);
 
-			// Single button cycles open → collapsed-strip → hidden. The first
-			// click transitions to the collapsed-strip state.
-			const collapseButton = screen.getByTitle(/Collapse to status strip/i);
+			// The sidebar button is a two-state toggle: open collapses to the
+			// status strip, collapsed expands back out.
+			const collapseButton = screen.getByTitle(/Collapse Sidebar/i);
 			fireEvent.click(collapseButton);
 
 			expect(useUIStore.getState().leftSidebarOpen).toBe(false);
-			expect(useUIStore.getState().leftSidebarHidden).toBe(false);
 		});
 	});
 
@@ -1627,17 +1626,18 @@ describe('SessionList', () => {
 			const resizeHandle = container.querySelector('.cursor-col-resize');
 			expect(resizeHandle).toBeInTheDocument();
 
-			// Simulate drag
-			fireEvent.mouseDown(resizeHandle!, { clientX: 300 });
+			// Simulate a pointer drag. The handle captures the pointer, so move /
+			// up events are dispatched on the handle itself (not document).
+			fireEvent.pointerDown(resizeHandle!, { clientX: 300, pointerId: 1 });
 
-			// Move mouse (direct DOM update for performance, no state call yet)
-			fireEvent.mouseMove(document, { clientX: 350 });
+			// Move pointer (direct DOM update for performance, no state call yet)
+			fireEvent.pointerMove(resizeHandle!, { clientX: 350 });
 
-			// State is only updated on mouseUp for performance (avoids ~60 re-renders/sec)
+			// State is only updated on pointer up for performance (avoids ~60 re-renders/sec)
 			expect(setLeftSidebarWidthState).not.toHaveBeenCalled();
 
 			// End resize - state is updated
-			fireEvent.mouseUp(document);
+			fireEvent.pointerUp(resizeHandle!);
 			expect(setLeftSidebarWidthState).toHaveBeenCalled();
 		});
 	});
@@ -3202,10 +3202,10 @@ describe('SessionList', () => {
 			const resizeHandle = container.querySelector('.cursor-col-resize');
 			expect(resizeHandle).toBeInTheDocument();
 
-			// Simulate full drag cycle
-			fireEvent.mouseDown(resizeHandle!, { clientX: 300 });
-			fireEvent.mouseMove(document, { clientX: 350 });
-			fireEvent.mouseUp(document);
+			// Simulate full pointer drag cycle (move / up route to the captured handle)
+			fireEvent.pointerDown(resizeHandle!, { clientX: 300, pointerId: 1 });
+			fireEvent.pointerMove(resizeHandle!, { clientX: 350 });
+			fireEvent.pointerUp(resizeHandle!);
 
 			expect(mockSettingsSet).toHaveBeenCalledWith('leftSidebarWidth', expect.any(Number));
 		});
@@ -3220,10 +3220,10 @@ describe('SessionList', () => {
 			const resizeHandle = container.querySelector('.cursor-col-resize');
 
 			// Try to drag beyond max (600px)
-			fireEvent.mouseDown(resizeHandle!, { clientX: 300 });
-			fireEvent.mouseMove(document, { clientX: 1000 });
-			// State is only updated on mouseUp for performance
-			fireEvent.mouseUp(document);
+			fireEvent.pointerDown(resizeHandle!, { clientX: 300, pointerId: 1 });
+			fireEvent.pointerMove(resizeHandle!, { clientX: 1000 });
+			// State is only updated on pointer up for performance
+			fireEvent.pointerUp(resizeHandle!);
 
 			// Should be clamped to 600
 			expect(setLeftSidebarWidthState).toHaveBeenCalledWith(600);
@@ -3235,10 +3235,10 @@ describe('SessionList', () => {
 			}); // Reset for second drag
 
 			// Try to drag below min (280px)
-			fireEvent.mouseDown(resizeHandle!, { clientX: 300 });
-			fireEvent.mouseMove(document, { clientX: 100 });
-			// State is only updated on mouseUp for performance
-			fireEvent.mouseUp(document);
+			fireEvent.pointerDown(resizeHandle!, { clientX: 300, pointerId: 1 });
+			fireEvent.pointerMove(resizeHandle!, { clientX: 100 });
+			// State is only updated on pointer up for performance
+			fireEvent.pointerUp(resizeHandle!);
 
 			// Should be clamped to 280
 			expect(setLeftSidebarWidthState).toHaveBeenCalledWith(280);

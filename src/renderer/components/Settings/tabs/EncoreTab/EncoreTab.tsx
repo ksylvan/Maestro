@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { useSettings } from '../../../../hooks';
 import type { EncoreFeatureFlags } from '../../../../types';
 import { ExtensionsView } from '../../Extensions/ExtensionsView';
+import { CoworkingSetup } from '../../CoworkingSetup';
 import {
 	CueSettingsSection,
 	DirectorNotesSection,
@@ -82,6 +83,11 @@ export function EncoreTab({ theme, isOpen }: EncoreTabProps) {
 				setDirectorNotesSettings={settings.setDirectorNotesSettings}
 				directorNotesAgentState={directorNotesAgentState}
 			/>
+		),
+		coworking: (
+			<div data-setting-id="encore-coworking">
+				<CoworkingSetup theme={theme} />
+			</div>
 		),
 	};
 

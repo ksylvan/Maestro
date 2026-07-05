@@ -970,13 +970,22 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 					}
 
 					// Mirror to the renderer so the popover updates without a refetch.
-					const mainWindow = getMainWindow();
-					if (mainWindow && isWebContentsAvailable(mainWindow)) {
-						mainWindow.webContents.send('process:claude-mode-resolved', config.sessionId, {
-							mode: claudeResolvedMode,
-							reason: claudeResolvedReason,
-							configDirKey: resolvedConfigDirKey,
-						});
+					const claudeModePayload = {
+						mode: claudeResolvedMode,
+						reason: claudeResolvedReason,
+						configDirKey: resolvedConfigDirKey,
+					};
+					if (safeSend) {
+						safeSend('process:claude-mode-resolved', config.sessionId, claudeModePayload);
+					} else {
+						const mainWindow = getMainWindow();
+						if (isWebContentsAvailable(mainWindow)) {
+							mainWindow.webContents.send(
+								'process:claude-mode-resolved',
+								config.sessionId,
+								claudeModePayload
+							);
+						}
 					}
 				}
 
@@ -1384,16 +1393,20 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 
 				// Emit SSH remote status event for renderer to update session state
 				// This is emitted for all spawns (sshRemote will be null for local execution)
-				const mainWindow = getMainWindow();
-				if (isWebContentsAvailable(mainWindow)) {
-					const sshRemoteInfo = sshRemoteUsed
-						? {
-								id: sshRemoteUsed.id,
-								name: sshRemoteUsed.name,
-								host: sshRemoteUsed.host,
-							}
-						: null;
-					mainWindow.webContents.send('process:ssh-remote', config.sessionId, sshRemoteInfo);
+				const sshRemoteInfo = sshRemoteUsed
+					? {
+							id: sshRemoteUsed.id,
+							name: sshRemoteUsed.name,
+							host: sshRemoteUsed.host,
+						}
+					: null;
+				if (safeSend) {
+					safeSend('process:ssh-remote', config.sessionId, sshRemoteInfo);
+				} else {
+					const mainWindow = getMainWindow();
+					if (isWebContentsAvailable(mainWindow)) {
+						mainWindow.webContents.send('process:ssh-remote', config.sessionId, sshRemoteInfo);
+					}
 				}
 
 				// Return spawn result with SSH remote info if used

@@ -91,6 +91,7 @@ describe('extensionModel first-party projection (all Encore features)', () => {
 			'maestroCue',
 			'directorNotes',
 			'pianola',
+			'coworking',
 		]);
 
 		for (const def of BUILTIN_FEATURES) {

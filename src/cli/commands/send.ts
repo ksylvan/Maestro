@@ -150,6 +150,10 @@ export async function send(
 				customEnvVars: agent.customEnvVars,
 				sshRemoteConfig: agent.sessionSshRemoteConfig,
 				appendSystemPrompt,
+				// Honor the agent's Claude token source for `maestro-cli send` turns.
+				enableMaestroP: agent.enableMaestroP,
+				maestroPMode: agent.maestroPMode,
+				maestroPPath: agent.maestroPPath,
 			}),
 		(r) => (r.success ? 0 : 1)
 	);

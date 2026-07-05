@@ -18,13 +18,22 @@ import type { BrowserTabViewHandle } from './BrowserTabView';
 import { gitService } from '../../services/git';
 import { useAgentCapabilities } from '../../hooks';
 import { useUIStore } from '../../stores/uiStore';
-import { useSessionStore, selectActiveSession } from '../../stores/sessionStore';
+import { useSessionStore, selectActiveSession, updateSessionWith } from '../../stores/sessionStore';
 import { useTabStore } from '../../stores/tabStore';
+import {
+	breakApartGroup,
+	collectLeafTabRefs,
+	generateGroupName,
+	resolveTabRefTitle,
+} from '../../utils/panelLayout';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { notifyCenterFlash } from '../../stores/centerFlashStore';
 import { useTerminalMounting } from '../../hooks/terminal/useTerminalMounting';
+import { useCoworkingBufferResponder } from '../../hooks/coworking/useCoworkingBufferResponder';
+import { useCoworkingRegistrySync } from '../../hooks/coworking/useCoworkingRegistrySync';
+import { useCoworkingBrowserResponder } from '../../hooks/coworking/useCoworkingBrowserResponder';
 import { getTerminalTabDisplayName } from '../../utils/terminalTabHelpers';
-import { aiTabFocusFields } from '../../utils/tabHelpers';
+import { aiTabFocusFields, computeUnreadGroupIds } from '../../utils/tabHelpers';
 import { useSshRemoteName } from '../../hooks/mainPanel/useSshRemoteName';
 import { useContextWindow } from '../../hooks/mainPanel/useContextWindow';
 import { useFilePreviewHandlers } from '../../hooks/mainPanel/useFilePreviewHandlers';
@@ -35,7 +44,32 @@ import { MainPanelContent } from './MainPanelContent';
 import { AgentErrorBanner } from './AgentErrorBanner';
 import { PianolaDashboard } from '../PianolaDashboard';
 import { PianolaDashboardTab } from '../PianolaDashboard/PianolaTabControls';
+import { CoworkingApprovalHost } from '../coworking/CoworkingApprovalHost';
+import { CoworkingBackgroundBrowsers } from '../coworking/CoworkingBackgroundBrowsers';
+import { useWindowOwnsSession } from '../../contexts/WindowContext';
+import type { PaneTabActions } from './TiledLayout';
+import type { Theme, UnifiedTabRef } from '../../types';
 import type { MainPanelHandle, MainPanelProps } from './types';
+
+/**
+ * Empty placeholder shown when this window has no agent to display - either no
+ * agent is active, or the active agent now lives in another window (multi-window
+ * scoping). Kept module-scope so both the "no active session" and "active agent
+ * owned elsewhere" branches render the identical clean state.
+ */
+function EmptyMainPanel({ theme }: { theme: Theme }) {
+	return (
+		<div
+			className="flex-1 flex flex-col items-center justify-center min-w-0 relative opacity-30"
+			style={{ backgroundColor: theme.colors.bgMain }}
+		>
+			<Wand2 className="w-16 h-16 mb-4" style={{ color: theme.colors.textDim }} />
+			<p className="text-sm" style={{ color: theme.colors.textDim }}>
+				No agents. Create one to get started.
+			</p>
+		</div>
+	);
+}
 
 // PERFORMANCE: Wrap with React.memo to prevent re-renders when parent (App.tsx) re-renders
 // due to input value changes. The component will only re-render when its props actually change.
@@ -66,12 +100,15 @@ export const MainPanel = React.memo(
 			atMentionOpen,
 			atMentionFilter,
 			atMentionStartIndex,
-			atMentionSuggestions,
+			atMentionItems,
+			atMentionCounts,
+			atMentionCategory,
 			selectedAtMentionIndex,
 			setAtMentionOpen,
 			setAtMentionFilter,
 			setAtMentionStartIndex,
 			setSelectedAtMentionIndex,
+			setAtMentionCategory,
 			setGitDiffPreview,
 			setLogViewerOpen,
 			setAgentSessionsOpen,
@@ -103,6 +140,7 @@ export const MainPanel = React.memo(
 			onStopBatchRun,
 			onRemoveQueuedItem,
 			onTogglePauseQueuedItem,
+			onEditQueuedItem,
 			onReorderQueuedItem,
 			onForceSendQueuedItem,
 			forcedParallelEnabled,
@@ -213,6 +251,10 @@ export const MainPanel = React.memo(
 		// Imperative handle for the currently-mounted BrowserTabView. Only the active browser
 		// tab is rendered, so this points to that one (or null if no browser tab is active).
 		const browserViewRef = useRef<BrowserTabViewHandle | null>(null);
+		// Per-tab BrowserTabView handle map for the active agent's mounted browser
+		// tabs (visible + kept-alive hidden). Lifted here so the coworking browser
+		// responder can reach a mounted tab's handle without stealing focus.
+		const browserViewRefs = useRef<Map<string, BrowserTabViewHandle>>(new Map());
 		// Terminal session mounting lifecycle (refs, state, effects)
 		const {
 			terminalViewRefs,
@@ -221,6 +263,13 @@ export const MainPanel = React.memo(
 			terminalSearchOpen,
 			setTerminalSearchOpen,
 		} = useTerminalMounting(activeSession);
+
+		// Coworking - mirror active session's terminal tabs into the main-process registry
+		// so the MCP `list_terminals` tool is accurate, and answer buffer-fetch requests
+		// from main via the per-session TerminalView ref map. Both hooks no-op when the
+		// `coworking` Encore flag is off.
+		useCoworkingRegistrySync();
+		useCoworkingBufferResponder(terminalViewRefs);
 
 		// Extract tab handlers from props
 		const {
@@ -262,6 +311,12 @@ export const MainPanel = React.memo(
 			onTerminalTabRename,
 			onTerminalTabConfigureStartupCommand,
 		} = props;
+
+		// Coworking browser responder - answers browser-op requests by resolving
+		// the target tab's live (or kept-alive hidden) webview handle. It never
+		// switches the user's visible tab. No-ops when the `coworking` Encore flag
+		// is off.
+		useCoworkingBrowserResponder(browserViewRefs);
 
 		// Get the active tab for header display
 		// The header should show the active tab's data (UUID, name, cost, context), not session-level data
@@ -315,8 +370,60 @@ export const MainPanel = React.memo(
 			[setLogViewerOpen, setActiveSessionId, setSessions]
 		);
 
+		// Activate a tiled tab group: set activeGroupId (so MainPanelContent renders
+		// the group's layout) and clear the standalone active-tab ids/inputMode so no
+		// single-view content competes with the group for the panel.
+		const handleGroupSelect = useCallback(
+			(groupId: string) => {
+				if (!activeSession) return;
+				setSessions((prev) =>
+					prev.map((s) =>
+						s.id === activeSession.id
+							? {
+									...s,
+									activeGroupId: groupId,
+									activeFileTabId: null,
+									activeBrowserTabId: null,
+									activeTerminalTabId: null,
+									inputMode: 'ai',
+								}
+							: s
+					)
+				);
+			},
+			[activeSession, setSessions]
+		);
+
+		// Rename a group chip. Delegates to the tab-store rename action, resolving the
+		// auto-name fallback (used when the user clears the field) from the group's
+		// first pane title via the shared resolver so it matches the drop-time name.
+		const renameGroupAction = useTabStore((s) => s.renameGroup);
+		const handleGroupRename = useCallback(
+			(groupId: string, name: string) => {
+				if (!activeSession) return;
+				const group = activeSession.tabGroups?.find((g) => g.id === groupId);
+				const firstRef = group ? collectLeafTabRefs(group.layout)[0] : undefined;
+				const fallback = firstRef
+					? generateGroupName(resolveTabRefTitle(activeSession, firstRef))
+					: (group?.name ?? 'Group');
+				renameGroupAction(groupId, name, fallback);
+			},
+			[activeSession, renameGroupAction]
+		);
+
+		// Break a group apart into standalone tabs (the confirm dialog lives in the
+		// group chip). Promotes every pane back to the tab bar in left-to-right order,
+		// drops the group, and lands focus on the first promoted tab.
+		const handleGroupBreakApart = useCallback(
+			(groupId: string) => {
+				if (!activeSession) return;
+				updateSessionWith(activeSession.id, (s) => breakApartGroup(s, groupId));
+			},
+			[activeSession]
+		);
+
 		// Fetch available models, effort levels, and agent defaults when agent type changes.
-		// Uses a stale flag to prevent race conditions when switching between agents —
+		// Uses a stale flag to prevent race conditions when switching between agents -
 		// without this, a slow response (e.g., `opencode models` subprocess) from the
 		// previous agent can overwrite the current agent's model list.
 		useEffect(() => {
@@ -333,7 +440,7 @@ export const MainPanel = React.memo(
 					if (!stale) setPillModels([]);
 				});
 			// Fetch effort options. Agents use either `effort` (Claude Code) or
-			// `reasoningEffort` (Codex, Copilot-CLI, Factory Droid) — probe both
+			// `reasoningEffort` (Codex, Copilot-CLI, Factory Droid) - probe both
 			// and use whichever the agent defines, so this stays correct as new
 			// agents are added without touching this file.
 			Promise.all([
@@ -489,7 +596,7 @@ export const MainPanel = React.memo(
 					tabElement.focus({ preventScroll: true });
 				},
 				reloadBrowserTab: () => {
-					// Same stale-closure caveat as `focusBrowserAddressBar` — read fresh.
+					// Same stale-closure caveat as `focusBrowserAddressBar` - read fresh.
 					const session = selectActiveSession(useSessionStore.getState());
 					if (!session?.activeBrowserTabId) return;
 					const host = document.querySelector('[data-testid="browser-tab-host"]');
@@ -539,7 +646,7 @@ export const MainPanel = React.memo(
 			[refreshGitStatus, activeSession?.id]
 		);
 
-		// Terminal buffer action wrappers — resolve the terminal tab's scrollback to text,
+		// Terminal buffer action wrappers - resolve the terminal tab's scrollback to text,
 		// then delegate to the App-level text handlers (copy / gist / send to agent).
 		const resolveBuffer = useCallback(
 			(tabId: string): { content: string; displayName: string } | null => {
@@ -593,7 +700,7 @@ export const MainPanel = React.memo(
 			[props.onCopyText]
 		);
 
-		// Right-click "Send to Agent" on highlighted text — resolve the tab's display name
+		// Right-click "Send to Agent" on highlighted text - resolve the tab's display name
 		// so the Send-to-Agent modal shows e.g. "Terminal 2 Selection" as the source.
 		const handleSendTerminalSelectionToAgent = useCallback(
 			(tabId: string, text: string) => {
@@ -608,7 +715,7 @@ export const MainPanel = React.memo(
 			[activeSession, props.onSendTextToAgent]
 		);
 
-		// Browser content action wrappers — extract the rendered text of a browser tab
+		// Browser content action wrappers - extract the rendered text of a browser tab
 		// (activating it first if necessary) and delegate to the App-level text handlers.
 		const resolveBrowserContent = useCallback(
 			async (
@@ -676,6 +783,72 @@ export const MainPanel = React.memo(
 			sendBrowserContentToAgent: handleSendBrowserContentToAgent,
 		};
 
+		// Bundle the per-kind pane dropdown actions once so a single stable object
+		// threads down to TiledLayout (instead of ~15 separate props). Mirrors the exact
+		// handlers + availability gates the TabBar chips use, so a tiled tab's chevron
+		// menu offers the same actions its strip chip would. Close dispatches per kind.
+		const paneTabActions = useMemo<PaneTabActions>(
+			() => ({
+				onStar: onTabStar,
+				onMarkUnread: onTabMarkUnread,
+				onCopyContext,
+				onExportHtml,
+				onPublishGist: props.onPublishTabGist,
+				onMergeWith,
+				onSendToAgent,
+				onSummarizeAndContinue,
+				onCopyTerminalBuffer: props.onCopyText ? handleCopyTerminalBuffer : undefined,
+				onSendTerminalBufferToAgent: props.onSendTextToAgent
+					? handleSendTerminalBufferToAgent
+					: undefined,
+				onPublishTerminalBufferGist: props.onPublishTextAsGist
+					? handlePublishTerminalBufferGist
+					: undefined,
+				onConfigureTerminalStartup: onTerminalTabConfigureStartupCommand,
+				onCopyBrowserContent: props.onCopyText ? handleCopyBrowserContent : undefined,
+				onSendBrowserContentToAgent: props.onSendTextToAgent
+					? handleSendBrowserContentToAgent
+					: undefined,
+				onCloseTab: (ref: UnifiedTabRef) => {
+					if (ref.type === 'ai') onTabClose?.(ref.id);
+					else if (ref.type === 'file') onFileTabClose?.(ref.id);
+					else if (ref.type === 'terminal') onTerminalTabClose?.(ref.id);
+					else if (ref.type === 'browser') onBrowserTabClose?.(ref.id);
+				},
+			}),
+			[
+				onTabStar,
+				onTabMarkUnread,
+				onCopyContext,
+				onExportHtml,
+				props.onPublishTabGist,
+				onMergeWith,
+				onSendToAgent,
+				onSummarizeAndContinue,
+				props.onCopyText,
+				props.onSendTextToAgent,
+				props.onPublishTextAsGist,
+				handleCopyTerminalBuffer,
+				handleSendTerminalBufferToAgent,
+				handlePublishTerminalBufferGist,
+				onTerminalTabConfigureStartupCommand,
+				handleCopyBrowserContent,
+				handleSendBrowserContentToAgent,
+				onTabClose,
+				onFileTabClose,
+				onTerminalTabClose,
+				onBrowserTabClose,
+			]
+		);
+
+		// Group ids that survive the unread filter (any collapsed member is unread), so
+		// the TabBar can gate group chips the same way it gates AI tabs. Only computed
+		// while the filter is active (undefined otherwise -> all groups shown).
+		const unreadGroupIds = useMemo(
+			() => (showUnreadOnly && activeSession ? computeUnreadGroupIds(activeSession) : undefined),
+			[showUnreadOnly, activeSession]
+		);
+
 		// Handler for input focus - select session in sidebar
 		// Memoized to avoid recreating on every render
 		const handleInputFocus = useCallback(() => {
@@ -735,7 +908,7 @@ export const MainPanel = React.memo(
 				setGitDiffPreview(diff.diff);
 			} else {
 				notifyCenterFlash({ message: 'No diff to examine', color: 'theme' });
-				// Polling cache said there were changes but `git diff` is empty —
+				// Polling cache said there were changes but `git diff` is empty -
 				// repo state changed since the last poll. Re-sync so the widget
 				// stops advertising stale stats.
 				void refreshGitStatus();
@@ -756,82 +929,86 @@ export const MainPanel = React.memo(
 		// don't mount this zone.
 		const chatDropZone = useChatFileDropZone(theme, handleDrop);
 
-		// Show log viewer
-		if (logViewerOpen) {
-			return (
-				<div
-					className="flex-1 flex flex-col min-w-0 relative"
-					style={{ backgroundColor: theme.colors.bgMain }}
-				>
-					<LogViewer
-						theme={theme}
-						onClose={() => setLogViewerOpen(false)}
-						logLevel={logLevel}
-						savedSelectedLevels={logViewerSelectedLevels}
-						onSelectedLevelsChange={useSettingsStore.getState().setLogViewerSelectedLevels}
-						onShortcutUsed={props.onShortcutUsed}
-						onSessionClick={handleLogSessionClick}
-					/>
-				</div>
-			);
+		// Multi-window scoping: this window only renders an agent it owns. If the
+		// store's active agent lives in (or has moved to) another window, fall back
+		// to the clean empty state instead of showing a stale view (or that agent's
+		// own session/memory overlays). Outside a WindowProvider (single-window /
+		// isolation tests) this is always true, so behaviour is unchanged.
+		const ownsActiveSession = useWindowOwnsSession(activeSession?.id);
+		if (activeSession && !ownsActiveSession) {
+			return <EmptyMainPanel theme={theme} />;
 		}
 
-		// Show agent sessions browser (only if agent supports session storage)
-		if (agentSessionsOpen && hasCapability('supportsSessionStorage')) {
+		// Coworking hosts (approval dialog + background browser webviews) mount
+		// OUTSIDE the branch switch below so an approval requested while the log,
+		// sessions, or memory viewer (or the empty state) is showing still has a
+		// mount point and the agent's browser tool call never hangs.
+		const renderBranch = () => {
+			// Show log viewer
+			if (logViewerOpen) {
+				return (
+					<div
+						className="flex-1 flex flex-col min-w-0 relative"
+						style={{ backgroundColor: theme.colors.bgMain }}
+					>
+						<LogViewer
+							theme={theme}
+							onClose={() => setLogViewerOpen(false)}
+							logLevel={logLevel}
+							savedSelectedLevels={logViewerSelectedLevels}
+							onSelectedLevelsChange={useSettingsStore.getState().setLogViewerSelectedLevels}
+							onShortcutUsed={props.onShortcutUsed}
+							onSessionClick={handleLogSessionClick}
+						/>
+					</div>
+				);
+			}
+
+			// Show agent sessions browser (only if agent supports session storage)
+			if (agentSessionsOpen && hasCapability('supportsSessionStorage')) {
+				return (
+					<div
+						className="flex-1 flex flex-col min-w-0 relative"
+						style={{ backgroundColor: theme.colors.bgMain }}
+					>
+						<AgentSessionsBrowser
+							theme={theme}
+							activeSession={activeSession || undefined}
+							activeAgentSessionId={activeAgentSessionId}
+							onClose={() => setAgentSessionsOpen(false)}
+							onResumeSession={onResumeAgentSession}
+							onNewSession={onNewAgentSession}
+							onUpdateTab={props.onUpdateTabByClaudeSessionId}
+						/>
+					</div>
+				);
+			}
+
+			// Show memory viewer (only if agent supports per-project memory)
+			if (memoryViewerOpen && hasCapability('supportsProjectMemory')) {
+				return (
+					<div
+						className="flex-1 flex flex-col min-w-0 relative"
+						style={{ backgroundColor: theme.colors.bgMain }}
+					>
+						<MemoryViewer
+							theme={theme}
+							activeSession={activeSession || undefined}
+							onClose={() => setMemoryViewerOpen(false)}
+						/>
+					</div>
+				);
+			}
+
+			// Show empty state when no active session
+			if (!activeSession) {
+				return <EmptyMainPanel theme={theme} />;
+			}
+
+			// File preview eligibility checked inline below
+
+			// Show normal session view
 			return (
-				<div
-					className="flex-1 flex flex-col min-w-0 relative"
-					style={{ backgroundColor: theme.colors.bgMain }}
-				>
-					<AgentSessionsBrowser
-						theme={theme}
-						activeSession={activeSession || undefined}
-						activeAgentSessionId={activeAgentSessionId}
-						onClose={() => setAgentSessionsOpen(false)}
-						onResumeSession={onResumeAgentSession}
-						onNewSession={onNewAgentSession}
-						onUpdateTab={props.onUpdateTabByClaudeSessionId}
-					/>
-				</div>
-			);
-		}
-
-		// Show memory viewer (only if agent supports per-project memory)
-		if (memoryViewerOpen && hasCapability('supportsProjectMemory')) {
-			return (
-				<div
-					className="flex-1 flex flex-col min-w-0 relative"
-					style={{ backgroundColor: theme.colors.bgMain }}
-				>
-					<MemoryViewer
-						theme={theme}
-						activeSession={activeSession || undefined}
-						onClose={() => setMemoryViewerOpen(false)}
-					/>
-				</div>
-			);
-		}
-
-		// Show empty state when no active session
-		if (!activeSession) {
-			return (
-				<div
-					className="flex-1 flex flex-col items-center justify-center min-w-0 relative opacity-30"
-					style={{ backgroundColor: theme.colors.bgMain }}
-				>
-					<Wand2 className="w-16 h-16 mb-4" style={{ color: theme.colors.textDim }} />
-					<p className="text-sm" style={{ color: theme.colors.textDim }}>
-						No agents. Create one to get started.
-					</p>
-				</div>
-			);
-		}
-
-		// File preview eligibility checked inline below
-
-		// Show normal session view
-		return (
-			<>
 				<ErrorBoundary>
 					<div
 						className="flex-1 flex flex-col relative isolate"
@@ -1017,6 +1194,13 @@ export const MainPanel = React.memo(
 									onSendBrowserContentToAgent={
 										props.onSendTextToAgent ? handleSendBrowserContentToAgent : undefined
 									}
+									// Tab tiling (split panes)
+									tabGroups={activeSession.tabGroups}
+									unreadGroupIds={unreadGroupIds}
+									activeGroupId={activeSession.activeGroupId}
+									onGroupSelect={handleGroupSelect}
+									onGroupRename={handleGroupRename}
+									onGroupBreakApart={handleGroupBreakApart}
 									// Accessibility
 									colorBlindMode={colorBlindMode}
 									// Hide local-only OS actions (Reveal in Finder) when the agent runs over SSH
@@ -1069,14 +1253,13 @@ export const MainPanel = React.memo(
 									handleFilePreviewReload={handleFilePreviewReload}
 									handleBrowserTabUpdate={onBrowserTabUpdate}
 									browserViewRef={browserViewRef}
+									browserViewRefs={browserViewRefs}
 									terminalViewRefs={terminalViewRefs}
 									mountedTerminalSessionIds={mountedTerminalSessionIds}
 									mountedTerminalSessionsRef={mountedTerminalSessionsRef}
 									terminalSearchOpen={terminalSearchOpen}
 									setTerminalSearchOpen={setTerminalSearchOpen}
-									onTerminalCopySelection={
-										props.onCopyText ? handleCopyTerminalSelection : undefined
-									}
+									onTerminalCopySelection={props.onCopyText ? handleCopyTerminalSelection : undefined}
 									onTerminalSendSelectionToAgent={
 										props.onSendTextToAgent ? handleSendTerminalSelectionToAgent : undefined
 									}
@@ -1118,7 +1301,10 @@ export const MainPanel = React.memo(
 									setAtMentionFilter={setAtMentionFilter}
 									atMentionStartIndex={atMentionStartIndex}
 									setAtMentionStartIndex={setAtMentionStartIndex}
-									atMentionSuggestions={atMentionSuggestions}
+									atMentionItems={atMentionItems}
+									atMentionCounts={atMentionCounts}
+									atMentionCategory={atMentionCategory}
+									setAtMentionCategory={setAtMentionCategory}
 									selectedAtMentionIndex={selectedAtMentionIndex}
 									setSelectedAtMentionIndex={setSelectedAtMentionIndex}
 									inputRef={inputRef}
@@ -1134,6 +1320,7 @@ export const MainPanel = React.memo(
 									onStopBatchRun={onStopBatchRun}
 									onRemoveQueuedItem={onRemoveQueuedItem}
 									onTogglePauseQueuedItem={onTogglePauseQueuedItem}
+									onEditQueuedItem={onEditQueuedItem}
 									onReorderQueuedItem={onReorderQueuedItem}
 									onForceSendQueuedItem={onForceSendQueuedItem}
 									forcedParallelEnabled={forcedParallelEnabled}
@@ -1154,6 +1341,7 @@ export const MainPanel = React.memo(
 									mergeTargetName={mergeTargetName}
 									onCancelMerge={onCancelMerge}
 									onExitWizard={onExitWizard}
+									paneTabActions={paneTabActions}
 									onDeleteLog={props.onDeleteLog}
 									onScrollPositionChange={props.onScrollPositionChange}
 									onAtBottomChange={props.onAtBottomChange}
@@ -1210,6 +1398,14 @@ export const MainPanel = React.memo(
 						)}
 					</div>
 				</ErrorBoundary>
+			);
+		};
+
+		return (
+			<>
+				{renderBranch()}
+				<CoworkingApprovalHost theme={theme} />
+				<CoworkingBackgroundBrowsers theme={theme} />
 			</>
 		);
 	})

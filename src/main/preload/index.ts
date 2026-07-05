@@ -38,6 +38,7 @@ import { createSpeckitApi, createOpenspecApi, createBmadApi } from './commands';
 import { createAutorunApi, createPlaybooksApi, createMarketplaceApi } from './autorun';
 import { createDebugApi, createDocumentGraphApi } from './debug';
 import { createGroupChatApi } from './groupChat';
+import { createCrossAgentApi } from './crossAgent';
 import { createStatsApi } from './stats';
 import { createCueStatsApi } from './cueStats';
 import { createNotificationApi } from './notifications';
@@ -60,6 +61,10 @@ import { createMaestroCliApi } from './maestroCli';
 import { createPromptsApi } from './prompts';
 import { createMemoryApi } from './memory';
 import { createAgentRunApi } from './agentRun';
+import { createCoworkingApi } from './coworking';
+import { createBrowserSessionApi } from './browserSession';
+import { createWindowsApi } from './windows';
+import { createImagesApi } from './images';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -182,6 +187,9 @@ contextBridge.exposeInMainWorld('maestro', {
 	// Group Chat API
 	groupChat: createGroupChatApi(),
 
+	// Cross-Agent Dispatch API (@mentions)
+	crossAgent: createCrossAgentApi(),
+
 	// App lifecycle API
 	app: createAppApi(),
 
@@ -229,6 +237,16 @@ contextBridge.exposeInMainWorld('maestro', {
 	memory: createMemoryApi(),
 	// AgentRun control-plane API (neutral run/campaign ledger)
 	agentRun: createAgentRunApi(),
+	// Coworking API (per-agent MCP installer + terminal registry sync)
+	coworking: createCoworkingApi(),
+	// Browser Session API (clear per-partition browsing data)
+	browserSession: createBrowserSessionApi(),
+
+	// Multi-window API (window.maestro.windows.* — enumerate/create/move windows)
+	windows: createWindowsApi(),
+
+	// Session Images API (resolve maestro-image:// refs back to data URLs)
+	images: createImagesApi(),
 });
 
 // Re-export factory functions for external consumers (e.g., tests)
@@ -279,6 +297,8 @@ export {
 	createDocumentGraphApi,
 	// Group Chat
 	createGroupChatApi,
+	// Cross-Agent Dispatch (@mentions)
+	createCrossAgentApi,
 	// Stats
 	createStatsApi,
 	// Cue Stats (Phase 03 aggregation query)
@@ -323,6 +343,14 @@ export {
 	createMemoryApi,
 	// AgentRun
 	createAgentRunApi,
+	// Coworking
+	createCoworkingApi,
+	// Browser Session
+	createBrowserSessionApi,
+	// Multi-window
+	createWindowsApi,
+	// Session Images
+	createImagesApi,
 };
 
 // Re-export types for TypeScript consumers
@@ -581,3 +609,23 @@ export type {
 	CampaignRecordResponse,
 	CampaignShowResponse,
 } from './agentRun';
+export type {
+	// From coworking
+	CoworkingApi,
+	CoworkingTerminalEntry,
+	CoworkingTerminalRecord,
+	CoworkingInstallStatus,
+} from './coworking';
+export type {
+	// From browserSession
+	BrowserSessionApi,
+} from './browserSession';
+export type {
+	// From windows
+	WindowsApi,
+	WindowBounds,
+} from './windows';
+export type {
+	// From images
+	ImagesApi,
+} from './images';

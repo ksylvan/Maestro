@@ -35,7 +35,8 @@ export type FirstPartyEncoreFlag =
 	| 'usageStats'
 	| 'symphony'
 	| 'maestroCue'
-	| 'pianola';
+	| 'pianola'
+	| 'coworking';
 
 /** A supervised background service a first-party plugin runs. */
 export interface FirstPartyBackgroundService {
@@ -121,6 +122,67 @@ export const PIANOLA_FIRST_PARTY_PLUGIN: FirstPartyPluginDefinition = {
 				'Supervises Pianola watch/orchestrate targets and stops them when consent is off.',
 		},
 	],
+};
+
+/** Broker capabilities Coworking actually touches. Coworking exposes the
+ * active session's terminals + browser tabs to the agent as MCP tools, served
+ * by a host-owned socket/named-pipe bridge (started/stopped with the app in
+ * main/index, NOT gated by the Encore flag). Grepped from `src/main/coworking/*`
+ * (installers, bridge, registry) and `src/renderer/components/Settings/CoworkingSetup.tsx`. */
+export const COWORKING_FIRST_PARTY_PLUGIN: FirstPartyPluginDefinition = {
+	id: 'com.maestro.coworking',
+	name: 'Coworking',
+	description:
+		'Let agents read terminal scrollback and inspect/drive browser tabs on demand, via a per-agent MCP server.',
+	firstParty: true,
+	category: 'agents',
+	permissions: [
+		{
+			capability: 'settings:read',
+			reason:
+				'Re-read the Coworking Encore flag, per-agent interaction toggles, and the per-agent browser confirm policy before serving any bridge request.',
+		},
+		{
+			capability: 'agents:read',
+			reason:
+				'List installed agent CLIs and their config paths for the Coworking Setup install status, and resolve the owning Maestro session at bridge handshake.',
+		},
+		{
+			capability: 'fs:write',
+			scope: '~/.claude.json',
+			reason: 'Install or remove the maestro-coworking MCP server entry in the Claude Code user config.',
+		},
+		{
+			capability: 'fs:write',
+			scope: '~/.codex/config.toml',
+			reason: 'Install or remove the maestro-coworking MCP server block in the Codex user config.',
+		},
+		{
+			capability: 'fs:write',
+			scope: '~/.config/opencode/opencode.json',
+			reason: 'Install or remove the maestro-coworking MCP server entry in the OpenCode user config (XDG-aware).',
+		},
+		{
+			capability: 'fs:write',
+			scope: '~/.factory/mcp.json',
+			reason: 'Install or remove the maestro-coworking MCP server entry in the Factory Droid user config.',
+		},
+		// NOTE: reading terminal scrollback and driving browser webviews happen
+		// over the HOST-OWNED socket/named-pipe bridge to the agent's own MCP
+		// subprocess (list_terminals / read_terminal / … / browserInteract), gated
+		// by the per-agent interaction toggle + confirm policy. No broker verb
+		// models "expose my terminals/browser to an agent's MCP tool", and the
+		// bridge is app-scoped (started/stopped by main startup/shutdown, not the
+		// Encore flag), so that authority stays host-owned — the same precedent as
+		// Pianola's dispatch and Director's Notes' synopsis spawn. The browser
+		// audit JSONL lives in the host userData (internal), not plugin storage.
+	],
+	settingsNamespace: 'coworking',
+	encoreFlag: 'coworking',
+	// No supervised background service tied to the flag: the coworking IPC bridge
+	// is app-scoped (main startup/shutdown owns its lifecycle), so disable = flag
+	// off + per-agent MCP uninstall; nothing flag-supervised keeps running.
+	backgroundServices: [],
 };
 
 /**
@@ -428,6 +490,7 @@ export const FIRST_PARTY_PLUGIN_DEFINITIONS: readonly FirstPartyPluginDefinition
 	MAESTRO_CUE_FIRST_PARTY_PLUGIN,
 	DIRECTOR_NOTES_FIRST_PARTY_PLUGIN,
 	PIANOLA_FIRST_PARTY_PLUGIN,
+	COWORKING_FIRST_PARTY_PLUGIN,
 ];
 
 /**
@@ -444,4 +507,5 @@ export const FIRST_PARTY_PLUGINS: Readonly<
 	symphony: SYMPHONY_FIRST_PARTY_PLUGIN,
 	maestroCue: MAESTRO_CUE_FIRST_PARTY_PLUGIN,
 	pianola: PIANOLA_FIRST_PARTY_PLUGIN,
+	coworking: COWORKING_FIRST_PARTY_PLUGIN,
 };

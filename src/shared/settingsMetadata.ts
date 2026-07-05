@@ -621,7 +621,8 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		category: 'notifications',
 	},
 	audioFeedbackCommand: {
-		description: 'Shell command used for audio feedback (e.g., say on macOS, espeak on Linux).',
+		description:
+			'Shell command run when a task completes; the summary is piped to stdin. Runs in a shell (pipes/chains work). Maestro context is exposed via env vars: MAESTRO_NOTIFY_AGENT, MAESTRO_NOTIFY_TAB, MAESTRO_NOTIFY_GROUP, MAESTRO_NOTIFY_TASK. Examples: say on macOS, espeak on Linux.',
 		type: 'string',
 		default: 'say',
 		category: 'notifications',
@@ -1024,6 +1025,7 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 			maestroCue: false,
 			pianola: false,
 			plugins: false,
+			coworking: false,
 		},
 		category: 'advanced',
 	},
@@ -1031,6 +1033,34 @@ export const SETTINGS_METADATA: Record<string, SettingMetadata> = {
 		description: "Director's Notes settings: provider, lookback window, default reading mode.",
 		type: 'object',
 		default: { provider: 'claude-code', defaultLookbackDays: 7, defaultMode: 'rich' },
+		category: 'advanced',
+	},
+	coworkingBrowserInteraction: {
+		description:
+			'Agent ids (ToolType values) for which Coworking browser interaction tools are allowed. Empty array means all off.',
+		type: 'array',
+		default: [],
+		category: 'advanced',
+	},
+	coworkingBrowserInteractionConfirm: {
+		description:
+			'Per-agent policy (off | dangerous | all) for requiring per-call user approval of Coworking browser interaction ops. Missing agents default to "dangerous" (confirm navigate and eval).',
+		type: 'object',
+		default: {},
+		category: 'advanced',
+	},
+	coworkingBackgroundBrowsers: {
+		description:
+			'Opt-in: keep hidden background <webview>s alive so a Coworking agent can read and drive its own browser tabs while you are focused on a different agent. Each is a full renderer process.',
+		type: 'boolean',
+		default: false,
+		category: 'advanced',
+	},
+	coworkingBackgroundBrowsersLimit: {
+		description:
+			'Maximum number of background Coworking webviews kept alive at once (LRU-evicted, clamped 1-10).',
+		type: 'number',
+		default: 2,
 		category: 'advanced',
 	},
 

@@ -274,6 +274,11 @@ export interface AppUtilityModalsProps {
 	onSwitchQueueSession: (sessionId: string, tabId?: string) => void;
 	onReorderQueueItems: (sessionId: string, fromIndex: number, toIndex: number) => void;
 	onTogglePauseQueueItem: (sessionId: string, itemId: string) => void;
+	onEditQueueItem: (
+		sessionId: string,
+		itemId: string,
+		patch: { text: string; images: string[] }
+	) => void;
 	// New tab creation (for QuickActionsModal)
 	onQuickActionsNewTab?: () => void;
 	onQuickActionsNewFileTab?: () => void;
@@ -490,6 +495,7 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 	onSwitchQueueSession,
 	onReorderQueueItems,
 	onTogglePauseQueueItem,
+	onEditQueueItem,
 	// New tab creation (for QuickActionsModal)
 	onQuickActionsNewTab,
 	onQuickActionsNewFileTab,
@@ -787,6 +793,7 @@ export const AppUtilityModals = memo(function AppUtilityModals({
 					onSwitchSession={onSwitchQueueSession}
 					onReorderItems={onReorderQueueItems}
 					onToggleItemPause={onTogglePauseQueueItem}
+					onEditItem={onEditQueueItem}
 				/>
 			)}
 		</>

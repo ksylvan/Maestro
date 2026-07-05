@@ -39,7 +39,10 @@ describe('AgentRun IPC handlers', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		registeredHandlers.clear();
-		registerAgentRunHandlers();
+		registerAgentRunHandlers({
+			getProcessManager: () => null,
+			settingsStore: {} as never,
+		});
 	});
 
 	it('registers run and campaign read/write handlers', () => {
