@@ -35,6 +35,7 @@ import {
 } from '../../utils/remote-git';
 import { readDirRemote } from '../../utils/remote-fs';
 import { captureException } from '../../utils/sentry';
+import { markStaleForDeletedWorktreeUsingStore } from '../../agent-run/worktree-stale';
 
 const LOG_CONTEXT = '[Git]';
 
@@ -1571,6 +1572,10 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 						logger.warn(`[WT-DEBUG] unlinkDir event: ${dirPath}`);
 						logger.info(`${LOG_CONTEXT} Worktree directory removed: ${dirPath}`);
 
+						// A deleted worktree is no longer a valid jump/diff target; flag
+						// any non-terminal agent runs bound to it as stale (ISC-6.7/D12).
+						markStaleForDeletedWorktreeUsingStore(dirPath);
+
 						safeSend('worktree:removed', {
 							sessionId,
 							worktreePath: dirPath,
@@ -1654,6 +1659,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 
 					if (gitResult.exitCode === 0) {
 						logger.info(`${LOG_CONTEXT} Removed worktree via git: ${worktreePath}`);
+						markStaleForDeletedWorktreeUsingStore(worktreePath);
 						return { success: true };
 					}
 
@@ -1677,6 +1683,7 @@ export function registerGitHandlers(deps: GitHandlerDependencies): void {
 					// Fall back to recursive directory removal
 					await fs.rm(worktreePath, { recursive: true, force: true });
 					logger.info(`${LOG_CONTEXT} Removed worktree directory: ${worktreePath}`);
+					markStaleForDeletedWorktreeUsingStore(worktreePath);
 					return { success: true };
 				} catch (err) {
 					const errorMessage = err instanceof Error ? err.message : String(err);

@@ -433,6 +433,47 @@ const mockMaestro = {
 		export: vi.fn().mockResolvedValue({ success: true }),
 		import: vi.fn().mockResolvedValue({ success: true, playbook: {} }),
 	},
+	plugins: {
+		list: vi.fn().mockResolvedValue({ plugins: [] }),
+		setEnabled: vi.fn().mockResolvedValue({ plugins: [] }),
+		install: vi.fn().mockResolvedValue({ success: true }),
+		update: vi.fn().mockResolvedValue({ plugins: [] }),
+		uninstall: vi.fn().mockResolvedValue({ success: true }),
+		contributions: vi.fn().mockResolvedValue({
+			themes: [],
+			prompts: [],
+			settings: [],
+			commandMacros: [],
+			cueTriggers: [],
+			commands: [],
+			panels: [],
+			agents: [],
+			tools: [],
+			keybindings: [],
+			uiItems: [],
+			errorsByPlugin: {},
+		}),
+		getGrants: vi.fn().mockResolvedValue({ requested: [], granted: [] }),
+		requestConsent: vi.fn().mockResolvedValue({ opened: true }),
+		revokeGrants: vi.fn().mockResolvedValue({ requested: [], granted: [] }),
+		invokeCommand: vi.fn().mockResolvedValue({ dispatched: true }),
+		invokeTool: vi.fn().mockResolvedValue({ result: null }),
+		getActivity: vi.fn().mockResolvedValue({}),
+		onChanged: vi.fn().mockReturnValue(() => {}),
+		onRunUiCommand: vi.fn().mockReturnValue(() => {}),
+	},
+	agentRun: {
+		list: vi.fn().mockResolvedValue({ success: true, runs: [] }),
+		record: vi.fn().mockResolvedValue({ success: true, run: null }),
+		show: vi.fn().mockResolvedValue({ success: true, run: null }),
+		events: vi.fn().mockResolvedValue({ success: true, events: [] }),
+		appendEvent: vi.fn().mockResolvedValue({ success: true, event: null }),
+		campaigns: {
+			list: vi.fn().mockResolvedValue({ success: true, campaigns: [] }),
+			record: vi.fn().mockResolvedValue({ success: true, campaign: null }),
+			show: vi.fn().mockResolvedValue({ success: true, campaign: null }),
+		},
+	},
 	marketplace: {
 		getManifest: vi.fn().mockResolvedValue({
 			success: true,
@@ -629,6 +670,20 @@ const mockMaestro = {
 		writeYaml: vi.fn().mockResolvedValue(undefined),
 		validateYaml: vi.fn().mockResolvedValue({ valid: true, errors: [] }),
 		onActivityUpdate: vi.fn().mockReturnValue(() => {}),
+	},
+	// Pianola API (autonomous manager: rules + decision log)
+	pianola: {
+		getRules: vi.fn().mockResolvedValue({ rules: [], malformed: false }),
+		saveRules: vi.fn().mockImplementation((rules: unknown) => Promise.resolve(rules)),
+		getDecisions: vi.fn().mockResolvedValue([]),
+		getSuggestions: vi.fn().mockResolvedValue({
+			generatedAt: 0,
+			pairCount: 0,
+			proposals: [],
+			proposedProfile: '',
+			previousProfile: '',
+		}),
+		applySuggestion: vi.fn().mockImplementation(() => Promise.resolve({ rules: [] })),
 	},
 	// Core Prompts API (disk-based prompts loaded at runtime)
 	prompts: {

@@ -26,6 +26,8 @@ import {
 export type { MaestroSettings, SessionsData, GroupsData } from '../../stores/types';
 import type { MaestroSettings, SessionsData, GroupsData, StoredSession } from '../../stores/types';
 import type { Group, SessionCliActivity } from '../../../shared/types';
+import type { PluginEvent } from '../../../shared/plugins/events';
+import { buildSessionLifecycleEvents } from './plugin-session-events';
 import { relocateSessionImages, resolveToDataUrl } from '../../storage/session-image-store';
 
 /**
@@ -63,6 +65,12 @@ export interface PersistenceHandlerDependencies {
 	groupsStore: Store<GroupsData>;
 	getWebServer: () => WebServer | null;
 	/**
+	 * Optional sink for metadata-only plugin lifecycle events. Wired to
+	 * `pluginEventBus.emit` in index.ts; left undefined in tests / when the
+	 * plugin subsystem is absent (emits are then simply skipped).
+	 */
+	emitPluginEvent?: (event: PluginEvent) => void;
+	/**
 	 * Broadcast an IPC message to EVERY open window. Used so a settings change
 	 * cascades to all windows in unison: settings are global, so a UI-driven
 	 * edit in one window must reload settings in every other window immediately.
@@ -76,7 +84,8 @@ export interface PersistenceHandlerDependencies {
  * Register all persistence-related IPC handlers.
  */
 export function registerPersistenceHandlers(deps: PersistenceHandlerDependencies): void {
-	const { settingsStore, sessionsStore, groupsStore, getWebServer, safeSend } = deps;
+	const { settingsStore, sessionsStore, groupsStore, getWebServer, emitPluginEvent, safeSend } =
+		deps;
 
 	// PERF: coalesce activeSessionId disk writes.
 	//
@@ -389,6 +398,15 @@ export function registerPersistenceHandlers(deps: PersistenceHandlerDependencies
 				throw err;
 			}
 
+			// Surface metadata-only lifecycle events to subscribed plugins
+			// (events:subscribe). Re-authorized per delivery against live grants.
+			if (emitPluginEvent) {
+				const at = new Date().toISOString();
+				for (const event of buildSessionLifecycleEvents(previousMap, merged, at)) {
+					emitPluginEvent(event);
+				}
+			}
+
 			return true;
 		}
 	);
@@ -485,6 +503,15 @@ export function registerPersistenceHandlers(deps: PersistenceHandlerDependencies
 			const code = (err as NodeJS.ErrnoException).code;
 			logger.warn(`Failed to persist sessions: ${code || (err as Error).message}`, 'Sessions');
 			return false;
+		}
+
+		// Surface metadata-only lifecycle events to subscribed plugins
+		// (events:subscribe). Re-authorized per delivery against live grants.
+		if (emitPluginEvent) {
+			const at = new Date().toISOString();
+			for (const event of buildSessionLifecycleEvents(previousSessionMap, sessions, at)) {
+				emitPluginEvent(event);
+			}
 		}
 
 		return true;

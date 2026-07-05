@@ -6,18 +6,19 @@ Essential guidance for working with this codebase. For detailed architecture, se
 
 This guide has been split into focused sub-documents for progressive disclosure:
 
-| Document                             | Description                                                                                                  |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
-| [[CLAUDE-PATTERNS.md]]               | Core implementation patterns (process management, settings, modals, themes, Auto Run, SSH, Encore Features)  |
-| [[CLAUDE-IPC.md]]                    | IPC API surface (`window.maestro.*` namespaces)                                                              |
-| [[CLAUDE-PERFORMANCE.md]]            | Performance best practices (React optimization, debouncing, batching)                                        |
-| [[CLAUDE-WIZARD.md]]                 | Onboarding Wizard, Inline Wizard, and Tour System                                                            |
-| [[CLAUDE-FEATURES.md]]               | Usage Dashboard and Document Graph features                                                                  |
-| [[CLAUDE-AGENTS.md]]                 | Supported agents and capabilities                                                                            |
-| [[CLAUDE-SESSION.md]]                | Session interface (agent data model) and code conventions                                                    |
-| [[CLAUDE-PLATFORM.md]]               | Cross-platform concerns (Windows, Linux, macOS, SSH remote)                                                  |
-| [[CLAUDE-CUE.md]]                    | Cue automation engine: architecture, dispatch flow, lifecycle, gotchas (read before editing `src/main/cue/`) |
-| [AGENT_SUPPORT.md](AGENT_SUPPORT.md) | Detailed agent integration guide                                                                             |
+| Document                             | Description                                                                                                                                                              |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [[CLAUDE-PATTERNS.md]]               | Core implementation patterns (process management, settings, modals, themes, Auto Run, SSH, Encore Features)                                                              |
+| [[CLAUDE-IPC.md]]                    | IPC API surface (`window.maestro.*` namespaces)                                                                                                                          |
+| [[CLAUDE-PERFORMANCE.md]]            | Performance best practices (React optimization, debouncing, batching)                                                                                                    |
+| [[CLAUDE-WIZARD.md]]                 | Onboarding Wizard, Inline Wizard, and Tour System                                                                                                                        |
+| [[CLAUDE-FEATURES.md]]               | Usage Dashboard and Document Graph features                                                                                                                              |
+| [[CLAUDE-AGENTS.md]]                 | Supported agents and capabilities                                                                                                                                        |
+| [[CLAUDE-SESSION.md]]                | Session interface (agent data model) and code conventions                                                                                                                |
+| [[CLAUDE-PLATFORM.md]]               | Cross-platform concerns (Windows, Linux, macOS, SSH remote)                                                                                                              |
+| [[CLAUDE-CUE.md]]                    | Cue automation engine: architecture, dispatch flow, lifecycle, gotchas (read before editing `src/main/cue/`)                                                             |
+| [[CLAUDE-PLUGINS.md]]                | Plugin system architecture: tiers, sandbox, broker, capabilities, contributions, signing, trust model (read before editing `src/main/plugins/` or `src/shared/plugins/`) |
+| [AGENT_SUPPORT.md](AGENT_SUPPORT.md) | Detailed agent integration guide                                                                                                                                         |
 
 ---
 

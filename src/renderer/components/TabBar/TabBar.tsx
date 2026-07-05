@@ -91,6 +91,7 @@ function TabBarInner({
 	onGroupBreakApart,
 	colorBlindMode,
 	sshRemote,
+	leadingSlot,
 }: TabBarProps) {
 	// Dev-time warnings for missing handlers when unified tabs are provided
 	if (process.env.NODE_ENV !== 'production' && unifiedTabs) {
@@ -599,6 +600,14 @@ function TabBarInner({
 						/>
 					)}
 				</button>
+				{leadingSlot && (
+					<span
+						aria-hidden="true"
+						className="mx-0.5 h-4 w-px shrink-0"
+						style={{ backgroundColor: theme.colors.border }}
+					/>
+				)}
+				{leadingSlot}
 			</div>
 
 			{/* Empty state when filter is on but no unread tabs (only for an owned agent;

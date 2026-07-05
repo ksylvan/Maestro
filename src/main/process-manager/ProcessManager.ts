@@ -108,12 +108,21 @@ export class ProcessManager extends EventEmitter {
 					};
 
 		const usePty = this.shouldUsePty(configWithCoworkingSession);
+		const result = usePty
+			? this.ptySpawner.spawn(configWithCoworkingSession)
+			: this.childProcessSpawner.spawn(configWithCoworkingSession);
 
-		if (usePty) {
-			return this.ptySpawner.spawn(configWithCoworkingSession);
-		} else {
-			return this.childProcessSpawner.spawn(configWithCoworkingSession);
+		// Emit a spawn event AFTER the spawner returns so the agent-run capture
+		// service only records a running run for a process that actually started
+		// (symmetric with the 'exit' seam; no orphan on spawn failure). Guarded:
+		// a capture listener throwing must never break spawning.
+		try {
+			this.emit('spawn', config);
+		} catch {
+			// Capture is best-effort; never let it break process spawning.
 		}
+
+		return result;
 	}
 
 	private shouldUsePty(config: ProcessConfig): boolean {

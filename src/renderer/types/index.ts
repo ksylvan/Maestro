@@ -863,6 +863,10 @@ export interface Session {
 	agentCommands?: { command: string; description: string; prompt?: string }[];
 	// Bookmark flag - bookmarked sessions appear in a dedicated section at the top
 	bookmarked?: boolean;
+	// Pianola flag - the single pinned autonomous-manager agent. Rendered at the
+	// very top of the Left Bar, cannot be deleted/renamed/moved/bookmarked, and is
+	// excluded from the normal session categories. Gated by the `pianola` Encore flag.
+	isPianola?: boolean;
 	// Pending AI command that will trigger a synopsis on completion (e.g., '/commit')
 	pendingAICommandForSynopsis?: string;
 	// Custom batch runner prompt (persisted per session)
@@ -1210,6 +1214,8 @@ export interface EncoreFeatureFlags {
 	usageStats: boolean;
 	symphony: boolean;
 	maestroCue: boolean;
+	pianola: boolean;
+	plugins: boolean;
 	// Coworking - agents can read terminal scrollback via per-agent MCP server.
 	// Off by default. Optional so existing literals (older test fixtures, persisted
 	// settings without the key) continue to type-check.

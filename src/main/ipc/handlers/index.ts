@@ -64,6 +64,8 @@ import { registerDirectorNotesHandlers, DirectorNotesHandlerDependencies } from 
 import { registerCrossAgentHandlers } from './cross-agent';
 import { registerCueHandlers, CueHandlerDependencies } from './cue';
 import { registerCueBackupHandlers } from './cue-backup';
+import { registerPianolaHandlers, PianolaHandlerDependencies } from './pianola';
+import { registerPluginsHandlers, PluginsHandlerDependencies } from './plugins';
 import { registerWakatimeHandlers } from './wakatime';
 import { registerCoworkingHandlers } from './coworking';
 import { registerBrowserSessionHandlers } from './browser-session';
@@ -71,6 +73,7 @@ import { registerFeedbackHandlers } from './feedback';
 import { registerMaestroCliHandlers } from './maestro-cli';
 import { registerPromptsHandlers } from './prompts';
 import { registerMemoryHandlers } from './memory';
+import { registerAgentRunHandlers } from './agent-run';
 import {
 	registerWindowsHandlers,
 	wireWindowRegistryBroadcast,
@@ -137,6 +140,10 @@ export type { DirectorNotesHandlerDependencies };
 export { registerCueHandlers };
 export type { CueHandlerDependencies };
 export { registerCueBackupHandlers };
+export { registerPianolaHandlers };
+export type { PianolaHandlerDependencies };
+export { registerPluginsHandlers };
+export type { PluginsHandlerDependencies };
 export { registerWakatimeHandlers };
 export { registerCoworkingHandlers };
 export { registerBrowserSessionHandlers };
@@ -144,6 +151,7 @@ export { registerFeedbackHandlers };
 export { registerMaestroCliHandlers };
 export { registerPromptsHandlers };
 export { registerMemoryHandlers };
+export { registerAgentRunHandlers };
 export { registerWindowsHandlers };
 export { wireWindowRegistryBroadcast };
 export { wireEmptySecondaryWindowAutoClose };
@@ -359,6 +367,11 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
 	registerPromptsHandlers();
 	// Register project Memory handlers (Claude Code per-project memory viewer)
 	registerMemoryHandlers();
+	// Register AgentRun control-plane handlers (neutral run/campaign ledger)
+	registerAgentRunHandlers({
+		getProcessManager: deps.getProcessManager,
+		settingsStore: deps.settingsStore,
+	});
 	// Register Coworking handlers (per-agent MCP installer + terminal registry sync)
 	registerCoworkingHandlers({ getMainWindow: deps.getMainWindow });
 	// Register Browser Session handlers (clear per-partition browsing data)

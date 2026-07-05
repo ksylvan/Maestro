@@ -10,6 +10,7 @@
  * `createSecondaryWindow` callers around that factory.
  */
 
+import path from 'path';
 import { BrowserWindow, Menu, ipcMain, screen } from 'electron';
 import type Store from 'electron-store';
 import type { SettingsStoreInterface, WindowState } from '../stores/types';
@@ -23,6 +24,18 @@ import { saveWindowState, WINDOW_STATE_SAVE_DEBOUNCE_MS } from '../window-state-
 import { debounce } from '../utils/debounce';
 import { isWebContentsAvailable } from '../utils/safe-send';
 import { isAllowedBrowserTabPartition } from '../../shared/browserTabPartition';
+import { blocksSubframeNavigation } from '../../shared/plugins/panel-navigation';
+import {
+	isPluginPanelPartition,
+	isAllowedPluginPanelAttachment,
+} from '../../shared/plugins/panel-host';
+import {
+	hardenPluginPanelWebPreferences,
+	hardenPluginPanelSession,
+	attachPluginPanelGuestSecurity,
+	isPluginPanelSession,
+	type PluginPanelGuestContents,
+} from '../plugins/plugin-panel-host';
 
 // `file:` is allowed so users can open local HTML they just generated
 // (Plotly dashboards, etc.) inside Maestro instead of bouncing to the system
@@ -488,11 +501,39 @@ export function createWindowManager(deps: WindowManagerDependencies): WindowMana
 		// Navigation & Window Security Hardening
 		// ================================================================
 
-		// Restrict renderer-created webviews to the browser-tab surface only.
+		// The plugin-panel preload lives next to the main preload bundle
+		// (dist/main/plugin-panel-preload.js, built by scripts/build-preload.mjs).
+		const pluginPanelPreloadPath = path.join(path.dirname(preloadPath), 'plugin-panel-preload.js');
+
+		// Restrict renderer-created webviews to the two sanctioned surfaces:
+		// browser tabs (persist:maestro-browser-session-*) and plugin panels
+		// (plugin:<id>, hardened by the plugin panel host). Anything else is
+		// blocked before the guest exists.
 		browserWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
 			const src = typeof params.src === 'string' ? params.src : '';
 			const partition =
 				typeof webPreferences.partition === 'string' ? webPreferences.partition : '';
+
+			if (isPluginPanelPartition(partition)) {
+				// Per-plugin isolated surface: partition and document must belong
+				// to the SAME plugin, web prefs are forced (no Node, isolation,
+				// sandbox, broker-only preload), and the per-plugin session gets
+				// its protocol handler + egress/permission denial installed.
+				if (!isAllowedPluginPanelAttachment(partition, src)) {
+					event.preventDefault();
+					logger.warn(`Blocked unsafe plugin panel attachment: ${src || '<empty src>'}`, 'Window', {
+						src,
+						partition,
+					});
+					return;
+				}
+				hardenPluginPanelWebPreferences(
+					webPreferences as Record<string, unknown>,
+					pluginPanelPreloadPath
+				);
+				hardenPluginPanelSession(partition);
+				return;
+			}
 
 			hardenBrowserTabWebPreferences(webPreferences as BrowserTabWebPreferences);
 
@@ -506,6 +547,16 @@ export function createWindowManager(deps: WindowManagerDependencies): WindowMana
 		});
 
 		browserWindow.webContents.on('did-attach-webview', (_event, guestContents) => {
+			// Plugin panel guests get the panel lockdown ONLY: no popups, no
+			// navigation — and none of the browser-tab conveniences (shortcut
+			// forwarding, JS injection, privileged paste) may ever run inside
+			// plugin-controlled content.
+			const panelGuest = guestContents as unknown as PluginPanelGuestContents;
+			if (isPluginPanelSession(panelGuest.session)) {
+				attachPluginPanelGuestSecurity(panelGuest);
+				return;
+			}
+
 			attachBrowserTabGuestSecurity(guestContents as BrowserTabGuestContents);
 
 			// Forward app shortcuts from the webview guest process to the renderer.
@@ -597,6 +648,21 @@ export function createWindowManager(deps: WindowManagerDependencies): WindowMana
 					// Malformed message, ignore
 				}
 			});
+		});
+
+		// Subframe egress guard (backstop). App-window `srcDoc` subframes (the
+		// file-preview renderer) have no business navigating anywhere: a meta CSP
+		// cannot stop such a frame from navigating ITSELF to a remote URL and
+		// leaking data through it, so block any subframe navigation away from its
+		// initial document here (the top frame is handled by `will-navigate`
+		// below). Plugin panels are NOT subframes anymore — they are <webview>
+		// guests with their own webContents, locked down separately in
+		// attachPluginPanelGuestSecurity (did-attach-webview) — but this guard
+		// stays as defense in depth for any srcDoc frame in the app window.
+		browserWindow.webContents.on('will-frame-navigate', (event) => {
+			if (!blocksSubframeNavigation(event.isMainFrame, event.url)) return;
+			event.preventDefault();
+			logger.warn(`Blocked subframe navigation to: ${event.url}`, 'Window');
 		});
 
 		// Deny all popup/new-window requests — external links use IPC shell:openExternal

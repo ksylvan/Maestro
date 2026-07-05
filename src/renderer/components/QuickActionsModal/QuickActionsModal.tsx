@@ -4,6 +4,7 @@ import type { Session } from '../../types';
 import type { QuickAction, QuickActionsModalProps } from './types';
 import { useModalLayer } from '../../hooks/ui/useModalLayer';
 import { useFocusAfterRender } from '../../hooks/utils/useFocusAfterRender';
+import { usePluginContributions } from '../../hooks/usePluginContributions';
 import { notifyToast } from '../../stores/notificationStore';
 import { notifyCenterFlash } from '../../stores/centerFlashStore';
 import { flashCopiedToClipboard } from '../../utils/flashCopiedToClipboard';
@@ -40,7 +41,10 @@ import { buildGitWorktreeCommands } from './commands/gitWorktreeCommands';
 import { buildGroupChatCommands, buildGroupChatJumpCommands } from './commands/groupChatCommands';
 import { buildMoveToGroupCommands } from './commands/moveToGroupCommands';
 import { buildNavigationCommands } from './commands/navigationCommands';
+import { buildPluginCommandPaletteCommands } from './commands/pluginCommandPaletteCommands';
+import { mergePluginContributions } from '../../utils/pluginContributionMerge';
 import { buildRightPanelCommands } from './commands/rightPanelCommands';
+import { buildRegistryCommands } from './commands/registryCommands';
 import { buildSearchCommands } from './commands/searchCommands';
 import {
 	buildSessionJumpCommands,
@@ -121,6 +125,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 		onQuickCreateWorktree,
 		onOpenCreatePR,
 		onSummarizeAndContinue,
+		onRunPromptMacro,
 		canSummarizeActiveTab,
 		autoRunSelectedDocument,
 		autoRunCompletedTaskCount,
@@ -150,6 +155,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 		onOpenSymphony,
 		onOpenDirectorNotes,
 		onOpenMaestroCue,
+		onOpenPianola,
+		setAgentRunDashboardOpen,
 		onConfigureCue,
 		onOpenQueueBrowser,
 		onNewTab,
@@ -175,6 +182,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 
 	// UI store actions for search commands (avoid threading more props through 3-layer chain)
 	const setActiveFocus = useUIStore((s) => s.setActiveFocus);
+	// Plugin command macros (empty when the plugins Encore flag is off).
+	const pluginContributions = usePluginContributions();
 	// Sourced from the modal store directly to skip the 3-layer prop chain.
 	const openModal = useModalStore((s) => s.openModal);
 	const closeModal = useModalStore((s) => s.closeModal);
@@ -328,7 +337,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 		}
 	});
 
-	useFocusAfterRender(inputRef, true, 50);
+	useFocusAfterRender(inputRef, true, 0);
 
 	// Track scroll position to determine which items are visible.
 	// Items have variable height (subtext / runningInfo presence, plus LIVE/IDLE
@@ -413,6 +422,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	const mainActions: QuickAction[] = [
 		...sessionActions,
 		...groupChatActions,
+		// Shared command registry (the SAME entries plugins reach via ui.runCommand):
+		...buildRegistryCommands(),
 		...buildNavigationCommands({
 			activeSession,
 			activeSessionId,
@@ -564,6 +575,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			setMemoryViewerOpen,
 			setFuzzyFileSearchOpen,
 			setUsageDashboardOpen,
+			setAgentRunDashboardOpen,
 			onSummarizeAndContinue,
 			onOpenMergeSession,
 			onOpenSendToAgent,
@@ -572,6 +584,7 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 			onOpenSymphony,
 			onOpenDirectorNotes,
 			onOpenMaestroCue,
+			onOpenPianola,
 			onConfigureCue,
 			onOpenLastDocumentGraph,
 			onOpenCurrentFileInGraph,
@@ -719,6 +732,32 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 		}),
 	];
 
+	// Surface plugin-contributed palette entries (tier-0 macros + tier-1
+	// commands) and merge them against the built-in actions under the shared
+	// contribution contract: a built-in always wins a colliding id, and earlier
+	// plugins win a later duplicate. Provenance ("from <plugin>") rides in each
+	// entry's subtext. Empty when the plugins Encore flag is off.
+	const pluginPaletteActions = buildPluginCommandPaletteCommands({
+		commands: pluginContributions.commands,
+		macros: pluginContributions.commandMacros,
+		uiItems: pluginContributions.uiItems,
+		onRunPromptMacro,
+		invokeCommand: (commandId) => window.maestro.plugins.invokeCommand(commandId),
+		onCommandResult: ({ dispatched, title }) =>
+			notifyToast({
+				color: dispatched ? 'green' : 'orange',
+				title: 'Plugins',
+				message: dispatched ? `Ran "${title}"` : `"${title}" is not running`,
+			}),
+		onCommandError: ({ error }) =>
+			notifyToast({ color: 'red', title: 'Plugins', message: `Command failed: ${String(error)}` }),
+		setQuickActionOpen,
+	});
+	const mainActionsWithPlugins = mergePluginContributions(
+		mainActions,
+		pluginPaletteActions
+	).items.map((entry) => entry.item);
+
 	const groupActions = buildMoveToGroupCommands({
 		initialMode,
 		groups,
@@ -736,7 +775,8 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 		getSessionWindow,
 	});
 
-	const actions = mode === 'agents' ? agentActions : mode === 'main' ? mainActions : groupActions;
+	const actions =
+		mode === 'agents' ? agentActions : mode === 'main' ? mainActionsWithPlugins : groupActions;
 
 	const filtered = filterAndSortQuickActions(actions, search, mode);
 

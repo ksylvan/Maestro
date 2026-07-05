@@ -8,7 +8,7 @@
  * - DevTools and auto-updater initialization based on environment
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 // Type-only import (erased at runtime, so it does not interfere with the
 // per-test `vi.resetModules()` + dynamic `import()` pattern used below).
 import type { WindowManagerDependencies } from '../../../main/app-lifecycle/window-manager';
@@ -27,6 +27,33 @@ const mockGuestWebContents = {
 	executeJavaScript: vi.fn().mockResolvedValue(undefined),
 	paste: vi.fn(),
 };
+
+// Per-partition panel session double for the plugin render-host branch.
+// fromPartition returns ONE object per partition string (Electron semantics),
+// so the will-attach hardening and the did-attach branch see the same session.
+interface MockPanelSession {
+	protocol: { handle: Mock };
+	webRequest: { onBeforeRequest: Mock };
+	setPermissionRequestHandler: Mock;
+	setPermissionCheckHandler: Mock;
+}
+const mockPanelSessions = new Map<string, MockPanelSession>();
+function makePanelSession(): MockPanelSession {
+	return {
+		protocol: { handle: vi.fn() },
+		webRequest: { onBeforeRequest: vi.fn() },
+		setPermissionRequestHandler: vi.fn(),
+		setPermissionCheckHandler: vi.fn(),
+	};
+}
+const mockFromPartition = vi.fn((partition: string) => {
+	let ses = mockPanelSessions.get(partition);
+	if (!ses) {
+		ses = makePanelSession();
+		mockPanelSessions.set(partition, ses);
+	}
+	return ses;
+});
 
 // Mock BrowserWindow instance methods
 const mockWebContents = {
@@ -133,6 +160,9 @@ vi.mock('electron', () => ({
 		getPrimaryDisplay: () => mockScreen.getPrimaryDisplay(),
 		getDisplayMatching: (rect: MockWorkAreaRect) => mockScreen.getDisplayMatching(rect),
 	},
+	session: {
+		fromPartition: (partition: string) => mockFromPartition(partition),
+	},
 }));
 
 // Mock logger
@@ -187,6 +217,9 @@ describe('app-lifecycle/window-manager', () => {
 		lastBrowserWindowOptions = null;
 		webContentsEventHandlers.clear();
 		guestWebContentsEventHandlers.clear();
+		// Fresh per-partition sessions so the render-host module's WeakSet marker
+		// never bleeds between tests (a reused object would skip re-hardening).
+		mockPanelSessions.clear();
 		mockScreen.reset();
 
 		mockWindowStateStore = {
@@ -590,6 +623,141 @@ describe('app-lifecycle/window-manager', () => {
 
 			const handler = mockGuestWebContents.setWindowOpenHandler.mock.calls[0][0];
 			expect(handler({ url: 'https://popup.example.com' })).toEqual({ action: 'deny' });
+		});
+		it('attaches a plugin panel webview on its own partition with forced broker-only prefs', async () => {
+			const { createWindowManager } = await import('../../../main/app-lifecycle/window-manager');
+
+			const windowManager = createWindowManager({
+				windowStateStore: mockWindowStateStore as unknown as Parameters<
+					typeof createWindowManager
+				>[0]['windowStateStore'],
+				isDevelopment: false,
+				preloadPath: '/dist/main/preload.js',
+				rendererProductionUrl: 'app://app/index.html',
+				devServerUrl: 'http://localhost:5173',
+				useNativeTitleBar: false,
+				autoHideMenuBar: false,
+			});
+			windowManager.createWindow();
+
+			const handler = webContentsEventHandlers.get('will-attach-webview');
+			const preventDefault = vi.fn();
+			const webPreferences: Record<string, unknown> = {
+				partition: 'plugin:acme.tools',
+				preload: '/tmp/renderer-supplied.js',
+				nodeIntegration: true,
+			};
+
+			handler?.({ preventDefault } as any, webPreferences, {
+				src: 'plugin-panel://panel/acme.tools%2Fboard',
+			} as any);
+
+			expect(preventDefault).not.toHaveBeenCalled();
+			// Renderer-supplied prefs are overridden: broker-only preload, no Node,
+			// isolation + sandbox on.
+			expect(String(webPreferences.preload)).toMatch(/plugin-panel-preload\.js$/);
+			expect(webPreferences.nodeIntegration).toBe(false);
+			expect(webPreferences.contextIsolation).toBe(true);
+			expect(webPreferences.sandbox).toBe(true);
+
+			// The per-plugin session got its protocol + egress + permission lockdown.
+			const ses = mockPanelSessions.get('plugin:acme.tools');
+			expect(ses).toBeDefined();
+			expect(ses!.protocol.handle).toHaveBeenCalledWith('plugin-panel', expect.any(Function));
+			expect(ses!.webRequest.onBeforeRequest).toHaveBeenCalled();
+			expect(ses!.setPermissionRequestHandler).toHaveBeenCalled();
+			expect(ses!.setPermissionCheckHandler).toHaveBeenCalled();
+		});
+
+		it('blocks a plugin panel attachment whose document belongs to ANOTHER plugin', async () => {
+			const { createWindowManager } = await import('../../../main/app-lifecycle/window-manager');
+
+			const windowManager = createWindowManager({
+				windowStateStore: mockWindowStateStore as unknown as Parameters<
+					typeof createWindowManager
+				>[0]['windowStateStore'],
+				isDevelopment: false,
+				preloadPath: '/dist/main/preload.js',
+				rendererProductionUrl: 'app://app/index.html',
+				devServerUrl: 'http://localhost:5173',
+				useNativeTitleBar: false,
+				autoHideMenuBar: false,
+			});
+			windowManager.createWindow();
+
+			const handler = webContentsEventHandlers.get('will-attach-webview');
+
+			// Cross-plugin document reuse.
+			const crossPlugin = vi.fn();
+			handler?.({ preventDefault: crossPlugin } as any, { partition: 'plugin:acme.tools' }, {
+				src: 'plugin-panel://panel/evil.corp%2Fboard',
+			} as any);
+			expect(crossPlugin).toHaveBeenCalled();
+
+			// Arbitrary URL on a panel partition.
+			const arbitraryUrl = vi.fn();
+			handler?.({ preventDefault: arbitraryUrl } as any, { partition: 'plugin:acme.tools' }, {
+				src: 'https://evil.example/',
+			} as any);
+			expect(arbitraryUrl).toHaveBeenCalled();
+			expect(mockLogger.warn).toHaveBeenCalled();
+		});
+
+		it('locks down an attached plugin panel guest and skips ALL browser-tab conveniences', async () => {
+			const { createWindowManager } = await import('../../../main/app-lifecycle/window-manager');
+
+			const windowManager = createWindowManager({
+				windowStateStore: mockWindowStateStore as unknown as Parameters<
+					typeof createWindowManager
+				>[0]['windowStateStore'],
+				isDevelopment: false,
+				preloadPath: '/dist/main/preload.js',
+				rendererProductionUrl: 'app://app/index.html',
+				devServerUrl: 'http://localhost:5173',
+				useNativeTitleBar: false,
+				autoHideMenuBar: false,
+			});
+			windowManager.createWindow();
+
+			// Attach the partition first so the session is marked as panel-owned.
+			const willAttach = webContentsEventHandlers.get('will-attach-webview');
+			willAttach?.({ preventDefault: vi.fn() } as any, { partition: 'plugin:acme.tools' }, {
+				src: 'plugin-panel://panel/acme.tools%2Fboard',
+			} as any);
+
+			const panelGuest = {
+				...mockGuestWebContents,
+				session: mockPanelSessions.get('plugin:acme.tools'),
+				setWindowOpenHandler: vi.fn(),
+				on: vi.fn((event: string, handler: (...args: any[]) => void) => {
+					guestWebContentsEventHandlers.set(event, handler);
+				}),
+				executeJavaScript: vi.fn(),
+			};
+
+			const didAttach = webContentsEventHandlers.get('did-attach-webview');
+			didAttach?.({} as any, panelGuest as any);
+
+			// Panel lockdown: popups denied, every navigation prevented.
+			const openHandler = panelGuest.setWindowOpenHandler.mock.calls[0][0];
+			expect(openHandler({ url: 'https://popup.example/' })).toEqual({ action: 'deny' });
+
+			const navigate = guestWebContentsEventHandlers.get('will-navigate');
+			const navEvent = { preventDefault: vi.fn() };
+			navigate?.(navEvent as any, 'plugin-panel://panel/acme.tools%2Fboard');
+			expect(navEvent.preventDefault).toHaveBeenCalled();
+
+			// None of the browser-tab machinery may touch plugin content: no
+			// shortcut forwarding, no JS injection, no dom-ready hook.
+			expect(guestWebContentsEventHandlers.has('before-input-event')).toBe(false);
+			expect(guestWebContentsEventHandlers.has('dom-ready')).toBe(false);
+			expect(panelGuest.executeJavaScript).not.toHaveBeenCalled();
+			// will-redirect IS registered, but as the panel deny-all, which blocks
+			// even URLs the browser-tab allowlist would pass.
+			const redirect = guestWebContentsEventHandlers.get('will-redirect');
+			const redirectEvent = { preventDefault: vi.fn() };
+			redirect?.(redirectEvent as any, 'https://allowed-for-browser-tabs.example/');
+			expect(redirectEvent.preventDefault).toHaveBeenCalled();
 		});
 
 		it('should maximize window if saved state is maximized', async () => {

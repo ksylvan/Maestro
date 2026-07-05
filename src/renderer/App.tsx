@@ -174,12 +174,15 @@ import {
 import { useStoreWithEqualityFn } from 'zustand/traditional';
 import { sidebarSessionEquality } from './stores/sessionEquality';
 import { useActiveSession } from './hooks/session/useActiveSession';
+import { usePianolaAgent } from './hooks/session/usePianolaAgent';
 // useAgentStore moved to useQueueProcessing hook
 import { InlineWizardProvider, useInlineWizardContext } from './contexts/InlineWizardContext';
 import { ToastContainer } from './components/Toast';
 import { CenterFlash } from './components/CenterFlash';
 import { ThoughtStreamPanel } from './components/ThoughtStreamPanel';
 import { useQuitWhenIdle } from './hooks/useQuitWhenIdle';
+import { usePluginCommandBridge } from './hooks/usePluginCommandBridge';
+import { usePluginKeybindings } from './hooks/usePluginKeybindings';
 
 // Import services
 // gitService — now used in useModalHandlers (Tier 3C)
@@ -188,6 +191,9 @@ import { useQuitWhenIdle } from './hooks/useQuitWhenIdle';
 // Note: GroupChat, GroupChatState are imported from types (re-exported from shared)
 import type { RightPanelTab, Session, QueuedItem, CustomAICommand, ThinkingItem } from './types';
 import { THEMES } from './constants/themes';
+import { usePluginContributions } from './hooks/usePluginContributions';
+import { resolvePluginTheme } from './utils/pluginThemes';
+import { PluginPanelSlot } from './components/plugins/PluginPanelSlot';
 import { generateId } from './utils/ids';
 import { getActiveOutputSearchKey } from './utils/outputSearch';
 import { reorderQueueItem } from './utils/executionQueue';
@@ -269,6 +275,7 @@ function MaestroConsoleInner() {
 		setProcessMonitorOpen,
 		// Usage Dashboard
 		setUsageDashboardOpen,
+		setAgentRunDashboardOpen,
 		// pendingKeyboardMasteryLevel — now self-sourced in AppOverlays (Tier 1A)
 		// Playground Panel — playgroundOpen now self-sourced in AppStandaloneModals
 		setPlaygroundOpen,
@@ -358,6 +365,8 @@ function MaestroConsoleInner() {
 		setDirectorNotesOpen,
 		// Maestro Cue Modal — cueModalOpen now self-sourced in AppStandaloneModals
 		setCueModalOpen,
+		// Pianola Modal — pianolaModalOpen now self-sourced in AppStandaloneModals
+		setPianolaModalOpen,
 		// Maestro Cue YAML Editor — open state, sessionId, projectRoot self-sourced in AppStandaloneModals
 		closeCueYamlEditor,
 	} = useModalActions();
@@ -503,6 +512,10 @@ function MaestroConsoleInner() {
 			closeCueYamlEditor();
 		}
 	}, [encoreFeatures.maestroCue, setCueModalOpen, closeCueYamlEditor]);
+
+	useEffect(() => {
+		if (!encoreFeatures.pianola) setPianolaModalOpen(false);
+	}, [encoreFeatures.pianola, setPianolaModalOpen]);
 
 	// --- KEYBOARD SHORTCUT HELPERS ---
 	const { isShortcut, isTabShortcut, isPaneShortcut } = useKeyboardShortcutHelpers({
@@ -853,6 +866,7 @@ function MaestroConsoleInner() {
 		openWizard: () => openWizardModal(),
 		openSettings: () => setSettingsModalOpen(true),
 	};
+	usePluginCommandBridge();
 
 	// Note: Standing ovation and keyboard mastery startup checks are now in useModalHandlers
 
@@ -929,6 +943,11 @@ function MaestroConsoleInner() {
 
 	// --- CUE AUTO-DISCOVERY (gated by Encore Feature) ---
 	useCueAutoDiscovery(sessions, encoreFeatures);
+
+	// --- PIANOLA AGENT (pinned manager agent, gated by Encore Feature) ---
+	// Ensures the single pinned Pianola agent exists once sessions are loaded and
+	// the pianola flag is on. Does not steal focus from the active agent.
+	usePianolaAgent(encoreFeatures);
 
 	// --- CUE VISIBILITY WIRING (PR-B 1.4) ---
 	// Forwards document visibility to the main-process Cue scanner
@@ -1216,6 +1235,10 @@ function MaestroConsoleInner() {
 		onOpenFileTab: handleOpenFileTab,
 	});
 
+	// Active plugin contributions (themes/prompts/macros). Empty when the plugins
+	// Encore flag is off, so this is inert by default.
+	const pluginContributions = usePluginContributions();
+
 	// Use custom colors when custom theme is selected, otherwise use the standard theme
 	const theme = useMemo(() => {
 		if (activeThemeId === 'custom') {
@@ -1224,8 +1247,14 @@ function MaestroConsoleInner() {
 				colors: customThemeColors,
 			};
 		}
-		return THEMES[activeThemeId];
-	}, [activeThemeId, customThemeColors]);
+		const builtIn = THEMES[activeThemeId];
+		if (builtIn) return builtIn;
+		// A plugin-contributed theme may be active (its id is outside the built-in
+		// union). Resolve it from contributions; fall back to dracula so the app
+		// never renders with an undefined theme if the plugin was removed.
+		const pluginTheme = pluginContributions.themes.find((t) => t.id === activeThemeId);
+		return pluginTheme ? resolvePluginTheme(pluginTheme) : THEMES.dracula;
+	}, [activeThemeId, customThemeColors, pluginContributions.themes]);
 
 	// Ref for theme (for use in memoized callbacks that need current theme without re-creating)
 	const themeRef = useRef(theme);
@@ -1791,6 +1820,16 @@ function MaestroConsoleInner() {
 		[processInput]
 	);
 
+	// Run a plugin command macro: send its templated prompt to the active agent
+	// through the same input path as a typed message. Empty/whitespace prompts are
+	// ignored by processInput's own emptiness check.
+	const handleRunPromptMacro = useCallback(
+		(prompt: string) => {
+			processInput(prompt);
+		},
+		[processInput]
+	);
+
 	// Build (tab→busy summary) lookup used by the Force Send button to decide
 	// visibility and to populate the confirmation modal's "other tabs working"
 	// list. Computed from the current session's tab states at call time.
@@ -1953,6 +1992,7 @@ function MaestroConsoleInner() {
 	// --- MAIN KEYBOARD HANDLER ---
 	// Extracted hook for main keyboard event listener (empty deps, uses ref pattern)
 	const { keyboardHandlerRef, showSessionJumpNumbers } = useMainKeyboardHandler();
+	usePluginKeybindings();
 
 	// Cmd+Z / Cmd+Shift+Z fallback for text inputs (Edit menu omits the undo
 	// role so the image annotator can claim Cmd+Z; this restores native
@@ -3088,6 +3128,7 @@ function MaestroConsoleInner() {
 					onNavigateToSession={handleProcessMonitorNavigateToSession}
 					onNavigateToGroupChat={handleProcessMonitorNavigateToGroupChat}
 					onCloseUsageDashboard={() => setUsageDashboardOpen(false)}
+					onCloseAgentRunDashboard={() => setAgentRunDashboardOpen(false)}
 					defaultStatsTimeRange={defaultStatsTimeRange}
 					colorBlindMode={colorBlindMode}
 					// AppConfirmModals props
@@ -3168,6 +3209,7 @@ function MaestroConsoleInner() {
 					setLogViewerOpen={setLogViewerOpen}
 					setProcessMonitorOpen={setProcessMonitorOpen}
 					setUsageDashboardOpen={encoreFeatures.usageStats ? setUsageDashboardOpen : undefined}
+					setAgentRunDashboardOpen={setAgentRunDashboardOpen}
 					setActiveRightTab={setActiveRightTab}
 					setAgentSessionsOpen={setAgentSessionsOpen}
 					setMemoryViewerOpen={setMemoryViewerOpen}
@@ -3207,6 +3249,7 @@ function MaestroConsoleInner() {
 					onQuickCreateWorktree={handleQuickCreateWorktree}
 					onOpenCreatePR={handleQuickActionsOpenCreatePR}
 					onSummarizeAndContinue={handleQuickActionsSummarizeAndContinue}
+					onRunPromptMacro={handleRunPromptMacro}
 					canSummarizeActiveTab={
 						activeSession
 							? canSummarize(
@@ -3268,6 +3311,7 @@ function MaestroConsoleInner() {
 						encoreFeatures.directorNotes ? () => setDirectorNotesOpen(true) : undefined
 					}
 					onOpenMaestroCue={encoreFeatures.maestroCue ? () => setCueModalOpen(true) : undefined}
+					onOpenPianola={encoreFeatures.pianola ? () => setPianolaModalOpen(true) : undefined}
 					onConfigureCue={encoreFeatures.maestroCue ? handleConfigureCue : undefined}
 					onCloseTabSwitcher={handleCloseTabSwitcher}
 					onTabSelect={handleUtilityTabSelect}
@@ -3468,6 +3512,13 @@ function MaestroConsoleInner() {
 					</ErrorBoundary>
 				)}
 
+				{/* --- PLUGIN LEFT DOCK (sandboxed iframe panels; null when none/off) --- */}
+				<PluginPanelSlot
+					theme={theme}
+					placement="left"
+					className="flex flex-col shrink-0 overflow-hidden border-r w-[320px]"
+				/>
+
 				{/* --- MOBILE BACKDROP (tap or swipe-to-close outside a drawer) --- */}
 				{isNarrowViewport && sessions.length > 0 && (leftSidebarOpen || rightPanelOpen) && (
 					<div
@@ -3666,12 +3717,22 @@ function MaestroConsoleInner() {
 					<MainPanel ref={mainPanelRef} {...mainPanelProps} />
 				)}
 
+				{/* --- PLUGIN MAIN DOCK (sandboxed iframe panels; null when none/off) --- */}
+				<PluginPanelSlot
+					theme={theme}
+					placement="main"
+					className="flex flex-col flex-1 min-w-0 overflow-hidden"
+				/>
+
 				{/* --- RIGHT PANEL (hidden in mobile landscape, when no sessions, group chat is active, or log viewer is open) --- */}
 				{!isMobileLandscape && sessions.length > 0 && !activeGroupChatId && !logViewerOpen && (
 					<ErrorBoundary>
 						<RightPanel ref={rightPanelRef} {...rightPanelProps} />
 					</ErrorBoundary>
 				)}
+
+				{/* --- PLUGIN RIGHT DOCK (sandboxed iframe panels; null when none/off) --- */}
+				<PluginPanelSlot theme={theme} placement="right" />
 
 				{/* NOTE: Settings, Wizard, Tour, and flash notifications are now rendered via AppStandaloneModals */}
 

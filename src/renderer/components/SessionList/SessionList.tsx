@@ -204,6 +204,8 @@ function SessionListInner(props: SessionListProps) {
 	const ungroupedCollapsed = useSettingsStore((s) => s.ungroupedCollapsed);
 	const starredSectionCollapsed = useSettingsStore((s) => s.starredSessionsCollapsed);
 	const showStarredSessionsSection = useSettingsStore((s) => s.showStarredSessionsSection);
+	const pianolaEnabled = useSettingsStore((s) => s.encoreFeatures?.pianola);
+	const pianolaSession = useSessionStore((s) => s.sessions.find((x) => x.isPianola));
 	const showLeftPanelGroupMemberCount = useSettingsStore((s) => s.showLeftPanelGroupMemberCount);
 	const leftPanelCollapsedPillsPerRow = useSettingsStore((s) => s.leftPanelCollapsedPillsPerRow);
 	const autoRunStats = useSettingsStore((s) => s.autoRunStats);
@@ -1233,6 +1235,21 @@ function SessionListInner(props: SessionListProps) {
 						>
 							<Bot className="w-8 h-8 opacity-30" />
 							<span className="text-xs italic">No unread or working agents</span>
+						</div>
+					)}
+
+					{/* PIANOLA - the single pinned manager agent, rendered as one clean row at
+					    the very top of the list (no section header or bordered box, so it reads
+					    as "the manager, pinned" rather than a category). A pin marker on the row
+					    distinguishes it; a divider sets it apart from the sections below. Gated by
+					    the pianola Encore flag; hidden when filtering by unread agents. Excluded
+					    from all normal categories. */}
+					{pianolaEnabled && pianolaSession && !showUnreadAgentsOnly && (
+						<div className="mb-1">
+							{renderSessionWithWorktrees(pianolaSession, 'flat', {
+								keyPrefix: 'pianola',
+							})}
+							<div className="mx-3 mt-1 border-t" style={{ borderColor: theme.colors.border }} />
 						</div>
 					)}
 

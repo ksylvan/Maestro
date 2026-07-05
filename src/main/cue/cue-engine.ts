@@ -70,6 +70,7 @@ import * as yaml from 'js-yaml';
 import { cueDebugLog } from '../../shared/cueDebug';
 import { captureException } from '../utils/sentry';
 import { recordRunCompleted as recordTelemetryRunCompleted } from './cue-telemetry';
+import type { PluginEvent } from '../../shared/plugins/events';
 import {
 	parseCueSubscriptionId,
 	pipelineKeyForSubscription,
@@ -143,6 +144,16 @@ export interface CueEngineDeps {
 	 * store; tests typically pass `() => true` or omit (defaults to off).
 	 */
 	getUsageStatsEnabled?: () => boolean;
+	/**
+	 * Optional metadata-only hook fired once per subscription dispatch with the
+	 * source event TYPE only. Threaded to the dispatch service to surface
+	 * `cue.fired` to subscribed plugins; never carries prompt text.
+	 */
+	onTriggerFired?: (eventType: string) => void;
+	/** Optional metadata-only plugin event sink. Threaded to surface Cue run
+	 * lifecycle (`cue.runStarted` / `cue.runFinished`) to subscribed plugins;
+	 * carries ids/status only, never prompt text or output. */
+	emitPluginEvent?: (event: PluginEvent) => void;
 }
 
 export class CueEngine {
@@ -219,8 +230,26 @@ export class CueEngine {
 			onCueRun: deps.onCueRun,
 			onStopCueRun: deps.onStopCueRun,
 			onLog: meteredOnLog,
+			onRunStarted: (info) =>
+				this.safeEmitPluginEvent({
+					topic: 'cue.runStarted',
+					at: new Date().toISOString(),
+					payload: info,
+				}),
 			onRunCompleted: (sessionId, result, subscriptionName, chainDepth, chainRootId) => {
 				this.pushActivityLog(result);
+				this.safeEmitPluginEvent({
+					topic: 'cue.runFinished',
+					at: new Date().toISOString(),
+					payload: {
+						runId: result.runId,
+						sessionId: result.sessionId,
+						subscriptionName: result.subscriptionName,
+						status: result.status,
+						pipelineName: result.pipelineName,
+						durationMs: result.durationMs,
+					},
+				});
 				// `time.once` subscriptions are one-shot: rewrite cue.yaml to drop
 				// the sub on terminal status. `stopped` (manual abort) routes
 				// through `onRunStopped` instead and never self-destructs — the
@@ -288,6 +317,18 @@ export class CueEngine {
 			},
 			onRunStopped: (result) => {
 				this.pushActivityLog(result);
+				this.safeEmitPluginEvent({
+					topic: 'cue.runFinished',
+					at: new Date().toISOString(),
+					payload: {
+						runId: result.runId,
+						sessionId: result.sessionId,
+						subscriptionName: result.subscriptionName,
+						status: result.status,
+						pipelineName: result.pipelineName,
+						durationMs: result.durationMs,
+					},
+				});
 			},
 			onPreventSleep: deps.onPreventSleep,
 			onAllowSleep: deps.onAllowSleep,
@@ -364,6 +405,7 @@ export class CueEngine {
 				);
 			},
 			onLog: meteredOnLog,
+			onTriggerFired: deps.onTriggerFired,
 		});
 		this.sessionRuntimeService = createCueSessionRuntimeService({
 			enabled: () => this.enabled,
@@ -1259,6 +1301,20 @@ export class CueEngine {
 
 	private pushActivityLog(result: CueRunResult): void {
 		this.activityLog.push(result);
+	}
+
+	/**
+	 * Best-effort plugin event sink. The Cue run lifecycle (start/finish) must
+	 * never be broken by a throwing plugin bus: `onRunStarted` fires before the
+	 * run manager's try/finally, so an exception here would strand the run
+	 * outside cleanup. Emit failures are isolated and reported, never rethrown.
+	 */
+	private safeEmitPluginEvent(event: PluginEvent): void {
+		try {
+			this.deps.emitPluginEvent?.(event);
+		} catch (err) {
+			void captureException(err, { operation: 'cue:pluginEvent', topic: event.topic });
+		}
 	}
 
 	/**

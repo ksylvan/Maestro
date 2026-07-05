@@ -163,6 +163,24 @@ import type { CueStatsAggregation, CueStatsTimeRange } from '../shared/cue-stats
 import type { DurationPercentiles } from '../shared/percentiles';
 import type { MaestroCliStatus, MaestroCliInstallResult } from '../shared/maestro-cli';
 import type { GitWorktreeSetupResult, GitWorktreeCheckoutResult } from '../main/preload/git';
+import type { PianolaRule } from '../shared/pianola/types';
+import type {
+	PianolaDecisionRecord,
+	RulesLoadResult,
+	PianolaSupervisedTarget,
+	PianolaSuggestionsFile,
+} from '../shared/pianola/storage';
+import type { PianolaSupervisorSnapshot } from '../main/ipc/handlers/pianola';
+import type {
+	PluginListSnapshot,
+	PluginGrantsSnapshot,
+	PluginActivityMap,
+} from '../main/ipc/handlers/plugins';
+import type { InstallResult as PluginInstallResult } from '../main/plugins/plugin-manager';
+import type { AggregatedContributions as PluginContributions } from '../shared/plugins/contributions';
+import type { FirstPartyBridgeState } from '../main/plugins/first-party-bridge';
+import type { FirstPartyEncoreFlag } from '../shared/plugins/first-party';
+import type { AgentRunApi } from '../main/preload/agentRun';
 import type { BrowserOp } from '../shared/coworkingBrowser';
 
 interface MaestroAPI {
@@ -3688,6 +3706,52 @@ interface MaestroAPI {
 			filePath: string
 		) => Promise<import('../shared/cue-backup-types').CueBackupDiffStatusMap>;
 		delete: (filePath: string) => Promise<void>;
+	};
+
+	// Pianola API (autonomous manager: rules + decision log)
+	// All channels reject with 'PianolaDisabled' when the Encore flag is off.
+	pianola: {
+		getRules: () => Promise<RulesLoadResult>;
+		saveRules: (rules: PianolaRule[]) => Promise<PianolaRule[]>;
+		getDecisions: (limit?: number) => Promise<PianolaDecisionRecord[]>;
+		getSuggestions: () => Promise<PianolaSuggestionsFile>;
+		applySuggestion: (payload: {
+			rule?: PianolaRule;
+			profile?: { text: string; projectPath?: string };
+		}) => Promise<{ rules: PianolaRule[] }>;
+		supervisor: {
+			list: () => Promise<PianolaSupervisorSnapshot>;
+			add: (target: Partial<PianolaSupervisedTarget>) => Promise<PianolaSupervisorSnapshot>;
+			setEnabled: (id: string, enabled: boolean) => Promise<PianolaSupervisorSnapshot>;
+			remove: (id: string) => Promise<PianolaSupervisorSnapshot>;
+		};
+	};
+
+	// AgentRun API (neutral run/campaign ledger)
+	agentRun: AgentRunApi;
+
+	// Plugins API (community plugin subsystem: list/toggle/install/uninstall)
+	plugins: {
+		list: () => Promise<PluginListSnapshot>;
+		setEnabled: (id: string, enabled: boolean) => Promise<PluginListSnapshot>;
+		setFirstPartyEnabled: (
+			flag: FirstPartyEncoreFlag,
+			enabled: boolean
+		) => Promise<FirstPartyBridgeState>;
+		install: (sourceDir: string) => Promise<PluginInstallResult>;
+		update: (sourceDir: string) => Promise<PluginListSnapshot>;
+		uninstall: (id: string) => Promise<{ success: boolean; error?: string }>;
+		contributions: () => Promise<PluginContributions>;
+		getGrants: (id: string) => Promise<PluginGrantsSnapshot>;
+		requestConsent: (id: string) => Promise<{ opened: boolean }>;
+		revokeGrants: (id: string) => Promise<PluginGrantsSnapshot>;
+		invokeCommand: (commandId: string, args?: unknown) => Promise<{ dispatched: boolean }>;
+		invokeTool: (toolId: string, args?: unknown) => Promise<{ result: unknown }>;
+		getActivity: () => Promise<PluginActivityMap>;
+		onChanged: (callback: () => void) => () => void;
+		onRunUiCommand: (
+			callback: (commandId: string, args: unknown) => boolean | Promise<boolean>
+		) => () => void;
 	};
 
 	// WakaTime API (CLI check, API key validation)
