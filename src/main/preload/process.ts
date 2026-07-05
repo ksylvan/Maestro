@@ -607,6 +607,110 @@ export function createProcessApi() {
 		},
 
 		/**
+		 * Subscribe to remote satellite-view operations (open/update/close) from
+		 * the CLI/web interface. Satellites are small agent-opened panels that
+		 * display or track work.
+		 */
+		onRemoteSatellite: (
+			callback: (params: {
+				op: 'open' | 'update' | 'close';
+				id: string;
+				viewType?: 'tracker' | 'file' | 'markdown' | 'image' | 'code' | 'view' | 'decision';
+				title?: string;
+				body?: string;
+				path?: string;
+				options?: Array<{ label: string; value: string }>;
+				color?: 'green' | 'yellow' | 'orange' | 'red' | 'theme';
+				sessionId?: string;
+			}) => void
+		): (() => void) => {
+			const handler = (_: unknown, params: Parameters<typeof callback>[0]) => callback(params);
+			ipcRenderer.on('remote:satellite', handler);
+			return () => ipcRenderer.removeListener('remote:satellite', handler);
+		},
+
+		/**
+		 * Subscribe to remote canvas operations (add/update/move/remove/clear) from
+		 * the CLI/web interface. The renderer applies them to the canvas store and
+		 * opens the canvas view.
+		 */
+		onRemoteCanvas: (
+			callback: (params: {
+				op: 'add' | 'update' | 'move' | 'remove' | 'clear';
+				id?: string;
+				x?: number;
+				y?: number;
+				width?: number;
+				height?: number;
+				title?: string;
+				body?: string;
+			}) => void
+		): (() => void) => {
+			const handler = (_: unknown, params: Parameters<typeof callback>[0]) => callback(params);
+			ipcRenderer.on('remote:canvas', handler);
+			return () => ipcRenderer.removeListener('remote:canvas', handler);
+		},
+
+		/**
+		 * Subscribe to `canvas state` reads: the main process sends a request with a
+		 * response channel; the renderer replies via sendCanvasStateResponse with the
+		 * current canvas snapshot (so an agent can compose around what's there).
+		 */
+		onRequestCanvasState: (callback: (responseChannel: string) => void): (() => void) => {
+			const handler = (_: unknown, responseChannel: string) => callback(responseChannel);
+			ipcRenderer.on('remote:getCanvasState', handler);
+			return () => ipcRenderer.removeListener('remote:getCanvasState', handler);
+		},
+
+		/** Reply to a `canvas state` read with the current snapshot. */
+		sendCanvasStateResponse: (responseChannel: string, snapshot: unknown): void => {
+			ipcRenderer.send(responseChannel, snapshot);
+		},
+
+		/**
+		 * Signal that the satellite HUD window's renderer has mounted and
+		 * subscribed to `remote:satellite`. The main process buffers the satellite
+		 * that triggered the (lazy) HUD creation until this fires, then flushes it -
+		 * otherwise the very first satellite is dropped before the listener exists.
+		 */
+		notifySatelliteHudReady: (): void => {
+			ipcRenderer.send('satellite-hud:ready');
+		},
+
+		/**
+		 * Report the satellite cards' hit regions (in HUD-window content
+		 * coordinates) so the main process can poll the cursor against them and
+		 * toggle click-through. Cross-platform by design: renderer mouse-move
+		 * forwarding (`setIgnoreMouseEvents` `forward`) is unsupported on Linux.
+		 */
+		setSatelliteHudCardRects: (
+			rects: Array<{ x: number; y: number; width: number; height: number }>
+		): void => {
+			ipcRenderer.send('satellite-hud:card-rects', rects);
+		},
+
+		/**
+		 * Expand a file satellite from the HUD window into the owning agent's File
+		 * Preview tab in the main window. The HUD is a separate window, so it can't
+		 * dispatch the in-app `maestro:openFileTab` event directly; the main process
+		 * forwards this to the main renderer (and raises it - a deliberate "take me
+		 * to Maestro" action, unlike ordinary card interaction).
+		 */
+		openSatelliteFileTab: (sessionId: string, filePath: string): void => {
+			ipcRenderer.send('satellite-hud:open-file', sessionId, filePath);
+		},
+
+		/**
+		 * Reply to the owning agent from a `decision` satellite: the chosen option's
+		 * value is injected as a live prompt into that agent's session (the same
+		 * path `maestro-cli dispatch` uses), so the agent's next turn sees the
+		 * choice. Does not raise Maestro - the decision is made in place.
+		 */
+		sendSatelliteDecision: (sessionId: string, message: string): void => {
+			ipcRenderer.send('satellite-hud:decision', sessionId, message);
+		},
+
+		/**
 		 * Subscribe to remote center-flash notifications from CLI/web interface.
 		 * Color is one of the 5 canonical Center Flash colors.
 		 */

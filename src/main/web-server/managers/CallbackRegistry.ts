@@ -97,6 +97,9 @@ import type {
 	GenerateDirectorNotesSynopsisCallback,
 	DirectorNotesSynopsisResult,
 	NotifyToastCallback,
+	SatelliteViewCallback,
+	CanvasViewCallback,
+	GetCanvasStateCallback,
 	NotifyCenterFlashCallback,
 	NotifyToastParams,
 	NotifyCenterFlashParams,
@@ -112,6 +115,8 @@ import type {
 	DesktopSessionEntry,
 	SessionHistoryResult,
 } from '../types';
+import type { SatellitePayload } from '../../../shared/satellite-types';
+import type { CanvasPayload, CanvasStateSnapshot } from '../../../shared/canvas-types';
 
 const LOG_CONTEXT = 'CallbackRegistry';
 
@@ -192,6 +197,9 @@ export interface WebServerCallbacks {
 	getAchievements: GetAchievementsCallback | null;
 	generateDirectorNotesSynopsis: GenerateDirectorNotesSynopsisCallback | null;
 	notifyToast: NotifyToastCallback | null;
+	satelliteView: SatelliteViewCallback | null;
+	canvasView: CanvasViewCallback | null;
+	getCanvasState: GetCanvasStateCallback | null;
 	notifyCenterFlash: NotifyCenterFlashCallback | null;
 	getMarketplaceManifest: GetMarketplaceManifestCallback | null;
 	getMarketplaceDocument: GetMarketplaceDocumentCallback | null;
@@ -276,6 +284,9 @@ export class CallbackRegistry {
 		getAchievements: null,
 		generateDirectorNotesSynopsis: null,
 		notifyToast: null,
+		satelliteView: null,
+		canvasView: null,
+		getCanvasState: null,
 		notifyCenterFlash: null,
 		getMarketplaceManifest: null,
 		getMarketplaceDocument: null,
@@ -762,6 +773,21 @@ export class CallbackRegistry {
 		return this.callbacks.notifyToast(params);
 	}
 
+	async satelliteView(params: SatellitePayload): Promise<boolean> {
+		if (!this.callbacks.satelliteView) return false;
+		return this.callbacks.satelliteView(params);
+	}
+
+	async canvasView(params: CanvasPayload): Promise<boolean> {
+		if (!this.callbacks.canvasView) return false;
+		return this.callbacks.canvasView(params);
+	}
+
+	async getCanvasState(): Promise<CanvasStateSnapshot | null> {
+		if (!this.callbacks.getCanvasState) return null;
+		return this.callbacks.getCanvasState();
+	}
+
 	async notifyCenterFlash(params: NotifyCenterFlashParams): Promise<boolean> {
 		if (!this.callbacks.notifyCenterFlash) return false;
 		return this.callbacks.notifyCenterFlash(params);
@@ -1107,6 +1133,18 @@ export class CallbackRegistry {
 
 	setNotifyToastCallback(callback: NotifyToastCallback): void {
 		this.callbacks.notifyToast = callback;
+	}
+
+	setSatelliteViewCallback(callback: SatelliteViewCallback): void {
+		this.callbacks.satelliteView = callback;
+	}
+
+	setCanvasViewCallback(callback: CanvasViewCallback): void {
+		this.callbacks.canvasView = callback;
+	}
+
+	setGetCanvasStateCallback(callback: GetCanvasStateCallback): void {
+		this.callbacks.getCanvasState = callback;
 	}
 
 	setNotifyCenterFlashCallback(callback: NotifyCenterFlashCallback): void {

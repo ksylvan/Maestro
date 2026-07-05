@@ -1,0 +1,203 @@
+/**
+ * CanvasOverlay - the agent-composed "living view" as an in-app floating layer.
+ *
+ * This is the sweet spot between a satellite (tiny floating card) and a full
+ * window: panels float ABOVE the Maestro UI, in the same window, so the user
+ * sees them while working - no OS window (no focus-steal / multi-monitor issues)
+ * and no full-window mode switch. Rendered via a portal as a `pointer-events-none`
+ * layer so it never blocks the app except where a panel actually is.
+ *
+ * Panels are free-placed (agent sets x/y), draggable by the header, and
+ * resizable by the corner. Each renders a BlockView tree. The agent drives them
+ * over the `canvas` bridge; the user can drag, resize, close, or stash them all.
+ */
+
+import { memo, useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
+import { createPortal } from 'react-dom';
+import { X, EyeOff, LayoutGrid } from 'lucide-react';
+import type { Theme } from '../../types';
+import { useCanvasStore, type CanvasItem } from '../../stores/canvasStore';
+import { BlockView } from '../BlockView';
+
+interface CanvasOverlayProps {
+	theme: Theme;
+}
+
+/** Above app content; below momentary overlays (Center Flash) which sit at 100000. */
+const CANVAS_Z = 90000;
+/** Auto-height panels scroll internally past this; resized panels use their height. */
+const AUTO_MAX_HEIGHT = 560;
+
+const CanvasPanel = memo(function CanvasPanel({ item, theme }: { item: CanvasItem; theme: Theme }) {
+	const moveItem = useCanvasStore((s) => s.moveItem);
+	const resizeItem = useCanvasStore((s) => s.resizeItem);
+	const removeItem = useCanvasStore((s) => s.removeItem);
+	const setMeasuredHeight = useCanvasStore((s) => s.setMeasuredHeight);
+
+	const onDragStart = (e: ReactPointerEvent<HTMLDivElement>) => {
+		if ((e.target as HTMLElement).closest('button')) return;
+		e.preventDefault();
+		const sx = e.clientX;
+		const sy = e.clientY;
+		const ox = item.x;
+		const oy = item.y;
+		const onMove = (ev: PointerEvent) =>
+			moveItem(item.id, ox + (ev.clientX - sx), oy + (ev.clientY - sy));
+		const onUp = () => {
+			window.removeEventListener('pointermove', onMove);
+			window.removeEventListener('pointerup', onUp);
+		};
+		window.addEventListener('pointermove', onMove);
+		window.addEventListener('pointerup', onUp);
+	};
+
+	const onResizeStart = (e: ReactPointerEvent<HTMLDivElement>) => {
+		e.preventDefault();
+		e.stopPropagation();
+		const sx = e.clientX;
+		const sy = e.clientY;
+		const ow = item.width;
+		// Measure current rendered height so an auto-sized panel resizes smoothly.
+		const oh = item.height ?? frameRef.current?.offsetHeight ?? 240;
+		const onMove = (ev: PointerEvent) =>
+			resizeItem(item.id, ow + (ev.clientX - sx), oh + (ev.clientY - sy));
+		const onUp = () => {
+			window.removeEventListener('pointermove', onMove);
+			window.removeEventListener('pointerup', onUp);
+		};
+		window.addEventListener('pointermove', onMove);
+		window.addEventListener('pointerup', onUp);
+	};
+
+	const frameRef = useRef<HTMLDivElement>(null);
+
+	// Report the panel's real rendered height to the store so `canvas state`
+	// gives the agent an accurate footprint (even for auto-sized panels).
+	useEffect(() => {
+		const el = frameRef.current;
+		if (!el) return;
+		const report = () => setMeasuredHeight(item.id, el.offsetHeight);
+		report();
+		const ro = new ResizeObserver(report);
+		ro.observe(el);
+		return () => ro.disconnect();
+	}, [item.id, setMeasuredHeight]);
+
+	return (
+		<div
+			ref={frameRef}
+			className="pointer-events-auto absolute rounded-xl overflow-hidden select-none"
+			style={{
+				left: item.x,
+				top: item.y,
+				width: item.width,
+				height: item.height,
+				backgroundColor: theme.colors.bgSidebar,
+				border: `1px solid ${theme.colors.border}`,
+				boxShadow: `0 16px 40px -16px rgba(0,0,0,0.6)`,
+			}}
+		>
+			<div
+				className="flex items-center gap-2 px-3 py-1.5 cursor-grab active:cursor-grabbing"
+				style={{ borderBottom: `1px solid ${theme.colors.border}` }}
+				onPointerDown={onDragStart}
+			>
+				<div
+					className="flex-1 min-w-0 text-xs font-semibold truncate"
+					style={{ color: theme.colors.textMain }}
+					title={item.title}
+				>
+					{item.title ?? item.id}
+				</div>
+				<button
+					type="button"
+					onClick={() => removeItem(item.id)}
+					className="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded transition-opacity opacity-70 hover:opacity-100"
+					style={{ color: theme.colors.textDim }}
+					title="Close panel"
+					aria-label="Close canvas panel"
+				>
+					<X className="w-3.5 h-3.5" strokeWidth={2.5} />
+				</button>
+			</div>
+			<div
+				className="p-3 overflow-auto select-text"
+				style={{
+					height: item.height ? 'calc(100% - 32px)' : undefined,
+					maxHeight: item.height ? undefined : AUTO_MAX_HEIGHT,
+				}}
+			>
+				<BlockView spec={item.spec} theme={theme} />
+			</div>
+			{/* Resize handle (bottom-right corner). */}
+			<div
+				onPointerDown={onResizeStart}
+				className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize"
+				style={{
+					background: `linear-gradient(135deg, transparent 50%, ${theme.colors.textDim}66 50%)`,
+				}}
+				title="Resize"
+			/>
+		</div>
+	);
+});
+
+export const CanvasOverlay = memo(function CanvasOverlay({ theme }: CanvasOverlayProps) {
+	const items = useCanvasStore((s) => s.items);
+	const hidden = useCanvasStore((s) => s.hidden);
+	const setHidden = useCanvasStore((s) => s.setHidden);
+	const setViewport = useCanvasStore((s) => s.setViewport);
+
+	// Report the window size to the store (the overlay spans the window), so the
+	// agent's `canvas state` read knows the space it's composing into.
+	useEffect(() => {
+		const report = () => setViewport(window.innerWidth, window.innerHeight);
+		report();
+		window.addEventListener('resize', report);
+		return () => window.removeEventListener('resize', report);
+	}, [setViewport]);
+
+	if (items.length === 0) return null;
+
+	return createPortal(
+		<div className="fixed inset-0 pointer-events-none" style={{ zIndex: CANVAS_Z }}>
+			{hidden ? (
+				<button
+					type="button"
+					onClick={() => setHidden(false)}
+					className="pointer-events-auto absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-opacity opacity-90 hover:opacity-100"
+					style={{
+						backgroundColor: theme.colors.bgSidebar,
+						color: theme.colors.textMain,
+						border: `1px solid ${theme.colors.border}`,
+					}}
+					title="Show canvas panels"
+				>
+					<LayoutGrid className="w-3.5 h-3.5" strokeWidth={2.5} />
+					{items.length} {items.length === 1 ? 'panel' : 'panels'}
+				</button>
+			) : (
+				<>
+					{items.map((item) => (
+						<CanvasPanel key={item.id} item={item} theme={theme} />
+					))}
+					<button
+						type="button"
+						onClick={() => setHidden(true)}
+						className="pointer-events-auto absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-opacity opacity-70 hover:opacity-100"
+						style={{
+							backgroundColor: theme.colors.bgSidebar,
+							color: theme.colors.textDim,
+							border: `1px solid ${theme.colors.border}`,
+						}}
+						title="Hide all canvas panels"
+					>
+						<EyeOff className="w-3 h-3" strokeWidth={2.5} />
+						Hide panels
+					</button>
+				</>
+			)}
+		</div>,
+		document.body
+	);
+});

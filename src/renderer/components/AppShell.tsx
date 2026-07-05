@@ -20,6 +20,8 @@ import { ToastContainer } from './Toast';
 import { CenterFlash } from './CenterFlash';
 import { ThoughtStreamPanel } from './ThoughtStreamPanel';
 import { PermissionPrompt } from './PermissionPrompt';
+import { SatelliteLayer } from './Satellite';
+import { CanvasOverlay } from './Canvas';
 import type { Group, GroupChat, Session, Theme } from '../types';
 
 type SessionListProps = ComponentProps<typeof SessionList>;
@@ -248,6 +250,8 @@ export function AppShell({
 			<ThoughtStreamPanel theme={theme} />
 			{/* --- PERMISSION PROMPT (Claude Code standard mode; portal) --- */}
 			<PermissionPrompt theme={theme} />
+			<SatelliteLayer theme={theme} />
+			<CanvasOverlay theme={theme} />
 		</div>
 	);
 }

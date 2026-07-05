@@ -21,6 +21,8 @@ import { parseGitBranches } from '../../shared/gitUtils';
 import type { Shortcut } from '../../shared/shortcut-types';
 import type { WebPlaybook, CueSubscriptionInfo, CueActivityEntry } from './types';
 import type { CueGraphSession, CueRunResult } from '../../shared/cue/contracts';
+import type { SatellitePayload } from '../../shared/satellite-types';
+import type { CanvasStateSnapshot } from '../../shared/canvas-types';
 import { composeCueSubscriptionId } from '../../shared/cue/subscription-id';
 import { getDefaultShell } from '../stores/defaults';
 import { buildWebSettingsSnapshot } from './web-settings-snapshot';
@@ -89,6 +91,13 @@ export interface WebServerFactoryDependencies {
 	groupsStore: GroupsStore;
 	/** Function to get the main window reference */
 	getMainWindow: () => BrowserWindow | null;
+	/**
+	 * Deliver a satellite payload to the desktop HUD window - the transparent,
+	 * always-on-top overlay that floats satellite views over other apps (created
+	 * lazily, buffered until its renderer subscribes). Returns true if the HUD
+	 * handled it; false (or absent) means fall back to the in-app renderer.
+	 */
+	deliverSatellite?: (payload: SatellitePayload) => boolean;
 	/** Function to get the process manager reference */
 	getProcessManager: () => ProcessManager | null;
 	/** Direct CUE subscription trigger — bypasses renderer IPC round-trip */
@@ -123,7 +132,14 @@ export interface WebServerFactoryDependencies {
  * This allows dependency injection and makes the code more testable.
  */
 export function createWebServerFactory(deps: WebServerFactoryDependencies) {
-	const { settingsStore, sessionsStore, groupsStore, getMainWindow, getProcessManager } = deps;
+	const {
+		settingsStore,
+		sessionsStore,
+		groupsStore,
+		getMainWindow,
+		deliverSatellite,
+		getProcessManager,
+	} = deps;
 
 	/**
 	 * Create and configure the web server with all necessary callbacks.
@@ -883,6 +899,66 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 			}
 			mainWindow.webContents.send('remote:notifyCenterFlash', params);
 			return true;
+		});
+
+		server.setSatelliteViewCallback(async (params) => {
+			// Prefer the desktop HUD window (floats over other apps). It buffers the
+			// payload internally until its renderer subscribes.
+			if (deliverSatellite?.(params)) return true;
+
+			// Fall back to the in-app renderer if the HUD can't be created.
+			const mainWindow = getMainWindow();
+			if (!mainWindow) {
+				logger.warn('no window available for satelliteView', 'WebServer');
+				return false;
+			}
+			if (!isWebContentsAvailable(mainWindow)) {
+				logger.warn('webContents is not available for satelliteView', 'WebServer');
+				return false;
+			}
+			mainWindow.webContents.send('remote:satellite', params);
+			return true;
+		});
+
+		// Canvas ops go to the main renderer, which applies them and opens the
+		// canvas view (it's a full main-window surface, not a floating overlay).
+		server.setCanvasViewCallback(async (params) => {
+			const mainWindow = getMainWindow();
+			if (!mainWindow) {
+				logger.warn('mainWindow is null for canvasView', 'WebServer');
+				return false;
+			}
+			if (!isWebContentsAvailable(mainWindow)) {
+				logger.warn('webContents is not available for canvasView', 'WebServer');
+				return false;
+			}
+			mainWindow.webContents.send('remote:canvas', params);
+			return true;
+		});
+
+		// `canvas state` read: ask the renderer for the current snapshot (items +
+		// size) and return it, so an agent can place items around what's there.
+		server.setGetCanvasStateCallback(async () => {
+			const mainWindow = getMainWindow();
+			if (!mainWindow || !isWebContentsAvailable(mainWindow)) return null;
+			return new Promise<CanvasStateSnapshot | null>((resolve) => {
+				const responseChannel = `remote:getCanvasState:response:${randomUUID()}`;
+				let resolved = false;
+				const handleResponse = (_event: Electron.IpcMainEvent, snapshot: unknown) => {
+					if (resolved) return;
+					resolved = true;
+					clearTimeout(timeoutId);
+					resolve((snapshot as CanvasStateSnapshot) ?? null);
+				};
+				ipcMain.once(responseChannel, handleResponse);
+				mainWindow.webContents.send('remote:getCanvasState', responseChannel);
+				const timeoutId = setTimeout(() => {
+					if (resolved) return;
+					resolved = true;
+					ipcMain.removeListener(responseChannel, handleResponse);
+					resolve(null);
+				}, 3000);
+			});
 		});
 
 		server.setOpenBrowserTabCallback(async (sessionId: string, url: string) => {

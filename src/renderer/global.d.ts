@@ -421,6 +421,39 @@ interface MaestroAPI {
 					| { kind: 'open-url'; url: string };
 			}) => void
 		) => () => void;
+		onRemoteSatellite: (
+			callback: (params: {
+				op: 'open' | 'update' | 'close';
+				id: string;
+				viewType?: 'tracker' | 'file' | 'markdown' | 'image' | 'code' | 'view' | 'decision';
+				title?: string;
+				body?: string;
+				path?: string;
+				options?: Array<{ label: string; value: string }>;
+				color?: 'green' | 'yellow' | 'orange' | 'red' | 'theme';
+				sessionId?: string;
+			}) => void
+		) => () => void;
+		onRemoteCanvas: (
+			callback: (params: {
+				op: 'add' | 'update' | 'move' | 'remove' | 'clear';
+				id?: string;
+				x?: number;
+				y?: number;
+				width?: number;
+				height?: number;
+				title?: string;
+				body?: string;
+			}) => void
+		) => () => void;
+		onRequestCanvasState: (callback: (responseChannel: string) => void) => () => void;
+		sendCanvasStateResponse: (responseChannel: string, snapshot: unknown) => void;
+		notifySatelliteHudReady: () => void;
+		setSatelliteHudCardRects: (
+			rects: Array<{ x: number; y: number; width: number; height: number }>
+		) => void;
+		openSatelliteFileTab: (sessionId: string, filePath: string) => void;
+		sendSatelliteDecision: (sessionId: string, message: string) => void;
 		onRemoteNotifyCenterFlash: (
 			callback: (params: {
 				message: string;
@@ -1666,6 +1699,8 @@ interface MaestroAPI {
 		onGlobalHotkeyRegistrationFailed: (callback: (keys: string[]) => void) => () => void;
 	};
 	platform: string;
+	/** Resolved on-disk maestro-cli.js path (dev vs packaged), or null. */
+	maestroCliPath: string | null;
 	logger: {
 		log: (
 			level: 'debug' | 'info' | 'warn' | 'error' | 'toast' | 'autorun',

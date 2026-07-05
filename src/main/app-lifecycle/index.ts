@@ -10,6 +10,13 @@ export {
 	type WindowManager,
 	type WindowManagerDependencies,
 } from './window-manager';
+export {
+	ensureSatelliteHudWindow,
+	deliverSatelliteToHud,
+	getSatelliteHudWindow,
+	closeSatelliteHudWindow,
+	type SatelliteHudWindowDeps,
+} from './satellite-hud-window';
 export { createQuitHandler, type QuitHandler, type QuitHandlerDependencies } from './quit-handler';
 export {
 	createSettingsWatcher,
