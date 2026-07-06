@@ -1,18 +1,18 @@
-// View command - open / update / close satellite views in the Maestro desktop
-// app. Satellites are small agent-opened panels that display or track what the
+// View command - open / update / close cadenza views in the Maestro desktop
+// app. Cadenzas are small agent-opened panels that display or track what the
 // user is working on (a "Poke" primitive). Rides the same bridge as notify/toast.
 
 import { readFileSync } from 'fs';
 import { withMaestroClient } from '../services/maestro-client';
 import { resolveAgentId } from '../services/storage';
 import {
-	SATELLITE_COLORS,
-	SATELLITE_VIEW_TYPES,
-	type SatelliteColor,
-	type SatelliteViewType,
-	type SatellitePayload,
-	type SatelliteDecisionOption,
-} from '../../shared/satellite-types';
+	CADENZA_COLORS,
+	CADENZA_VIEW_TYPES,
+	type CadenzaColor,
+	type CadenzaViewType,
+	type CadenzaPayload,
+	type CadenzaDecisionOption,
+} from '../../shared/cadenza-types';
 
 interface ViewOpenOptions {
 	type?: string;
@@ -29,7 +29,7 @@ interface ViewOpenOptions {
 
 /** Parse repeatable `--option "Label:value"` into decision buttons. Bare strings
  *  (no colon) use the text as both label and reply value. */
-function parseDecisionOptions(raw: string[] | undefined): SatelliteDecisionOption[] {
+function parseDecisionOptions(raw: string[] | undefined): CadenzaDecisionOption[] {
 	if (!raw) return [];
 	return raw.map((entry) => {
 		const idx = entry.indexOf(':');
@@ -105,17 +105,17 @@ interface ViewCloseOptions {
 	json?: boolean;
 }
 
-/** Send one satellite operation over the bridge and report the result. */
-async function sendSatellite(
-	payload: SatellitePayload,
+/** Send one cadenza operation over the bridge and report the result. */
+async function sendCadenza(
+	payload: CadenzaPayload,
 	json: boolean | undefined,
 	successMessage: string
 ): Promise<void> {
 	try {
 		const result = await withMaestroClient(async (client) =>
 			client.sendCommand<{ type: string; success: boolean; error?: string }>(
-				{ type: 'satellite', ...payload },
-				'satellite_result'
+				{ type: 'cadenza', ...payload },
+				'cadenza_result'
 			)
 		);
 
@@ -123,7 +123,7 @@ async function sendSatellite(
 			if (json) console.log(JSON.stringify({ success: true, id: payload.id, op: payload.op }));
 			else console.log(successMessage);
 		} else {
-			const error = result.error || 'Failed to update satellite view';
+			const error = result.error || 'Failed to update cadenza view';
 			if (json) console.log(JSON.stringify({ success: false, error }));
 			else console.error(`Error: ${error}`);
 			process.exit(1);
@@ -147,23 +147,23 @@ function resolveOptionalAgent(agent: string | undefined): string | undefined {
 	}
 }
 
-export async function viewOpen(id: string, options: ViewOpenOptions): Promise<void> {
+export async function cadenzaOpen(id: string, options: ViewOpenOptions): Promise<void> {
 	if (!id.trim()) {
 		console.error('Error: id cannot be empty');
 		process.exit(1);
 	}
 
-	const viewType: SatelliteViewType = (options.type ?? 'tracker') as SatelliteViewType;
-	if (!SATELLITE_VIEW_TYPES.includes(viewType)) {
-		console.error(`Error: --type must be one of: ${SATELLITE_VIEW_TYPES.join(', ')}`);
+	const viewType: CadenzaViewType = (options.type ?? 'tracker') as CadenzaViewType;
+	if (!CADENZA_VIEW_TYPES.includes(viewType)) {
+		console.error(`Error: --type must be one of: ${CADENZA_VIEW_TYPES.join(', ')}`);
 		process.exit(1);
 	}
 
-	let color: SatelliteColor | undefined;
+	let color: CadenzaColor | undefined;
 	if (options.color !== undefined) {
-		const candidate = options.color.toLowerCase() as SatelliteColor;
-		if (!SATELLITE_COLORS.includes(candidate)) {
-			console.error(`Error: --color must be one of: ${SATELLITE_COLORS.join(', ')}`);
+		const candidate = options.color.toLowerCase() as CadenzaColor;
+		if (!CADENZA_COLORS.includes(candidate)) {
+			console.error(`Error: --color must be one of: ${CADENZA_COLORS.join(', ')}`);
 			process.exit(1);
 		}
 		color = candidate;
@@ -206,14 +206,14 @@ export async function viewOpen(id: string, options: ViewOpenOptions): Promise<vo
 
 	const sessionId = resolveOptionalAgent(options.agent);
 	if (viewType === 'file' && !sessionId) {
-		// A file satellite without an agent still displays, but can't expand into a
+		// A file cadenza without an agent still displays, but can't expand into a
 		// tab. Warn rather than fail so trackers-of-files stay easy to open.
 		console.error('Note: --agent recommended for --type file so the panel can expand into a tab');
 	}
 
 	// `decision` needs at least one option and an agent to reply to; each click
 	// injects the option's value as a live prompt into that agent's session.
-	let decisionOptions: SatelliteDecisionOption[] | undefined;
+	let decisionOptions: CadenzaDecisionOption[] | undefined;
 	if (viewType === 'decision') {
 		decisionOptions = parseDecisionOptions(options.option);
 		if (decisionOptions.length === 0) {
@@ -226,7 +226,7 @@ export async function viewOpen(id: string, options: ViewOpenOptions): Promise<vo
 		}
 	}
 
-	await sendSatellite(
+	await sendCadenza(
 		{
 			op: 'open',
 			id,
@@ -239,21 +239,21 @@ export async function viewOpen(id: string, options: ViewOpenOptions): Promise<vo
 			sessionId,
 		},
 		options.json,
-		`Satellite '${id}' opened`
+		`Cadenza '${id}' opened`
 	);
 }
 
-export async function viewUpdate(id: string, options: ViewUpdateOptions): Promise<void> {
+export async function cadenzaUpdate(id: string, options: ViewUpdateOptions): Promise<void> {
 	if (!id.trim()) {
 		console.error('Error: id cannot be empty');
 		process.exit(1);
 	}
 
-	let color: SatelliteColor | undefined;
+	let color: CadenzaColor | undefined;
 	if (options.color !== undefined) {
-		const candidate = options.color.toLowerCase() as SatelliteColor;
-		if (!SATELLITE_COLORS.includes(candidate)) {
-			console.error(`Error: --color must be one of: ${SATELLITE_COLORS.join(', ')}`);
+		const candidate = options.color.toLowerCase() as CadenzaColor;
+		if (!CADENZA_COLORS.includes(candidate)) {
+			console.error(`Error: --color must be one of: ${CADENZA_COLORS.join(', ')}`);
 			process.exit(1);
 		}
 		color = candidate;
@@ -261,7 +261,7 @@ export async function viewUpdate(id: string, options: ViewUpdateOptions): Promis
 
 	const body = resolveBody(options.body, options.bodyFile);
 
-	await sendSatellite(
+	await sendCadenza(
 		{
 			op: 'update',
 			id,
@@ -271,15 +271,15 @@ export async function viewUpdate(id: string, options: ViewUpdateOptions): Promis
 			color,
 		},
 		options.json,
-		`Satellite '${id}' updated`
+		`Cadenza '${id}' updated`
 	);
 }
 
-export async function viewClose(id: string, options: ViewCloseOptions): Promise<void> {
+export async function cadenzaClose(id: string, options: ViewCloseOptions): Promise<void> {
 	if (!id.trim()) {
 		console.error('Error: id cannot be empty');
 		process.exit(1);
 	}
 
-	await sendSatellite({ op: 'close', id }, options.json, `Satellite '${id}' closed`);
+	await sendCadenza({ op: 'close', id }, options.json, `Cadenza '${id}' closed`);
 }

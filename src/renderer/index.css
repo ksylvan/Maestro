@@ -22,11 +22,11 @@ body {
 	-moz-osx-font-smoothing: grayscale;
 }
 
-/* HUD mode: the satellite overlay window is transparent so the desktop and
+/* HUD mode: the cadenza overlay window is transparent so the desktop and
    other apps show through the gaps between floating cards. */
-html.satellite-hud,
-html.satellite-hud body,
-html.satellite-hud #root {
+html.cadenza-hud,
+html.cadenza-hud body,
+html.cadenza-hud #root {
 	background: transparent !important;
 }
 

@@ -127,20 +127,20 @@ import {
 } from '../../plugins/plugin-manager-singleton';
 import { evaluatePluginDispatch } from '../../../shared/plugins/plugin-dispatch-gate';
 import {
-	SATELLITE_OPS,
-	SATELLITE_VIEW_TYPES,
-	SATELLITE_COLORS,
-	type SatellitePayload,
-	type SatelliteOp,
-	type SatelliteViewType,
-	type SatelliteColor,
-} from '../../../shared/satellite-types';
+	CADENZA_OPS,
+	CADENZA_VIEW_TYPES,
+	CADENZA_COLORS,
+	type CadenzaPayload,
+	type CadenzaOp,
+	type CadenzaViewType,
+	type CadenzaColor,
+} from '../../../shared/cadenza-types';
 import {
-	CANVAS_OPS,
-	type CanvasOp,
-	type CanvasPayload,
-	type CanvasStateSnapshot,
-} from '../../../shared/canvas-types';
+	MOVEMENT_OPS,
+	type MovementOp,
+	type MovementPayload,
+	type MovementStateSnapshot,
+} from '../../../shared/movement-types';
 
 // Logger context for all message handler logs
 const LOG_CONTEXT = 'WebServer';
@@ -378,9 +378,9 @@ export interface MessageHandlerCallbacks {
 	) => Promise<{ success: boolean; pid: number }>;
 	killTerminalForWeb: (sessionId: string) => boolean;
 	notifyToast: (params: NotifyToastParams) => Promise<boolean>;
-	satelliteView: (params: SatellitePayload) => Promise<boolean>;
-	canvasView: (params: CanvasPayload) => Promise<boolean>;
-	getCanvasState: () => Promise<CanvasStateSnapshot | null>;
+	cadenzaView: (params: CadenzaPayload) => Promise<boolean>;
+	movementView: (params: MovementPayload) => Promise<boolean>;
+	getMovementState: () => Promise<MovementStateSnapshot | null>;
 	notifyCenterFlash: (params: NotifyCenterFlashParams) => Promise<boolean>;
 	getMarketplaceManifest: (options?: {
 		refresh?: boolean;
@@ -782,14 +782,14 @@ export class WebSocketMessageHandler {
 				this.handleNotifyToast(client, message);
 				break;
 
-			case 'canvas':
-				this.handleCanvas(client, message);
+			case 'movement':
+				this.handleMovement(client, message);
 				break;
-			case 'get_canvas_state':
-				this.handleGetCanvasState(client, message);
+			case 'get_movement_state':
+				this.handleGetMovementState(client, message);
 				break;
-			case 'satellite':
-				this.handleSatellite(client, message);
+			case 'cadenza':
+				this.handleCadenza(client, message);
 				break;
 
 			case 'notify_center_flash':
@@ -4481,29 +4481,29 @@ export class WebSocketMessageHandler {
 	}
 
 	/**
-	 * Handle canvas - add/update/move/remove/clear an item on the agent-driven
-	 * canvas. Validates op + id, then hands a typed payload to the renderer via
-	 * the canvasView callback (the `remote:canvas` channel).
+	 * Handle movement - add/update/move/remove/clear an item on the agent-driven
+	 * movement. Validates op + id, then hands a typed payload to the renderer via
+	 * the movementView callback (the `remote:movement` channel).
 	 */
-	private handleCanvas(client: WebClient, message: WebClientMessage): void {
-		const op = typeof message.op === 'string' ? (message.op as CanvasOp) : undefined;
+	private handleMovement(client: WebClient, message: WebClientMessage): void {
+		const op = typeof message.op === 'string' ? (message.op as MovementOp) : undefined;
 		const id = typeof message.id === 'string' ? message.id : '';
 
 		const sendResult = (success: boolean, error?: string) => {
-			this.send(client, { type: 'canvas_result', success, error, requestId: message.requestId });
+			this.send(client, { type: 'movement_result', success, error, requestId: message.requestId });
 		};
 
-		if (!op || !CANVAS_OPS.includes(op)) {
-			sendResult(false, `Invalid or missing op. Must be one of: ${CANVAS_OPS.join(', ')}`);
+		if (!op || !MOVEMENT_OPS.includes(op)) {
+			sendResult(false, `Invalid or missing op. Must be one of: ${MOVEMENT_OPS.join(', ')}`);
 			return;
 		}
 		if (op !== 'clear' && !id) {
-			sendResult(false, `Missing canvas item id for op '${op}'`);
+			sendResult(false, `Missing movement item id for op '${op}'`);
 			return;
 		}
 
 		const num = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined);
-		const payload: CanvasPayload = {
+		const payload: MovementPayload = {
 			op,
 			id: id || undefined,
 			x: num(message.x),
@@ -4514,95 +4514,95 @@ export class WebSocketMessageHandler {
 			body: typeof message.body === 'string' ? message.body : undefined,
 		};
 
-		if (!this.callbacks.canvasView) {
-			sendResult(false, 'Canvas not configured');
+		if (!this.callbacks.movementView) {
+			sendResult(false, 'Movement not configured');
 			return;
 		}
 		this.callbacks
-			.canvasView(payload)
-			.then((success) => sendResult(success, success ? undefined : 'Failed to update canvas'))
-			.catch((error) => sendResult(false, `Failed to update canvas: ${error.message}`));
+			.movementView(payload)
+			.then((success) => sendResult(success, success ? undefined : 'Failed to update movement'))
+			.catch((error) => sendResult(false, `Failed to update movement: ${error.message}`));
 	}
 
 	/**
-	 * Handle get_canvas_state - return the current canvas snapshot (items + size)
+	 * Handle get_movement_state - return the current movement snapshot (items + size)
 	 * so an agent can compose around what's already placed.
 	 */
-	private handleGetCanvasState(client: WebClient, message: WebClientMessage): void {
-		const sendResult = (snapshot: CanvasStateSnapshot | null, error?: string) => {
+	private handleGetMovementState(client: WebClient, message: WebClientMessage): void {
+		const sendResult = (snapshot: MovementStateSnapshot | null, error?: string) => {
 			this.send(client, {
-				type: 'canvas_state_result',
+				type: 'movement_state_result',
 				success: !error,
 				snapshot,
 				error,
 				requestId: message.requestId,
 			});
 		};
-		if (!this.callbacks.getCanvasState) {
-			sendResult(null, 'Canvas not configured');
+		if (!this.callbacks.getMovementState) {
+			sendResult(null, 'Movement not configured');
 			return;
 		}
 		this.callbacks
-			.getCanvasState()
+			.getMovementState()
 			.then((snapshot) => sendResult(snapshot))
-			.catch((error) => sendResult(null, `Failed to read canvas state: ${error.message}`));
+			.catch((error) => sendResult(null, `Failed to read movement state: ${error.message}`));
 	}
 
 	/**
-	 * Handle satellite - open/update/close a small agent-driven satellite view.
+	 * Handle cadenza - open/update/close a small agent-driven cadenza view.
 	 * Validates the op/id/viewType/color, then hands a typed payload to the
-	 * renderer via the satelliteView callback (the `remote:satellite` channel).
+	 * renderer via the cadenzaView callback (the `remote:cadenza` channel).
 	 */
-	private handleSatellite(client: WebClient, message: WebClientMessage): void {
-		const op = typeof message.op === 'string' ? (message.op as SatelliteOp) : undefined;
+	private handleCadenza(client: WebClient, message: WebClientMessage): void {
+		const op = typeof message.op === 'string' ? (message.op as CadenzaOp) : undefined;
 		const id = typeof message.id === 'string' ? message.id : '';
 
 		const sendResult = (success: boolean, error?: string) => {
 			this.send(client, {
-				type: 'satellite_result',
+				type: 'cadenza_result',
 				success,
 				error,
 				requestId: message.requestId,
 			});
 		};
 
-		if (!op || !SATELLITE_OPS.includes(op)) {
-			sendResult(false, `Invalid or missing op. Must be one of: ${SATELLITE_OPS.join(', ')}`);
+		if (!op || !CADENZA_OPS.includes(op)) {
+			sendResult(false, `Invalid or missing op. Must be one of: ${CADENZA_OPS.join(', ')}`);
 			return;
 		}
 		if (!id) {
-			sendResult(false, 'Missing satellite id');
+			sendResult(false, 'Missing cadenza id');
 			return;
 		}
 
-		let viewType: SatelliteViewType | undefined;
+		let viewType: CadenzaViewType | undefined;
 		const rawViewType = typeof message.viewType === 'string' ? message.viewType : undefined;
 		if (rawViewType !== undefined) {
-			if (!SATELLITE_VIEW_TYPES.includes(rawViewType as SatelliteViewType)) {
+			if (!CADENZA_VIEW_TYPES.includes(rawViewType as CadenzaViewType)) {
 				sendResult(
 					false,
-					`Invalid viewType: ${rawViewType}. Must be one of: ${SATELLITE_VIEW_TYPES.join(', ')}`
+					`Invalid viewType: ${rawViewType}. Must be one of: ${CADENZA_VIEW_TYPES.join(', ')}`
 				);
 				return;
 			}
-			viewType = rawViewType as SatelliteViewType;
+			viewType = rawViewType as CadenzaViewType;
 		}
 		if (op === 'open' && !viewType) {
 			sendResult(false, "op 'open' requires a viewType (tracker | file)");
 			return;
 		}
 
-		let color: SatelliteColor | undefined;
+		let color: CadenzaColor | undefined;
 		const rawColor = typeof message.color === 'string' ? message.color : undefined;
 		if (rawColor !== undefined) {
-			if (!SATELLITE_COLORS.includes(rawColor as SatelliteColor)) {
+			if (!CADENZA_COLORS.includes(rawColor as CadenzaColor)) {
 				sendResult(
 					false,
-					`Invalid color: ${rawColor}. Must be one of: ${SATELLITE_COLORS.join(', ')}`
+					`Invalid color: ${rawColor}. Must be one of: ${CADENZA_COLORS.join(', ')}`
 				);
 				return;
 			}
-			color = rawColor as SatelliteColor;
+			color = rawColor as CadenzaColor;
 		}
 
 		// Decision buttons: keep only well-formed { label, value } string pairs.
@@ -4616,7 +4616,7 @@ export class WebSocketMessageHandler {
 				)
 			: undefined;
 
-		const payload: SatellitePayload = {
+		const payload: CadenzaPayload = {
 			op,
 			id,
 			viewType,
@@ -4628,17 +4628,15 @@ export class WebSocketMessageHandler {
 			sessionId: typeof message.sessionId === 'string' ? message.sessionId : undefined,
 		};
 
-		if (!this.callbacks.satelliteView) {
-			sendResult(false, 'Satellite views not configured');
+		if (!this.callbacks.cadenzaView) {
+			sendResult(false, 'Cadenza views not configured');
 			return;
 		}
 
 		this.callbacks
-			.satelliteView(payload)
-			.then((success) =>
-				sendResult(success, success ? undefined : 'Failed to update satellite view')
-			)
-			.catch((error) => sendResult(false, `Failed to update satellite view: ${error.message}`));
+			.cadenzaView(payload)
+			.then((success) => sendResult(success, success ? undefined : 'Failed to update cadenza view'))
+			.catch((error) => sendResult(false, `Failed to update cadenza view: ${error.message}`));
 	}
 
 	/**

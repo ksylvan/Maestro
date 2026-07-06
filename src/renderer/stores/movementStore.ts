@@ -1,31 +1,31 @@
 /**
- * canvasStore - Zustand store for the agent-driven canvas: free-placed items,
+ * movementStore - Zustand store for the agent-driven movement: free-placed items,
  * each rendering a BlockView tree. Fed by the CLI/web bridge
- * (`remote:canvas` -> useRemoteIntegration -> applyCanvasPayload). Presentational
- * state only; CanvasOverlay renders the items. Usable outside React via
- * useCanvasStore.getState() (the bridge builds its `state` snapshot from here).
+ * (`remote:movement` -> useRemoteIntegration -> applyMovementPayload). Presentational
+ * state only; MovementOverlay renders the items. Usable outside React via
+ * useMovementStore.getState() (the bridge builds its `state` snapshot from here).
  */
 
 import { create } from 'zustand';
-import type { CanvasPayload, CanvasStateSnapshot } from '../../shared/canvas-types';
+import type { MovementPayload, MovementStateSnapshot } from '../../shared/movement-types';
 import type { BlockSpec } from '../components/BlockView';
 
 /** Default item width when the agent doesn't specify one (px). */
-export const CANVAS_ITEM_DEFAULT_WIDTH = 320;
+export const MOVEMENT_ITEM_DEFAULT_WIDTH = 320;
 
-/** A resolved canvas item ready to render (spec parsed, defaults applied). */
-export interface CanvasItem {
+/** A resolved movement item ready to render (spec parsed, defaults applied). */
+export interface MovementItem {
 	id: string;
 	x: number;
 	y: number;
-	/** Fixed width; defaults to CANVAS_ITEM_DEFAULT_WIDTH. */
+	/** Fixed width; defaults to MOVEMENT_ITEM_DEFAULT_WIDTH. */
 	width: number;
 	/** Optional fixed height; unset = sized to content. */
 	height?: number;
 	title?: string;
 	/** Parsed BlockView spec. Parse failures become an error callout. */
 	spec: BlockSpec;
-	/** Actual rendered height (px), measured by the overlay - so `canvas state`
+	/** Actual rendered height (px), measured by the overlay - so `movement state`
 	 *  reports a real footprint even for auto-sized (unset `height`) panels. */
 	measuredHeight?: number;
 	timestamp: number;
@@ -37,22 +37,22 @@ function parseSpec(body: string | undefined): BlockSpec {
 	try {
 		return JSON.parse(body) as BlockSpec;
 	} catch {
-		return { blocks: [{ kind: 'callout', text: 'Invalid canvas item JSON', color: 'error' }] };
+		return { blocks: [{ kind: 'callout', text: 'Invalid movement item JSON', color: 'error' }] };
 	}
 }
 
-export interface CanvasStoreState {
-	items: CanvasItem[];
-	/** Canvas viewport size (px), reported by the overlay for agent awareness. */
+export interface MovementStoreState {
+	items: MovementItem[];
+	/** Movement viewport size (px), reported by the overlay for agent awareness. */
 	viewportWidth: number;
 	viewportHeight: number;
 	/** User "stash" toggle: hide the whole overlay without removing items. */
 	hidden: boolean;
 }
 
-export interface CanvasStoreActions {
-	upsertItem: (item: CanvasItem) => void;
-	patchItem: (id: string, patch: Partial<Omit<CanvasItem, 'id'>>) => void;
+export interface MovementStoreActions {
+	upsertItem: (item: MovementItem) => void;
+	patchItem: (id: string, patch: Partial<Omit<MovementItem, 'id'>>) => void;
 	moveItem: (id: string, x: number, y: number) => void;
 	resizeItem: (id: string, width: number, height: number) => void;
 	setMeasuredHeight: (id: string, height: number) => void;
@@ -62,13 +62,13 @@ export interface CanvasStoreActions {
 	setHidden: (hidden: boolean) => void;
 }
 
-export type CanvasStore = CanvasStoreState & CanvasStoreActions;
+export type MovementStore = MovementStoreState & MovementStoreActions;
 
 /** Smallest a user can drag a panel down to (px). */
 const MIN_ITEM_WIDTH = 200;
 const MIN_ITEM_HEIGHT = 120;
 
-export const useCanvasStore = create<CanvasStore>()((set) => ({
+export const useMovementStore = create<MovementStore>()((set) => ({
 	items: [],
 	viewportWidth: 0,
 	viewportHeight: 0,
@@ -128,9 +128,9 @@ export const useCanvasStore = create<CanvasStore>()((set) => ({
 /** Cascade offset so items opened without a position don't stack on one pixel. */
 let cascadeIndex = 0;
 
-/** Apply an incoming canvas payload from the bridge to the store. */
-export function applyCanvasPayload(p: CanvasPayload): void {
-	const store = useCanvasStore.getState();
+/** Apply an incoming movement payload from the bridge to the store. */
+export function applyMovementPayload(p: MovementPayload): void {
+	const store = useMovementStore.getState();
 
 	if (p.op === 'clear') {
 		store.clearItems();
@@ -149,7 +149,7 @@ export function applyCanvasPayload(p: CanvasPayload): void {
 	}
 
 	if (p.op === 'update') {
-		const patch: Partial<Omit<CanvasItem, 'id'>> = {};
+		const patch: Partial<Omit<MovementItem, 'id'>> = {};
 		if (typeof p.x === 'number') patch.x = p.x;
 		if (typeof p.y === 'number') patch.y = p.y;
 		if (typeof p.width === 'number') patch.width = p.width;
@@ -167,7 +167,7 @@ export function applyCanvasPayload(p: CanvasPayload): void {
 		id: p.id,
 		x: p.x ?? existing?.x ?? 24 + step,
 		y: p.y ?? existing?.y ?? 24 + step,
-		width: p.width ?? existing?.width ?? CANVAS_ITEM_DEFAULT_WIDTH,
+		width: p.width ?? existing?.width ?? MOVEMENT_ITEM_DEFAULT_WIDTH,
 		height: p.height ?? existing?.height,
 		title: p.title ?? existing?.title,
 		spec: p.body !== undefined ? parseSpec(p.body) : (existing?.spec ?? { blocks: [] }),
@@ -175,9 +175,9 @@ export function applyCanvasPayload(p: CanvasPayload): void {
 	});
 }
 
-/** Build the snapshot returned to `maestro-cli canvas state` (agent awareness). */
-export function getCanvasSnapshot(): CanvasStateSnapshot {
-	const { items, viewportWidth, viewportHeight } = useCanvasStore.getState();
+/** Build the snapshot returned to `maestro-cli movement state` (agent awareness). */
+export function getMovementSnapshot(): MovementStateSnapshot {
+	const { items, viewportWidth, viewportHeight } = useMovementStore.getState();
 	return {
 		items: items.map((it) => ({
 			id: it.id,

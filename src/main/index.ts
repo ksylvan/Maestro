@@ -237,8 +237,8 @@ import {
 	createSettingsWatcher,
 	createWindowManager,
 	createQuitHandler,
-	deliverSatelliteToHud,
-	closeSatelliteHudWindow,
+	deliverCadenzaToHud,
+	closeCadenzaHudWindow,
 	type QuitHandler,
 } from './app-lifecycle';
 // Multi-window registry (single source of truth for window<->session ownership)
@@ -605,8 +605,8 @@ let quitHandler: QuitHandler | null = null;
 // app-ready, and secondary windows register via createSecondaryWindow.
 const windowRegistry = new WindowRegistry();
 
-// Shared by the main window and the satellite HUD window (which reuses the same
-// preload + renderer bundle, loaded with `?satelliteHud`).
+// Shared by the main window and the cadenza HUD window (which reuses the same
+// preload + renderer bundle, loaded with `?cadenzaHud`).
 const preloadPath = path.join(__dirname, 'preload.js');
 const rendererProductionUrl = `${RENDERER_SCHEME}://app/index.html`;
 
@@ -630,20 +630,20 @@ const windowManager = createWindowManager({
 	getIsQuitting: () => quitHandler?.isQuitConfirmed() ?? false,
 });
 
-// Deps shared by every satellite HUD window operation (the HUD reuses the main
-// preload + renderer bundle, loaded with `?satelliteHud`).
-const satelliteHudDeps = { isDevelopment, preloadPath, rendererProductionUrl, devServerUrl };
+// Deps shared by every cadenza HUD window operation (the HUD reuses the main
+// preload + renderer bundle, loaded with `?cadenzaHud`).
+const cadenzaHudDeps = { isDevelopment, preloadPath, rendererProductionUrl, devServerUrl };
 
 /**
- * Route a satellite payload to the HUD window (creating it lazily). Returns
+ * Route a cadenza payload to the HUD window (creating it lazily). Returns
  * false when there's no main window to parent it, so the caller can fall back
  * to the in-app renderer.
  */
-function deliverSatellite(payload: Parameters<typeof deliverSatelliteToHud>[2]): boolean {
+function deliverCadenza(payload: Parameters<typeof deliverCadenzaToHud>[2]): boolean {
 	if (!mainWindow) return false;
-	// Agent Views is an opt-in Encore feature: don't spawn the HUD window (or
+	// Concerto is an opt-in Encore feature: don't spawn the HUD window (or
 	// route anything) unless the user enabled it in Extensions.
-	if (store.get('encoreFeatures')?.agentViews !== true) return false;
+	if (store.get('encoreFeatures')?.concerto !== true) return false;
 	// The HUD window has no session store, so resolve the owning agent's display
 	// name here (for the "opened by X" attribution chip) and stamp it on.
 	let stamped = payload;
@@ -652,15 +652,15 @@ function deliverSatellite(payload: Parameters<typeof deliverSatelliteToHud>[2]):
 		const sourceAgent = sessions.find((s) => s.id === payload.sessionId)?.name;
 		if (sourceAgent) stamped = { ...payload, sourceAgent };
 	}
-	return deliverSatelliteToHud(mainWindow, satelliteHudDeps, stamped);
+	return deliverCadenzaToHud(mainWindow, cadenzaHudDeps, stamped);
 }
 
-// A `decision` satellite's chosen option replies to the owning agent: inject the
+// A `decision` cadenza's chosen option replies to the owning agent: inject the
 // value as a live prompt into that agent's session via the main renderer's
 // existing remote-command path (the same one `maestro-cli dispatch` uses). The
 // agent process is already spawned (with SSH if configured), so feeding its live
 // session inherits that transport - no new spawn, no separate SSH handling.
-ipcMain.on('satellite-hud:decision', (_event, sessionId: string, message: string) => {
+ipcMain.on('cadenza-hud:decision', (_event, sessionId: string, message: string) => {
 	if (!mainWindow || mainWindow.isDestroyed()) return;
 	if (!sessionId || !message) return;
 	mainWindow.webContents.send('remote:executeCommand', sessionId, message, 'ai');
@@ -672,7 +672,7 @@ const createWebServer = createWebServerFactory({
 	sessionsStore,
 	groupsStore,
 	getMainWindow: () => mainWindow,
-	deliverSatellite,
+	deliverCadenza,
 	getProcessManager: () => processManager,
 	triggerCueSubscription: (subscriptionName, prompt, sourceAgentId) => {
 		if (!cueEngine) return false;
@@ -702,11 +702,11 @@ function createWindow(options?: { sessionIds?: string[]; bounds?: Partial<Shared
 	// Handle closed event to clear the reference
 	mainWindow.on('closed', () => {
 		mainWindow = null;
-		// The satellite HUD isn't an OS child of the main window (so card clicks
+		// The cadenza HUD isn't an OS child of the main window (so card clicks
 		// can't steal focus), so tear it down explicitly when Maestro closes.
 		// It deliberately stays visible while Maestro is merely minimized - the
 		// whole point of a HUD is to watch things while working in other apps.
-		closeSatelliteHudWindow();
+		closeCadenzaHudWindow();
 
 		// The primary window is the app's anchor: it owns the auto-updater, the
 		// global hotkey, the deep-link target, and the quit-confirmation surface.

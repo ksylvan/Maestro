@@ -60,15 +60,15 @@ import { gistCreate } from './commands/gist';
 import { notifyToast } from './commands/notify-toast';
 import { notifyFlash } from './commands/notify-flash';
 import { profilingStart, profilingStop, profilingStatus } from './commands/profiling';
-import { viewOpen, viewUpdate, viewClose } from './commands/view';
+import { cadenzaOpen, cadenzaUpdate, cadenzaClose } from './commands/cadenza';
 import {
-	canvasAdd,
-	canvasUpdate,
-	canvasMove,
-	canvasRemove,
-	canvasClear,
-	canvasState,
-} from './commands/canvas';
+	movementAdd,
+	movementUpdate,
+	movementMove,
+	movementRemove,
+	movementClear,
+	movementState,
+} from './commands/movement';
 import { stats, statsQuery } from './commands/stats';
 import { renameAgent } from './commands/rename-agent';
 import { renameGroup } from './commands/rename-group';
@@ -1279,14 +1279,14 @@ profiling
 	.option('--json', 'Output as JSON (for scripting)')
 	.action(profilingStatus);
 
-// View commands - open small satellite panels that display or track work.
-const view = program
-	.command('view')
-	.description('Open small satellite views to display or track work in the Maestro desktop app');
+// Cadenza commands - open small cadenza panels that display or track work.
+const cadenza = program
+	.command('cadenza')
+	.description('Open small cadenza views to display or track work in the Maestro desktop app');
 
-view
+cadenza
 	.command('open <id>')
-	.description('Open (or replace by id) a satellite view')
+	.description('Open (or replace by id) a cadenza view')
 	.option(
 		'--type <type>',
 		'tracker | file | markdown | image | code | view | decision (default: tracker)'
@@ -1317,41 +1317,41 @@ view
 	.option('-c, --color <color>', 'green | yellow | orange | red | theme (default: theme)')
 	.option(
 		'-a, --agent <id>',
-		'Owning agent - lets a file satellite expand into its tab, and the reply target for --type decision'
+		'Owning agent - lets a file cadenza expand into its tab, and the reply target for --type decision'
 	)
 	.option('--json', 'Output as JSON (for scripting)')
-	.action(viewOpen);
+	.action(cadenzaOpen);
 
-view
+cadenza
 	.command('update <id>')
-	.description('Update fields of an open satellite in place (the living view)')
+	.description('Update fields of an open cadenza in place (the living view)')
 	.option('--title <text>', 'New header label')
 	.option('--body <text>', 'New body content (tracker line or markdown source)')
 	.option('--body-file <path>', 'Read new body content from a file')
 	.option('--path <path>', 'New file/image path')
 	.option('-c, --color <color>', 'green | yellow | orange | red | theme')
 	.option('--json', 'Output as JSON (for scripting)')
-	.action(viewUpdate);
+	.action(cadenzaUpdate);
 
-view
+cadenza
 	.command('close <id>')
-	.description('Close a satellite view by id')
+	.description('Close a cadenza view by id')
 	.option('--json', 'Output as JSON (for scripting)')
-	.action(viewClose);
+	.action(cadenzaClose);
 
-// Canvas commands - compose the roomy, agent-driven "living view" in the main
+// Movement commands - compose the roomy, agent-driven "living view" in the main
 // window. Each item is free-placed at (x, y) and renders a BlockView JSON spec.
-const canvas = program
-	.command('canvas')
+const movement = program
+	.command('movement')
 	.description(
-		'Compose the agent-driven canvas (free-placed data views) in the Maestro main window'
+		'Compose the agent-driven movement (free-placed data views) in the Maestro main window'
 	);
 
-canvas
+movement
 	.command('add <id>')
-	.description('Add (or replace by id) a canvas item rendering a JSON block spec')
-	.option('--x <px>', 'X position (px from canvas left)')
-	.option('--y <px>', 'Y position (px from canvas top)')
+	.description('Add (or replace by id) a movement item rendering a JSON block spec')
+	.option('--x <px>', 'X position (px from movement left)')
+	.option('--y <px>', 'Y position (px from movement top)')
 	.option('--width <px>', 'Item width in px (default 320)')
 	.option('--height <px>', 'Optional fixed item height in px (default: fit content)')
 	.option('--title <text>', 'Item header title')
@@ -1361,11 +1361,11 @@ canvas
 	)
 	.option('--body-file <path>', 'Read the block spec JSON from a file')
 	.option('--json', 'Output as JSON (for scripting)')
-	.action(canvasAdd);
+	.action(movementAdd);
 
-canvas
+movement
 	.command('update <id>')
-	.description('Update fields of an existing canvas item in place')
+	.description('Update fields of an existing movement item in place')
 	.option('--x <px>', 'New X position')
 	.option('--y <px>', 'New Y position')
 	.option('--width <px>', 'New width')
@@ -1374,33 +1374,33 @@ canvas
 	.option('--body <json>', 'New block spec JSON')
 	.option('--body-file <path>', 'Read the new block spec JSON from a file')
 	.option('--json', 'Output as JSON (for scripting)')
-	.action(canvasUpdate);
+	.action(movementUpdate);
 
-canvas
+movement
 	.command('move <id>')
-	.description('Reposition a canvas item')
+	.description('Reposition a movement item')
 	.requiredOption('--x <px>', 'New X position')
 	.requiredOption('--y <px>', 'New Y position')
 	.option('--json', 'Output as JSON (for scripting)')
-	.action(canvasMove);
+	.action(movementMove);
 
-canvas
+movement
 	.command('remove <id>')
-	.description('Remove a canvas item by id')
+	.description('Remove a movement item by id')
 	.option('--json', 'Output as JSON (for scripting)')
-	.action(canvasRemove);
+	.action(movementRemove);
 
-canvas
+movement
 	.command('clear')
-	.description('Remove all canvas items')
+	.description('Remove all movement items')
 	.option('--json', 'Output as JSON (for scripting)')
-	.action(canvasClear);
+	.action(movementClear);
 
-canvas
+movement
 	.command('state')
-	.description('Read the current canvas layout (items + size) to compose around it')
+	.description('Read the current movement layout (items + size) to compose around it')
 	.option('--json', 'Output as JSON (for scripting)')
-	.action(canvasState);
+	.action(movementState);
 
 // Stats commands - introspect the Usage Dashboard's SQLite store (requires the
 // running Maestro desktop app, which owns the open database).

@@ -1,1 +1,0 @@
-export { SatelliteLayer } from './SatelliteLayer';

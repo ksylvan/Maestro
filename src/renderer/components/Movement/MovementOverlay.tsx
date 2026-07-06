@@ -1,7 +1,7 @@
 /**
- * CanvasOverlay - the agent-composed "living view" as an in-app floating layer.
+ * MovementOverlay - the agent-composed "living view" as an in-app floating layer.
  *
- * This is the sweet spot between a satellite (tiny floating card) and a full
+ * This is the sweet spot between a cadenza (tiny floating card) and a full
  * window: panels float ABOVE the Maestro UI, in the same window, so the user
  * sees them while working - no OS window (no focus-steal / multi-monitor issues)
  * and no full-window mode switch. Rendered via a portal as a `pointer-events-none`
@@ -9,30 +9,36 @@
  *
  * Panels are free-placed (agent sets x/y), draggable by the header, and
  * resizable by the corner. Each renders a BlockView tree. The agent drives them
- * over the `canvas` bridge; the user can drag, resize, close, or stash them all.
+ * over the `movement` bridge; the user can drag, resize, close, or stash them all.
  */
 
 import { memo, useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { X, EyeOff, LayoutGrid } from 'lucide-react';
 import type { Theme } from '../../types';
-import { useCanvasStore, type CanvasItem } from '../../stores/canvasStore';
+import { useMovementStore, type MovementItem } from '../../stores/movementStore';
 import { BlockView } from '../BlockView';
 
-interface CanvasOverlayProps {
+interface MovementOverlayProps {
 	theme: Theme;
 }
 
 /** Above app content; below momentary overlays (Center Flash) which sit at 100000. */
-const CANVAS_Z = 90000;
+const MOVEMENT_Z = 90000;
 /** Auto-height panels scroll internally past this; resized panels use their height. */
 const AUTO_MAX_HEIGHT = 560;
 
-const CanvasPanel = memo(function CanvasPanel({ item, theme }: { item: CanvasItem; theme: Theme }) {
-	const moveItem = useCanvasStore((s) => s.moveItem);
-	const resizeItem = useCanvasStore((s) => s.resizeItem);
-	const removeItem = useCanvasStore((s) => s.removeItem);
-	const setMeasuredHeight = useCanvasStore((s) => s.setMeasuredHeight);
+const MovementPanel = memo(function MovementPanel({
+	item,
+	theme,
+}: {
+	item: MovementItem;
+	theme: Theme;
+}) {
+	const moveItem = useMovementStore((s) => s.moveItem);
+	const resizeItem = useMovementStore((s) => s.resizeItem);
+	const removeItem = useMovementStore((s) => s.removeItem);
+	const setMeasuredHeight = useMovementStore((s) => s.setMeasuredHeight);
 
 	const onDragStart = (e: ReactPointerEvent<HTMLDivElement>) => {
 		if ((e.target as HTMLElement).closest('button')) return;
@@ -71,7 +77,7 @@ const CanvasPanel = memo(function CanvasPanel({ item, theme }: { item: CanvasIte
 
 	const frameRef = useRef<HTMLDivElement>(null);
 
-	// Report the panel's real rendered height to the store so `canvas state`
+	// Report the panel's real rendered height to the store so `movement state`
 	// gives the agent an accurate footprint (even for auto-sized panels).
 	useEffect(() => {
 		const el = frameRef.current;
@@ -115,7 +121,7 @@ const CanvasPanel = memo(function CanvasPanel({ item, theme }: { item: CanvasIte
 					className="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded transition-opacity opacity-70 hover:opacity-100"
 					style={{ color: theme.colors.textDim }}
 					title="Close panel"
-					aria-label="Close canvas panel"
+					aria-label="Close movement panel"
 				>
 					<X className="w-3.5 h-3.5" strokeWidth={2.5} />
 				</button>
@@ -142,14 +148,14 @@ const CanvasPanel = memo(function CanvasPanel({ item, theme }: { item: CanvasIte
 	);
 });
 
-export const CanvasOverlay = memo(function CanvasOverlay({ theme }: CanvasOverlayProps) {
-	const items = useCanvasStore((s) => s.items);
-	const hidden = useCanvasStore((s) => s.hidden);
-	const setHidden = useCanvasStore((s) => s.setHidden);
-	const setViewport = useCanvasStore((s) => s.setViewport);
+export const MovementOverlay = memo(function MovementOverlay({ theme }: MovementOverlayProps) {
+	const items = useMovementStore((s) => s.items);
+	const hidden = useMovementStore((s) => s.hidden);
+	const setHidden = useMovementStore((s) => s.setHidden);
+	const setViewport = useMovementStore((s) => s.setViewport);
 
 	// Report the window size to the store (the overlay spans the window), so the
-	// agent's `canvas state` read knows the space it's composing into.
+	// agent's `movement state` read knows the space it's composing into.
 	useEffect(() => {
 		const report = () => setViewport(window.innerWidth, window.innerHeight);
 		report();
@@ -160,7 +166,7 @@ export const CanvasOverlay = memo(function CanvasOverlay({ theme }: CanvasOverla
 	if (items.length === 0) return null;
 
 	return createPortal(
-		<div className="fixed inset-0 pointer-events-none" style={{ zIndex: CANVAS_Z }}>
+		<div className="fixed inset-0 pointer-events-none" style={{ zIndex: MOVEMENT_Z }}>
 			{hidden ? (
 				<button
 					type="button"
@@ -171,7 +177,7 @@ export const CanvasOverlay = memo(function CanvasOverlay({ theme }: CanvasOverla
 						color: theme.colors.textMain,
 						border: `1px solid ${theme.colors.border}`,
 					}}
-					title="Show canvas panels"
+					title="Show movement panels"
 				>
 					<LayoutGrid className="w-3.5 h-3.5" strokeWidth={2.5} />
 					{items.length} {items.length === 1 ? 'panel' : 'panels'}
@@ -179,7 +185,7 @@ export const CanvasOverlay = memo(function CanvasOverlay({ theme }: CanvasOverla
 			) : (
 				<>
 					{items.map((item) => (
-						<CanvasPanel key={item.id} item={item} theme={theme} />
+						<MovementPanel key={item.id} item={item} theme={theme} />
 					))}
 					<button
 						type="button"
@@ -190,7 +196,7 @@ export const CanvasOverlay = memo(function CanvasOverlay({ theme }: CanvasOverla
 							color: theme.colors.textDim,
 							border: `1px solid ${theme.colors.border}`,
 						}}
-						title="Hide all canvas panels"
+						title="Hide all movement panels"
 					>
 						<EyeOff className="w-3 h-3" strokeWidth={2.5} />
 						Hide panels

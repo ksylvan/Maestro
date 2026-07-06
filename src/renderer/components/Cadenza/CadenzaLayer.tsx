@@ -1,14 +1,14 @@
 /**
- * SatelliteLayer - single, app-wide layer for satellite views: free-floating,
+ * CadenzaLayer - single, app-wide layer for cadenza views: free-floating,
  * draggable windows the agent spawns to display/track work and (soon) drive
  * decisions. Mounted once near the app root (App.tsx); subscribes to
- * satelliteStore. Presentational only - satellites are created/updated/closed
+ * cadenzaStore. Presentational only - cadenzas are created/updated/closed
  * through the CLI/web bridge.
  *
  * Each card is absolutely positioned (cascades on open, drag the header to
  * move), shows the owning agent for fleet attribution, and can collapse to its
  * title bar. View types: tracker | file | markdown | image | code | view.
- * Color mapping mirrors CenterFlash so satellites read consistently per theme.
+ * Color mapping mirrors CenterFlash so cadenzas read consistently per theme.
  */
 
 import { memo, useEffect, useState, type PointerEvent as ReactPointerEvent } from 'react';
@@ -28,13 +28,13 @@ import {
 	type LucideIcon,
 } from 'lucide-react';
 import type { Theme } from '../../types';
-import type { SatelliteColor, SatelliteViewType } from '../../../shared/satellite-types';
-import { useSatelliteStore, type SatelliteView } from '../../stores/satelliteStore';
+import type { CadenzaColor, CadenzaViewType } from '../../../shared/cadenza-types';
+import { useCadenzaStore, type CadenzaView } from '../../stores/cadenzaStore';
 import { getBasename, getParentDir } from '../../../shared/formatters';
 import { Markdown } from '../Markdown';
-import { SatelliteBlocks } from './SatelliteBlocks';
+import { CadenzaBlocks } from './CadenzaBlocks';
 
-interface SatelliteLayerProps {
+interface CadenzaLayerProps {
 	theme: Theme;
 	/** True when rendered inside the desktop HUD window (a separate renderer with
 	 *  no in-app event listeners), so interactions route to main via IPC. */
@@ -44,7 +44,7 @@ interface SatelliteLayerProps {
 /** Fallback orange - no theme defines this slot (matches CenterFlash). */
 const ORANGE_HEX = '#f97316';
 
-const ICON_FOR_TYPE: Record<SatelliteViewType, LucideIcon> = {
+const ICON_FOR_TYPE: Record<CadenzaViewType, LucideIcon> = {
 	tracker: Activity,
 	file: FileText,
 	markdown: ScrollText,
@@ -60,7 +60,7 @@ const CARD_WIDTH_CONTENT = 360;
 /** Content windows scroll internally rather than growing without bound. */
 const CONTENT_MAX_HEIGHT = 320;
 
-function colorValue(color: SatelliteColor, theme: Theme): string {
+function colorValue(color: CadenzaColor, theme: Theme): string {
 	switch (color) {
 		case 'green':
 			return theme.colors.success;
@@ -76,13 +76,13 @@ function colorValue(color: SatelliteColor, theme: Theme): string {
 	}
 }
 
-/** Expand a file satellite into its agent's real File Preview tab. */
-function expandFile(view: SatelliteView, isHud: boolean): void {
+/** Expand a file cadenza into its agent's real File Preview tab. */
+function expandFile(view: CadenzaView, isHud: boolean): void {
 	if (!view.sessionId || !view.path) return;
 	if (isHud) {
 		// The HUD is a separate window with no in-app listeners; route to the main
 		// window through the preload bridge, which raises Maestro and opens the tab.
-		window.maestro?.process?.openSatelliteFileTab?.(view.sessionId, view.path);
+		window.maestro?.process?.openCadenzaFileTab?.(view.sessionId, view.path);
 		return;
 	}
 	// In-app: reuse the CLI/remote file-open path; useAppRemoteEventListeners
@@ -95,18 +95,18 @@ function expandFile(view: SatelliteView, isHud: boolean): void {
 }
 
 /** Reply to the owning agent with a decision option's value (live prompt inject). */
-function sendDecision(view: SatelliteView, value: string): void {
+function sendDecision(view: CadenzaView, value: string): void {
 	if (!view.sessionId) return;
-	window.maestro?.process?.sendSatelliteDecision?.(view.sessionId, value);
+	window.maestro?.process?.sendCadenzaDecision?.(view.sessionId, value);
 }
 
-const SatelliteCard = memo(function SatelliteCard({
+const CadenzaCard = memo(function CadenzaCard({
 	view,
 	theme,
 	isHud,
 	onClose,
 }: {
-	view: SatelliteView;
+	view: CadenzaView;
 	theme: Theme;
 	isHud: boolean;
 	onClose: (id: string) => void;
@@ -121,7 +121,7 @@ const SatelliteCard = memo(function SatelliteCard({
 		view.viewType === 'view' ||
 		view.viewType === 'decision';
 	const [collapsed, setCollapsed] = useState(false);
-	const moveSatellite = useSatelliteStore((s) => s.moveSatellite);
+	const moveCadenza = useCadenzaStore((s) => s.moveCadenza);
 
 	/** Drag the whole card by its header (ignore drags starting on a button). */
 	const onDragStart = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -132,7 +132,7 @@ const SatelliteCard = memo(function SatelliteCard({
 		const originX = view.x ?? 0;
 		const originY = view.y ?? 0;
 		const onMove = (ev: PointerEvent) => {
-			moveSatellite(
+			moveCadenza(
 				view.id,
 				Math.max(0, originX + (ev.clientX - startX)),
 				Math.max(0, originY + (ev.clientY - startY))
@@ -148,7 +148,7 @@ const SatelliteCard = memo(function SatelliteCard({
 
 	return (
 		<div
-			data-satellite-card
+			data-cadenza-card
 			onMouseDown={(e) => {
 				// In the HUD window, prevent the mousedown from grabbing DOM focus:
 				// on Windows that focus grab activates the HUD window and deactivates
@@ -202,7 +202,7 @@ const SatelliteCard = memo(function SatelliteCard({
 					className="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded transition-opacity opacity-70 hover:opacity-100"
 					style={{ color: theme.colors.textDim }}
 					title={collapsed ? 'Expand' : 'Collapse'}
-					aria-label={collapsed ? 'Expand satellite' : 'Collapse satellite'}
+					aria-label={collapsed ? 'Expand cadenza' : 'Collapse cadenza'}
 				>
 					{collapsed ? (
 						<ChevronRight className="w-3.5 h-3.5" strokeWidth={2.5} />
@@ -228,7 +228,7 @@ const SatelliteCard = memo(function SatelliteCard({
 					className="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded transition-opacity opacity-70 hover:opacity-100"
 					style={{ color: theme.colors.textDim }}
 					title="Close"
-					aria-label="Close satellite"
+					aria-label="Close cadenza"
 				>
 					<X className="w-3.5 h-3.5" strokeWidth={2.5} />
 				</button>
@@ -290,7 +290,7 @@ const SatelliteCard = memo(function SatelliteCard({
 							className="px-3 pb-2.5 pt-0.5 select-text overflow-auto"
 							style={{ maxHeight: CONTENT_MAX_HEIGHT }}
 						>
-							<SatelliteBlocks spec={view.body} theme={theme} />
+							<CadenzaBlocks spec={view.body} theme={theme} />
 						</div>
 					)}
 
@@ -333,12 +333,12 @@ const SatelliteCard = memo(function SatelliteCard({
 	);
 });
 
-export const SatelliteLayer = memo(function SatelliteLayer({
+export const CadenzaLayer = memo(function CadenzaLayer({
 	theme,
 	isHud = false,
-}: SatelliteLayerProps) {
-	const satellites = useSatelliteStore((s) => s.satellites);
-	const removeSatellite = useSatelliteStore((s) => s.removeSatellite);
+}: CadenzaLayerProps) {
+	const cadenzas = useCadenzaStore((s) => s.cadenzas);
+	const removeCadenza = useCadenzaStore((s) => s.removeCadenza);
 
 	// HUD only: report each card's hit region to the main process, which polls the
 	// cursor against them to toggle click-through (cross-platform - no reliance on
@@ -347,32 +347,32 @@ export const SatelliteLayer = memo(function SatelliteLayer({
 	useEffect(() => {
 		if (!isHud) return;
 		const report = () => {
-			const rects = Array.from(document.querySelectorAll('[data-satellite-card]')).map((el) => {
+			const rects = Array.from(document.querySelectorAll('[data-cadenza-card]')).map((el) => {
 				const r = el.getBoundingClientRect();
 				return { x: r.left, y: r.top, width: r.width, height: r.height };
 			});
-			window.maestro?.process?.setSatelliteHudCardRects?.(rects);
+			window.maestro?.process?.setCadenzaHudCardRects?.(rects);
 		};
 		const raf = requestAnimationFrame(report);
 		const observer = new ResizeObserver(report);
-		document.querySelectorAll('[data-satellite-card]').forEach((el) => observer.observe(el));
+		document.querySelectorAll('[data-cadenza-card]').forEach((el) => observer.observe(el));
 		return () => {
 			cancelAnimationFrame(raf);
 			observer.disconnect();
 		};
-	}, [isHud, satellites]);
+	}, [isHud, cadenzas]);
 
-	if (satellites.length === 0) return null;
+	if (cadenzas.length === 0) return null;
 
 	return createPortal(
 		<div className="fixed inset-0 pointer-events-none" style={{ zIndex: 100000 }}>
-			{satellites.map((view) => (
-				<SatelliteCard
+			{cadenzas.map((view) => (
+				<CadenzaCard
 					key={view.id}
 					view={view}
 					theme={theme}
 					isHud={isHud}
-					onClose={removeSatellite}
+					onClose={removeCadenza}
 				/>
 			))}
 		</div>,

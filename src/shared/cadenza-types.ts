@@ -1,7 +1,7 @@
 /**
- * Satellite views - small, agent-openable panels that display or track what the
+ * Cadenza views - small, agent-openable panels that display or track what the
  * user is working on. Opened via `maestro-cli view` (a "Poke" primitive), they
- * ride the same CLI -> WebSocket -> main -> `remote:satellite` -> renderer bridge
+ * ride the same CLI -> WebSocket -> main -> `remote:cadenza` -> renderer bridge
  * that `notify_toast` uses.
  *
  * This is the first, additive slice of the larger view-first "dynamic interface"
@@ -13,7 +13,7 @@
  */
 
 /**
- * What a satellite renders:
+ * What a cadenza renders:
  *   tracker  - a live title + body line the agent updates in place
  *   file     - a pin to a file the user can expand into a File Preview tab
  *   markdown - rich content the agent wants to show (text, code, tables,
@@ -26,7 +26,7 @@
  *   decision - a prompt (`body`) plus `options` buttons; clicking one replies to
  *              the owning agent with that option's value (a live prompt inject)
  */
-export type SatelliteViewType =
+export type CadenzaViewType =
 	| 'tracker'
 	| 'file'
 	| 'markdown'
@@ -35,8 +35,8 @@ export type SatelliteViewType =
 	| 'view'
 	| 'decision';
 
-/** One choice on a `decision` satellite. Clicking sends `value` to the agent. */
-export interface SatelliteDecisionOption {
+/** One choice on a `decision` cadenza. Clicking sends `value` to the agent. */
+export interface CadenzaDecisionOption {
 	/** Button label shown to the user. */
 	label: string;
 	/** Message replied to the owning agent when this option is chosen. */
@@ -44,9 +44,9 @@ export interface SatelliteDecisionOption {
 }
 
 /** Same five-color language as Toast / Center Flash. `theme` matches the active theme. */
-export type SatelliteColor = 'green' | 'yellow' | 'orange' | 'red' | 'theme';
+export type CadenzaColor = 'green' | 'yellow' | 'orange' | 'red' | 'theme';
 
-export const SATELLITE_COLORS: readonly SatelliteColor[] = [
+export const CADENZA_COLORS: readonly CadenzaColor[] = [
 	'green',
 	'yellow',
 	'orange',
@@ -54,7 +54,7 @@ export const SATELLITE_COLORS: readonly SatelliteColor[] = [
 	'theme',
 ] as const;
 
-export const SATELLITE_VIEW_TYPES: readonly SatelliteViewType[] = [
+export const CADENZA_VIEW_TYPES: readonly CadenzaViewType[] = [
 	'tracker',
 	'file',
 	'markdown',
@@ -64,23 +64,23 @@ export const SATELLITE_VIEW_TYPES: readonly SatelliteViewType[] = [
 	'decision',
 ] as const;
 
-/** open = create or replace by id; update = merge fields into an open satellite
+/** open = create or replace by id; update = merge fields into an open cadenza
  *  (the "living" behavior); close = remove it. */
-export type SatelliteOp = 'open' | 'update' | 'close';
+export type CadenzaOp = 'open' | 'update' | 'close';
 
-export const SATELLITE_OPS: readonly SatelliteOp[] = ['open', 'update', 'close'] as const;
+export const CADENZA_OPS: readonly CadenzaOp[] = ['open', 'update', 'close'] as const;
 
 /**
- * The payload sent across the bridge for every satellite operation. `id` is a
- * stable, caller-chosen key so `update`/`close` can target an open satellite.
+ * The payload sent across the bridge for every cadenza operation. `id` is a
+ * stable, caller-chosen key so `update`/`close` can target an open cadenza.
  * On `open`, `viewType` is required; other fields are optional refinements.
  */
-export interface SatellitePayload {
-	op: SatelliteOp;
-	/** Stable id chosen by the agent; identifies the satellite for update/close. */
+export interface CadenzaPayload {
+	op: CadenzaOp;
+	/** Stable id chosen by the agent; identifies the cadenza for update/close. */
 	id: string;
 	/** Required on `open`; ignored on `close`. */
-	viewType?: SatelliteViewType;
+	viewType?: CadenzaViewType;
 	/** Header label. */
 	title?: string;
 	/** Tracker line (tracker), markdown source (markdown), or JSON block spec
@@ -89,10 +89,10 @@ export interface SatellitePayload {
 	/** File path for the `file` type, or the image path for the `image` type. */
 	path?: string;
 	/** Accent color; defaults to `theme`. */
-	color?: SatelliteColor;
+	color?: CadenzaColor;
 	/** Choice buttons for the `decision` type. */
-	options?: SatelliteDecisionOption[];
-	/** Owning agent, so the user can expand the satellite into that agent's tab. */
+	options?: CadenzaDecisionOption[];
+	/** Owning agent, so the user can expand the cadenza into that agent's tab. */
 	sessionId?: string;
 	/**
 	 * Resolved display name of the owning agent, stamped by the main process when

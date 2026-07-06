@@ -20,8 +20,8 @@ import { ToastContainer } from './Toast';
 import { CenterFlash } from './CenterFlash';
 import { ThoughtStreamPanel } from './ThoughtStreamPanel';
 import { PermissionPrompt } from './PermissionPrompt';
-import { SatelliteLayer } from './Satellite';
-import { CanvasOverlay } from './Canvas';
+import { CadenzaLayer } from './Cadenza';
+import { MovementOverlay } from './Movement';
 import type { Group, GroupChat, Session, Theme } from '../types';
 
 type SessionListProps = ComponentProps<typeof SessionList>;
@@ -37,7 +37,7 @@ export interface AppShellProps {
 	isMobileLandscape: boolean;
 	useNativeTitleBar: boolean;
 	isMdDownViewport: boolean;
-	agentViewsEnabled: boolean;
+	concertoEnabled: boolean;
 
 	activeGroupChatId: string | null;
 	groupChats: GroupChat[];
@@ -80,7 +80,7 @@ export function AppShell({
 	isMobileLandscape,
 	useNativeTitleBar,
 	isMdDownViewport,
-	agentViewsEnabled,
+	concertoEnabled,
 	activeGroupChatId,
 	groupChats,
 	groups,
@@ -252,10 +252,10 @@ export function AppShell({
 			<ThoughtStreamPanel theme={theme} />
 			{/* --- PERMISSION PROMPT (Claude Code standard mode; portal) --- */}
 			<PermissionPrompt theme={theme} />
-			{agentViewsEnabled && (
+			{concertoEnabled && (
 				<>
-					<SatelliteLayer theme={theme} />
-					<CanvasOverlay theme={theme} />
+					<CadenzaLayer theme={theme} />
+					<MovementOverlay theme={theme} />
 				</>
 			)}
 		</div>

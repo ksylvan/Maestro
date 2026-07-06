@@ -11,12 +11,12 @@ export {
 	type WindowManagerDependencies,
 } from './window-manager';
 export {
-	ensureSatelliteHudWindow,
-	deliverSatelliteToHud,
-	getSatelliteHudWindow,
-	closeSatelliteHudWindow,
-	type SatelliteHudWindowDeps,
-} from './satellite-hud-window';
+	ensureCadenzaHudWindow,
+	deliverCadenzaToHud,
+	getCadenzaHudWindow,
+	closeCadenzaHudWindow,
+	type CadenzaHudWindowDeps,
+} from './cadenza-hud-window';
 export { createQuitHandler, type QuitHandler, type QuitHandlerDependencies } from './quit-handler';
 export {
 	createSettingsWatcher,

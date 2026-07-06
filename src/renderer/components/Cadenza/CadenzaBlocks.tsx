@@ -1,5 +1,5 @@
 /**
- * SatelliteBlocks - adapter that renders a `view` satellite's JSON block spec.
+ * CadenzaBlocks - adapter that renders a `view` cadenza's JSON block spec.
  * Parses the agent-authored JSON string and hands it to the shared BlockView
  * engine (the composable, theme-styled block renderer). All block kinds, layout,
  * and styling live in BlockView; this only owns the string parse + error UI.
@@ -9,7 +9,7 @@ import { memo } from 'react';
 import type { Theme } from '../../types';
 import { BlockView, type BlockSpec } from '../BlockView';
 
-export const SatelliteBlocks = memo(function SatelliteBlocks({
+export const CadenzaBlocks = memo(function CadenzaBlocks({
 	spec,
 	theme,
 }: {

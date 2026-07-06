@@ -21,8 +21,8 @@ import { parseGitBranches } from '../../shared/gitUtils';
 import type { Shortcut } from '../../shared/shortcut-types';
 import type { WebPlaybook, CueSubscriptionInfo, CueActivityEntry } from './types';
 import type { CueGraphSession, CueRunResult } from '../../shared/cue/contracts';
-import type { SatellitePayload } from '../../shared/satellite-types';
-import type { CanvasStateSnapshot } from '../../shared/canvas-types';
+import type { CadenzaPayload } from '../../shared/cadenza-types';
+import type { MovementStateSnapshot } from '../../shared/movement-types';
 import { composeCueSubscriptionId } from '../../shared/cue/subscription-id';
 import { getDefaultShell } from '../stores/defaults';
 import { buildWebSettingsSnapshot } from './web-settings-snapshot';
@@ -92,12 +92,12 @@ export interface WebServerFactoryDependencies {
 	/** Function to get the main window reference */
 	getMainWindow: () => BrowserWindow | null;
 	/**
-	 * Deliver a satellite payload to the desktop HUD window - the transparent,
-	 * always-on-top overlay that floats satellite views over other apps (created
+	 * Deliver a cadenza payload to the desktop HUD window - the transparent,
+	 * always-on-top overlay that floats cadenza views over other apps (created
 	 * lazily, buffered until its renderer subscribes). Returns true if the HUD
 	 * handled it; false (or absent) means fall back to the in-app renderer.
 	 */
-	deliverSatellite?: (payload: SatellitePayload) => boolean;
+	deliverCadenza?: (payload: CadenzaPayload) => boolean;
 	/** Function to get the process manager reference */
 	getProcessManager: () => ProcessManager | null;
 	/** Direct CUE subscription trigger — bypasses renderer IPC round-trip */
@@ -137,7 +137,7 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 		sessionsStore,
 		groupsStore,
 		getMainWindow,
-		deliverSatellite,
+		deliverCadenza,
 		getProcessManager,
 	} = deps;
 
@@ -901,62 +901,62 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 			return true;
 		});
 
-		server.setSatelliteViewCallback(async (params) => {
+		server.setCadenzaViewCallback(async (params) => {
 			// Prefer the desktop HUD window (floats over other apps). It buffers the
 			// payload internally until its renderer subscribes.
-			if (deliverSatellite?.(params)) return true;
+			if (deliverCadenza?.(params)) return true;
 
 			// Fall back to the in-app renderer if the HUD can't be created.
 			const mainWindow = getMainWindow();
 			if (!mainWindow) {
-				logger.warn('no window available for satelliteView', 'WebServer');
+				logger.warn('no window available for cadenzaView', 'WebServer');
 				return false;
 			}
 			if (!isWebContentsAvailable(mainWindow)) {
-				logger.warn('webContents is not available for satelliteView', 'WebServer');
+				logger.warn('webContents is not available for cadenzaView', 'WebServer');
 				return false;
 			}
-			mainWindow.webContents.send('remote:satellite', params);
+			mainWindow.webContents.send('remote:cadenza', params);
 			return true;
 		});
 
-		// Canvas ops go to the main renderer, which applies them to the in-app
-		// floating canvas overlay. Gated by the Agent Views Encore feature: when
+		// Movement ops go to the main renderer, which applies them to the in-app
+		// floating movement overlay. Gated by the Concerto Encore feature: when
 		// off, drop the payload so the opt-in feature stays fully inert.
-		server.setCanvasViewCallback(async (params) => {
-			if (settingsStore.get<{ agentViews?: boolean }>('encoreFeatures', {}).agentViews !== true)
+		server.setMovementViewCallback(async (params) => {
+			if (settingsStore.get<{ concerto?: boolean }>('encoreFeatures', {}).concerto !== true)
 				return false;
 			const mainWindow = getMainWindow();
 			if (!mainWindow) {
-				logger.warn('mainWindow is null for canvasView', 'WebServer');
+				logger.warn('mainWindow is null for movementView', 'WebServer');
 				return false;
 			}
 			if (!isWebContentsAvailable(mainWindow)) {
-				logger.warn('webContents is not available for canvasView', 'WebServer');
+				logger.warn('webContents is not available for movementView', 'WebServer');
 				return false;
 			}
-			mainWindow.webContents.send('remote:canvas', params);
+			mainWindow.webContents.send('remote:movement', params);
 			return true;
 		});
 
-		// `canvas state` read: ask the renderer for the current snapshot (items +
+		// `movement state` read: ask the renderer for the current snapshot (items +
 		// size) and return it, so an agent can place items around what's there.
-		server.setGetCanvasStateCallback(async () => {
-			if (settingsStore.get<{ agentViews?: boolean }>('encoreFeatures', {}).agentViews !== true)
+		server.setGetMovementStateCallback(async () => {
+			if (settingsStore.get<{ concerto?: boolean }>('encoreFeatures', {}).concerto !== true)
 				return null;
 			const mainWindow = getMainWindow();
 			if (!mainWindow || !isWebContentsAvailable(mainWindow)) return null;
-			return new Promise<CanvasStateSnapshot | null>((resolve) => {
-				const responseChannel = `remote:getCanvasState:response:${randomUUID()}`;
+			return new Promise<MovementStateSnapshot | null>((resolve) => {
+				const responseChannel = `remote:getMovementState:response:${randomUUID()}`;
 				let resolved = false;
 				const handleResponse = (_event: Electron.IpcMainEvent, snapshot: unknown) => {
 					if (resolved) return;
 					resolved = true;
 					clearTimeout(timeoutId);
-					resolve((snapshot as CanvasStateSnapshot) ?? null);
+					resolve((snapshot as MovementStateSnapshot) ?? null);
 				};
 				ipcMain.once(responseChannel, handleResponse);
-				mainWindow.webContents.send('remote:getCanvasState', responseChannel);
+				mainWindow.webContents.send('remote:getMovementState', responseChannel);
 				const timeoutId = setTimeout(() => {
 					if (resolved) return;
 					resolved = true;

@@ -1,8 +1,8 @@
 /**
- * Satellite HUD window - a transparent, frameless, always-on-top child window
- * that floats the agent's satellite views over other applications (a desktop
- * HUD). It reuses the main renderer bundle loaded with `?satelliteHud`, which
- * boots into SatelliteHudRoot (floating cards only, transparent background).
+ * Cadenza HUD window - a transparent, frameless, always-on-top child window
+ * that floats the agent's cadenza views over other applications (a desktop
+ * HUD). It reuses the main renderer bundle loaded with `?cadenzaHud`, which
+ * boots into CadenzaHudRoot (floating cards only, transparent background).
  *
  * The window is created click-through by default (setIgnoreMouseEvents): a
  * transparent, screen-covering window must never trap clicks meant for the apps
@@ -15,12 +15,12 @@
  * hit-testing, does NOT work on Linux (the `forward` option is Windows/macOS
  * only), which would leave cards permanently unclickable there.
  *
- * Created lazily on the first satellite so an unused HUD never sits on top of
+ * Created lazily on the first cadenza so an unused HUD never sits on top of
  * everything.
  */
 
 import { BrowserWindow, ipcMain, screen } from 'electron';
-import type { SatellitePayload } from '../../shared/satellite-types';
+import type { CadenzaPayload } from '../../shared/cadenza-types';
 import { logger } from '../utils/logger';
 
 /** A card's hit region in HUD-window content coordinates (CSS px == DIP). */
@@ -31,7 +31,7 @@ interface CardRect {
 	height: number;
 }
 
-export interface SatelliteHudWindowDeps {
+export interface CadenzaHudWindowDeps {
 	isDevelopment: boolean;
 	preloadPath: string;
 	/** Custom-protocol URL used to load the production renderer. */
@@ -50,13 +50,13 @@ let hudWindow: BrowserWindow | null = null;
  */
 let ownerWindow: BrowserWindow | null = null;
 /**
- * The HUD renderer subscribes to `remote:satellite` asynchronously (after mount),
- * so satellites are buffered here until it signals ready - otherwise the very
- * first satellite (the one that lazily created the window) is dropped before any
+ * The HUD renderer subscribes to `remote:cadenza` asynchronously (after mount),
+ * so cadenzas are buffered here until it signals ready - otherwise the very
+ * first cadenza (the one that lazily created the window) is dropped before any
  * listener exists. Reset whenever the window is (re)created.
  */
 let hudReady = false;
-let pendingPayloads: SatellitePayload[] = [];
+let pendingPayloads: CadenzaPayload[] = [];
 let listenersRegistered = false;
 
 /** Latest card hit regions reported by the HUD renderer (window content coords). */
@@ -68,25 +68,25 @@ let lastInteractive = false;
 /** ~12 Hz: responsive enough for hover, negligible cost, only while cards exist. */
 const HOVER_POLL_MS = 80;
 
-/** The satellite HUD window, or null if it isn't open. */
-export function getSatelliteHudWindow(): BrowserWindow | null {
+/** The cadenza HUD window, or null if it isn't open. */
+export function getCadenzaHudWindow(): BrowserWindow | null {
 	return hudWindow && !hudWindow.isDestroyed() ? hudWindow : null;
 }
 
-/** Flush any satellites buffered while the HUD renderer was still booting. */
+/** Flush any cadenzas buffered while the HUD renderer was still booting. */
 function flushPendingPayloads(): void {
-	const win = getSatelliteHudWindow();
+	const win = getCadenzaHudWindow();
 	if (!win || !hudReady) return;
 	const queued = pendingPayloads;
 	pendingPayloads = [];
 	for (const payload of queued) {
-		win.webContents.send('remote:satellite', payload);
+		win.webContents.send('remote:cadenza', payload);
 	}
 }
 
 /** Set click-through state on the HUD window, skipping redundant OS calls. */
 function setHudInteractive(interactive: boolean): void {
-	const win = getSatelliteHudWindow();
+	const win = getCadenzaHudWindow();
 	if (!win) return;
 	if (interactive === lastInteractive) return;
 	lastInteractive = interactive;
@@ -111,10 +111,10 @@ function cursorIsOverCard(win: BrowserWindow): boolean {
 
 /** Start/stop the hover poll based on whether any cards are present + visible. */
 function syncHoverPoll(): void {
-	const shouldRun = cardRects.length > 0 && !!getSatelliteHudWindow();
+	const shouldRun = cardRects.length > 0 && !!getCadenzaHudWindow();
 	if (shouldRun && !hoverPoll) {
 		hoverPoll = setInterval(() => {
-			const win = getSatelliteHudWindow();
+			const win = getCadenzaHudWindow();
 			if (!win || !win.isVisible()) {
 				setHudInteractive(false);
 				return;
@@ -133,8 +133,8 @@ function ensureHudListeners(): void {
 	if (listenersRegistered) return;
 	listenersRegistered = true;
 
-	ipcMain.on('satellite-hud:ready', (event) => {
-		const win = getSatelliteHudWindow();
+	ipcMain.on('cadenza-hud:ready', (event) => {
+		const win = getCadenzaHudWindow();
 		// Only trust the ready signal from the actual HUD window's webContents.
 		if (!win || event.sender !== win.webContents) return;
 		hudReady = true;
@@ -144,18 +144,18 @@ function ensureHudListeners(): void {
 	// The renderer reports card hit regions (window content coords) whenever they
 	// change; main polls the cursor against them to toggle click-through. This
 	// replaces renderer mouse-move forwarding, which is unsupported on Linux.
-	ipcMain.on('satellite-hud:card-rects', (event, rects: CardRect[]) => {
-		const win = getSatelliteHudWindow();
+	ipcMain.on('cadenza-hud:card-rects', (event, rects: CardRect[]) => {
+		const win = getCadenzaHudWindow();
 		if (!win || event.sender !== win.webContents) return;
 		cardRects = Array.isArray(rects) ? rects : [];
 		syncHoverPoll();
 	});
 
-	// Expand a file satellite into the main window's File Preview tab. Forward to
+	// Expand a file cadenza into the main window's File Preview tab. Forward to
 	// the parent (main) renderer's existing remote open-file path, and raise it -
 	// expanding is a deliberate "take me to Maestro", unlike ordinary card hover.
-	ipcMain.on('satellite-hud:open-file', (event, sessionId: string, filePath: string) => {
-		const win = getSatelliteHudWindow();
+	ipcMain.on('cadenza-hud:open-file', (event, sessionId: string, filePath: string) => {
+		const win = getCadenzaHudWindow();
 		if (!win || event.sender !== win.webContents) return;
 		if (!ownerWindow || ownerWindow.isDestroyed()) return;
 		ownerWindow.webContents.send('remote:openFileTab', sessionId, filePath, true);
@@ -166,7 +166,7 @@ function ensureHudListeners(): void {
 	// Keep the HUD covering Maestro's monitor as displays change (resolution or
 	// scale change, monitor added/removed).
 	const resizeToDisplay = () => {
-		const win = getSatelliteHudWindow();
+		const win = getCadenzaHudWindow();
 		if (win) win.setBounds(computeHudBounds(ownerWindow));
 	};
 	screen.on('display-added', resizeToDisplay);
@@ -174,9 +174,9 @@ function ensureHudListeners(): void {
 	screen.on('display-metrics-changed', resizeToDisplay);
 }
 
-/** Append the `satelliteHud` flag so main.tsx boots into HUD mode. */
+/** Append the `cadenzaHud` flag so main.tsx boots into HUD mode. */
 function withHudFlag(url: string): string {
-	return url.includes('?') ? `${url}&satelliteHud` : `${url}?satelliteHud`;
+	return url.includes('?') ? `${url}&cadenzaHud` : `${url}?cadenzaHud`;
 }
 
 /**
@@ -200,15 +200,15 @@ function computeHudBounds(owner: BrowserWindow | null): {
 }
 
 /**
- * Create the satellite HUD window as a child of `parent`, or return the existing
+ * Create the cadenza HUD window as a child of `parent`, or return the existing
  * one. Sized to cover the parent display's work area; transparent, always-on-top
- * and click-through, so it's invisible and inert until a satellite renders.
+ * and click-through, so it's invisible and inert until a cadenza renders.
  */
-export function ensureSatelliteHudWindow(
+export function ensureCadenzaHudWindow(
 	parent: BrowserWindow,
-	deps: SatelliteHudWindowDeps
+	deps: CadenzaHudWindowDeps
 ): BrowserWindow {
-	const existing = getSatelliteHudWindow();
+	const existing = getCadenzaHudWindow();
 	if (existing) return existing;
 
 	// Fresh window: nothing is subscribed yet, so buffer until it signals ready,
@@ -297,7 +297,7 @@ export function ensureSatelliteHudWindow(
 	// The HUD only ever shows its own bundle: deny popups and navigation away.
 	win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
-	logger.info('Satellite HUD window created', 'SatelliteHud', {
+	logger.info('Cadenza HUD window created', 'CadenzaHud', {
 		display: `${width}x${height}`,
 		mode: deps.isDevelopment ? 'development' : 'production',
 	});
@@ -306,29 +306,29 @@ export function ensureSatelliteHudWindow(
 }
 
 /**
- * Route a satellite payload to the HUD window, creating it lazily. Buffers the
+ * Route a cadenza payload to the HUD window, creating it lazily. Buffers the
  * payload if the renderer hasn't subscribed yet (see `hudReady`). Returns false
  * only if the window can't be created (no parent), so callers can fall back to
  * the in-app renderer.
  */
-export function deliverSatelliteToHud(
+export function deliverCadenzaToHud(
 	parent: BrowserWindow,
-	deps: SatelliteHudWindowDeps,
-	payload: SatellitePayload
+	deps: CadenzaHudWindowDeps,
+	payload: CadenzaPayload
 ): boolean {
-	const win = ensureSatelliteHudWindow(parent, deps);
+	const win = ensureCadenzaHudWindow(parent, deps);
 	if (win.isDestroyed()) return false;
 	if (hudReady) {
-		win.webContents.send('remote:satellite', payload);
+		win.webContents.send('remote:cadenza', payload);
 	} else {
 		pendingPayloads.push(payload);
 	}
 	return true;
 }
 
-/** Close the satellite HUD window if it's open. */
-export function closeSatelliteHudWindow(): void {
-	const win = getSatelliteHudWindow();
+/** Close the cadenza HUD window if it's open. */
+export function closeCadenzaHudWindow(): void {
+	const win = getCadenzaHudWindow();
 	if (win) win.close();
 	hudWindow = null;
 	ownerWindow = null;

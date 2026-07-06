@@ -607,11 +607,11 @@ export function createProcessApi() {
 		},
 
 		/**
-		 * Subscribe to remote satellite-view operations (open/update/close) from
-		 * the CLI/web interface. Satellites are small agent-opened panels that
+		 * Subscribe to remote cadenza-view operations (open/update/close) from
+		 * the CLI/web interface. Cadenzas are small agent-opened panels that
 		 * display or track work.
 		 */
-		onRemoteSatellite: (
+		onRemoteCadenza: (
 			callback: (params: {
 				op: 'open' | 'update' | 'close';
 				id: string;
@@ -625,16 +625,16 @@ export function createProcessApi() {
 			}) => void
 		): (() => void) => {
 			const handler = (_: unknown, params: Parameters<typeof callback>[0]) => callback(params);
-			ipcRenderer.on('remote:satellite', handler);
-			return () => ipcRenderer.removeListener('remote:satellite', handler);
+			ipcRenderer.on('remote:cadenza', handler);
+			return () => ipcRenderer.removeListener('remote:cadenza', handler);
 		},
 
 		/**
-		 * Subscribe to remote canvas operations (add/update/move/remove/clear) from
-		 * the CLI/web interface. The renderer applies them to the canvas store and
-		 * opens the canvas view.
+		 * Subscribe to remote movement operations (add/update/move/remove/clear) from
+		 * the CLI/web interface. The renderer applies them to the movement store and
+		 * opens the movement view.
 		 */
-		onRemoteCanvas: (
+		onRemoteMovement: (
 			callback: (params: {
 				op: 'add' | 'update' | 'move' | 'remove' | 'clear';
 				id?: string;
@@ -647,67 +647,67 @@ export function createProcessApi() {
 			}) => void
 		): (() => void) => {
 			const handler = (_: unknown, params: Parameters<typeof callback>[0]) => callback(params);
-			ipcRenderer.on('remote:canvas', handler);
-			return () => ipcRenderer.removeListener('remote:canvas', handler);
+			ipcRenderer.on('remote:movement', handler);
+			return () => ipcRenderer.removeListener('remote:movement', handler);
 		},
 
 		/**
-		 * Subscribe to `canvas state` reads: the main process sends a request with a
-		 * response channel; the renderer replies via sendCanvasStateResponse with the
-		 * current canvas snapshot (so an agent can compose around what's there).
+		 * Subscribe to `movement state` reads: the main process sends a request with a
+		 * response channel; the renderer replies via sendMovementStateResponse with the
+		 * current movement snapshot (so an agent can compose around what's there).
 		 */
-		onRequestCanvasState: (callback: (responseChannel: string) => void): (() => void) => {
+		onRequestMovementState: (callback: (responseChannel: string) => void): (() => void) => {
 			const handler = (_: unknown, responseChannel: string) => callback(responseChannel);
-			ipcRenderer.on('remote:getCanvasState', handler);
-			return () => ipcRenderer.removeListener('remote:getCanvasState', handler);
+			ipcRenderer.on('remote:getMovementState', handler);
+			return () => ipcRenderer.removeListener('remote:getMovementState', handler);
 		},
 
-		/** Reply to a `canvas state` read with the current snapshot. */
-		sendCanvasStateResponse: (responseChannel: string, snapshot: unknown): void => {
+		/** Reply to a `movement state` read with the current snapshot. */
+		sendMovementStateResponse: (responseChannel: string, snapshot: unknown): void => {
 			ipcRenderer.send(responseChannel, snapshot);
 		},
 
 		/**
-		 * Signal that the satellite HUD window's renderer has mounted and
-		 * subscribed to `remote:satellite`. The main process buffers the satellite
+		 * Signal that the cadenza HUD window's renderer has mounted and
+		 * subscribed to `remote:cadenza`. The main process buffers the cadenza
 		 * that triggered the (lazy) HUD creation until this fires, then flushes it -
-		 * otherwise the very first satellite is dropped before the listener exists.
+		 * otherwise the very first cadenza is dropped before the listener exists.
 		 */
-		notifySatelliteHudReady: (): void => {
-			ipcRenderer.send('satellite-hud:ready');
+		notifyCadenzaHudReady: (): void => {
+			ipcRenderer.send('cadenza-hud:ready');
 		},
 
 		/**
-		 * Report the satellite cards' hit regions (in HUD-window content
+		 * Report the cadenza cards' hit regions (in HUD-window content
 		 * coordinates) so the main process can poll the cursor against them and
 		 * toggle click-through. Cross-platform by design: renderer mouse-move
 		 * forwarding (`setIgnoreMouseEvents` `forward`) is unsupported on Linux.
 		 */
-		setSatelliteHudCardRects: (
+		setCadenzaHudCardRects: (
 			rects: Array<{ x: number; y: number; width: number; height: number }>
 		): void => {
-			ipcRenderer.send('satellite-hud:card-rects', rects);
+			ipcRenderer.send('cadenza-hud:card-rects', rects);
 		},
 
 		/**
-		 * Expand a file satellite from the HUD window into the owning agent's File
+		 * Expand a file cadenza from the HUD window into the owning agent's File
 		 * Preview tab in the main window. The HUD is a separate window, so it can't
 		 * dispatch the in-app `maestro:openFileTab` event directly; the main process
 		 * forwards this to the main renderer (and raises it - a deliberate "take me
 		 * to Maestro" action, unlike ordinary card interaction).
 		 */
-		openSatelliteFileTab: (sessionId: string, filePath: string): void => {
-			ipcRenderer.send('satellite-hud:open-file', sessionId, filePath);
+		openCadenzaFileTab: (sessionId: string, filePath: string): void => {
+			ipcRenderer.send('cadenza-hud:open-file', sessionId, filePath);
 		},
 
 		/**
-		 * Reply to the owning agent from a `decision` satellite: the chosen option's
+		 * Reply to the owning agent from a `decision` cadenza: the chosen option's
 		 * value is injected as a live prompt into that agent's session (the same
 		 * path `maestro-cli dispatch` uses), so the agent's next turn sees the
 		 * choice. Does not raise Maestro - the decision is made in place.
 		 */
-		sendSatelliteDecision: (sessionId: string, message: string): void => {
-			ipcRenderer.send('satellite-hud:decision', sessionId, message);
+		sendCadenzaDecision: (sessionId: string, message: string): void => {
+			ipcRenderer.send('cadenza-hud:decision', sessionId, message);
 		},
 
 		/**

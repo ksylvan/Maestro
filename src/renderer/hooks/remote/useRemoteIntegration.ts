@@ -8,8 +8,12 @@ import { logger } from '../../utils/logger';
 import { persistTabStarred } from '../../utils/starredSessions';
 import { formatLogsForClipboard } from '../../utils/contextExtractor';
 import { notifyToast } from '../../stores/notificationStore';
-import { applySatellitePayload } from '../../stores/satelliteStore';
-import { applyCanvasPayload, getCanvasSnapshot, useCanvasStore } from '../../stores/canvasStore';
+import { applyCadenzaPayload } from '../../stores/cadenzaStore';
+import {
+	applyMovementPayload,
+	getMovementSnapshot,
+	useMovementStore,
+} from '../../stores/movementStore';
 import { notifyCenterFlash } from '../../stores/centerFlashStore';
 import { useSessionStore } from '../../stores/sessionStore';
 
@@ -657,28 +661,28 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 		};
 	}, []);
 
-	// Handle remote satellite-view operations (open/update/close) from CLI/web interface.
+	// Handle remote cadenza-view operations (open/update/close) from CLI/web interface.
 	useEffect(() => {
-		const unsubscribe = window.maestro.process.onRemoteSatellite((params) => {
-			applySatellitePayload(params);
+		const unsubscribe = window.maestro.process.onRemoteCadenza((params) => {
+			applyCadenzaPayload(params);
 		});
 		return () => {
 			unsubscribe();
 		};
 	}, []);
 
-	// Handle remote canvas operations (add/update/move/remove/clear) from CLI/web.
+	// Handle remote movement operations (add/update/move/remove/clear) from CLI/web.
 	useEffect(() => {
 		// Guard: on a dev hot-restart the renderer can mount before the rebuilt
 		// preload exposes newer bridge methods. Degrade gracefully instead of
 		// crashing the whole app into the error boundary.
 		const proc = window.maestro?.process;
-		if (typeof proc?.onRemoteCanvas !== 'function') return;
-		const unsubscribe = proc.onRemoteCanvas((params) => {
-			applyCanvasPayload(params);
+		if (typeof proc?.onRemoteMovement !== 'function') return;
+		const unsubscribe = proc.onRemoteMovement((params) => {
+			applyMovementPayload(params);
 			// Un-stash the overlay when content is added/updated so new panels surface.
 			if (params.op === 'add' || params.op === 'update') {
-				useCanvasStore.getState().setHidden(false);
+				useMovementStore.getState().setHidden(false);
 			}
 		});
 		return () => {
@@ -686,13 +690,13 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 		};
 	}, []);
 
-	// Answer `canvas state` reads: the main process sends a request with a
-	// response channel; reply with the current canvas snapshot (items + size).
+	// Answer `movement state` reads: the main process sends a request with a
+	// response channel; reply with the current movement snapshot (items + size).
 	useEffect(() => {
 		const proc = window.maestro?.process;
-		if (typeof proc?.onRequestCanvasState !== 'function') return;
-		const unsubscribe = proc.onRequestCanvasState((responseChannel: string) => {
-			proc.sendCanvasStateResponse?.(responseChannel, getCanvasSnapshot());
+		if (typeof proc?.onRequestMovementState !== 'function') return;
+		const unsubscribe = proc.onRequestMovementState((responseChannel: string) => {
+			proc.sendMovementStateResponse?.(responseChannel, getMovementSnapshot());
 		});
 		return () => unsubscribe();
 	}, []);

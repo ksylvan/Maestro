@@ -5,7 +5,7 @@ import ReactDOM from 'react-dom/client';
 import * as Sentry from '@sentry/electron/renderer';
 import { shouldDropSentryEvent } from '../shared/sentryFilters';
 import MaestroConsole from './App';
-import { SatelliteHudRoot } from './satelliteHud';
+import { CadenzaHudRoot } from './cadenzaHud';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LayerStackProvider } from './contexts/LayerStackContext';
 // ToastProvider removed - notification state now managed by notificationStore (Zustand)
@@ -104,20 +104,20 @@ window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => 
 });
 
 // HUD mode: the main process loads this same bundle into a transparent,
-// always-on-top child window with `?satelliteHud`. Render just the floating
-// satellite cards - no app chrome, no providers the cards don't need.
-const isSatelliteHud = new URLSearchParams(window.location.search).has('satelliteHud');
+// always-on-top child window with `?cadenzaHud`. Render just the floating
+// cadenza cards - no app chrome, no providers the cards don't need.
+const isCadenzaHud = new URLSearchParams(window.location.search).has('cadenzaHud');
 
-if (isSatelliteHud) {
-	document.documentElement.classList.add('satellite-hud');
-	document.body.classList.add('satellite-hud');
+if (isCadenzaHud) {
+	document.documentElement.classList.add('cadenza-hud');
+	document.body.classList.add('cadenza-hud');
 	// The static loading splash (index.html) is hidden by the full App on ready,
 	// which never mounts in HUD mode - remove it so the window is transparent.
 	document.getElementById('initial-splash')?.remove();
 	ReactDOM.createRoot(document.getElementById('root')!).render(
 		<React.StrictMode>
 			<ErrorBoundary>
-				<SatelliteHudRoot />
+				<CadenzaHudRoot />
 			</ErrorBoundary>
 		</React.StrictMode>
 	);

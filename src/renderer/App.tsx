@@ -2958,7 +2958,7 @@ function MaestroConsoleInner() {
 			isMobileLandscape={isMobileLandscape}
 			useNativeTitleBar={useNativeTitleBar}
 			isMdDownViewport={isMdDownViewport}
-			agentViewsEnabled={encoreFeatures.agentViews === true}
+			concertoEnabled={encoreFeatures.concerto === true}
 			activeGroupChatId={activeGroupChatId}
 			groupChats={groupChats}
 			groups={groups}

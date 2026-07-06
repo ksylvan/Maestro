@@ -421,7 +421,7 @@ interface MaestroAPI {
 					| { kind: 'open-url'; url: string };
 			}) => void
 		) => () => void;
-		onRemoteSatellite: (
+		onRemoteCadenza: (
 			callback: (params: {
 				op: 'open' | 'update' | 'close';
 				id: string;
@@ -434,7 +434,7 @@ interface MaestroAPI {
 				sessionId?: string;
 			}) => void
 		) => () => void;
-		onRemoteCanvas: (
+		onRemoteMovement: (
 			callback: (params: {
 				op: 'add' | 'update' | 'move' | 'remove' | 'clear';
 				id?: string;
@@ -446,14 +446,14 @@ interface MaestroAPI {
 				body?: string;
 			}) => void
 		) => () => void;
-		onRequestCanvasState: (callback: (responseChannel: string) => void) => () => void;
-		sendCanvasStateResponse: (responseChannel: string, snapshot: unknown) => void;
-		notifySatelliteHudReady: () => void;
-		setSatelliteHudCardRects: (
+		onRequestMovementState: (callback: (responseChannel: string) => void) => () => void;
+		sendMovementStateResponse: (responseChannel: string, snapshot: unknown) => void;
+		notifyCadenzaHudReady: () => void;
+		setCadenzaHudCardRects: (
 			rects: Array<{ x: number; y: number; width: number; height: number }>
 		) => void;
-		openSatelliteFileTab: (sessionId: string, filePath: string) => void;
-		sendSatelliteDecision: (sessionId: string, message: string) => void;
+		openCadenzaFileTab: (sessionId: string, filePath: string) => void;
+		sendCadenzaDecision: (sessionId: string, message: string) => void;
 		onRemoteNotifyCenterFlash: (
 			callback: (params: {
 				message: string;

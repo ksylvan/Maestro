@@ -55,7 +55,7 @@ describe('first-party plugin registry', () => {
 			['pianola', 'com.maestro.pianola'],
 			['coworking', 'com.maestro.coworking'],
 			['opencodeServer', 'com.maestro.opencode-server'],
-			['agentViews', 'com.maestro.agent-views'],
+			['concerto', 'com.maestro.concerto'],
 		]);
 	});
 

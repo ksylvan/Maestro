@@ -2,7 +2,7 @@
  * BlockView - the surface-agnostic engine that renders an agent-authored block
  * tree (see ./types) into theme-styled UI. Recursive: layout blocks nest
  * children; content blocks render one widget/primitive. Renders into a plain
- * <div>, so it drops into any surface (a satellite, a panel, a tab).
+ * <div>, so it drops into any surface (a cadenza, a panel, a tab).
  *
  * Robust by construction: a malformed or unknown block renders nothing rather
  * than crashing the whole view, because specs are agent-authored JSON.

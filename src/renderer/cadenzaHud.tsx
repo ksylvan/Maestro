@@ -1,11 +1,11 @@
 /**
- * SatelliteHudRoot - "HUD mode" render entry for the satellite desktop overlay.
+ * CadenzaHudRoot - "HUD mode" render entry for the cadenza desktop overlay.
  *
  * The main renderer bundle is reused: the main process loads it into a
- * transparent, always-on-top child window with `?satelliteHud`, and main.tsx
- * mounts this instead of the full app. It renders only the satellite cards (no
- * app chrome), themed to match the user's active theme, and receives satellites
- * over the same `remote:satellite` bridge the in-app SatelliteLayer uses.
+ * transparent, always-on-top child window with `?cadenzaHud`, and main.tsx
+ * mounts this instead of the full app. It renders only the cadenza cards (no
+ * app chrome), themed to match the user's active theme, and receives cadenzas
+ * over the same `remote:cadenza` bridge the in-app CadenzaLayer uses.
  *
  * Reusing the bundle (rather than a second Vite entry) is deliberate: the HUD
  * gets themes, the widget library, and the Markdown renderer for free.
@@ -14,10 +14,10 @@
 import { useEffect, useMemo } from 'react';
 import { THEMES } from './constants/themes';
 import { useSettingsStore, loadAllSettings } from './stores/settingsStore';
-import { SatelliteLayer } from './components/Satellite';
-import { applySatellitePayload } from './stores/satelliteStore';
+import { CadenzaLayer } from './components/Cadenza';
+import { applyCadenzaPayload } from './stores/cadenzaStore';
 
-export function SatelliteHudRoot() {
+export function CadenzaHudRoot() {
 	const activeThemeId = useSettingsStore((s) => s.activeThemeId);
 	const customThemeColors = useSettingsStore((s) => s.customThemeColors);
 
@@ -28,19 +28,19 @@ export function SatelliteHudRoot() {
 	}, []);
 
 	// Same bridge the in-app layer rides; events are routed to this window's
-	// webContents by the main process (see satellite HUD window wiring).
+	// webContents by the main process (see cadenza HUD window wiring).
 	useEffect(() => {
-		const off = window.maestro?.process?.onRemoteSatellite?.((payload) => {
-			applySatellitePayload(payload);
+		const off = window.maestro?.process?.onRemoteCadenza?.((payload) => {
+			applyCadenzaPayload(payload);
 		});
-		// Tell main the subscription is live so it can flush the satellite that
+		// Tell main the subscription is live so it can flush the cadenza that
 		// triggered this (lazily created) window - otherwise the first one is lost.
-		window.maestro?.process?.notifySatelliteHudReady?.();
+		window.maestro?.process?.notifyCadenzaHudReady?.();
 		return () => off?.();
 	}, []);
 
 	// Click-through management lives in the main process (it polls the cursor
-	// against card rects the SatelliteLayer reports). Doing hover detection here
+	// against card rects the CadenzaLayer reports). Doing hover detection here
 	// would need `setIgnoreMouseEvents(forward)`, which is unsupported on Linux.
 
 	const theme = useMemo(() => {
@@ -50,5 +50,5 @@ export function SatelliteHudRoot() {
 		return THEMES[activeThemeId];
 	}, [activeThemeId, customThemeColors]);
 
-	return <SatelliteLayer theme={theme} isHud />;
+	return <CadenzaLayer theme={theme} isHud />;
 }

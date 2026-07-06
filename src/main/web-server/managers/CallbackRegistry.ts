@@ -97,9 +97,9 @@ import type {
 	GenerateDirectorNotesSynopsisCallback,
 	DirectorNotesSynopsisResult,
 	NotifyToastCallback,
-	SatelliteViewCallback,
-	CanvasViewCallback,
-	GetCanvasStateCallback,
+	CadenzaViewCallback,
+	MovementViewCallback,
+	GetMovementStateCallback,
 	NotifyCenterFlashCallback,
 	NotifyToastParams,
 	NotifyCenterFlashParams,
@@ -115,8 +115,8 @@ import type {
 	DesktopSessionEntry,
 	SessionHistoryResult,
 } from '../types';
-import type { SatellitePayload } from '../../../shared/satellite-types';
-import type { CanvasPayload, CanvasStateSnapshot } from '../../../shared/canvas-types';
+import type { CadenzaPayload } from '../../../shared/cadenza-types';
+import type { MovementPayload, MovementStateSnapshot } from '../../../shared/movement-types';
 
 const LOG_CONTEXT = 'CallbackRegistry';
 
@@ -197,9 +197,9 @@ export interface WebServerCallbacks {
 	getAchievements: GetAchievementsCallback | null;
 	generateDirectorNotesSynopsis: GenerateDirectorNotesSynopsisCallback | null;
 	notifyToast: NotifyToastCallback | null;
-	satelliteView: SatelliteViewCallback | null;
-	canvasView: CanvasViewCallback | null;
-	getCanvasState: GetCanvasStateCallback | null;
+	cadenzaView: CadenzaViewCallback | null;
+	movementView: MovementViewCallback | null;
+	getMovementState: GetMovementStateCallback | null;
 	notifyCenterFlash: NotifyCenterFlashCallback | null;
 	getMarketplaceManifest: GetMarketplaceManifestCallback | null;
 	getMarketplaceDocument: GetMarketplaceDocumentCallback | null;
@@ -284,9 +284,9 @@ export class CallbackRegistry {
 		getAchievements: null,
 		generateDirectorNotesSynopsis: null,
 		notifyToast: null,
-		satelliteView: null,
-		canvasView: null,
-		getCanvasState: null,
+		cadenzaView: null,
+		movementView: null,
+		getMovementState: null,
 		notifyCenterFlash: null,
 		getMarketplaceManifest: null,
 		getMarketplaceDocument: null,
@@ -773,19 +773,19 @@ export class CallbackRegistry {
 		return this.callbacks.notifyToast(params);
 	}
 
-	async satelliteView(params: SatellitePayload): Promise<boolean> {
-		if (!this.callbacks.satelliteView) return false;
-		return this.callbacks.satelliteView(params);
+	async cadenzaView(params: CadenzaPayload): Promise<boolean> {
+		if (!this.callbacks.cadenzaView) return false;
+		return this.callbacks.cadenzaView(params);
 	}
 
-	async canvasView(params: CanvasPayload): Promise<boolean> {
-		if (!this.callbacks.canvasView) return false;
-		return this.callbacks.canvasView(params);
+	async movementView(params: MovementPayload): Promise<boolean> {
+		if (!this.callbacks.movementView) return false;
+		return this.callbacks.movementView(params);
 	}
 
-	async getCanvasState(): Promise<CanvasStateSnapshot | null> {
-		if (!this.callbacks.getCanvasState) return null;
-		return this.callbacks.getCanvasState();
+	async getMovementState(): Promise<MovementStateSnapshot | null> {
+		if (!this.callbacks.getMovementState) return null;
+		return this.callbacks.getMovementState();
 	}
 
 	async notifyCenterFlash(params: NotifyCenterFlashParams): Promise<boolean> {
@@ -1135,16 +1135,16 @@ export class CallbackRegistry {
 		this.callbacks.notifyToast = callback;
 	}
 
-	setSatelliteViewCallback(callback: SatelliteViewCallback): void {
-		this.callbacks.satelliteView = callback;
+	setCadenzaViewCallback(callback: CadenzaViewCallback): void {
+		this.callbacks.cadenzaView = callback;
 	}
 
-	setCanvasViewCallback(callback: CanvasViewCallback): void {
-		this.callbacks.canvasView = callback;
+	setMovementViewCallback(callback: MovementViewCallback): void {
+		this.callbacks.movementView = callback;
 	}
 
-	setGetCanvasStateCallback(callback: GetCanvasStateCallback): void {
-		this.callbacks.getCanvasState = callback;
+	setGetMovementStateCallback(callback: GetMovementStateCallback): void {
+		this.callbacks.getMovementState = callback;
 	}
 
 	setNotifyCenterFlashCallback(callback: NotifyCenterFlashCallback): void {

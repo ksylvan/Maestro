@@ -131,9 +131,9 @@ import type {
 	GetAchievementsCallback,
 	GenerateDirectorNotesSynopsisCallback,
 	NotifyToastCallback,
-	SatelliteViewCallback,
-	CanvasViewCallback,
-	GetCanvasStateCallback,
+	CadenzaViewCallback,
+	MovementViewCallback,
+	GetMovementStateCallback,
 	NotifyCenterFlashCallback,
 	GetMarketplaceManifestCallback,
 	GetMarketplaceDocumentCallback,
@@ -664,16 +664,16 @@ export class WebServer {
 		this.callbackRegistry.setNotifyToastCallback(callback);
 	}
 
-	setSatelliteViewCallback(callback: SatelliteViewCallback): void {
-		this.callbackRegistry.setSatelliteViewCallback(callback);
+	setCadenzaViewCallback(callback: CadenzaViewCallback): void {
+		this.callbackRegistry.setCadenzaViewCallback(callback);
 	}
 
-	setCanvasViewCallback(callback: CanvasViewCallback): void {
-		this.callbackRegistry.setCanvasViewCallback(callback);
+	setMovementViewCallback(callback: MovementViewCallback): void {
+		this.callbackRegistry.setMovementViewCallback(callback);
 	}
 
-	setGetCanvasStateCallback(callback: GetCanvasStateCallback): void {
-		this.callbackRegistry.setGetCanvasStateCallback(callback);
+	setGetMovementStateCallback(callback: GetMovementStateCallback): void {
+		this.callbackRegistry.setGetMovementStateCallback(callback);
 	}
 
 	setNotifyCenterFlashCallback(callback: NotifyCenterFlashCallback): void {
@@ -1053,9 +1053,9 @@ export class WebServer {
 			killTerminalForWeb: (sessionId: string) =>
 				this.killTerminalForWebCallback?.(sessionId) ?? false,
 			notifyToast: async (params) => this.callbackRegistry.notifyToast(params),
-			satelliteView: async (params) => this.callbackRegistry.satelliteView(params),
-			canvasView: async (params) => this.callbackRegistry.canvasView(params),
-			getCanvasState: async () => this.callbackRegistry.getCanvasState(),
+			cadenzaView: async (params) => this.callbackRegistry.cadenzaView(params),
+			movementView: async (params) => this.callbackRegistry.movementView(params),
+			getMovementState: async () => this.callbackRegistry.getMovementState(),
 			notifyCenterFlash: async (params) => this.callbackRegistry.notifyCenterFlash(params),
 			getMarketplaceManifest: async (options) =>
 				this.callbackRegistry.getMarketplaceManifest(options),

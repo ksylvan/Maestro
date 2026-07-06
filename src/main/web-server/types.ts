@@ -6,8 +6,8 @@
 import type { WebSocket } from 'ws';
 import type { Theme } from '../../shared/theme-types';
 import type { Shortcut } from '../../shared/shortcut-types';
-import type { SatellitePayload } from '../../shared/satellite-types';
-import type { CanvasPayload, CanvasStateSnapshot } from '../../shared/canvas-types';
+import type { CadenzaPayload } from '../../shared/cadenza-types';
+import type { MovementPayload, MovementStateSnapshot } from '../../shared/movement-types';
 
 // Re-export Theme for convenience
 export type { Theme } from '../../shared/theme-types';
@@ -461,14 +461,14 @@ export interface NotifyCenterFlashParams {
 }
 
 export type NotifyToastCallback = (params: NotifyToastParams) => Promise<boolean>;
-/** Open/update/close an agent-driven satellite view. Resolves true on success. */
-export type SatelliteViewCallback = (params: SatellitePayload) => Promise<boolean>;
+/** Open/update/close an agent-driven cadenza view. Resolves true on success. */
+export type CadenzaViewCallback = (params: CadenzaPayload) => Promise<boolean>;
 
-/** Add/update/move/remove/clear an item on the agent-driven canvas. */
-export type CanvasViewCallback = (params: CanvasPayload) => Promise<boolean>;
+/** Add/update/move/remove/clear an item on the agent-driven movement. */
+export type MovementViewCallback = (params: MovementPayload) => Promise<boolean>;
 
-/** Read the current canvas snapshot (items + size) for agent awareness. */
-export type GetCanvasStateCallback = () => Promise<CanvasStateSnapshot | null>;
+/** Read the current movement snapshot (items + size) for agent awareness. */
+export type GetMovementStateCallback = () => Promise<MovementStateSnapshot | null>;
 export type NotifyCenterFlashCallback = (params: NotifyCenterFlashParams) => Promise<boolean>;
 export type ConfigureAutoRunCallback = (
 	sessionId: string,
