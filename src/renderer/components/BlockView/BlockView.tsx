@@ -25,7 +25,7 @@ import {
 } from '../widgets';
 import { Markdown } from '../Markdown';
 import type { Block, BlockSpec } from './types';
-import { resolveAlign, resolveBlockColor, resolveGap } from './tokens';
+import { resolveAlign, resolveBlockColor, resolveGap, TYPE } from './tokens';
 
 interface BlockViewProps {
 	spec: BlockSpec;
@@ -120,9 +120,8 @@ function Group({ block, theme }: { block: Extract<Block, { kind: 'group' }>; the
 			{block.title && (
 				<div
 					style={{
-						padding: '8px 12px',
-						fontSize: 12,
-						fontWeight: 600,
+						padding: '12px 16px',
+						...TYPE.subheading,
 						color: theme.colors.textMain,
 						borderBottom: `1px solid ${theme.colors.border}`,
 						borderLeft: `3px solid ${accent}`,
@@ -131,7 +130,7 @@ function Group({ block, theme }: { block: Extract<Block, { kind: 'group' }>; the
 					{block.title}
 				</div>
 			)}
-			<div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: resolveGap('md') }}>
+			<div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: resolveGap('md') }}>
 				{(block.children ?? []).map((child, i) => (
 					<OneBlock key={i} block={child} theme={theme} />
 				))}
@@ -146,14 +145,12 @@ function Group({ block, theme }: { block: Extract<Block, { kind: 'group' }>; the
 
 function Heading({ block, theme }: { block: Extract<Block, { kind: 'heading' }>; theme: Theme }) {
 	if (!block.text) return null;
-	const size = block.level === 1 ? 18 : block.level === 3 ? 13 : 15;
+	const role = block.level === 1 ? TYPE.title : block.level === 3 ? TYPE.subheading : TYPE.heading;
 	return (
 		<div
 			style={{
-				fontSize: size,
-				fontWeight: 700,
+				...role,
 				color: theme.colors.textMain,
-				letterSpacing: '0.01em',
 			}}
 		>
 			{block.text}
@@ -168,9 +165,9 @@ function Badge({ block, theme }: { block: Extract<Block, { kind: 'badge' }>; the
 		<span
 			style={{
 				display: 'inline-block',
-				padding: '2px 8px',
+				padding: '3px 10px',
 				borderRadius: 9999,
-				fontSize: 11,
+				...TYPE.caption,
 				fontWeight: 600,
 				color: accent,
 				backgroundColor: `${accent}1f`,
@@ -191,17 +188,15 @@ function Callout({ block, theme }: { block: Extract<Block, { kind: 'callout' }>;
 				borderLeft: `3px solid ${accent}`,
 				backgroundColor: `${accent}14`,
 				borderRadius: 8,
-				padding: '8px 12px',
+				padding: '12px 16px',
 				width: '100%',
 			}}
 		>
 			{block.title && (
-				<div style={{ fontSize: 12, fontWeight: 700, color: accent, marginBottom: 2 }}>
-					{block.title}
-				</div>
+				<div style={{ ...TYPE.subheading, color: accent, marginBottom: 4 }}>{block.title}</div>
 			)}
 			{block.text && (
-				<div style={{ fontSize: 12, color: theme.colors.textMain, whiteSpace: 'pre-wrap' }}>
+				<div style={{ ...TYPE.body, color: theme.colors.textMain, whiteSpace: 'pre-wrap' }}>
 					{block.text}
 				</div>
 			)}
@@ -221,9 +216,9 @@ function Progress({ block, theme }: { block: Extract<Block, { kind: 'progress' }
 					style={{
 						display: 'flex',
 						justifyContent: 'space-between',
-						fontSize: 11,
+						...TYPE.caption,
 						color: theme.colors.textDim,
-						marginBottom: 4,
+						marginBottom: 6,
 					}}
 				>
 					<span>{block.label ?? ''}</span>
@@ -232,7 +227,7 @@ function Progress({ block, theme }: { block: Extract<Block, { kind: 'progress' }
 			)}
 			<div
 				style={{
-					height: 6,
+					height: 8,
 					borderRadius: 9999,
 					backgroundColor: `${theme.colors.textDim}33`,
 					overflow: 'hidden',
@@ -250,17 +245,16 @@ function KeyValue({ block, theme }: { block: Extract<Block, { kind: 'keyValue' }
 	);
 	if (items.length === 0) return null;
 	return (
-		<div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
+		<div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
 			{items.map((it, i) => (
-				<div
-					key={i}
-					style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12 }}
-				>
-					<span style={{ color: theme.colors.textDim, minWidth: 0 }}>{it.label}</span>
+				<div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+					<span style={{ ...TYPE.label, color: theme.colors.textDim, minWidth: 0 }}>
+						{it.label}
+					</span>
 					<span
 						style={{
+							...TYPE.value,
 							color: it.color ? resolveBlockColor(it.color, theme) : theme.colors.textMain,
-							fontWeight: 600,
 							textAlign: 'right',
 						}}
 					>
@@ -289,8 +283,8 @@ function CodeBlock({ block, theme }: { block: Extract<Block, { kind: 'code' }>; 
 			{block.filename && (
 				<div
 					style={{
-						padding: '4px 10px',
-						fontSize: 11,
+						padding: '6px 12px',
+						...TYPE.caption,
 						fontFamily: 'monospace',
 						color: theme.colors.textDim,
 						backgroundColor: theme.colors.bgSidebar,
@@ -311,7 +305,7 @@ function Table({ block, theme }: { block: Extract<Block, { kind: 'table' }>; the
 	if (columns.length === 0 && rows.length === 0) return null;
 	return (
 		<div style={{ width: '100%', overflowX: 'auto' }}>
-			<table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+			<table style={{ width: '100%', borderCollapse: 'collapse' }}>
 				{columns.length > 0 && (
 					<thead>
 						<tr>
@@ -319,8 +313,9 @@ function Table({ block, theme }: { block: Extract<Block, { kind: 'table' }>; the
 								<th
 									key={i}
 									style={{
+										...TYPE.label,
 										textAlign: 'left',
-										padding: '4px 8px',
+										padding: '8px 12px',
 										color: theme.colors.textDim,
 										fontWeight: 600,
 										borderBottom: `1px solid ${theme.colors.border}`,
@@ -340,7 +335,8 @@ function Table({ block, theme }: { block: Extract<Block, { kind: 'table' }>; the
 								<td
 									key={ci}
 									style={{
-										padding: '4px 8px',
+										...TYPE.body,
+										padding: '8px 12px',
 										color: theme.colors.textMain,
 										borderBottom: `1px solid ${theme.colors.border}66`,
 									}}
@@ -391,7 +387,9 @@ const OneBlock = memo(function OneBlock({ block, theme }: { block: Block; theme:
 			return <Table block={block} theme={theme} />;
 		case 'text':
 			return block.content ? (
-				<Markdown content={block.content} theme={theme} preset="chat" />
+				<div style={{ fontSize: TYPE.body.fontSize, lineHeight: TYPE.body.lineHeight }}>
+					<Markdown content={block.content} theme={theme} preset="chat" />
+				</div>
 			) : null;
 		case 'code':
 			return <CodeBlock block={block} theme={theme} />;

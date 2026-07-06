@@ -114,7 +114,7 @@ const MovementPanel = memo(function MovementPanel({
 				onPointerDown={onDragStart}
 			>
 				<div
-					className="flex-1 min-w-0 text-xs font-semibold truncate"
+					className="flex-1 min-w-0 text-sm font-semibold truncate"
 					style={{ color: theme.colors.textMain }}
 					title={item.title}
 				>
@@ -132,9 +132,9 @@ const MovementPanel = memo(function MovementPanel({
 				</button>
 			</div>
 			<div
-				className="p-3 overflow-auto select-text"
+				className="p-4 overflow-auto select-text"
 				style={{
-					height: item.height ? 'calc(100% - 32px)' : undefined,
+					height: item.height ? 'calc(100% - 34px)' : undefined,
 					maxHeight: item.height ? undefined : AUTO_MAX_HEIGHT,
 				}}
 			>

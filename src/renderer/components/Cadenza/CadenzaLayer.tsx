@@ -55,10 +55,10 @@ const ICON_FOR_TYPE: Record<CadenzaViewType, LucideIcon> = {
 };
 
 /** Content types render a wider window; status/pin types stay compact. */
-const CARD_WIDTH_COMPACT = 280;
-const CARD_WIDTH_CONTENT = 360;
+const CARD_WIDTH_COMPACT = 300;
+const CARD_WIDTH_CONTENT = 420;
 /** Content windows scroll internally rather than growing without bound. */
-const CONTENT_MAX_HEIGHT = 320;
+const CONTENT_MAX_HEIGHT = 380;
 
 function colorValue(color: CadenzaColor, theme: Theme): string {
 	switch (color) {

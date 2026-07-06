@@ -11,7 +11,7 @@ import type { MovementPayload, MovementStateSnapshot } from '../../shared/moveme
 import type { BlockSpec } from '../components/BlockView';
 
 /** Default item width when the agent doesn't specify one (px). */
-export const MOVEMENT_ITEM_DEFAULT_WIDTH = 320;
+export const MOVEMENT_ITEM_DEFAULT_WIDTH = 500;
 
 /** A resolved movement item ready to render (spec parsed, defaults applied). */
 export interface MovementItem {
