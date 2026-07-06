@@ -122,6 +122,8 @@ const CadenzaCard = memo(function CadenzaCard({
 		view.viewType === 'decision';
 	const [collapsed, setCollapsed] = useState(false);
 	const moveCadenza = useCadenzaStore((s) => s.moveCadenza);
+	// Pulse this card when a chat chip points at it (flashItem).
+	const isFlashed = useCadenzaStore((s) => s.flashedId === view.id);
 
 	/** Drag the whole card by its header (ignore drags starting on a button). */
 	const onDragStart = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -165,8 +167,11 @@ const CadenzaCard = memo(function CadenzaCard({
 				top: view.y ?? 96,
 				backgroundColor: theme.colors.bgSidebar,
 				backgroundImage: `linear-gradient(135deg, ${accent}14 0%, ${accent}08 100%)`,
-				border: `1px solid ${accent}55`,
-				boxShadow: `0 12px 28px -10px ${accent}33, 0 0 0 1px ${theme.colors.border}44`,
+				border: isFlashed ? `2px solid ${accent}` : `1px solid ${accent}55`,
+				boxShadow: isFlashed
+					? `0 0 0 3px ${accent}66, 0 12px 28px -10px ${accent}55`
+					: `0 12px 28px -10px ${accent}33, 0 0 0 1px ${theme.colors.border}44`,
+				transition: 'box-shadow 0.25s ease, border-color 0.25s ease',
 				width: isContent ? CARD_WIDTH_CONTENT : CARD_WIDTH_COMPACT,
 			}}
 		>

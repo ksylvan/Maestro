@@ -48,6 +48,8 @@ export interface MovementStoreState {
 	viewportHeight: number;
 	/** User "stash" toggle: hide the whole overlay without removing items. */
 	hidden: boolean;
+	/** Id of the panel currently pulsing to catch the eye (from a chat chip), or null. */
+	flashedId: string | null;
 }
 
 export interface MovementStoreActions {
@@ -60,6 +62,8 @@ export interface MovementStoreActions {
 	clearItems: () => void;
 	setViewport: (width: number, height: number) => void;
 	setHidden: (hidden: boolean) => void;
+	/** Un-stash the overlay and pulse the panel with this id (chat-chip "point"). */
+	flashItem: (id: string) => void;
 }
 
 export type MovementStore = MovementStoreState & MovementStoreActions;
@@ -73,6 +77,7 @@ export const useMovementStore = create<MovementStore>()((set) => ({
 	viewportWidth: 0,
 	viewportHeight: 0,
 	hidden: false,
+	flashedId: null,
 
 	upsertItem: (item) =>
 		set((s) => ({
@@ -123,6 +128,16 @@ export const useMovementStore = create<MovementStore>()((set) => ({
 	setViewport: (width, height) => set({ viewportWidth: width, viewportHeight: height }),
 
 	setHidden: (hidden) => set({ hidden }),
+
+	// Chat-chip "point": surface the overlay and pulse the target panel for a
+	// moment. Guarded on clear so a newer flash isn't cancelled by an older
+	// pending timeout.
+	flashItem: (id) => {
+		set({ hidden: false, flashedId: id });
+		setTimeout(() => {
+			set((s) => (s.flashedId === id ? { flashedId: null } : s));
+		}, 2200);
+	},
 }));
 
 /** Cascade offset so items opened without a position don't stack on one pixel. */

@@ -47,6 +47,8 @@ function resolveAgentName(sessionId: string | undefined): string | undefined {
 
 export interface CadenzaStoreState {
 	cadenzas: CadenzaView[];
+	/** Id of the cadenza currently pulsing to catch the eye (from a chat chip), or null. */
+	flashedId: string | null;
 }
 
 export interface CadenzaStoreActions {
@@ -60,12 +62,15 @@ export interface CadenzaStoreActions {
 	moveCadenza: (id: string, x: number, y: number) => void;
 	/** Remove all cadenzas. */
 	clearCadenzas: () => void;
+	/** Pulse the cadenza with this id for a moment (chat-chip "point"). */
+	flashItem: (id: string) => void;
 }
 
 export type CadenzaStore = CadenzaStoreState & CadenzaStoreActions;
 
 export const useCadenzaStore = create<CadenzaStore>()((set) => ({
 	cadenzas: [],
+	flashedId: null,
 
 	upsertCadenza: (view) =>
 		set((s) => ({
@@ -85,6 +90,15 @@ export const useCadenzaStore = create<CadenzaStore>()((set) => ({
 		set((s) => ({ cadenzas: s.cadenzas.map((v) => (v.id === id ? { ...v, x, y } : v)) })),
 
 	clearCadenzas: () => set({ cadenzas: [] }),
+
+	// Chat-chip "point": pulse the target cadenza for a moment. Guarded on clear
+	// so a newer flash isn't cancelled by an older pending timeout.
+	flashItem: (id) => {
+		set({ flashedId: id });
+		setTimeout(() => {
+			set((s) => (s.flashedId === id ? { flashedId: null } : s));
+		}, 2200);
+	},
 }));
 
 /** Cascade offset so freshly-opened cadenzas don't stack on the same pixel. */

@@ -39,6 +39,8 @@ const MovementPanel = memo(function MovementPanel({
 	const resizeItem = useMovementStore((s) => s.resizeItem);
 	const removeItem = useMovementStore((s) => s.removeItem);
 	const setMeasuredHeight = useMovementStore((s) => s.setMeasuredHeight);
+	// Pulse this panel when a chat chip points at it (flashItem).
+	const isFlashed = useMovementStore((s) => s.flashedId === item.id);
 
 	const onDragStart = (e: ReactPointerEvent<HTMLDivElement>) => {
 		if ((e.target as HTMLElement).closest('button')) return;
@@ -99,8 +101,11 @@ const MovementPanel = memo(function MovementPanel({
 				width: item.width,
 				height: item.height,
 				backgroundColor: theme.colors.bgSidebar,
-				border: `1px solid ${theme.colors.border}`,
-				boxShadow: `0 16px 40px -16px rgba(0,0,0,0.6)`,
+				border: isFlashed ? `2px solid ${theme.colors.accent}` : `1px solid ${theme.colors.border}`,
+				boxShadow: isFlashed
+					? `0 0 0 3px ${theme.colors.accent}66, 0 16px 40px -16px rgba(0,0,0,0.6)`
+					: `0 16px 40px -16px rgba(0,0,0,0.6)`,
+				transition: 'box-shadow 0.25s ease, border-color 0.25s ease',
 			}}
 		>
 			<div

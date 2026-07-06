@@ -663,7 +663,12 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 
 	// Handle remote cadenza-view operations (open/update/close) from CLI/web interface.
 	useEffect(() => {
-		const unsubscribe = window.maestro.process.onRemoteCadenza((params) => {
+		// Guard: on a dev hot-restart the renderer can mount before the rebuilt
+		// preload exposes newer bridge methods. Degrade gracefully instead of
+		// crashing the whole app into the error boundary.
+		const proc = window.maestro?.process;
+		if (typeof proc?.onRemoteCadenza !== 'function') return;
+		const unsubscribe = proc.onRemoteCadenza((params) => {
 			applyCadenzaPayload(params);
 		});
 		return () => {
