@@ -126,8 +126,12 @@ function PermissionPromptInner({ theme }: PermissionPromptProps) {
 					{action}
 				</pre>
 				<div className="flex justify-end gap-2">
+					{/* Deny is the default-focused action: this is a fail-safe prompt, so a
+					    stray Enter/Space must NOT approve a potentially destructive tool
+					    call. Matches the Escape-denies behavior above. */}
 					<button
 						onClick={onDeny}
+						autoFocus
 						className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md cursor-pointer transition-colors"
 						style={{
 							backgroundColor: 'transparent',
@@ -140,7 +144,6 @@ function PermissionPromptInner({ theme }: PermissionPromptProps) {
 					</button>
 					<button
 						onClick={onAllow}
-						autoFocus
 						className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md cursor-pointer transition-colors"
 						style={{
 							backgroundColor: theme.colors.accent,

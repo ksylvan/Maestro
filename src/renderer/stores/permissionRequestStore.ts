@@ -36,6 +36,17 @@ interface PermissionRequestState {
 	clearSession: (sessionId: string) => void;
 }
 
+/**
+ * Send a decision to the main-process relay. Errors are swallowed (logged) so
+ * an IPC rejection doesn't surface as an unhandled promise rejection - the
+ * relay's ~300s auto-deny timeout is the backstop if a decision never lands.
+ */
+function sendDecision(requestId: string, decision: PermissionDecision): void {
+	void window.maestro?.process?.respondPermission?.(requestId, decision)?.catch((err: unknown) => {
+		console.error('[permissionRequestStore] respondPermission failed', requestId, err);
+	});
+}
+
 export const usePermissionRequestStore = create<PermissionRequestState>((set) => ({
 	queue: [],
 	enqueue: (request) =>
@@ -48,7 +59,7 @@ export const usePermissionRequestStore = create<PermissionRequestState>((set) =>
 		}),
 	respond: (requestId, decision) => {
 		// Fire-and-forget to main; the relay resolves the awaiting bridge call.
-		void window.maestro?.process?.respondPermission?.(requestId, decision);
+		sendDecision(requestId, decision);
 		set((state) => ({ queue: state.queue.filter((r) => r.requestId !== requestId) }));
 	},
 	clearSession: (sessionId) =>
@@ -59,10 +70,7 @@ export const usePermissionRequestStore = create<PermissionRequestState>((set) =>
 			// already-resolved request is a harmless no-op in the registry.
 			for (const r of state.queue) {
 				if (r.sessionId === sessionId) {
-					void window.maestro?.process?.respondPermission?.(r.requestId, {
-						behavior: 'deny',
-						message: 'Agent exited.',
-					});
+					sendDecision(r.requestId, { behavior: 'deny', message: 'Agent exited.' });
 				}
 			}
 			return { queue: state.queue.filter((r) => r.sessionId !== sessionId) };
