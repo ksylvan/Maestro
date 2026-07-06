@@ -70,7 +70,12 @@ export interface RelayArgsResult {
 }
 
 /** Build the MCP server config object Claude loads via --mcp-config. */
-function buildMcpConfig(execPath: string, bridgeScriptPath: string, socketPath: string, token: string) {
+function buildMcpConfig(
+	execPath: string,
+	bridgeScriptPath: string,
+	socketPath: string,
+	token: string
+) {
 	return {
 		mcpServers: {
 			[RELAY_MCP_SERVER_NAME]: {
@@ -116,12 +121,7 @@ export function buildRelayArgs(
 	fs.writeFileSync(configPath, JSON.stringify(mcpConfig), { mode: 0o600 });
 
 	return {
-		args: [
-			'--permission-prompt-tool',
-			RELAY_PERMISSION_PROMPT_TOOL,
-			'--mcp-config',
-			configPath,
-		],
+		args: ['--permission-prompt-tool', RELAY_PERMISSION_PROMPT_TOOL, '--mcp-config', configPath],
 		configPath,
 	};
 }

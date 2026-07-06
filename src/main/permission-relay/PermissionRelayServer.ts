@@ -98,8 +98,7 @@ export class PermissionRelayServer {
 		// umask around listen() makes the file restrictive at creation time; the
 		// chmod below is a belt-and-suspenders backstop. Not applicable on win32
 		// (named pipes are per-user by ACL and umask has no effect).
-		const prevUmask =
-			process.platform !== 'win32' ? process.umask(0o177) : undefined;
+		const prevUmask = process.platform !== 'win32' ? process.umask(0o177) : undefined;
 		try {
 			await new Promise<void>((resolve, reject) => {
 				server.once('error', reject);

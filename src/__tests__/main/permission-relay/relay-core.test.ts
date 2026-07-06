@@ -31,6 +31,31 @@ describe('permission-relay registry', () => {
 		b.cleanup();
 	});
 
+	it('isolates spawns: cleaning up one leaves the other binding + pending intact', async () => {
+		const a = registerSpawn({ sessionId: 'sA', tabId: 'tA' });
+		const b = registerSpawn({ sessionId: 'sB', tabId: 'tB' });
+		const aPending = createPending('req-a', a.token, 10_000);
+		const bPending = createPending('req-b', b.token, 10_000);
+
+		// Tearing down spawn A must not touch spawn B's binding or pending request.
+		a.cleanup();
+		expect(lookupBinding(a.token)).toBeUndefined();
+		expect(lookupBinding(b.token)).toEqual({ sessionId: 'sB', tabId: 'tB' });
+
+		// A's pending was denied by its cleanup; B's is still live and resolvable.
+		await expect(aPending).resolves.toEqual({
+			behavior: 'deny',
+			message: 'Agent process exited.',
+		});
+		expect(resolvePending('req-b', { behavior: 'allow' })).toBe(true);
+		await expect(bPending).resolves.toEqual({ behavior: 'allow' });
+		b.cleanup();
+	});
+
+	it('rejects lookups for unknown/forged tokens', () => {
+		expect(lookupBinding('not-a-real-token')).toBeUndefined();
+	});
+
 	it('resolves a pending request via resolvePending', async () => {
 		const { token, cleanup } = registerSpawn({ sessionId: 's1' });
 		const promise = createPending('req-1', token, 10_000);

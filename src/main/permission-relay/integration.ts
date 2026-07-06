@@ -52,7 +52,21 @@ export function initPermissionRelay(
 			});
 			return;
 		}
-		win.webContents.send(PERMISSION_REQUEST_CHANNEL, request);
+		try {
+			win.webContents.send(PERMISSION_REQUEST_CHANNEL, request);
+		} catch (e) {
+			// The destroyed-window guard above covers the realistic case; this
+			// catches a rare teardown race between the check and the send. Deny so
+			// the awaiting bridge call unblocks instead of waiting on the timeout.
+			logger.warn('Failed to deliver permission request to renderer; denying', LOG_CONTEXT, {
+				requestId: request.requestId,
+				error: e instanceof Error ? e.message : String(e),
+			});
+			resolvePending(request.requestId, {
+				behavior: 'deny',
+				message: 'Failed to deliver permission request to the Maestro window.',
+			});
+		}
 	});
 
 	// Best-effort per-spawn cleanup on process exit. Not fatal if the emitter

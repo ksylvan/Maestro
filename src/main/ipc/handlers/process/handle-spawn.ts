@@ -298,11 +298,9 @@ export async function handleProcessSpawn(
 			// spawn's tool calls; running standard mode remotely without it
 			// would leave the agent unable to act. Matches the SSH fail-loud
 			// convention (see CLAUDE.md / agent-spawner sshUnresolvedFailure).
-			logger.error(
-				'Claude Code standard permission mode is not supported over SSH',
-				LOG_CONTEXT,
-				{ sessionId: config.sessionId }
-			);
+			logger.error('Claude Code standard permission mode is not supported over SSH', LOG_CONTEXT, {
+				sessionId: config.sessionId,
+			});
 			const win = getMainWindow();
 			if (win && isWebContentsAvailable(win)) {
 				win.webContents.send(

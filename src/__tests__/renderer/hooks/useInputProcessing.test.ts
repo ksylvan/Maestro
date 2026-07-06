@@ -1477,6 +1477,34 @@ describe('useInputProcessing', () => {
 			expect(spawnCall.permissionMode).toBe('full');
 		});
 
+		it('sends permissionMode "standard" when tab permissionMode is "standard"', async () => {
+			// standard mode must propagate to the spawn config so the main process
+			// can wire up the permission relay (rather than defaulting to full).
+			const standardTab = createMockTab({
+				readOnlyMode: false,
+				permissionMode: 'standard',
+				agentSessionId: 'existing-session-standard',
+			});
+			const session = createMockSession({
+				aiTabs: [standardTab],
+				activeTabId: standardTab.id,
+			});
+			const deps = createDeps({
+				activeSession: session,
+				sessionsRef: { current: [session] },
+				inputValue: 'refactor this module',
+			});
+			const { result } = renderHook(() => useInputProcessing(deps));
+
+			await act(async () => {
+				await result.current.processInput();
+			});
+
+			expect(window.maestro.process.spawn).toHaveBeenCalled();
+			const spawnCall = (window.maestro.process.spawn as ReturnType<typeof vi.fn>).mock.calls[0][0];
+			expect(spawnCall.permissionMode).toBe('standard');
+		});
+
 		it('does not append read-only suffix when in normal write mode', async () => {
 			// Use a tab WITH agentSessionId to skip system prompt prepending
 			const writeTab = createMockTab({
