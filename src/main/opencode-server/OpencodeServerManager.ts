@@ -17,7 +17,6 @@
  */
 
 import { spawn, type ChildProcess } from 'child_process';
-import * as net from 'net';
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import { loadOpencodeSdk } from './sdk-loader';
 import { logger } from '../utils/logger';
@@ -99,7 +98,6 @@ class OpencodeServerManager {
 	}
 
 	private async startServer(opts: EnsureServerOptions, key: string): Promise<ServerInstance> {
-		const port = await findFreePort();
 		const hostname = '127.0.0.1';
 		const env = buildChildProcessEnv(
 			opts.customEnvVars,
@@ -112,11 +110,14 @@ class OpencodeServerManager {
 		logger.info('[OpencodeServer] Starting shared server', 'OpencodeServer', {
 			binaryPath: opts.binaryPath,
 			hostname,
-			port,
 			cwd: opts.cwd,
 		});
 
-		const child = spawn(opts.binaryPath, ['serve', `--hostname=${hostname}`, `--port=${port}`], {
+		// Bind to an OS-assigned port (`--port=0`) and read the real URL from the
+		// readiness banner. Pre-picking a "free" port and passing it separately is a
+		// TOCTOU race — the port can be taken between the probe and the server's
+		// bind, surfacing only as an opaque 15s startup timeout.
+		const child = spawn(opts.binaryPath, ['serve', `--hostname=${hostname}`, '--port=0'], {
 			cwd: opts.cwd,
 			env,
 			stdio: ['ignore', 'pipe', 'pipe'],
@@ -125,7 +126,7 @@ class OpencodeServerManager {
 		// Track the child so shutdown() can kill it even if readiness never resolves.
 		this.startupChildren.add(child);
 		try {
-			const url = await this.awaitReadiness(child, port, hostname);
+			const url = await this.awaitReadiness(child);
 
 			// Keep the pipes draining after readiness. awaitReadiness detaches its
 			// accumulating listeners, which would otherwise pause the streams and
@@ -162,9 +163,13 @@ class OpencodeServerManager {
 	 * Resolve when the server prints `opencode server listening on <url>`, or
 	 * reject on early exit / timeout. Mirrors the SDK's readiness detection.
 	 */
-	private awaitReadiness(child: ChildProcess, port: number, hostname: string): Promise<string> {
+	private awaitReadiness(child: ChildProcess): Promise<string> {
 		return new Promise<string>((resolve, reject) => {
 			let output = '';
+			// Unparsed remainder: only complete (newline-terminated) lines are scanned
+			// for the banner, so a banner split across chunks can't resolve on a
+			// truncated URL.
+			let lineBuf = '';
 			let settled = false;
 
 			// Named handlers so `finish` can detach them once the promise settles;
@@ -173,12 +178,18 @@ class OpencodeServerManager {
 			// readiness to keep the pipes draining.
 			const onStdout = (chunk: string) => {
 				output += chunk;
-				for (const line of output.split('\n')) {
+				lineBuf += chunk;
+				const lastNl = lineBuf.lastIndexOf('\n');
+				if (lastNl === -1) return;
+				const complete = lineBuf.slice(0, lastNl);
+				lineBuf = lineBuf.slice(lastNl + 1);
+				for (const line of complete.split('\n')) {
 					if (line.startsWith('opencode server listening')) {
 						const match = line.match(/on\s+(https?:\/\/[^\s]+)/);
-						// Fall back to the port we requested if the banner format changes.
-						finish(() => resolve(match?.[1] ?? `http://${hostname}:${port}`));
-						return;
+						if (match) {
+							finish(() => resolve(match[1]));
+							return;
+						}
 					}
 				}
 			};
@@ -277,24 +288,6 @@ function buildServerKey(opts: EnsureServerOptions): string {
 		fingerprint(opts.shellEnvVars),
 		(opts.extraPathDirs ?? []).join(':'),
 	].join('\u0001');
-}
-
-/** Find an available ephemeral TCP port on the loopback interface. */
-function findFreePort(): Promise<number> {
-	return new Promise((resolve, reject) => {
-		const srv = net.createServer();
-		srv.unref();
-		srv.on('error', reject);
-		srv.listen(0, '127.0.0.1', () => {
-			const addr = srv.address();
-			if (addr && typeof addr === 'object') {
-				const { port } = addr;
-				srv.close(() => resolve(port));
-			} else {
-				srv.close(() => reject(new Error('Failed to acquire a free port')));
-			}
-		});
-	});
 }
 
 /** Process-wide singleton. */

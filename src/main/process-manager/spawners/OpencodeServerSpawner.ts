@@ -185,7 +185,7 @@ export class OpencodeServerSpawner {
 		void this.run(config, managedProcess, streamAbort, lifecycle).catch((err) => {
 			void captureException(err);
 			if (!lifecycle.isFinished()) {
-				this.emitAgentError(sessionId, toolType, err);
+				this.emitAgentError(managedProcess, err);
 				lifecycle.finish(1);
 			}
 		});
@@ -193,13 +193,20 @@ export class OpencodeServerSpawner {
 		return { pid: -1, success: true };
 	}
 
-	private emitAgentError(sessionId: string, toolType: string, err: unknown): void {
-		this.emitter.emit('agent-error', sessionId, {
+	/**
+	 * Emit an agent-error for this process, at most once. Sets `errorEmitted` so
+	 * ExitHandler's exit-based error detection doesn't then emit a duplicate
+	 * generic "exited with code 1" error on the finish(1) path.
+	 */
+	private emitAgentError(managedProcess: ManagedProcess, err: unknown): void {
+		if (managedProcess.errorEmitted) return;
+		managedProcess.errorEmitted = true;
+		this.emitter.emit('agent-error', managedProcess.sessionId, {
 			type: 'agent_crashed',
 			message: `OpenCode server error: ${err instanceof Error ? err.message : String(err)}`,
 			recoverable: true,
-			agentId: toolType,
-			sessionId,
+			agentId: managedProcess.toolType,
+			sessionId: managedProcess.sessionId,
 			timestamp: Date.now(),
 		});
 	}
@@ -225,7 +232,7 @@ export class OpencodeServerSpawner {
 		streamAbort: AbortController,
 		lifecycle: Lifecycle
 	): Promise<void> {
-		const { sessionId, toolType, cwd, command, prompt } = config;
+		const { sessionId, cwd, command, prompt } = config;
 		const invocation = parseInvocation(config);
 
 		// ── Setup phase ──────────────────────────────────────────────────────
@@ -304,7 +311,7 @@ export class OpencodeServerSpawner {
 					void captureException(fallbackErr);
 				}
 			}
-			this.emitAgentError(sessionId, toolType, setupErr);
+			this.emitAgentError(managedProcess, setupErr);
 			lifecycle.finish(1);
 			return;
 		}
@@ -363,9 +370,7 @@ export class OpencodeServerSpawner {
 				sessionId,
 				error: String(promptErr),
 			});
-			if (!managedProcess.errorEmitted) {
-				this.emitAgentError(sessionId, toolType, promptErr);
-			}
+			this.emitAgentError(managedProcess, promptErr);
 			// Finish non-zero before aborting so the failure exit code wins over the
 			// pump's abort-driven finish(0) (finish is idempotent, first call sticks).
 			lifecycle.finish(1);
