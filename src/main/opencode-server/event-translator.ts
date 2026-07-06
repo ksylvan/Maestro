@@ -69,11 +69,14 @@ export class OpencodeEventTranslator {
 				return { lines: this.flushPendingText(), idle: true, errored: false };
 
 			case 'session.error': {
-				// session.error omits sessionID for some error kinds; treat a missing
-				// id as "belongs to us" so we never swallow a fatal error, but ignore
-				// errors explicitly tagged with a different session.
-				const sid = event.properties.sessionID;
-				if (sid && sid !== this.sessionId) return EMPTY;
+				// Only end this turn on an error explicitly scoped to our session. The
+				// SDK marks `session.error.sessionID` optional, and session-less errors
+				// (init/provider failures with no owning session) are broadcast to every
+				// subscriber on the shared server. Treating those as ours would abort
+				// unrelated concurrent turns, so we require an exact id match and drop
+				// the rest. (Trade-off: a truly global fatal error won't force-end this
+				// turn; it ends on the normal session.idle instead.)
+				if (event.properties.sessionID !== this.sessionId) return EMPTY;
 				const line = this.buildErrorLine(event.properties.error);
 				return { lines: line ? [line] : [], idle: false, errored: true };
 			}

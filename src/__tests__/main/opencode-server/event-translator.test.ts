@@ -175,6 +175,29 @@ describe('OpencodeEventTranslator', () => {
 			expect(res.errored).toBe(true);
 			expect(JSON.parse(res.lines[0]).type).toBe('error');
 		});
+
+		it('drops a session.error scoped to a different session', () => {
+			const t = new OpencodeEventTranslator(SID);
+			const res = t.handle({
+				type: 'session.error',
+				properties: {
+					sessionID: 'ses_other',
+					error: { name: 'APIError', data: { message: 'nope' } },
+				},
+			} as Event);
+			expect(res).toEqual({ lines: [], idle: false, errored: false });
+		});
+
+		it('drops a session-less error instead of aborting this turn', () => {
+			// On the shared server a session-less error is broadcast to every
+			// subscriber; treating it as ours would kill unrelated concurrent turns.
+			const t = new OpencodeEventTranslator(SID);
+			const res = t.handle({
+				type: 'session.error',
+				properties: { error: { name: 'UnknownError', data: { message: 'global' } } },
+			} as Event);
+			expect(res).toEqual({ lines: [], idle: false, errored: false });
+		});
 	});
 
 	describe('round-trip fidelity through OpenCodeOutputParser', () => {

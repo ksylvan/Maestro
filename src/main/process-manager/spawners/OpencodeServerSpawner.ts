@@ -236,6 +236,13 @@ export class OpencodeServerSpawner {
 		let client: OpencodeClient;
 		let ocSessionId: string;
 		let subscription: { stream: unknown };
+
+		// Bail if the spawn was interrupted/killed during an await below. Without
+		// this, stale setup work could fire a prompt on an abandoned session or
+		// delete a map slot that a respawn now owns. Emit exit so the renderer
+		// doesn't hang (the map entry may already be gone via ProcessManager.kill).
+		const cancelled = (): boolean => streamAbort.signal.aborted || lifecycle.isFinished();
+
 		try {
 			({ client } = await opencodeServerManager.ensureServer({
 				binaryPath: command,
@@ -244,6 +251,10 @@ export class OpencodeServerSpawner {
 				extraPathDirs: config.extraPathDirs,
 				cwd,
 			}));
+			if (cancelled()) {
+				lifecycle.finish(0);
+				return;
+			}
 			managedProcess.opencodeClient = client;
 
 			// Resume an existing session or create a new one.
@@ -255,6 +266,10 @@ export class OpencodeServerSpawner {
 					throw new Error('OpenCode session.create returned no session id');
 				}
 			}
+			if (cancelled()) {
+				lifecycle.finish(0);
+				return;
+			}
 			ocSessionId = resolvedId;
 			managedProcess.opencodeSessionId = ocSessionId;
 
@@ -262,20 +277,35 @@ export class OpencodeServerSpawner {
 			// so no early part events are missed. The stream is multiplexed across
 			// all sessions; the translator filters down to ours.
 			subscription = await client.event.subscribe({ signal: streamAbort.signal });
+			if (cancelled()) {
+				lifecycle.finish(0);
+				return;
+			}
 		} catch (setupErr) {
+			// A kill mid-setup surfaces as an aborted subscribe/create rejection —
+			// that's a clean stop, not a transport failure, so don't fall back to CLI.
+			if (cancelled()) {
+				lifecycle.finish(0);
+				return;
+			}
 			logger.warn(
 				'[OpencodeServerSpawner] SDK setup failed; falling back to CLI',
 				'OpencodeServer',
 				{ sessionId, error: String(setupErr) }
 			);
-			this.processes.delete(sessionId);
-			try {
-				this.fallbackToCli(config);
-			} catch (fallbackErr) {
-				void captureException(fallbackErr);
-				this.emitAgentError(sessionId, toolType, setupErr);
-				lifecycle.finish(1);
+			// Only reclaim the slot if it's still ours — a concurrent respawn for the
+			// same sessionId must not be clobbered by our fallback.
+			if (this.processes.get(sessionId) === managedProcess) {
+				this.processes.delete(sessionId);
+				try {
+					this.fallbackToCli(config);
+					return;
+				} catch (fallbackErr) {
+					void captureException(fallbackErr);
+				}
 			}
+			this.emitAgentError(sessionId, toolType, setupErr);
+			lifecycle.finish(1);
 			return;
 		}
 
@@ -293,7 +323,10 @@ export class OpencodeServerSpawner {
 						this.stdoutHandler.handleData(sessionId, line + '\n');
 					}
 					if (idle || errored) {
-						lifecycle.finish(0);
+						// A session error ends the turn with a non-zero code so exit-based
+						// consumers (stats/query-complete) see the failure; the error text
+						// itself was already surfaced via the emitted error line.
+						lifecycle.finish(errored ? 1 : 0);
 						break;
 					}
 				}
@@ -333,6 +366,9 @@ export class OpencodeServerSpawner {
 			if (!managedProcess.errorEmitted) {
 				this.emitAgentError(sessionId, toolType, promptErr);
 			}
+			// Finish non-zero before aborting so the failure exit code wins over the
+			// pump's abort-driven finish(0) (finish is idempotent, first call sticks).
+			lifecycle.finish(1);
 			streamAbort.abort();
 		}
 

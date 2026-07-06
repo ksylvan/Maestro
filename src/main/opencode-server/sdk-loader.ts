@@ -23,7 +23,13 @@ let cached: Promise<typeof OpencodeSdk> | null = null;
 /** Load the OpenCode SDK once and cache the module namespace. */
 export function loadOpencodeSdk(): Promise<typeof OpencodeSdk> {
 	if (!cached) {
-		cached = dynamicImport('@opencode-ai/sdk');
+		// Clear the cache on failure so a transient import error (e.g. a mid-install
+		// race) doesn't permanently poison every future load with the rejected
+		// promise. Successful loads stay cached.
+		cached = dynamicImport('@opencode-ai/sdk').catch((err) => {
+			cached = null;
+			throw err;
+		});
 	}
 	return cached;
 }

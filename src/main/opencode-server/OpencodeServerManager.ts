@@ -62,17 +62,20 @@ export interface EnsureServerOptions {
 }
 
 class OpencodeServerManager {
-	/** Ready server instances, keyed by resolved binary path. */
+	/** Ready server instances, keyed by the composite server key (binary + env). */
 	private servers = new Map<string, ServerInstance>();
-	/** In-flight startups, keyed by binary path, to dedupe concurrent spawns. */
+	/** In-flight startups, keyed by the composite server key, to dedupe concurrent spawns. */
 	private starting = new Map<string, Promise<OpencodeServerHandle>>();
+	/** Startup child processes not yet promoted to `servers`, so shutdown can kill
+	 *  a server still waiting on its readiness banner. */
+	private startupChildren = new Set<ChildProcess>();
 
 	/**
-	 * Ensure a server for the given binary is running and return its client.
-	 * Concurrent callers for the same binary share a single startup.
+	 * Ensure a server for the given binary + environment is running and return its
+	 * client. Concurrent callers for the same key share a single startup.
 	 */
 	async ensureServer(opts: EnsureServerOptions): Promise<OpencodeServerHandle> {
-		const key = opts.binaryPath;
+		const key = buildServerKey(opts);
 
 		const existing = this.servers.get(key);
 		if (existing) return { url: existing.url, client: existing.client };
@@ -80,7 +83,7 @@ class OpencodeServerManager {
 		const inFlight = this.starting.get(key);
 		if (inFlight) return inFlight;
 
-		const startup = this.startServer(opts)
+		const startup = this.startServer(opts, key)
 			.then((instance) => {
 				this.servers.set(key, instance);
 				this.starting.delete(key);
@@ -95,7 +98,7 @@ class OpencodeServerManager {
 		return startup;
 	}
 
-	private async startServer(opts: EnsureServerOptions): Promise<ServerInstance> {
+	private async startServer(opts: EnsureServerOptions, key: string): Promise<ServerInstance> {
 		const port = await findFreePort();
 		const hostname = '127.0.0.1';
 		const env = buildChildProcessEnv(
@@ -119,26 +122,40 @@ class OpencodeServerManager {
 			stdio: ['ignore', 'pipe', 'pipe'],
 		});
 
-		const url = await this.awaitReadiness(child, port, hostname);
+		// Track the child so shutdown() can kill it even if readiness never resolves.
+		this.startupChildren.add(child);
+		try {
+			const url = await this.awaitReadiness(child, port, hostname);
 
-		// Once ready, drop the cached instance if the server ever exits so the next
-		// prompt re-spawns a fresh one instead of hitting a dead socket.
-		child.on('exit', (code, signal) => {
-			logger.warn('[OpencodeServer] Server process exited', 'OpencodeServer', {
-				binaryPath: opts.binaryPath,
-				code,
-				signal,
+			// Keep the pipes draining after readiness. awaitReadiness detaches its
+			// accumulating listeners, which would otherwise pause the streams and
+			// eventually block the server once the OS pipe buffer fills.
+			child.stdout?.resume();
+			child.stderr?.resume();
+
+			// Once ready, drop the cached instance if the server ever exits so the next
+			// prompt re-spawns a fresh one instead of hitting a dead socket.
+			child.on('exit', (code, signal) => {
+				logger.warn('[OpencodeServer] Server process exited', 'OpencodeServer', {
+					binaryPath: opts.binaryPath,
+					code,
+					signal,
+				});
+				const current = this.servers.get(key);
+				if (current?.process === child) {
+					this.servers.delete(key);
+				}
 			});
-			const current = this.servers.get(opts.binaryPath);
-			if (current?.process === child) {
-				this.servers.delete(opts.binaryPath);
-			}
-		});
 
-		const { createOpencodeClient } = await loadOpencodeSdk();
-		const client = createOpencodeClient({ baseUrl: url });
-		logger.info('[OpencodeServer] Server ready', 'OpencodeServer', { url });
-		return { url, client, process: child };
+			const { createOpencodeClient } = await loadOpencodeSdk();
+			const client = createOpencodeClient({ baseUrl: url });
+			logger.info('[OpencodeServer] Server ready', 'OpencodeServer', { url });
+			return { url, client, process: child };
+		} finally {
+			// Once promoted to `servers` (or dead on failure), it's no longer a
+			// pending startup child.
+			this.startupChildren.delete(child);
+		}
 	}
 
 	/**
@@ -150,10 +167,43 @@ class OpencodeServerManager {
 			let output = '';
 			let settled = false;
 
+			// Named handlers so `finish` can detach them once the promise settles;
+			// otherwise they keep appending the long-lived server's output to `output`
+			// forever (unbounded memory growth). The caller resumes the streams after
+			// readiness to keep the pipes draining.
+			const onStdout = (chunk: string) => {
+				output += chunk;
+				for (const line of output.split('\n')) {
+					if (line.startsWith('opencode server listening')) {
+						const match = line.match(/on\s+(https?:\/\/[^\s]+)/);
+						// Fall back to the port we requested if the banner format changes.
+						finish(() => resolve(match?.[1] ?? `http://${hostname}:${port}`));
+						return;
+					}
+				}
+			};
+			const onStderr = (chunk: string) => {
+				output += chunk;
+			};
+			const onError = (err: Error) => finish(() => reject(err));
+			const onExit = (code: number | null) =>
+				finish(() =>
+					reject(
+						new Error(
+							`opencode server exited with code ${code} before becoming ready.` +
+								(output.trim() ? `\nOutput: ${output.slice(-2000)}` : '')
+						)
+					)
+				);
+
 			const finish = (fn: () => void) => {
 				if (settled) return;
 				settled = true;
 				clearTimeout(timer);
+				child.stdout?.off('data', onStdout);
+				child.stderr?.off('data', onStderr);
+				child.off('error', onError);
+				child.off('exit', onExit);
 				fn();
 			};
 
@@ -174,37 +224,15 @@ class OpencodeServerManager {
 			}, SERVER_START_TIMEOUT_MS);
 
 			child.stdout?.setEncoding('utf8');
-			child.stdout?.on('data', (chunk: string) => {
-				output += chunk;
-				for (const line of output.split('\n')) {
-					if (line.startsWith('opencode server listening')) {
-						const match = line.match(/on\s+(https?:\/\/[^\s]+)/);
-						// Fall back to the port we requested if the banner format changes.
-						finish(() => resolve(match?.[1] ?? `http://${hostname}:${port}`));
-						return;
-					}
-				}
-			});
+			child.stdout?.on('data', onStdout);
 			child.stderr?.setEncoding('utf8');
-			child.stderr?.on('data', (chunk: string) => {
-				output += chunk;
-			});
-
-			child.on('error', (err) => finish(() => reject(err)));
-			child.on('exit', (code) =>
-				finish(() =>
-					reject(
-						new Error(
-							`opencode server exited with code ${code} before becoming ready.` +
-								(output.trim() ? `\nOutput: ${output.slice(-2000)}` : '')
-						)
-					)
-				)
-			);
+			child.stderr?.on('data', onStderr);
+			child.on('error', onError);
+			child.on('exit', onExit);
 		});
 	}
 
-	/** Kill every running server. Called on app shutdown. */
+	/** Kill every running server and any still-starting child. Called on app shutdown. */
 	shutdown(): void {
 		for (const [key, instance] of this.servers) {
 			try {
@@ -214,8 +242,41 @@ class OpencodeServerManager {
 			}
 			this.servers.delete(key);
 		}
+		// Kill servers still waiting on their readiness banner (tracked separately
+		// from `servers`, so the loop above misses them).
+		for (const child of this.startupChildren) {
+			try {
+				child.kill();
+			} catch (err) {
+				void captureException(err);
+			}
+		}
+		this.startupChildren.clear();
 		this.starting.clear();
 	}
+}
+
+/**
+ * Build the cache key for a server instance. Keying on the binary path alone
+ * would let agents/sessions with different environments (e.g. distinct API keys
+ * or PATH) reuse a server started with someone else's env, leaking credentials
+ * and config across sessions. Fold a stable fingerprint of the env inputs into
+ * the key so those get their own server.
+ */
+function buildServerKey(opts: EnsureServerOptions): string {
+	const fingerprint = (record?: Record<string, string>): string =>
+		record
+			? Object.keys(record)
+					.sort()
+					.map((k) => `${k}=${record[k]}`)
+					.join(' ')
+			: '';
+	return [
+		opts.binaryPath,
+		fingerprint(opts.customEnvVars),
+		fingerprint(opts.shellEnvVars),
+		(opts.extraPathDirs ?? []).join(':'),
+	].join('\u0001');
 }
 
 /** Find an available ephemeral TCP port on the loopback interface. */
