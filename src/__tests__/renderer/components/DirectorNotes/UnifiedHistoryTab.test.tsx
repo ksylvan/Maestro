@@ -283,7 +283,10 @@ beforeEach(() => {
 	// Clear persisted history filters (localStorage) between tests so a filter
 	// toggle in one test can't leak a restrictive selection (UNIFIED_HISTORY_FILTERS_KEY)
 	// into later tests, which would hide entries and fail their assertions.
-	localStorage.clear();
+	// Optional chaining: some jsdom environments stub localStorage without a
+	// working clear().
+	localStorage.clear?.();
+
 	mockDirNotesSettings.defaultLookbackDays = 7;
 	(window as any).maestro = {
 		directorNotes: {

@@ -141,7 +141,9 @@ describe('HistoryPanel', () => {
 		// toggles persist under HISTORY_PANEL_FILTERS_KEY; without this, a test
 		// that deselects a type leaks the restrictive filter into every later
 		// test, hiding their entries and failing all entry-render assertions.
-		localStorage.clear();
+		// Optional chaining: some jsdom environments stub localStorage without
+		// a working clear().
+		localStorage.clear?.();
 
 		// Reset uiStore state used by HistoryPanel
 		useUIStore.setState({ historySearchFilterOpen: false });
