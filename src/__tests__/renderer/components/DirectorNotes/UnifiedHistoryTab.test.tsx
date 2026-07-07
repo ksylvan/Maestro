@@ -280,6 +280,12 @@ const createPaginatedResponse = (entries: any[], hasMore = false, total?: number
 });
 
 beforeEach(() => {
+	// Persisted filter selection (directorNotes.historyFilters) lives in real
+	// localStorage - clear it so one test's filter toggle can't leak into the
+	// next test's initial render. Optional chaining: some jsdom environments
+	// stub localStorage without a working clear().
+	localStorage.clear?.();
+
 	mockDirNotesSettings.defaultLookbackDays = 7;
 	(window as any).maestro = {
 		directorNotes: {

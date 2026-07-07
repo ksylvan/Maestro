@@ -137,6 +137,12 @@ describe('HistoryPanel', () => {
 	beforeEach(() => {
 		vi.useFakeTimers({ shouldAdvanceTime: true });
 
+		// Persisted filter selection (historyPanel.filters) lives in real
+		// localStorage - clear it so one test's filter toggle can't leak into
+		// the next test's initial render. Optional chaining: some jsdom
+		// environments stub localStorage without a working clear().
+		localStorage.clear?.();
+
 		// Reset uiStore state used by HistoryPanel
 		useUIStore.setState({ historySearchFilterOpen: false });
 
