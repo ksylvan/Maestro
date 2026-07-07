@@ -36,6 +36,7 @@ import {
 import type { Theme } from '../../types';
 import type { CadenzaColor, CadenzaViewType } from '../../../shared/cadenza-types';
 import { useCadenzaStore, type CadenzaView } from '../../stores/cadenzaStore';
+import { usePointerDrag } from '../../hooks/utils/usePointerDrag';
 import { getBasename, getParentDir } from '../../../shared/formatters';
 import { Markdown } from '../Markdown';
 import { CadenzaBlocks } from './CadenzaBlocks';
@@ -130,28 +131,17 @@ const CadenzaCard = memo(function CadenzaCard({
 	const moveCadenza = useCadenzaStore((s) => s.moveCadenza);
 	// Pulse this card when a chat chip points at it (flashItem).
 	const isFlashed = useCadenzaStore((s) => s.flashedId === view.id);
+	const startDrag = usePointerDrag();
 
 	/** Drag the whole card by its header (ignore drags starting on a button). */
 	const onDragStart = (e: ReactPointerEvent<HTMLDivElement>) => {
-		if ((e.target as HTMLElement).closest('button')) return;
-		e.preventDefault();
-		const startX = e.clientX;
-		const startY = e.clientY;
 		const originX = view.x ?? 0;
 		const originY = view.y ?? 0;
-		const onMove = (ev: PointerEvent) => {
-			moveCadenza(
-				view.id,
-				Math.max(0, originX + (ev.clientX - startX)),
-				Math.max(0, originY + (ev.clientY - startY))
-			);
-		};
-		const onUp = () => {
-			window.removeEventListener('pointermove', onMove);
-			window.removeEventListener('pointerup', onUp);
-		};
-		window.addEventListener('pointermove', onMove);
-		window.addEventListener('pointerup', onUp);
+		startDrag(
+			e,
+			(dx, dy) => moveCadenza(view.id, Math.max(0, originX + dx), Math.max(0, originY + dy)),
+			{ ignoreButtons: true }
+		);
 	};
 
 	return (

@@ -15,6 +15,7 @@ import type {
 	CadenzaDecisionOption,
 } from '../../shared/cadenza-types';
 import { selectSessionById, useSessionStore } from './sessionStore';
+import { upsertById, scheduleFlashClear } from './concertoShared';
 
 /** A resolved cadenza ready to render (defaults applied). */
 export interface CadenzaView {
@@ -68,16 +69,11 @@ export interface CadenzaStoreActions {
 
 export type CadenzaStore = CadenzaStoreState & CadenzaStoreActions;
 
-export const useCadenzaStore = create<CadenzaStore>()((set) => ({
+export const useCadenzaStore = create<CadenzaStore>()((set, get) => ({
 	cadenzas: [],
 	flashedId: null,
 
-	upsertCadenza: (view) =>
-		set((s) => ({
-			cadenzas: s.cadenzas.some((v) => v.id === view.id)
-				? s.cadenzas.map((v) => (v.id === view.id ? view : v))
-				: [...s.cadenzas, view],
-		})),
+	upsertCadenza: (view) => set((s) => ({ cadenzas: upsertById(s.cadenzas, view) })),
 
 	patchCadenza: (id, patch) =>
 		set((s) => ({
@@ -91,13 +87,14 @@ export const useCadenzaStore = create<CadenzaStore>()((set) => ({
 
 	clearCadenzas: () => set({ cadenzas: [] }),
 
-	// Chat-chip "point": pulse the target cadenza for a moment. Guarded on clear
-	// so a newer flash isn't cancelled by an older pending timeout.
+	// Chat-chip "point": pulse the target cadenza for a moment.
 	flashItem: (id) => {
 		set({ flashedId: id });
-		setTimeout(() => {
-			set((s) => (s.flashedId === id ? { flashedId: null } : s));
-		}, 2200);
+		scheduleFlashClear(
+			() => get().flashedId,
+			() => set({ flashedId: null }),
+			id
+		);
 	},
 }));
 

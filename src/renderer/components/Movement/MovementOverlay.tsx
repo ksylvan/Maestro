@@ -18,6 +18,7 @@ import { X, EyeOff, LayoutGrid } from 'lucide-react';
 import type { Theme } from '../../types';
 import { useMovementStore, type MovementItem } from '../../stores/movementStore';
 import { BlockView } from '../BlockView';
+import { usePointerDrag } from '../../hooks/utils/usePointerDrag';
 
 interface MovementOverlayProps {
 	theme: Theme;
@@ -41,40 +42,19 @@ const MovementPanel = memo(function MovementPanel({
 	const setMeasuredHeight = useMovementStore((s) => s.setMeasuredHeight);
 	// Pulse this panel when a chat chip points at it (flashItem).
 	const isFlashed = useMovementStore((s) => s.flashedId === item.id);
+	const startDrag = usePointerDrag();
 
 	const onDragStart = (e: ReactPointerEvent<HTMLDivElement>) => {
-		if ((e.target as HTMLElement).closest('button')) return;
-		e.preventDefault();
-		const sx = e.clientX;
-		const sy = e.clientY;
 		const ox = item.x;
 		const oy = item.y;
-		const onMove = (ev: PointerEvent) =>
-			moveItem(item.id, ox + (ev.clientX - sx), oy + (ev.clientY - sy));
-		const onUp = () => {
-			window.removeEventListener('pointermove', onMove);
-			window.removeEventListener('pointerup', onUp);
-		};
-		window.addEventListener('pointermove', onMove);
-		window.addEventListener('pointerup', onUp);
+		startDrag(e, (dx, dy) => moveItem(item.id, ox + dx, oy + dy), { ignoreButtons: true });
 	};
 
 	const onResizeStart = (e: ReactPointerEvent<HTMLDivElement>) => {
-		e.preventDefault();
-		e.stopPropagation();
-		const sx = e.clientX;
-		const sy = e.clientY;
 		const ow = item.width;
 		// Measure current rendered height so an auto-sized panel resizes smoothly.
 		const oh = item.height ?? frameRef.current?.offsetHeight ?? 240;
-		const onMove = (ev: PointerEvent) =>
-			resizeItem(item.id, ow + (ev.clientX - sx), oh + (ev.clientY - sy));
-		const onUp = () => {
-			window.removeEventListener('pointermove', onMove);
-			window.removeEventListener('pointerup', onUp);
-		};
-		window.addEventListener('pointermove', onMove);
-		window.addEventListener('pointerup', onUp);
+		startDrag(e, (dx, dy) => resizeItem(item.id, ow + dx, oh + dy), { stopPropagation: true });
 	};
 
 	const frameRef = useRef<HTMLDivElement>(null);

@@ -9,6 +9,7 @@
 import { create } from 'zustand';
 import type { MovementPayload, MovementStateSnapshot } from '../../shared/movement-types';
 import type { BlockSpec } from '../components/BlockView';
+import { upsertById, scheduleFlashClear } from './concertoShared';
 
 /** Default item width when the agent doesn't specify one (px). */
 export const MOVEMENT_ITEM_DEFAULT_WIDTH = 500;
@@ -72,19 +73,14 @@ export type MovementStore = MovementStoreState & MovementStoreActions;
 const MIN_ITEM_WIDTH = 200;
 const MIN_ITEM_HEIGHT = 120;
 
-export const useMovementStore = create<MovementStore>()((set) => ({
+export const useMovementStore = create<MovementStore>()((set, get) => ({
 	items: [],
 	viewportWidth: 0,
 	viewportHeight: 0,
 	hidden: false,
 	flashedId: null,
 
-	upsertItem: (item) =>
-		set((s) => ({
-			items: s.items.some((v) => v.id === item.id)
-				? s.items.map((v) => (v.id === item.id ? item : v))
-				: [...s.items, item],
-		})),
+	upsertItem: (item) => set((s) => ({ items: upsertById(s.items, item) })),
 
 	patchItem: (id, patch) =>
 		set((s) => ({ items: s.items.map((v) => (v.id === id ? { ...v, ...patch } : v)) })),
@@ -129,14 +125,14 @@ export const useMovementStore = create<MovementStore>()((set) => ({
 
 	setHidden: (hidden) => set({ hidden }),
 
-	// Chat-chip "point": surface the overlay and pulse the target panel for a
-	// moment. Guarded on clear so a newer flash isn't cancelled by an older
-	// pending timeout.
+	// Chat-chip "point": surface the overlay and pulse the target panel for a moment.
 	flashItem: (id) => {
 		set({ hidden: false, flashedId: id });
-		setTimeout(() => {
-			set((s) => (s.flashedId === id ? { flashedId: null } : s));
-		}, 2200);
+		scheduleFlashClear(
+			() => get().flashedId,
+			() => set({ flashedId: null }),
+			id
+		);
 	},
 }));
 
