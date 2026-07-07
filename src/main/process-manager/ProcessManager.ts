@@ -86,6 +86,19 @@ export class ProcessManager extends EventEmitter {
 			this.kill(config.sessionId);
 		}
 
+		// Decide the OpenCode SDK-serve path on the RAW config, before any coworking
+		// env injection. The serve transport uses a single, process-wide `opencode
+		// serve` keyed by an env fingerprint (OpencodeServerManager.buildServerKey);
+		// injecting the per-session MAESTRO_COWORKING_SESSION_ID here would fingerprint
+		// into a distinct server per session, fragmenting the shared server. Coworking
+		// over the serve transport needs a per-request mechanism (tracked follow-up),
+		// so we skip injection on this path. The coworking bridge fails closed for the
+		// resulting env-less MCP subprocess (its parent is the shared serve PID, not a
+		// tracked agent CLI), so the tools are cleanly unavailable, never mis-scoped.
+		if (this.shouldUseOpencodeServer(config)) {
+			return this.opencodeServerSpawner.spawn(config);
+		}
+
 		// Inject the *owning Maestro session id* into the agent CLI's env so the
 		// coworking MCP subprocess (spawned by the agent's MCP client, inheriting
 		// parent env) can announce the correct caller key to the bridge. We must
@@ -117,10 +130,6 @@ export class ProcessManager extends EventEmitter {
 							...(config.customEnvVars ?? {}),
 						},
 					};
-
-		if (this.shouldUseOpencodeServer(configWithCoworkingSession)) {
-			return this.opencodeServerSpawner.spawn(configWithCoworkingSession);
-		}
 
 		const usePty = this.shouldUsePty(configWithCoworkingSession);
 		const result = usePty
