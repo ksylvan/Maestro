@@ -8,21 +8,22 @@
  * over the same `remote:cadenza` bridge the in-app CadenzaLayer uses.
  *
  * Reusing the bundle (rather than a second Vite entry) is deliberate: the HUD
- * gets themes, the widget library, and the Markdown renderer for free.
+ * gets themes, the widget library, and the Markdown renderer for free. Theme
+ * resolution is shared with the main app via useResolvedTheme (not re-derived)
+ * so plugin themes resolve here too.
  */
 
-import { useEffect, useMemo } from 'react';
-import { THEMES } from './constants/themes';
-import { useSettingsStore, loadAllSettings } from './stores/settingsStore';
+import { useEffect } from 'react';
+import { loadAllSettings } from './stores/settingsStore';
+import { useResolvedTheme } from './hooks/ui/useResolvedTheme';
 import { CadenzaLayer } from './components/Cadenza';
 import { applyCadenzaPayload } from './stores/cadenzaStore';
 
 export function CadenzaHudRoot() {
-	const activeThemeId = useSettingsStore((s) => s.activeThemeId);
-	const customThemeColors = useSettingsStore((s) => s.customThemeColors);
-
-	// The HUD window boots its own renderer context, so hydrate settings here
-	// (for the active theme) - the full app isn't mounted to do it for us.
+	// The HUD window boots its own renderer context, so hydrate settings here (for
+	// the active theme) - the full app isn't mounted to do it for us. We keep this
+	// minimal load rather than useSettings, which also applies main-window-only
+	// side effects (font scaling, hotkey toasts) that don't belong in the HUD.
 	useEffect(() => {
 		void loadAllSettings();
 	}, []);
@@ -43,12 +44,7 @@ export function CadenzaHudRoot() {
 	// against card rects the CadenzaLayer reports). Doing hover detection here
 	// would need `setIgnoreMouseEvents(forward)`, which is unsupported on Linux.
 
-	const theme = useMemo(() => {
-		if (activeThemeId === 'custom') {
-			return { ...THEMES.custom, colors: customThemeColors };
-		}
-		return THEMES[activeThemeId];
-	}, [activeThemeId, customThemeColors]);
+	const theme = useResolvedTheme();
 
 	return <CadenzaLayer theme={theme} isHud />;
 }
