@@ -83,6 +83,13 @@ describe('applyMovementPayload', () => {
 		expect(useMovementStore.getState().items[0]).toMatchObject({ x: 0, y: 20 });
 	});
 
+	it('add and update also clamp negative coordinates (no off-screen panels)', () => {
+		applyMovementPayload({ op: 'add', id: 'a', x: -50, y: -20 });
+		expect(useMovementStore.getState().items[0]).toMatchObject({ x: 0, y: 0 });
+		applyMovementPayload({ op: 'update', id: 'a', x: -400, y: 30 });
+		expect(useMovementStore.getState().items[0]).toMatchObject({ x: 0, y: 30 });
+	});
+
 	it('remove drops the item; clear empties all', () => {
 		applyMovementPayload({ op: 'add', id: 'a' });
 		applyMovementPayload({ op: 'add', id: 'b' });

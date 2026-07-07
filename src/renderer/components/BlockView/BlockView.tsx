@@ -25,7 +25,7 @@ import {
 } from '../widgets';
 import { Markdown } from '../Markdown';
 import type { Block, BlockSpec } from './types';
-import { resolveAlign, resolveBlockColor, resolveGap, TYPE } from './tokens';
+import { ORANGE_HEX, resolveAlign, resolveBlockColor, resolveGap, TYPE } from './tokens';
 
 interface BlockViewProps {
 	spec: BlockSpec;
@@ -36,6 +36,23 @@ interface BlockViewProps {
 function toBlocks(spec: BlockSpec): Block[] {
 	if (Array.isArray(spec)) return spec;
 	return Array.isArray(spec?.blocks) ? spec.blocks : [];
+}
+
+/**
+ * Coerce an agent-authored leaf value to a safe React child. Specs are untrusted
+ * JSON, so a field typed `string` may arrive as an object/array/number; rendering
+ * that raw throws "Objects are not valid as a React child" and (bare-mounted)
+ * blanks the whole app. Everything funnels through here at the render leaves.
+ */
+function toText(value: unknown): string {
+	if (value == null) return '';
+	if (typeof value === 'string') return value;
+	if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+	try {
+		return JSON.stringify(value);
+	} catch {
+		return String(value);
+	}
 }
 
 // ===========================================================================
@@ -127,7 +144,7 @@ function Group({ block, theme }: { block: Extract<Block, { kind: 'group' }>; the
 						borderLeft: `3px solid ${accent}`,
 					}}
 				>
-					{block.title}
+					{toText(block.title)}
 				</div>
 			)}
 			<div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: resolveGap('md') }}>
@@ -153,7 +170,7 @@ function Heading({ block, theme }: { block: Extract<Block, { kind: 'heading' }>;
 				color: theme.colors.textMain,
 			}}
 		>
-			{block.text}
+			{toText(block.text)}
 		</div>
 	);
 }
@@ -174,7 +191,7 @@ function Badge({ block, theme }: { block: Extract<Block, { kind: 'badge' }>; the
 				border: `1px solid ${accent}55`,
 			}}
 		>
-			{block.text}
+			{toText(block.text)}
 		</span>
 	);
 }
@@ -193,11 +210,13 @@ function Callout({ block, theme }: { block: Extract<Block, { kind: 'callout' }>;
 			}}
 		>
 			{block.title && (
-				<div style={{ ...TYPE.subheading, color: accent, marginBottom: 4 }}>{block.title}</div>
+				<div style={{ ...TYPE.subheading, color: accent, marginBottom: 4 }}>
+					{toText(block.title)}
+				</div>
 			)}
 			{block.text && (
 				<div style={{ ...TYPE.body, color: theme.colors.textMain, whiteSpace: 'pre-wrap' }}>
-					{block.text}
+					{toText(block.text)}
 				</div>
 			)}
 		</div>
@@ -322,7 +341,7 @@ function Table({ block, theme }: { block: Extract<Block, { kind: 'table' }>; the
 										whiteSpace: 'nowrap',
 									}}
 								>
-									{c}
+									{toText(c)}
 								</th>
 							))}
 						</tr>
@@ -341,7 +360,7 @@ function Table({ block, theme }: { block: Extract<Block, { kind: 'table' }>; the
 										borderBottom: `1px solid ${theme.colors.border}66`,
 									}}
 								>
-									{cell}
+									{toText(cell)}
 								</td>
 							))}
 						</tr>
@@ -388,7 +407,7 @@ const OneBlock = memo(function OneBlock({ block, theme }: { block: Block; theme:
 		case 'text':
 			return block.content ? (
 				<div style={{ fontSize: TYPE.body.fontSize, lineHeight: TYPE.body.lineHeight }}>
-					<Markdown content={block.content} theme={theme} preset="chat" />
+					<Markdown content={toText(block.content)} theme={theme} preset="chat" />
 				</div>
 			) : null;
 		case 'code':
@@ -424,8 +443,8 @@ const OneBlock = memo(function OneBlock({ block, theme }: { block: Block; theme:
 		}
 		case 'section':
 			return (
-				<SectionCard theme={theme} title={block.title ?? ''}>
-					<Markdown content={block.text ?? ''} theme={theme} preset="chat" />
+				<SectionCard theme={theme} title={toText(block.title)}>
+					<Markdown content={toText(block.text)} theme={theme} preset="chat" />
 				</SectionCard>
 			);
 		case 'bars': {
@@ -454,7 +473,7 @@ const OneBlock = memo(function OneBlock({ block, theme }: { block: Block; theme:
 				theme.colors.success,
 				theme.colors.warning,
 				theme.colors.error,
-				'#f97316',
+				ORANGE_HEX,
 				theme.colors.textDim,
 			];
 			const slices: DonutSlice[] = (block.slices ?? [])
@@ -494,15 +513,22 @@ const OneBlock = memo(function OneBlock({ block, theme }: { block: Block; theme:
 	}
 });
 
-/** Render an agent-authored block tree. Surface-agnostic (plain flex column). */
+/** Render an agent-authored block tree. Surface-agnostic (plain flex column).
+ *  Wrapped in an error boundary so a still-uncaught throw in an agent-authored
+ *  block degrades to an inline error card instead of blanking the whole app
+ *  (Movement/Cadenza mount this bare, above the app-level ErrorBoundary). */
 export const BlockView = memo(function BlockView({ spec, theme }: BlockViewProps) {
 	const blocks = toBlocks(spec);
 	if (blocks.length === 0) return null;
 	return (
-		<div style={{ display: 'flex', flexDirection: 'column', gap: resolveGap('md'), width: '100%' }}>
-			{blocks.map((block, i) => (
-				<OneBlock key={i} block={block} theme={theme} />
-			))}
-		</div>
+		<ChartErrorBoundary theme={theme} chartName="view">
+			<div
+				style={{ display: 'flex', flexDirection: 'column', gap: resolveGap('md'), width: '100%' }}
+			>
+				{blocks.map((block, i) => (
+					<OneBlock key={i} block={block} theme={theme} />
+				))}
+			</div>
+		</ChartErrorBoundary>
 	);
 });

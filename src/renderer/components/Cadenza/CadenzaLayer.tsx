@@ -11,7 +11,13 @@
  * Color mapping mirrors CenterFlash so cadenzas read consistently per theme.
  */
 
-import { memo, useEffect, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+	memo,
+	useCallback,
+	useEffect,
+	useState,
+	type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { createPortal } from 'react-dom';
 import {
 	X,
@@ -347,25 +353,36 @@ export const CadenzaLayer = memo(function CadenzaLayer({
 
 	// HUD only: report each card's hit region to the main process, which polls the
 	// cursor against them to toggle click-through (cross-platform - no reliance on
-	// Linux-unsupported mouse-move forwarding). Re-measure when the set of cards
-	// changes (add/remove/drag moves the store) and when any card resizes (collapse).
+	// Linux-unsupported mouse-move forwarding).
+	const reportCardRects = useCallback(() => {
+		if (!isHud) return;
+		const rects = Array.from(document.querySelectorAll('[data-cadenza-card]')).map((el) => {
+			const r = el.getBoundingClientRect();
+			return { x: r.left, y: r.top, width: r.width, height: r.height };
+		});
+		window.maestro?.process?.setCadenzaHudCardRects?.(rects);
+	}, [isHud]);
+
+	// Observer setup is keyed on the SET of cards (ids), not the array identity, so
+	// a drag (which rewrites the array every pointermove) doesn't tear down and
+	// rebuild the ResizeObserver each frame. The observer still catches resizes
+	// (collapse); drag-time position changes re-report via the light effect below.
+	const cardIds = cadenzas.map((c) => c.id).join(',');
 	useEffect(() => {
 		if (!isHud) return;
-		const report = () => {
-			const rects = Array.from(document.querySelectorAll('[data-cadenza-card]')).map((el) => {
-				const r = el.getBoundingClientRect();
-				return { x: r.left, y: r.top, width: r.width, height: r.height };
-			});
-			window.maestro?.process?.setCadenzaHudCardRects?.(rects);
-		};
-		const raf = requestAnimationFrame(report);
-		const observer = new ResizeObserver(report);
+		const raf = requestAnimationFrame(reportCardRects);
+		const observer = new ResizeObserver(reportCardRects);
 		document.querySelectorAll('[data-cadenza-card]').forEach((el) => observer.observe(el));
 		return () => {
 			cancelAnimationFrame(raf);
 			observer.disconnect();
 		};
-	}, [isHud, cadenzas]);
+	}, [isHud, cardIds, reportCardRects]);
+
+	// Light: re-report on any position change (drag) without rebuilding the observer.
+	useEffect(() => {
+		reportCardRects();
+	}, [cadenzas, reportCardRects]);
 
 	if (cadenzas.length === 0) return null;
 

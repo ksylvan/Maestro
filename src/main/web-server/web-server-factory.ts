@@ -902,6 +902,10 @@ export function createWebServerFactory(deps: WebServerFactoryDependencies) {
 		});
 
 		server.setCadenzaViewCallback(async (params) => {
+			// Gated by the Concerto Encore feature: when off, drop the payload so the
+			// opt-in feature stays fully inert (no invisible in-app store population).
+			if (settingsStore.get<{ concerto?: boolean }>('encoreFeatures', {}).concerto !== true)
+				return false;
 			// Prefer the desktop HUD window (floats over other apps). It buffers the
 			// payload internally until its renderer subscribes.
 			if (deliverCadenza?.(params)) return true;

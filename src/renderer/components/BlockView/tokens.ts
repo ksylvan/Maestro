@@ -9,7 +9,7 @@ import type { Theme } from '../../types';
 import type { BlockAlign, BlockColor, BlockGap } from './types';
 
 /** Fallback orange - no theme slot defines it (matches Center Flash / cadenzas). */
-const ORANGE_HEX = '#f97316';
+export const ORANGE_HEX = '#f97316';
 
 /** Resolve a semantic block color to a concrete theme color. */
 export function resolveBlockColor(

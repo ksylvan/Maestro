@@ -165,8 +165,10 @@ export function applyMovementPayload(p: MovementPayload): void {
 
 	if (p.op === 'update') {
 		const patch: Partial<Omit<MovementItem, 'id'>> = {};
-		if (typeof p.x === 'number') patch.x = p.x;
-		if (typeof p.y === 'number') patch.y = p.y;
+		// Clamp to >= 0 like moveItem does, so an agent can't strand a panel (and
+		// its only drag handle + close button) off the top/left edge.
+		if (typeof p.x === 'number') patch.x = Math.max(0, p.x);
+		if (typeof p.y === 'number') patch.y = Math.max(0, p.y);
 		if (typeof p.width === 'number') patch.width = p.width;
 		if (typeof p.height === 'number') patch.height = p.height;
 		if (p.title !== undefined) patch.title = p.title;
@@ -180,8 +182,8 @@ export function applyMovementPayload(p: MovementPayload): void {
 	const step = (cascadeIndex++ % 6) * 32;
 	store.upsertItem({
 		id: p.id,
-		x: p.x ?? existing?.x ?? 24 + step,
-		y: p.y ?? existing?.y ?? 24 + step,
+		x: Math.max(0, p.x ?? existing?.x ?? 24 + step),
+		y: Math.max(0, p.y ?? existing?.y ?? 24 + step),
 		width: p.width ?? existing?.width ?? MOVEMENT_ITEM_DEFAULT_WIDTH,
 		height: p.height ?? existing?.height,
 		title: p.title ?? existing?.title,

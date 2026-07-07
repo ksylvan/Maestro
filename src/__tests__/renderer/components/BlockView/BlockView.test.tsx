@@ -70,6 +70,14 @@ describe('BlockView', () => {
 		expect(screen.getByText('still here')).toBeInTheDocument();
 	});
 
+	it('coerces a non-string table cell to text instead of crashing the app', () => {
+		const spec = {
+			blocks: [{ kind: 'table', columns: ['A'], rows: [[{ x: 1 }]] }],
+		} as unknown as BlockSpec;
+		expect(() => render(<BlockView spec={spec} theme={mockTheme} />)).not.toThrow();
+		expect(screen.getByText('{"x":1}')).toBeInTheDocument();
+	});
+
 	it('renders nothing for an empty spec', () => {
 		const { container } = render(<BlockView spec={{ blocks: [] }} theme={mockTheme} />);
 		expect(container.textContent).toBe('');

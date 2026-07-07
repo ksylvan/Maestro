@@ -326,10 +326,11 @@ export function deliverCadenzaToHud(
 	return true;
 }
 
-/** Close the cadenza HUD window if it's open. */
+/** Close the cadenza HUD window if it's open. The `'closed'` handler owns all
+ *  teardown (nulling refs, clearing the hover-poll interval, resetting state);
+ *  nulling `hudWindow` here would make its `hudWindow === win` guard fail and
+ *  leak the interval. */
 export function closeCadenzaHudWindow(): void {
 	const win = getCadenzaHudWindow();
 	if (win) win.close();
-	hudWindow = null;
-	ownerWindow = null;
 }

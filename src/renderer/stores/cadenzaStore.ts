@@ -14,7 +14,7 @@ import type {
 	CadenzaPayload,
 	CadenzaDecisionOption,
 } from '../../shared/cadenza-types';
-import { useSessionStore } from './sessionStore';
+import { selectSessionById, useSessionStore } from './sessionStore';
 
 /** A resolved cadenza ready to render (defaults applied). */
 export interface CadenzaView {
@@ -42,7 +42,7 @@ export interface CadenzaView {
 /** Resolve an agent's display name from its session id (fleet attribution). */
 function resolveAgentName(sessionId: string | undefined): string | undefined {
 	if (!sessionId) return undefined;
-	return useSessionStore.getState().sessions.find((s) => s.id === sessionId)?.name;
+	return selectSessionById(sessionId)(useSessionStore.getState())?.name;
 }
 
 export interface CadenzaStoreState {

@@ -663,7 +663,10 @@ function deliverCadenza(payload: Parameters<typeof deliverCadenzaToHud>[2]): boo
 ipcMain.on('cadenza-hud:decision', (_event, sessionId: string, message: string) => {
 	if (!mainWindow || mainWindow.isDestroyed()) return;
 	if (!sessionId || !message) return;
-	mainWindow.webContents.send('remote:executeCommand', sessionId, message, 'ai');
+	// force=true (5th arg): a decision card is answered mid-turn, so the owning
+	// agent is busy by definition; without the force flag the renderer's busy
+	// guard would silently drop the choice while the UI reports it was sent.
+	mainWindow.webContents.send('remote:executeCommand', sessionId, message, 'ai', undefined, true);
 });
 
 // Create web server factory with dependency injection (Phase 2 refactoring)

@@ -516,7 +516,7 @@ export const MAESTRO_CUE_FIRST_PARTY_PLUGIN: FirstPartyPluginDefinition = {
  * compose native, style-mandated data views: a floating in-app Movement of block
  * panels plus always-on-top Cadenza/HUD cards, driven over the CLI. Grepped
  * from `src/main/index.ts` (deliverCadenza), `src/main/web-server/*` (the
- * view/movement bridge callbacks), `src/cli/commands/{view,movement}.ts`, and
+ * cadenza/movement bridge callbacks), `src/cli/commands/{cadenza,movement}.ts`, and
  * `src/renderer/components/{Movement,Cadenza,BlockView}/`. */
 export const CONCERTO_FIRST_PARTY_PLUGIN: FirstPartyPluginDefinition = {
 	id: 'com.maestro.concerto',
