@@ -12,17 +12,24 @@
 		<!-- Cross-browser standalone PWA hint. -->
 		<meta name="mobile-web-app-capable" content="yes" />
 		<title>Maestro (Web Desktop)</title>
-		<!-- Load JetBrains Mono so this bundle matches the desktop app. Without it the
-		     renderer's `font-family: 'JetBrains Mono'` falls back to Courier New.
-		     Loaded non-render-blocking (media=print + onload swap) so a slow or
-		     blocked Google Fonts request on mobile Safari can't stall first paint. -->
+		<!-- Load JetBrains Mono so this bundle matches the desktop app (the native
+		     app inherits it from the OS; iOS has no such install and depends on
+		     this web-font request). `display=swap` means text paints immediately in
+		     the fallback and swaps in when the font arrives, so a plain stylesheet
+		     link is already non-render-blocking here. Do NOT use the media="print"
+		     + onload swap trick: mobile Safari defers fetching print-media
+		     stylesheets until an actual print, so onload never fires and the font
+		     never loads, leaving the app in a serifed Courier fallback. -->
 		<link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
 		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 		<link
+			rel="preload"
+			as="style"
+			href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+		/>
+		<link
 			rel="stylesheet"
 			href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
-			media="print"
-			onload="this.media = 'all'"
 		/>
 		<style>
 			html,
@@ -33,7 +40,9 @@
 				height: 100%;
 				background: #0a0a0a;
 				color: #eee;
-				font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+				font-family:
+					'JetBrains Mono', 'Fira Code', ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco,
+					'Courier New', monospace;
 				-webkit-font-smoothing: antialiased;
 				-moz-osx-font-smoothing: grayscale;
 			}

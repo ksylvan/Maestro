@@ -26,6 +26,7 @@ import { updateSessionWith } from '../../stores/sessionStore';
 import { useBrowserTabMounting } from '../../hooks/browser/useBrowserTabMounting';
 import { useUIStore } from '../../stores/uiStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { withMonoFallback } from '../../../shared/fontStack';
 import { useTabStore } from '../../stores/tabStore';
 import { useLayerStack } from '../../contexts/LayerStackContext';
 import { outputSearchKeyFor } from '../../utils/outputSearch';
@@ -449,8 +450,10 @@ export const MainPanelContent = React.memo(function MainPanelContent(props: Main
 		onEffortChange,
 	} = props;
 
-	// Self-sourced from settingsStore
-	const fontFamily = useSettingsStore((s) => s.fontFamily);
+	// Self-sourced from settingsStore. withMonoFallback guarantees the AI-output
+	// and terminal surfaces degrade to monospace instead of the browser's serif
+	// default when the stored font (a bare name from the picker) isn't installed.
+	const fontFamily = useSettingsStore((s) => withMonoFallback(s.fontFamily));
 	const defaultShell = useSettingsStore((s) => s.defaultShell);
 	const fontSize = useSettingsStore((s) => s.fontSize);
 	const enterToSendAI = useSettingsStore((s) => s.enterToSendAI);

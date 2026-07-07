@@ -86,6 +86,15 @@ All utilities in Maestro organized by category. Each entry lists the file path, 
 | ---------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `stripAnsiCodes(text)` | `(string) => string` | Remove ANSI escape codes, OSC sequences, iTerm2/VSCode shell integration sequences. Handles SSH edge cases. |
 
+## Font Utilities (`src/shared/fontStack.ts` - Both)
+
+| Export                     | Signature                                 | Purpose                                                                                                                                                                                                                                                              |
+| -------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `withMonoFallback(family)` | `(string \| undefined \| null) => string` | Guarantee a CSS font-family degrades to monospace, not the browser's serif default. Apply where the `fontFamily` setting becomes a CSS value, not at the source (the picker `<select>` needs the raw name). No-ops when the value already carries a generic keyword. |
+| `MONO_FALLBACK_STACK`      | `string`                                  | The safe monospace chain appended by `withMonoFallback` (`ui-monospace` -> ... -> `monospace`). Matches the file-preview surfaces so the whole app degrades to the same faces.                                                                                       |
+
+The font picker stores a bare name (`Roboto Mono`) with no generic fallback, which resolves to serif on iOS / the web-desktop bundle. Do NOT re-derive a fallback chain inline; call `withMonoFallback(s.fontFamily)` at the render site.
+
 ## JSON Utilities (`src/shared/jsonUtils.ts` - Both)
 
 | Function           | Signature                         | Purpose                                                                   |

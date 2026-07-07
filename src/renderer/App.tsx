@@ -9,6 +9,7 @@ import React, {
 	type ReactNode,
 } from 'react';
 import { useFocusAfterRender } from './hooks/utils/useFocusAfterRender';
+import { withMonoFallback } from '../shared/fontStack';
 import { isWebDesktop } from './utils/runtimeContext';
 import { isCoarsePointer } from './utils/touch';
 // SettingsModal is now lazy-loaded inside AppStandaloneModals
@@ -3030,7 +3031,7 @@ function MaestroConsoleInner() {
 					{
 						backgroundColor: theme.colors.bgMain,
 						color: theme.colors.textMain,
-						fontFamily: fontFamily,
+						fontFamily: withMonoFallback(fontFamily),
 						fontSize: `${fontSize}px`,
 						// Consumed by the web-desktop `.maestro-app-shell` bottom-padding
 						// rule to lift the AI input above the virtual keyboard. 0px on

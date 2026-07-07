@@ -44,6 +44,7 @@ import { usePaneDrag } from '../../hooks/tabs/usePaneDrag';
 import { safeClipboardWrite } from '../../utils/clipboard';
 import { flashCopiedToClipboard } from '../../utils/flashCopiedToClipboard';
 import { buildSessionDeepLink } from '../../../shared/deep-link-urls';
+import { withMonoFallback } from '../../../shared/fontStack';
 import { useThrottledCallback } from '../../hooks/utils/useThrottle';
 import { useTabStore } from '../../stores/tabStore';
 import type {
@@ -252,7 +253,7 @@ function PaneContent({
 	session: Session;
 	theme: Theme;
 }) {
-	const fontFamily = useSettingsStore((s) => s.fontFamily);
+	const fontFamily = useSettingsStore((s) => withMonoFallback(s.fontFamily));
 	const maxOutputLines = useSettingsStore((s) => s.maxOutputLines);
 	const chatRawTextMode = useSettingsStore((s) => s.chatRawTextMode);
 
