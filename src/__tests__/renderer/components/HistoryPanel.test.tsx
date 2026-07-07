@@ -28,6 +28,7 @@ import { useUIStore } from '../../../renderer/stores/uiStore';
 import { useSettingsStore } from '../../../renderer/stores/settingsStore';
 
 import { mockTheme } from '../../helpers/mockTheme';
+import { installLocalStorageMock } from '../../helpers/mockLocalStorage';
 // Mock child components
 vi.mock('../../../renderer/components/HistoryDetailModal', () => ({
 	HistoryDetailModal: ({
@@ -137,11 +138,12 @@ describe('HistoryPanel', () => {
 	beforeEach(() => {
 		vi.useFakeTimers({ shouldAdvanceTime: true });
 
-		// Clear persisted history filters (localStorage) between tests. Filter
-		// toggles persist under HISTORY_PANEL_FILTERS_KEY; without this, a test
+		// Install a fresh in-memory localStorage mock between tests. Filter
+		// toggles persist under HISTORY_PANEL_FILTERS_KEY; without a reset, a test
 		// that deselects a type leaks the restrictive filter into every later
 		// test, hiding their entries and failing all entry-render assertions.
-		localStorage.clear();
+		// jsdom here provides no working Storage, so a mock is required.
+		installLocalStorageMock();
 
 		// Reset uiStore state used by HistoryPanel
 		useUIStore.setState({ historySearchFilterOpen: false });

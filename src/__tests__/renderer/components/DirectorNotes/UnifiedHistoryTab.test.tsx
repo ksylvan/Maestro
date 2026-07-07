@@ -6,6 +6,7 @@ import { UnifiedHistoryTab as RawUnifiedHistoryTab } from '../../../../renderer/
 import { useSettingsStore } from '../../../../renderer/stores/settingsStore';
 
 import { mockTheme } from '../../../helpers/mockTheme';
+import { installLocalStorageMock } from '../../../helpers/mockLocalStorage';
 
 // Lookback is owned by DirectorNotesModal in real use; tests use this
 // stateful wrapper so we can keep `<UnifiedHistoryTab ... />` ergonomics.
@@ -280,10 +281,11 @@ const createPaginatedResponse = (entries: any[], hasMore = false, total?: number
 });
 
 beforeEach(() => {
-	// Clear persisted history filters (localStorage) between tests so a filter
+	// Install a fresh in-memory localStorage mock between tests so a filter
 	// toggle in one test can't leak a restrictive selection (UNIFIED_HISTORY_FILTERS_KEY)
 	// into later tests, which would hide entries and fail their assertions.
-	localStorage.clear();
+	// jsdom here provides no working Storage, so a mock is required.
+	installLocalStorageMock();
 	mockDirNotesSettings.defaultLookbackDays = 7;
 	(window as any).maestro = {
 		directorNotes: {
