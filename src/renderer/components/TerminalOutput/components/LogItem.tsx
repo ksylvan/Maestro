@@ -600,7 +600,7 @@ export const LogItem = memo(
 									className={`${isTerminal && log.source !== 'user' ? 'whitespace-pre text-sm' : 'whitespace-pre-wrap text-sm break-words'}`}
 									style={{
 										maxHeight: `${maxOutputLines * 1.5}em`,
-										overflow: isTerminal && log.source !== 'user' ? 'hidden' : 'hidden',
+										overflow: 'hidden',
 										color: theme.colors.textMain,
 										fontFamily,
 										overflowWrap: isTerminal && log.source !== 'user' ? undefined : 'break-word',

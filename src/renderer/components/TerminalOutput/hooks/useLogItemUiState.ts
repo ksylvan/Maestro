@@ -5,18 +5,15 @@ export function useLogItemUiState(
 	setMarkdownEditMode: (value: boolean) => void
 ) {
 	const [expandedLogs, setExpandedLogs] = useState<Set<string>>(new Set());
-	const [_expandedTrigger, setExpandedTrigger] = useState(0);
 
 	const [localFilters, setLocalFilters] = useState<Map<string, string>>(new Map());
 	const [activeLocalFilter, setActiveLocalFilter] = useState<string | null>(null);
-	const [_filterTrigger, setFilterTrigger] = useState(0);
 
 	const [filterModes, setFilterModes] = useState<
 		Map<string, { mode: 'include' | 'exclude'; regex: boolean }>
 	>(new Map());
 
 	const [deleteConfirmLogId, setDeleteConfirmLogId] = useState<string | null>(null);
-	const [_deleteConfirmTrigger, _setDeleteConfirmTrigger] = useState(0);
 
 	const [saveModalContent, setSaveModalContent] = useState<string | null>(null);
 
@@ -30,12 +27,10 @@ export function useLogItemUiState(
 			}
 			return newSet;
 		});
-		setExpandedTrigger((t) => t + 1);
 	}, []);
 
 	const toggleLocalFilter = useCallback((logId: string) => {
 		setActiveLocalFilter((prev) => (prev === logId ? null : logId));
-		setFilterTrigger((t) => t + 1);
 	}, []);
 
 	const setLocalFilterQuery = useCallback((logId: string, query: string) => {
