@@ -641,6 +641,13 @@ const cadenzaHudDeps = {
 	windowRegistry,
 };
 
+// Disabling Concerto must tear down the already-running always-on-top HUD, not
+// merely reject future payloads. Without this listener, existing cards and the
+// cursor hover poll survive after the user turns the extension off.
+store.onDidChange('encoreFeatures', (encoreFeatures) => {
+	if (encoreFeatures?.concerto !== true) closeCadenzaHudWindow();
+});
+
 /**
  * Route a cadenza payload to the HUD window (creating it lazily). Returns
  * false when there's no main window to parent it, so the caller can fall back

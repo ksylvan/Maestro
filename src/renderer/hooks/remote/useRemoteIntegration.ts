@@ -9,11 +9,7 @@ import { persistTabStarred } from '../../utils/starredSessions';
 import { formatLogsForClipboard } from '../../utils/contextExtractor';
 import { notifyToast } from '../../stores/notificationStore';
 import { applyCadenzaPayload, useCadenzaStore } from '../../stores/cadenzaStore';
-import {
-	applyMovementPayload,
-	getMovementSnapshot,
-	useMovementStore,
-} from '../../stores/movementStore';
+import { applyMovementPayload, getMovementSnapshot } from '../../stores/movementStore';
 import { notifyCenterFlash } from '../../stores/centerFlashStore';
 import { useSessionStore } from '../../stores/sessionStore';
 
@@ -691,10 +687,6 @@ export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteI
 		if (typeof proc?.onRemoteMovement !== 'function') return;
 		const unsubscribe = proc.onRemoteMovement((params) => {
 			applyMovementPayload(params);
-			// Un-stash the overlay when content is added/updated so new panels surface.
-			if (params.op === 'add' || params.op === 'update') {
-				useMovementStore.getState().setHidden(false);
-			}
 		});
 		return () => {
 			unsubscribe();

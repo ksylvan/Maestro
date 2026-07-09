@@ -77,6 +77,17 @@ describe('applyMovementPayload', () => {
 		expect(useMovementStore.getState().items[0]).toMatchObject({ x: 10, y: 10, title: 'new' });
 	});
 
+	it('surfaces new panels but preserves the user stash across live updates', () => {
+		applyMovementPayload({ op: 'add', id: 'a', body: '{"blocks":[]}' });
+		useMovementStore.getState().setHidden(true);
+
+		applyMovementPayload({ op: 'update', id: 'a', body: '{"blocks":[]}' });
+		expect(useMovementStore.getState().hidden).toBe(true);
+
+		applyMovementPayload({ op: 'add', id: 'b', body: '{"blocks":[]}' });
+		expect(useMovementStore.getState().hidden).toBe(false);
+	});
+
 	it('move clamps negative coordinates to zero', () => {
 		applyMovementPayload({ op: 'add', id: 'a', x: 50, y: 50 });
 		applyMovementPayload({ op: 'move', id: 'a', x: -30, y: 20 });

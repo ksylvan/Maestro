@@ -39,6 +39,7 @@ import { useCadenzaStore, type CadenzaView } from '../../stores/cadenzaStore';
 import { usePointerDrag } from '../../hooks/utils/usePointerDrag';
 import { getBasename, getParentDir } from '../../../shared/formatters';
 import { Markdown } from '../Markdown';
+import { LocalImage } from '../Markdown/components/LocalImage';
 import { CadenzaBlocks } from './CadenzaBlocks';
 
 interface CadenzaLayerProps {
@@ -276,11 +277,11 @@ const CadenzaCard = memo(function CadenzaCard({
 
 					{view.viewType === 'image' && view.path && (
 						<div className="flex justify-center px-3 pb-2.5 pt-0.5">
-							<img
-								src={`maestro-file://${view.path}`}
+							<LocalImage
+								src={view.path}
 								alt={view.title}
-								className="max-w-full rounded-md"
-								style={{ maxHeight: CONTENT_MAX_HEIGHT, objectFit: 'contain' }}
+								theme={theme}
+								maxHeight={CONTENT_MAX_HEIGHT}
 								draggable={false}
 							/>
 						</div>

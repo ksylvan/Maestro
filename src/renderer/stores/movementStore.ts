@@ -176,6 +176,9 @@ export function applyMovementPayload(p: MovementPayload): void {
 	// op === 'add'. Preserve position if the id already exists; else cascade.
 	const existing = store.items.find((v) => v.id === p.id);
 	const step = (cascadeIndex++ % 6) * 32;
+	// A newly-added panel should surface immediately. Updates intentionally do
+	// not change `hidden`, so a live tracker cannot override the user's stash.
+	store.setHidden(false);
 	store.upsertItem({
 		id: p.id,
 		x: Math.max(0, p.x ?? existing?.x ?? 24 + step),
