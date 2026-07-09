@@ -135,12 +135,14 @@ async function resolveRepoRoot(path: string, sshRemoteId?: string): Promise<stri
 // buildWorktreeSession and BuildWorktreeSessionParams are imported from ../../utils/worktreeSession
 // normalizePath and sessionMatchesWorktreeRoot are imported from ../../utils/worktreeDedup
 
+const EMPTY_RIGHT_PANEL_REF: React.RefObject<RightPanelHandle | null> = { current: null };
+
 // ============================================================================
 // Hook
 // ============================================================================
 
 export function useWorktreeHandlers(deps: UseWorktreeHandlersDeps = {}): WorktreeHandlersReturn {
-	const { rightPanelRef = { current: null } } = deps;
+	const { rightPanelRef = EMPTY_RIGHT_PANEL_REF } = deps;
 	// ---------------------------------------------------------------------------
 	// Reactive subscriptions
 	// ---------------------------------------------------------------------------

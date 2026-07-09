@@ -180,7 +180,6 @@ import type { RightPanelTab, Session, QueuedItem, CustomAICommand, ThinkingItem 
 import { THEMES } from './constants/themes';
 import { usePluginContributions } from './hooks/usePluginContributions';
 import { resolvePluginTheme } from './utils/pluginThemes';
-import { generateId } from './utils/ids';
 import { getActiveOutputSearchKey } from './utils/outputSearch';
 import { reorderQueueItem } from './utils/executionQueue';
 import { getContextColor } from './utils/theme';
@@ -320,7 +319,6 @@ function MaestroConsoleInner() {
 		// Worktree Modals
 		createWorktreeSession,
 		createPRSession,
-		setCreatePRSession,
 		deleteWorktreeSession,
 		// Tab Switcher Modal
 		setTabSwitcherOpen,
@@ -483,7 +481,7 @@ function MaestroConsoleInner() {
 		encoreFeatures,
 	} = settings;
 
-	// Reset modal-open flags when their Encore Feature toggle is disabledP
+	// Reset modal-open flags when their Encore Feature toggle is disabled
 	useEffect(() => {
 		if (!encoreFeatures.symphony) setSymphonyModalOpen(false);
 	}, [encoreFeatures.symphony, setSymphonyModalOpen]);

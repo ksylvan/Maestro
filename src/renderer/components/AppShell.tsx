@@ -1,5 +1,5 @@
 /**
- * AppShell — spatial layout for MaestroConsoleInner.
+ * AppShell - spatial layout for MaestroConsoleInner.
  *
  * Owns the shell chrome (title bar, sidebars, center workspace, overlays).
  * Modal wiring and complex view assembly (AppModals, group chat, log viewer)
@@ -109,9 +109,7 @@ export function AppShell({
 	return (
 		<div
 			className={`flex maestro-app-shell w-full font-mono overflow-hidden transition-colors duration-300 ${
-				isMobileLandscape || useNativeTitleBar || isMdDownViewport || isWebDesktop()
-					? 'pt-0'
-					: 'pt-10'
+				showTitleBar ? 'pt-10' : 'pt-0'
 			}`}
 			style={
 				{
