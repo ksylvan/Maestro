@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { Edit3, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Edit3, FolderInput, FolderPlus, FolderUp, Plus, Trash2 } from 'lucide-react';
 import type { Group, Theme } from '../../types';
 import { useClickOutside, useContextMenuPosition } from '../../hooks';
 
@@ -14,6 +14,11 @@ interface GroupContextMenuProps {
 	onDelete?: () => void;
 	/** Override the delete button label; defaults based on memberCount. */
 	deleteLabel?: string;
+	/** Root groups this group can safely be moved into. */
+	eligibleParentGroups?: Group[];
+	onMoveInto?: (parentGroupId: string) => void;
+	onMoveToTopLevel?: () => void;
+	onNewGroupInside?: () => void;
 	onDismiss: () => void;
 }
 
@@ -27,8 +32,13 @@ export function GroupContextMenu({
 	onNewAgent,
 	onDelete,
 	deleteLabel,
+	eligibleParentGroups = [],
+	onMoveInto,
+	onMoveToTopLevel,
+	onNewGroupInside,
 	onDismiss,
 }: GroupContextMenuProps) {
+	const [moveSubmenuOpen, setMoveSubmenuOpen] = useState(false);
 	const menuRef = useRef<HTMLDivElement>(null);
 	const onDismissRef = useRef(onDismiss);
 	onDismissRef.current = onDismiss;
@@ -45,7 +55,7 @@ export function GroupContextMenu({
 		return () => document.removeEventListener('keydown', handleKeyDown);
 	}, []);
 
-	const { left, top, ready } = useContextMenuPosition(menuRef, x, y);
+	const { left, top, ready } = useContextMenuPosition(menuRef, x, y, 8, moveSubmenuOpen);
 
 	return (
 		<div
@@ -58,6 +68,8 @@ export function GroupContextMenu({
 				backgroundColor: theme.colors.bgSidebar,
 				borderColor: theme.colors.border,
 				minWidth: '10rem',
+				maxHeight: 'calc(100vh - 1rem)',
+				overflowY: 'auto',
 			}}
 		>
 			<div
@@ -94,6 +106,68 @@ export function GroupContextMenu({
 				<Plus className="w-3.5 h-3.5" />
 				New Agent in Group...
 			</button>
+
+			{eligibleParentGroups.length > 0 && onMoveInto && (
+				<div>
+					<button
+						type="button"
+						aria-expanded={moveSubmenuOpen}
+						aria-haspopup="menu"
+						onClick={() => setMoveSubmenuOpen((open) => !open)}
+						className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center gap-2"
+						style={{ color: theme.colors.textMain }}
+					>
+						<FolderInput className="w-3.5 h-3.5" />
+						Move into...
+					</button>
+					{moveSubmenuOpen &&
+						eligibleParentGroups.map((parentGroup) => (
+							<button
+								key={parentGroup.id}
+								type="button"
+								onClick={() => {
+									onMoveInto(parentGroup.id);
+									onDismiss();
+								}}
+								className="w-full text-left pl-8 pr-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center gap-2"
+								style={{ color: theme.colors.textMain }}
+							>
+								<span>{parentGroup.emoji}</span>
+								<span className="truncate">{parentGroup.name}</span>
+							</button>
+						))}
+				</div>
+			)}
+
+			{group.parentGroupId && onMoveToTopLevel && (
+				<button
+					type="button"
+					onClick={() => {
+						onMoveToTopLevel();
+						onDismiss();
+					}}
+					className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center gap-2"
+					style={{ color: theme.colors.textMain }}
+				>
+					<FolderUp className="w-3.5 h-3.5" />
+					Move to top level
+				</button>
+			)}
+
+			{!group.parentGroupId && onNewGroupInside && (
+				<button
+					type="button"
+					onClick={() => {
+						onNewGroupInside();
+						onDismiss();
+					}}
+					className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center gap-2"
+					style={{ color: theme.colors.accent }}
+				>
+					<FolderPlus className="w-3.5 h-3.5" />
+					New group inside...
+				</button>
+			)}
 
 			{onDelete && (
 				<>

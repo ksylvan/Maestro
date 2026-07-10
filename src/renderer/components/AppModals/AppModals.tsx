@@ -155,6 +155,7 @@ export interface AppModalsProps {
 
 	// --- AppGroupModals props ---
 	createGroupModalOpen: boolean;
+	createGroupParentId?: string;
 	onCloseCreateGroupModal: () => void;
 	onGroupCreated?: (groupId: string) => void;
 	renameGroupId: string | null;
@@ -654,6 +655,7 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 		onAutoNameTab,
 		// Group modals
 		createGroupModalOpen,
+		createGroupParentId,
 		onCloseCreateGroupModal,
 		onGroupCreated,
 		renameGroupId,
@@ -997,6 +999,7 @@ export const AppModals = memo(function AppModals(props: AppModalsProps) {
 				groups={groups}
 				setGroups={setGroups}
 				createGroupModalOpen={createGroupModalOpen}
+				createGroupParentId={createGroupParentId}
 				onCloseCreateGroupModal={onCloseCreateGroupModal}
 				onGroupCreated={onGroupCreated}
 				renameGroupModalOpen={renameGroupModalOpen}

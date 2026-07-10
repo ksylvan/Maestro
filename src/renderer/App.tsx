@@ -2238,6 +2238,7 @@ function MaestroConsoleInner() {
 		startRenamingGroup,
 		finishRenamingGroup,
 		createNewGroup,
+		setGroupParent,
 		handleCloseCreateGroupModal,
 		handleDropOnGroup,
 		handleDropOnUngrouped,
@@ -2253,7 +2254,7 @@ function MaestroConsoleInner() {
 	});
 
 	// Destructure group modal state for use in JSX
-	const { createGroupModalOpen, setCreateGroupModalOpen } = groupModalState;
+	const { createGroupModalOpen, createGroupParentId, setCreateGroupModalOpen } = groupModalState;
 
 	// Session CRUD operations (create, delete, rename, bookmark, drag-drop, group-move)
 	const {
@@ -2268,6 +2269,7 @@ function MaestroConsoleInner() {
 		handleDragOver,
 		handleCreateGroupAndMove,
 		handleGroupCreated,
+		clearPendingMoveToGroup,
 	} = useSessionCrud({
 		flushSessionPersistence,
 		setRemovedWorktreePaths,
@@ -2275,6 +2277,11 @@ function MaestroConsoleInner() {
 		inputRef,
 		setCreateGroupModalOpen,
 	});
+
+	const handleCloseGroupCreation = useCallback(() => {
+		clearPendingMoveToGroup();
+		handleCloseCreateGroupModal();
+	}, [clearPendingMoveToGroup, handleCloseCreateGroupModal]);
 
 	// Prompt Composer modal handlers — extracted to usePromptComposerHandlers hook
 	const {
@@ -2838,6 +2845,7 @@ function MaestroConsoleInner() {
 		startRenamingSession,
 		showConfirmation,
 		createNewGroup,
+		setGroupParent,
 		handleCreateGroupAndMove,
 		addNewSession,
 		deleteSession,
@@ -3176,7 +3184,8 @@ function MaestroConsoleInner() {
 					onAutoNameTab={handleAutoNameTab}
 					// AppGroupModals props
 					createGroupModalOpen={createGroupModalOpen}
-					onCloseCreateGroupModal={handleCloseCreateGroupModal}
+					createGroupParentId={createGroupParentId}
+					onCloseCreateGroupModal={handleCloseGroupCreation}
 					onGroupCreated={handleGroupCreated}
 					renameGroupId={renameGroupId}
 					renameGroupValue={renameGroupValue}

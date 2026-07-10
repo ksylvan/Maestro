@@ -633,7 +633,12 @@ interface MaestroAPI {
 			result: { success: boolean; error?: string }
 		) => void;
 		onRemoteCreateGroup: (
-			callback: (name: string, emoji: string | undefined, responseChannel: string) => void
+			callback: (
+				name: string,
+				emoji: string | undefined,
+				parentGroupId: string | undefined,
+				responseChannel: string
+			) => void
 		) => () => void;
 		sendRemoteCreateGroupResponse: (responseChannel: string, result: { id: string } | null) => void;
 		onRemoteRenameGroup: (

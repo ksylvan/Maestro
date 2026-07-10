@@ -16,6 +16,10 @@ function setup(overrides: Record<string, unknown> = {}) {
 		onRename: vi.fn(),
 		onNewAgent: vi.fn(),
 		onDelete: vi.fn(),
+		eligibleParentGroups: [],
+		onMoveInto: vi.fn(),
+		onMoveToTopLevel: vi.fn(),
+		onNewGroupInside: vi.fn(),
 		onDismiss: vi.fn(),
 		...overrides,
 	};
@@ -43,5 +47,32 @@ describe('GroupContextMenu', () => {
 		setup({ onDelete: undefined });
 		expect(screen.queryByText('Delete Group')).toBeNull();
 		expect(screen.queryByText('Remove Group and Agents')).toBeNull();
+	});
+
+	it('lists eligible root folders in its Move into submenu', () => {
+		const props = setup({
+			eligibleParentGroups: [{ id: 'parent', name: 'Company', emoji: '🏢', collapsed: false }],
+		});
+
+		const moveIntoButton = screen.getByRole('button', { name: 'Move into...' });
+		expect(moveIntoButton).toHaveAttribute('aria-expanded', 'false');
+
+		fireEvent.click(moveIntoButton);
+		expect(moveIntoButton).toHaveAttribute('aria-expanded', 'true');
+		fireEvent.click(screen.getByText('Company'));
+
+		expect(props.onMoveInto).toHaveBeenCalledWith('parent');
+	});
+
+	it('offers top-level and nested creation actions for child and root groups', () => {
+		const childProps = setup({
+			group: { ...group, parentGroupId: 'parent' },
+		});
+		fireEvent.click(screen.getByText('Move to top level'));
+		expect(childProps.onMoveToTopLevel).toHaveBeenCalledTimes(1);
+
+		const rootProps = setup();
+		fireEvent.click(screen.getByText('New group inside...'));
+		expect(rootProps.onNewGroupInside).toHaveBeenCalledTimes(1);
 	});
 });

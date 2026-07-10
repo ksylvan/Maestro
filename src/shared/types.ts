@@ -177,6 +177,7 @@ export interface Group {
 	kind?: 'user' | 'worktree';
 	icon?: string;
 	color?: string;
+	parentGroupId?: string;
 	collapsed: boolean;
 }
 

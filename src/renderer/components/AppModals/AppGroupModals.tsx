@@ -15,6 +15,7 @@ export interface AppGroupModalsProps {
 
 	// CreateGroupModal
 	createGroupModalOpen: boolean;
+	createGroupParentId?: string;
 	onCloseCreateGroupModal: () => void;
 	onGroupCreated?: (groupId: string) => void;
 
@@ -45,6 +46,7 @@ export const AppGroupModals = memo(function AppGroupModals({
 	setGroups,
 	// CreateGroupModal
 	createGroupModalOpen,
+	createGroupParentId,
 	onCloseCreateGroupModal,
 	onGroupCreated,
 	// RenameGroupModal
@@ -69,6 +71,7 @@ export const AppGroupModals = memo(function AppGroupModals({
 					onClose={onCloseCreateGroupModal}
 					groups={groups}
 					setGroups={setGroups}
+					initialParentGroupId={createGroupParentId}
 					onGroupCreated={onGroupCreated}
 				/>
 			)}

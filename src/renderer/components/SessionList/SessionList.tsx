@@ -26,6 +26,7 @@ import { GhostIconButton } from '../ui/GhostIconButton';
 import { HamburgerDropdown } from './HamburgerDropdown';
 import type { Session, Group, Theme } from '../../types';
 import { isWorktreeGroup } from '../../../shared/types';
+import { canSetGroupParent, removeGroupAndPromoteChildren } from '../../../shared/groupHierarchy';
 import { GROUP_ICON_OPTIONS } from '../ui/groupAppearanceOptions';
 import { getBadgeForTime } from '../../constants/conductorBadges';
 import { SessionItem } from '../SessionItem';
@@ -97,7 +98,8 @@ interface SessionListProps {
 	startRenamingGroup: (groupId: string) => void;
 	startRenamingSession: (sessId: string) => void;
 	showConfirmation: (message: string, onConfirm: () => void) => void;
-	createNewGroup: () => void;
+	createNewGroup: (parentGroupId?: string) => void;
+	setGroupParent: (groupId: string, parentGroupId: string | undefined) => void;
 	onCreateGroupAndMove?: (sessionId: string) => void;
 	addNewSession: () => void;
 	onDeleteSession?: (id: string) => void;
@@ -408,6 +410,7 @@ function SessionListInner(props: SessionListProps) {
 		startRenamingSession,
 		showConfirmation,
 		createNewGroup,
+		setGroupParent,
 		onCreateGroupAndMove,
 		addNewSession,
 		onDeleteSession,
@@ -518,6 +521,17 @@ function SessionListInner(props: SessionListProps) {
 	const groupContextMenuMemberCount = groupContextMenu
 		? sessions.filter((s) => s.groupId === groupContextMenu.groupId && !s.parentSessionId).length
 		: 0;
+	const groupContextMenuEligibleParentGroups = useMemo(
+		() =>
+			groupContextMenuGroup
+				? groups.filter(
+						(candidate) =>
+							candidate.id !== groupContextMenuGroup.parentGroupId &&
+							canSetGroupParent(groups, groupContextMenuGroup.id, candidate.id)
+					)
+				: [],
+		[groups, groupContextMenuGroup]
+	);
 	const menuRef = useRef<HTMLDivElement>(null);
 	// Phones swap the anchored hamburger dropdown for a full-screen sheet.
 	const { isXs } = useViewportBreakpoint();
@@ -532,18 +546,29 @@ function SessionListInner(props: SessionListProps) {
 	// is a group id or the UNGROUPED_DROP_TARGET sentinel (group ids are prefixed
 	// `group-`, so the sentinel can never collide with a real one).
 	const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
+	const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
 
-	// The highlight is purely transient: clear it the instant the agent drag ends
-	// (successful drop, cancel, or release outside any zone). Keying off the
-	// shared draggingSessionId means a zone can never stay stuck highlighted.
+	// The highlight is purely transient: clear it the instant a session or group
+	// drag ends (successful drop, cancel, or release outside any zone).
 	useEffect(() => {
-		if (!draggingSessionId) setDragOverTarget(null);
-	}, [draggingSessionId]);
+		if (!draggingSessionId && !draggingGroupId) setDragOverTarget(null);
+	}, [draggingSessionId, draggingGroupId]);
 
-	const handleDropTargetEnter = useCallback((target: string) => {
-		// Only a session drag should light up a drop zone; ignore OS/file drags.
-		if (useUIStore.getState().draggingSessionId) setDragOverTarget(target);
-	}, []);
+	const handleDropTargetEnter = useCallback(
+		(target: string) => {
+			if (useUIStore.getState().draggingSessionId) {
+				setDragOverTarget(target);
+				return;
+			}
+			if (
+				draggingGroupId &&
+				(target === UNGROUPED_DROP_TARGET || canSetGroupParent(groups, draggingGroupId, target))
+			) {
+				setDragOverTarget(target);
+			}
+		},
+		[draggingGroupId, groups]
+	);
 
 	const handleDropTargetLeave = useCallback((e: React.DragEvent) => {
 		// dragenter/leave also fire for descendants; keep the highlight while the
@@ -553,6 +578,29 @@ function SessionListInner(props: SessionListProps) {
 		if (zone && next && zone.contains(next)) return;
 		setDragOverTarget(null);
 	}, []);
+
+	const handleGroupDrop = useCallback(
+		(groupId: string) => {
+			setDragOverTarget(null);
+			if (draggingGroupId) {
+				setGroupParent(draggingGroupId, groupId);
+				setDraggingGroupId(null);
+				return;
+			}
+			handleDropOnGroup(groupId);
+		},
+		[draggingGroupId, handleDropOnGroup, setGroupParent]
+	);
+
+	const handleUngroupedDrop = useCallback(() => {
+		setDragOverTarget(null);
+		if (draggingGroupId) {
+			setGroupParent(draggingGroupId, undefined);
+			setDraggingGroupId(null);
+			return;
+		}
+		handleDropOnUngrouped();
+	}, [draggingGroupId, handleDropOnUngrouped, setGroupParent]);
 
 	// Toggle bookmark for a session - memoized to prevent SessionItem re-renders
 	const toggleBookmark = useCallback(
@@ -699,6 +747,36 @@ function SessionListInner(props: SessionListProps) {
 		scopeSessionsToWindow,
 		stuckOutageSignature
 	);
+
+	const { orderedGroups, groupById, childrenByParentId } = useMemo(() => {
+		const groupById = new Map(sortedGroups.map((group) => [group.id, group]));
+		const childrenByParentId = new Map<string, Group[]>();
+		const rootGroups: Group[] = [];
+
+		for (const group of sortedGroups) {
+			const parent = group.parentGroupId ? groupById.get(group.parentGroupId) : undefined;
+			if (!parent || parent.parentGroupId) {
+				rootGroups.push(group);
+				continue;
+			}
+
+			const children = childrenByParentId.get(parent.id);
+			if (children) {
+				children.push(group);
+			} else {
+				childrenByParentId.set(parent.id, [group]);
+			}
+		}
+
+		return {
+			orderedGroups: rootGroups.flatMap((group) => [
+				group,
+				...(childrenByParentId.get(group.id) ?? []),
+			]),
+			groupById,
+			childrenByParentId,
+		};
+	}, [sortedGroups]);
 
 	// PERF: Cached callback maps to prevent SessionItem re-renders.
 	// These Maps store stable function references keyed by session id. They only
@@ -902,7 +980,7 @@ function SessionListInner(props: SessionListProps) {
 					onSelect={selectHandlers.get(session.id)!}
 					onDragStart={dragStartHandlers.get(session.id)!}
 					onDragOver={handleDragOver}
-					onDrop={options.onDrop || handleDropOnUngrouped}
+					onDrop={options.onDrop || handleUngroupedDrop}
 					onContextMenu={contextMenuHandlers.get(session.id)!}
 					onFinishRename={finishRenameHandlers.get(session.id)!}
 					onStartRename={getStartRenameHandler(`${options.keyPrefix}-${session.id}`)}
@@ -1445,10 +1523,19 @@ function SessionListInner(props: SessionListProps) {
 
 					{/* GROUPS - hidden in a secondary window, which renders its owned agents
 					    as a flat focused list (see the flat-list branch below). */}
-					{(isSecondaryWindow ? [] : sortedGroups).map((group) => {
+					{(isSecondaryWindow ? [] : orderedGroups).map((group) => {
 						const groupSessions = sortedGroupSessionsById.get(group.id) || [];
-						// Hide empty groups when filtering by unread agents
-						if (showUnreadAgentsOnly && groupSessions.length === 0) return null;
+						const parentGroup = group.parentGroupId
+							? groupById.get(group.parentGroupId)
+							: undefined;
+						const isNestedGroup = Boolean(parentGroup && !parentGroup.parentGroupId);
+						if (isNestedGroup && parentGroup?.collapsed && !showUnreadAgentsOnly) return null;
+						const childGroups = childrenByParentId.get(group.id) ?? [];
+						const hasVisibleChild = childGroups.some(
+							(childGroup) => (sortedGroupSessionsById.get(childGroup.id) || []).length > 0
+						);
+						// Keep a parent visible for a matching child while filtering by unread agents.
+						if (showUnreadAgentsOnly && groupSessions.length === 0 && !hasVisibleChild) return null;
 						const groupCollapsedPills = groupSessions.filter((session) => !session.parentSessionId);
 						const GroupIcon = group.icon
 							? GROUP_ICON_OPTIONS.find((option) => option.id === group.icon)?.Icon
@@ -1456,7 +1543,8 @@ function SessionListInner(props: SessionListProps) {
 						return (
 							<div
 								key={group.id}
-								className="mb-1 rounded"
+								data-group-depth={isNestedGroup ? 1 : 0}
+								className={`${isNestedGroup ? 'ml-4 ' : ''}mb-1 rounded`}
 								style={
 									dragOverTarget === group.id
 										? {
@@ -1472,6 +1560,16 @@ function SessionListInner(props: SessionListProps) {
 								<LongPressable
 									role="button"
 									tabIndex={0}
+									draggable={editingGroupId !== group.id}
+									onDragStart={(event) => {
+										event.dataTransfer.effectAllowed = 'move';
+										event.dataTransfer.setData('text/plain', group.id);
+										setDraggingGroupId(group.id);
+									}}
+									onDragEnd={() => {
+										setDraggingGroupId(null);
+										setDragOverTarget(null);
+									}}
 									aria-expanded={!group.collapsed}
 									onKeyDown={(e) => {
 										if (e.key === 'Enter' || e.key === ' ') {
@@ -1492,10 +1590,7 @@ function SessionListInner(props: SessionListProps) {
 										handleGroupContextMenu(longPressMouseEvent(rect), group.id)
 									}
 									onDragOver={handleDragOver}
-									onDrop={() => {
-										setDragOverTarget(null);
-										handleDropOnGroup(group.id);
-									}}
+									onDrop={() => handleGroupDrop(group.id)}
 								>
 									<div
 										className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
@@ -1559,7 +1654,7 @@ function SessionListInner(props: SessionListProps) {
 												showConfirmation(
 													`Are you sure you want to delete the group "${group.name}"?`,
 													() => {
-														setGroups((prev) => prev.filter((g) => g.id !== group.id));
+														setGroups((prev) => removeGroupAndPromoteChildren(prev, group.id));
 													}
 												);
 											}}
@@ -1634,7 +1729,7 @@ function SessionListInner(props: SessionListProps) {
 							{!showUnreadAgentsOnly && !isSecondaryWindow && (
 								<div className="mt-4 px-3">
 									<button
-										onClick={createNewGroup}
+										onClick={() => createNewGroup()}
 										className="w-full px-2 py-1.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center justify-center gap-1"
 										style={{
 											backgroundColor: theme.colors.accent + '20',
@@ -1674,10 +1769,7 @@ function SessionListInner(props: SessionListProps) {
 								}
 								onClick={() => setUngroupedCollapsed(!ungroupedCollapsed)}
 								onDragOver={handleDragOver}
-								onDrop={() => {
-									setDragOverTarget(null);
-									handleDropOnUngrouped();
-								}}
+								onDrop={handleUngroupedDrop}
 							>
 								<div
 									className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider flex-1"
@@ -1756,14 +1848,11 @@ function SessionListInner(props: SessionListProps) {
 							onDragOver={handleDragOver}
 							onDragEnter={() => handleDropTargetEnter(UNGROUPED_DROP_TARGET)}
 							onDragLeave={handleDropTargetLeave}
-							onDrop={() => {
-								setDragOverTarget(null);
-								handleDropOnUngrouped();
-							}}
+							onDrop={handleUngroupedDrop}
 						>
 							{/* Drop zone indicator when dragging - intensifies on hover so the
 							    drop destination is obvious, matching the group-header affordance. */}
-							{draggingSessionId && (
+							{(draggingSessionId || draggingGroupId) && (
 								<div
 									className="mb-2 px-3 py-2 rounded border-2 border-dashed text-center text-xs transition-colors"
 									style={{
@@ -1782,7 +1871,7 @@ function SessionListInner(props: SessionListProps) {
 								</div>
 							)}
 							<button
-								onClick={createNewGroup}
+								onClick={() => createNewGroup()}
 								className="w-full px-2 py-1.5 rounded-full text-[10px] font-medium hover:opacity-80 transition-opacity flex items-center justify-center gap-1"
 								style={{
 									backgroundColor: theme.colors.accent + '20',
@@ -1947,6 +2036,10 @@ function SessionListInner(props: SessionListProps) {
 					theme={theme}
 					group={groupContextMenuGroup}
 					memberCount={groupContextMenuMemberCount}
+					eligibleParentGroups={groupContextMenuEligibleParentGroups}
+					onMoveInto={(parentGroupId) => setGroupParent(groupContextMenuGroup.id, parentGroupId)}
+					onMoveToTopLevel={() => setGroupParent(groupContextMenuGroup.id, undefined)}
+					onNewGroupInside={() => createNewGroup(groupContextMenuGroup.id)}
 					onRename={() => {
 						const modalActions = getModalActions();
 						modalActions.setRenameGroupId(groupContextMenuGroup.id);
@@ -1975,7 +2068,9 @@ function SessionListInner(props: SessionListProps) {
 										showConfirmation(
 											`Are you sure you want to delete the group "${groupContextMenuGroup.name}"?`,
 											() => {
-												setGroups((prev) => prev.filter((g) => g.id !== groupContextMenuGroup.id));
+												setGroups((prev) =>
+													removeGroupAndPromoteChildren(prev, groupContextMenuGroup.id)
+												);
 											}
 										)
 								: () =>
@@ -1987,7 +2082,7 @@ function SessionListInner(props: SessionListProps) {
 												setSessions((prev) =>
 													prev.map((s) => (s.groupId === gid ? { ...s, groupId: undefined } : s))
 												);
-												setGroups((prev) => prev.filter((g) => g.id !== gid));
+												setGroups((prev) => removeGroupAndPromoteChildren(prev, gid));
 											}
 										)
 					}

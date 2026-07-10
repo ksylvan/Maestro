@@ -231,6 +231,7 @@ const createDefaultProps = (overrides: Partial<Parameters<typeof SessionList>[0]
 	startRenamingSession: vi.fn(),
 	showConfirmation: vi.fn(),
 	createNewGroup: vi.fn(),
+	setGroupParent: vi.fn(),
 	onCreateGroupAndMove: vi.fn(),
 	addNewSession: vi.fn(),
 	onDeleteWorktreeGroup: vi.fn(),
@@ -265,6 +266,7 @@ describe('SessionList', () => {
 			draggingSessionId: null,
 			bookmarksCollapsed: false,
 			sessionFilterOpen: false,
+			showUnreadAgentsOnly: false,
 		});
 		useSessionStore.setState({
 			sessions: [],
@@ -799,6 +801,65 @@ describe('SessionList', () => {
 
 			expect(screen.getByTestId('icon-folder')).toHaveStyle({ color: '#22C55E' });
 			expect(screen.getByText('My Group')).toHaveStyle({ color: '#22C55E' });
+		});
+
+		it('renders child groups indented beneath their parent', () => {
+			const parent = createMockGroup({ id: 'company', name: 'Company' });
+			const child = createMockGroup({
+				id: 'project',
+				name: 'Project',
+				parentGroupId: 'company',
+			});
+			const sessions = [createMockSession({ id: 's1', name: 'Project Agent', groupId: 'project' })];
+			useSessionStore.setState({ sessions, groups: [parent, child] });
+			useUIStore.setState({ leftSidebarOpen: true });
+
+			render(<SessionList {...createDefaultProps({ sortedSessions: sessions })} />);
+
+			expect(screen.getByText('Project').closest('[data-group-depth="1"]')).toHaveClass('ml-4');
+			expect(screen.getByText('Project Agent')).toBeInTheDocument();
+		});
+
+		it('hides child groups and their agents when the parent is collapsed', () => {
+			const parent = createMockGroup({ id: 'company', name: 'Company', collapsed: true });
+			const child = createMockGroup({
+				id: 'project',
+				name: 'Project',
+				parentGroupId: 'company',
+			});
+			const sessions = [createMockSession({ id: 's1', name: 'Project Agent', groupId: 'project' })];
+			useSessionStore.setState({ sessions, groups: [parent, child] });
+			useUIStore.setState({ leftSidebarOpen: true });
+
+			render(<SessionList {...createDefaultProps({ sortedSessions: sessions })} />);
+
+			expect(screen.getByText('Company')).toBeInTheDocument();
+			expect(screen.queryByText('Project')).toBeNull();
+			expect(screen.queryByText('Project Agent')).toBeNull();
+		});
+
+		it('shows a child group with unread agents even when its parent is collapsed', () => {
+			const parent = createMockGroup({ id: 'company', name: 'Company', collapsed: true });
+			const child = createMockGroup({
+				id: 'project',
+				name: 'Project',
+				parentGroupId: 'company',
+			});
+			const sessions = [
+				createMockSession({
+					id: 's1',
+					name: 'Project Agent',
+					groupId: 'project',
+					state: 'busy',
+				}),
+			];
+			useSessionStore.setState({ sessions, groups: [parent, child] });
+			useUIStore.setState({ leftSidebarOpen: true, showUnreadAgentsOnly: true });
+
+			render(<SessionList {...createDefaultProps({ sortedSessions: sessions })} />);
+
+			expect(screen.getByText('Project')).toBeInTheDocument();
+			expect(screen.getByText('Project Agent')).toBeInTheDocument();
 		});
 
 		it('toggles group collapse on click', () => {
@@ -1621,6 +1682,24 @@ describe('SessionList', () => {
 			expect(handleDropOnGroup).toHaveBeenCalledWith('g1');
 		});
 
+		it('nests a dragged group header under another group header', () => {
+			const setGroupParent = vi.fn();
+			const parent = createMockGroup({ id: 'company', name: 'Company' });
+			const child = createMockGroup({ id: 'project', name: 'Project' });
+			useSessionStore.setState({ sessions: [], groups: [parent, child] });
+			useUIStore.setState({ leftSidebarOpen: true });
+
+			render(<SessionList {...createDefaultProps({ setGroupParent })} />);
+
+			const dataTransfer = { effectAllowed: '', setData: vi.fn() };
+			fireEvent.dragStart(screen.getByText('Project').closest('[draggable="true"]')!, {
+				dataTransfer,
+			});
+			fireEvent.drop(screen.getByText('Company'));
+
+			expect(setGroupParent).toHaveBeenCalledWith('project', 'company');
+		});
+
 		it('shows the compact ungroup drop-zone when dragging and all sessions are grouped', () => {
 			const handleDropOnUngrouped = vi.fn();
 			const group = createMockGroup({ id: 'g1', name: 'My Group', sessionIds: ['s1'] });
@@ -1871,6 +1950,22 @@ describe('SessionList', () => {
 
 			const input = screen.getByDisplayValue('Original Name');
 			expect(input).toBeInTheDocument();
+		});
+
+		it('does not make the group header draggable while renaming', () => {
+			const group = createMockGroup({ id: 'g1', name: 'Original Name' });
+			useSessionStore.setState({ sessions: [], groups: [group] });
+			useUIStore.setState({
+				leftSidebarOpen: true,
+				editingGroupId: 'g1',
+			});
+
+			render(<SessionList {...createDefaultProps({ sortedSessions: [] })} />);
+
+			expect(screen.getByDisplayValue('Original Name').closest('[role="button"]')).toHaveAttribute(
+				'draggable',
+				'false'
+			);
 		});
 
 		it('calls finishRenamingGroup on blur', () => {

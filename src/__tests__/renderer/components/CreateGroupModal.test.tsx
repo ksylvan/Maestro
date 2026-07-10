@@ -502,6 +502,40 @@ describe('CreateGroupModal', () => {
 			]);
 		});
 
+		it('offers only root groups as folder parents', () => {
+			renderModal({
+				groups: [
+					{ id: 'company', name: 'COMPANY', emoji: '📁', collapsed: false },
+					{
+						id: 'project',
+						name: 'PROJECT',
+						emoji: '📁',
+						collapsed: false,
+						parentGroupId: 'company',
+					},
+				],
+			});
+
+			const parentSelect = screen.getByLabelText('Inside folder');
+			expect(parentSelect).toHaveTextContent('Top level');
+			expect(parentSelect).toHaveTextContent('COMPANY');
+			expect(parentSelect).not.toHaveTextContent('PROJECT');
+		});
+
+		it('creates a group inside the selected root folder', () => {
+			renderModal({ initialParentGroupId: 'group-1' });
+
+			fireEvent.change(screen.getByPlaceholderText('Enter group name...'), {
+				target: { value: 'Project' },
+			});
+			fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+			expect(setGroups).toHaveBeenCalledWith([
+				...groups,
+				expect.objectContaining({ parentGroupId: 'group-1' }),
+			]);
+		});
+
 		it('resets state after creation', () => {
 			renderModal();
 
