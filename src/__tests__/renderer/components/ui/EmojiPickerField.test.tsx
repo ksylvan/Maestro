@@ -850,4 +850,103 @@ describe('GroupAppearancePicker', () => {
 		expect(onEmojiChange).toHaveBeenCalledWith('🎉');
 		expect(onIconChange).toHaveBeenCalledWith(undefined);
 	});
+
+	describe('label color selection', () => {
+		it('marks no color as selected when the stored color is unset', () => {
+			render(
+				<GroupAppearancePicker
+					theme={mockTheme}
+					emoji="📂"
+					onEmojiChange={vi.fn()}
+					onIconChange={vi.fn()}
+					onColorChange={vi.fn()}
+					groupsPlusEnabled
+				/>
+			);
+
+			expect(screen.getByRole('button', { name: 'Clear label color' })).toHaveAttribute(
+				'aria-pressed',
+				'true'
+			);
+		});
+
+		it('does not mark no color as selected for a built-in color', () => {
+			render(
+				<GroupAppearancePicker
+					theme={mockTheme}
+					emoji="📂"
+					color="#22C55E"
+					onEmojiChange={vi.fn()}
+					onIconChange={vi.fn()}
+					onColorChange={vi.fn()}
+					groupsPlusEnabled
+				/>
+			);
+
+			expect(screen.getByRole('button', { name: 'Clear label color' })).toHaveAttribute(
+				'aria-pressed',
+				'false'
+			);
+		});
+
+		it('does not mark no color as selected for a resolvable plugin color', () => {
+			render(
+				<GroupAppearancePicker
+					theme={mockTheme}
+					emoji="📂"
+					color="com.acme/bright/lime"
+					iconPacks={[
+						{
+							id: 'com.acme/bright',
+							localId: 'bright',
+							pluginId: 'com.acme',
+							label: 'Acme Bright',
+							icons: [],
+							colors: [
+								{
+									id: 'com.acme/bright/lime',
+									localId: 'lime',
+									label: 'Lime',
+									value: '#22C55E',
+								},
+							],
+						},
+					]}
+					onEmojiChange={vi.fn()}
+					onIconChange={vi.fn()}
+					onColorChange={vi.fn()}
+					groupsPlusEnabled
+				/>
+			);
+
+			expect(screen.getByRole('button', { name: 'Clear label color' })).toHaveAttribute(
+				'aria-pressed',
+				'false'
+			);
+		});
+
+		it('preserves an unavailable plugin color until the user explicitly clears it', () => {
+			const onColorChange = vi.fn();
+
+			render(
+				<GroupAppearancePicker
+					theme={mockTheme}
+					emoji="📂"
+					color="com.acme/bright/lime"
+					onEmojiChange={vi.fn()}
+					onIconChange={vi.fn()}
+					onColorChange={onColorChange}
+					groupsPlusEnabled
+				/>
+			);
+
+			const clearButton = screen.getByRole('button', { name: 'Clear label color' });
+			expect(clearButton).toHaveAttribute('aria-pressed', 'false');
+			expect(screen.getByLabelText('Stored label color unavailable')).toBeInTheDocument();
+
+			fireEvent.click(clearButton);
+
+			expect(onColorChange).toHaveBeenCalledWith(undefined);
+		});
+	});
 });

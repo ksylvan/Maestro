@@ -239,6 +239,8 @@ export function GroupAppearancePicker({
 		? resolveGroupAppearance(icon, color, iconPacks)
 		: resolveGroupAppearance(undefined, undefined, []);
 	const previewColor = appearance.color || theme.colors.textDim;
+	const hasStoredColor = color !== undefined;
+	const hasUnavailableColor = hasStoredColor && appearance.color === undefined;
 	return (
 		<div className="space-y-4">
 			<div className="flex gap-4 items-start">
@@ -333,12 +335,26 @@ export function GroupAppearancePicker({
 						<button
 							type="button"
 							className="w-5 h-5 rounded border hover:bg-white/5 transition-colors"
-							style={{ borderColor: appearance.color ? theme.colors.border : theme.colors.accent }}
+							style={{
+								borderColor: hasStoredColor ? theme.colors.border : theme.colors.accent,
+							}}
 							onClick={() => onColorChange(undefined)}
 							aria-label="Clear label color"
-							aria-pressed={!appearance.color}
+							aria-pressed={!hasStoredColor}
 							title="No color"
 						/>
+						{hasUnavailableColor && (
+							<span
+								className="w-5 h-5 rounded-full border opacity-40"
+								aria-label="Stored label color unavailable"
+								role="img"
+								style={{
+									backgroundColor: theme.colors.textDim,
+									borderColor: theme.colors.border,
+								}}
+								title="Stored label color is unavailable because its icon pack is disabled"
+							/>
+						)}
 						{GROUP_LABEL_COLORS.map((option) => (
 							<button
 								key={option.value}
