@@ -15,6 +15,44 @@
 import type { PluginManifest } from './plugin-manifest';
 import type { PluginCapability } from './permissions';
 
+/**
+ * Maximum UTF-8 size of one host view's serialized BlockView data. This pure
+ * contract is shared by declaration parsing and runtime host-view updates so
+ * plugin input cannot bypass the sandbox RPC message limit.
+ */
+export const MAX_HOST_VIEW_BLOCKS_BYTES = 1_000_000;
+
+/**
+ * Size of JSON data as it crosses a UTF-8 message boundary. Returns null when
+ * the value is not serializable, rather than throwing from an input validator.
+ */
+export function serializedJsonByteLength(value: unknown): number | null {
+	let serialized: string | undefined;
+	try {
+		serialized = JSON.stringify(value);
+	} catch {
+		return null;
+	}
+	if (typeof serialized !== 'string') return null;
+
+	let bytes = 0;
+	for (let index = 0; index < serialized.length; index += 1) {
+		const codePoint = serialized.codePointAt(index);
+		if (codePoint === undefined) continue;
+		if (codePoint <= 0x7f) {
+			bytes += 1;
+		} else if (codePoint <= 0x7ff) {
+			bytes += 2;
+		} else if (codePoint <= 0xffff) {
+			bytes += 3;
+		} else {
+			bytes += 4;
+			index += 1;
+		}
+	}
+	return bytes;
+}
+
 /** A theme a plugin adds to the theme picker. Colors are validated loosely
  * (a string map) here; the renderer maps them onto its ThemeColors shape. */
 export interface ThemeContribution {
@@ -208,6 +246,35 @@ export interface UiItemContribution {
 	priority?: number;
 }
 
+/** The host-owned view surfaces that render only BlockView data. */
+export type HostViewSurface = 'movement' | 'cadenza';
+
+export const HOST_VIEW_SURFACES: readonly HostViewSurface[] = ['movement', 'cadenza'];
+
+/** Type guard for the two host-rendered view surfaces. */
+export function isHostViewSurface(value: unknown): value is HostViewSurface {
+	return typeof value === 'string' && (HOST_VIEW_SURFACES as readonly string[]).includes(value);
+}
+
+/** The only data accepted for a host view: the BlockView block array the host
+ * renders, never a cadenza command/prompt payload or plugin UI. */
+export type HostViewBlocks = unknown[];
+
+/**
+ * A host-rendered view declared by a data-only or code plugin. The host owns its
+ * renderer; a code plugin may later update/remove that declared view through the
+ * brokered `ui:hostView` RPC methods.
+ */
+export interface HostViewContribution {
+	id: string;
+	localId: string;
+	pluginId: string;
+	surface: HostViewSurface;
+	title: string;
+	description?: string;
+	blocks?: HostViewBlocks;
+}
+
 /** All contributions a single plugin declared, plus any per-item errors. */
 export interface PluginContributions {
 	themes: ThemeContribution[];
@@ -221,6 +288,7 @@ export interface PluginContributions {
 	tools: AgentToolContribution[];
 	keybindings: KeybindingContribution[];
 	uiItems: UiItemContribution[];
+	hostViews: HostViewContribution[];
 	/** Human-readable reasons individual contributions were dropped. */
 	errors: string[];
 }
@@ -238,6 +306,7 @@ export interface AggregatedContributions {
 	tools: AgentToolContribution[];
 	keybindings: KeybindingContribution[];
 	uiItems: UiItemContribution[];
+	hostViews: HostViewContribution[];
 	/** Per-plugin errors keyed by plugin id (only plugins with errors appear). */
 	errorsByPlugin: Record<string, string[]>;
 }
@@ -279,6 +348,7 @@ export function collectContributions(manifest: PluginManifest): PluginContributi
 		tools: [],
 		keybindings: [],
 		uiItems: [],
+		hostViews: [],
 		errors: [],
 	};
 	const contributes = manifest.contributes;
@@ -367,6 +437,12 @@ export function collectContributions(manifest: PluginManifest): PluginContributi
 			}
 		}
 	}
+	if (contributes.hostViews !== undefined) {
+		for (const raw of asArray(contributes.hostViews)) {
+			const hostView = parseHostView(pluginId, raw, out.errors);
+			if (hostView) out.hostViews.push(hostView);
+		}
+	}
 	return out;
 }
 
@@ -394,6 +470,7 @@ export function aggregateContributions(
 		tools: [],
 		keybindings: [],
 		uiItems: [],
+		hostViews: [],
 		errorsByPlugin: {},
 	};
 	const seen = new Set<string>();
@@ -435,6 +512,7 @@ export function aggregateContributions(
 		c.tools.forEach((t) => pushUnique('tools', agg.tools, t));
 		c.keybindings.forEach((k) => pushUnique('keybindings', agg.keybindings, k));
 		c.uiItems.forEach((u) => pushUnique('uiItems', agg.uiItems, u));
+		c.hostViews.forEach((view) => pushUnique('hostViews', agg.hostViews, view));
 	}
 	return agg;
 }
@@ -799,11 +877,64 @@ function parseUiItem(pluginId: string, raw: unknown, errors: string[]): UiItemCo
 	};
 }
 
+export function isHostViewBlocks(value: unknown): value is HostViewBlocks {
+	return Array.isArray(value);
+}
+
+function parseHostView(
+	pluginId: string,
+	raw: unknown,
+	errors: string[]
+): HostViewContribution | null {
+	if (!isPlainObject(raw)) {
+		errors.push(`[${pluginId}] a hostView contribution is not an object`);
+		return null;
+	}
+	const localId = parseLocalId(pluginId, raw, errors);
+	if (!localId) return null;
+	if (!isHostViewSurface(raw.surface)) {
+		errors.push(`[${pluginId}] hostView "${localId}" has an invalid or missing surface`);
+		return null;
+	}
+	if (!isNonEmptyString(raw.title)) {
+		errors.push(`[${pluginId}] hostView "${localId}" is missing a title`);
+		return null;
+	}
+	if (raw.blocks !== undefined) {
+		if (!isHostViewBlocks(raw.blocks)) {
+			errors.push(`[${pluginId}] hostView "${localId}" blocks must be BlockView data`);
+			return null;
+		}
+		const blockBytes = serializedJsonByteLength(raw.blocks);
+		if (blockBytes === null) {
+			errors.push(`[${pluginId}] hostView "${localId}" blocks must be JSON-serializable`);
+			return null;
+		}
+		if (blockBytes > MAX_HOST_VIEW_BLOCKS_BYTES) {
+			errors.push(
+				`[${pluginId}] hostView "${localId}" blocks exceed the ${MAX_HOST_VIEW_BLOCKS_BYTES}-byte size limit`
+			);
+			return null;
+		}
+	}
+	return {
+		id: namespaced(pluginId, localId),
+		localId,
+		pluginId,
+		surface: raw.surface,
+		title: raw.title.trim(),
+		...(isNonEmptyString(raw.description) ? { description: raw.description.trim() } : {}),
+		...(raw.blocks !== undefined ? { blocks: raw.blocks } : {}),
+	};
+}
+
 /**
  * Drop capability-gated contributions a plugin does NOT hold the grant for. The
  * render host calls this with the plugin's VERIFIED grants so customization is
  * gated per-capability, not merely by the plugin being enabled: UI items need
- * `ui:contribute`, panels need `ui:panel`. Other categories pass through.
+ * `ui:contribute` and panels need `ui:panel`. `hostViews` are data-only
+ * contributions, so static views are deliberately available to tier-0 plugins;
+ * `ui:hostView` gates only their tier-1 runtime update/remove methods.
  */
 export function gateContributions(
 	plugin: PluginContributions,
