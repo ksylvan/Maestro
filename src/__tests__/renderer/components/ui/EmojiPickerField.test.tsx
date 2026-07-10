@@ -6,9 +6,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import React from 'react';
-import { EmojiPickerField } from '../../../../renderer/components/ui/EmojiPickerField';
+import {
+	EmojiPickerField,
+	GroupAppearancePicker,
+} from '../../../../renderer/components/ui/EmojiPickerField';
 import type { Theme } from '../../../../renderer/types';
 
 // Mock emoji-mart to avoid loading actual emoji data in tests
@@ -722,5 +725,71 @@ describe('EmojiPickerField', () => {
 			const button = screen.getByRole('button', { name: /select emoji/i });
 			expect(button).toHaveClass('custom-emoji-button');
 		});
+	});
+});
+
+describe('GroupAppearancePicker', () => {
+	it('clears the emoji when an icon is selected', () => {
+		const onEmojiChange = vi.fn();
+		const onIconChange = vi.fn();
+
+		render(
+			<GroupAppearancePicker
+				theme={mockTheme}
+				emoji="📂"
+				icon={undefined}
+				color={undefined}
+				onEmojiChange={onEmojiChange}
+				onIconChange={onIconChange}
+				onColorChange={vi.fn()}
+				groupsPlusEnabled
+			/>
+		);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Use Folder icon' }));
+
+		expect(onIconChange).toHaveBeenCalledWith('folder');
+		expect(onEmojiChange).toHaveBeenCalledWith('');
+	});
+
+	it('keeps emoji selection available when Groups+ is off but hides icon and color controls', () => {
+		render(
+			<GroupAppearancePicker
+				theme={mockTheme}
+				emoji="📂"
+				icon="folder"
+				color="#22C55E"
+				onEmojiChange={vi.fn()}
+				onIconChange={vi.fn()}
+				onColorChange={vi.fn()}
+			/>
+		);
+
+		expect(screen.getByRole('button', { name: /select emoji/i })).toBeInTheDocument();
+		expect(screen.queryByText('Standard icon')).not.toBeInTheDocument();
+		expect(screen.queryByText('Label color')).not.toBeInTheDocument();
+	});
+
+	it('clears the icon when an emoji is selected', () => {
+		const onEmojiChange = vi.fn();
+		const onIconChange = vi.fn();
+
+		render(
+			<GroupAppearancePicker
+				theme={mockTheme}
+				emoji=""
+				icon="folder"
+				color={undefined}
+				onEmojiChange={onEmojiChange}
+				onIconChange={onIconChange}
+				onColorChange={vi.fn()}
+			/>
+		);
+
+		fireEvent.click(screen.getByRole('button', { name: /select emoji/i }));
+		fireEvent.click(screen.getByTestId('emoji-option'));
+
+		expect(onEmojiChange).toHaveBeenCalledWith('🎉');
+		expect(onIconChange).toHaveBeenCalledWith(undefined);
 	});
 });
