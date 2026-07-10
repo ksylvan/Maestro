@@ -421,6 +421,41 @@ interface MaestroAPI {
 					| { kind: 'open-url'; url: string };
 			}) => void
 		) => () => void;
+		onRemoteCadenza: (
+			callback: (params: {
+				op: 'open' | 'update' | 'close';
+				id: string;
+				viewType?: 'tracker' | 'file' | 'markdown' | 'image' | 'code' | 'view' | 'decision';
+				title?: string;
+				body?: string;
+				path?: string;
+				options?: Array<{ label: string; value: string }>;
+				color?: 'green' | 'yellow' | 'orange' | 'red' | 'theme';
+				sessionId?: string;
+			}) => void
+		) => () => void;
+		onRemoteCadenzaFlash: (callback: (id: string) => void) => () => void;
+		flashCadenza: (id: string) => void;
+		onRemoteMovement: (
+			callback: (params: {
+				op: 'add' | 'update' | 'move' | 'remove' | 'clear';
+				id?: string;
+				x?: number;
+				y?: number;
+				width?: number;
+				height?: number;
+				title?: string;
+				body?: string;
+			}) => void
+		) => () => void;
+		onRequestMovementState: (callback: (responseChannel: string) => void) => () => void;
+		sendMovementStateResponse: (responseChannel: string, snapshot: unknown) => void;
+		notifyCadenzaHudReady: () => void;
+		setCadenzaHudCardRects: (
+			rects: Array<{ x: number; y: number; width: number; height: number }>
+		) => void;
+		openCadenzaFileTab: (sessionId: string, filePath: string) => void;
+		sendCadenzaDecision: (sessionId: string, message: string) => void;
 		onRemoteNotifyCenterFlash: (
 			callback: (params: {
 				message: string;
@@ -1666,6 +1701,8 @@ interface MaestroAPI {
 		onGlobalHotkeyRegistrationFailed: (callback: (keys: string[]) => void) => () => void;
 	};
 	platform: string;
+	/** Resolved on-disk maestro-cli.js path (dev vs packaged), or null. */
+	maestroCliPath: string | null;
 	logger: {
 		log: (
 			level: 'debug' | 'info' | 'warn' | 'error' | 'toast' | 'autorun',

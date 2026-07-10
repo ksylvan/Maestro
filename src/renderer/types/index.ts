@@ -1227,6 +1227,10 @@ export interface EncoreFeatureFlags {
 	// Optional so existing literals (older fixtures, persisted settings without
 	// the key) continue to type-check.
 	opencodeServer?: boolean;
+	// Concerto - agents compose native movement panels + cadenza HUD cards.
+	// Off by default. Optional so existing literals (older test fixtures, persisted
+	// settings without the key) continue to type-check.
+	concerto?: boolean;
 }
 
 // Director's Notes settings for synopsis generation
