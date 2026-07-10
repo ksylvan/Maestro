@@ -40,6 +40,7 @@ interface GroupChatPanelProps {
 	groups?: Group[];
 	onDraftChange?: (draft: string, groupChatId: string) => void;
 	onOpenPromptComposer?: () => void;
+	draftFlushRef?: React.MutableRefObject<(() => void) | null>;
 	// Lifted state for sync with PromptComposer
 	stagedImages?: string[];
 	setStagedImages?: React.Dispatch<React.SetStateAction<string[]>>;
@@ -95,6 +96,7 @@ export function GroupChatPanel({
 	groups,
 	onDraftChange,
 	onOpenPromptComposer,
+	draftFlushRef,
 	stagedImages,
 	setStagedImages,
 	readOnlyMode,
@@ -161,6 +163,7 @@ export function GroupChatPanel({
 				draftMessage={groupChat.draftMessage}
 				onDraftChange={onDraftChange}
 				onOpenPromptComposer={onOpenPromptComposer}
+				draftFlushRef={draftFlushRef}
 				stagedImages={stagedImages}
 				setStagedImages={setStagedImages}
 				readOnlyMode={readOnlyMode}

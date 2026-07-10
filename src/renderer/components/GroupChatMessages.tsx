@@ -109,7 +109,10 @@ export const GroupChatMessages = memo(
 					let targetIndex = -1;
 					let closestDiff = Infinity;
 					messages.forEach((message, index) => {
-						const messageTime = new Date(message.timestamp).getTime();
+						const numericTimestamp = Number(message.timestamp);
+						const messageTime = Number.isNaN(numericTimestamp)
+							? new Date(message.timestamp).getTime()
+							: numericTimestamp;
 						const diff = Math.abs(messageTime - timestamp);
 						if (diff < closestDiff) {
 							closestDiff = diff;

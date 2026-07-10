@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, act } from '@testing-library/react';
+import { createRef } from 'react';
 
-import { GroupChatMessages } from '../../../renderer/components/GroupChatMessages';
+import {
+	GroupChatMessages,
+	type GroupChatMessagesHandle,
+} from '../../../renderer/components/GroupChatMessages';
 import { useSettingsStore } from '../../../renderer/stores/settingsStore';
 import { mockTheme } from '../../helpers/mockTheme';
 import type { GroupChatMessage, GroupChatParticipant } from '../../../shared/group-chat-types';
@@ -99,6 +103,27 @@ describe('GroupChatMessages auto-scroll setting', () => {
 		const { container } = renderChat(messages, 'large-chat');
 
 		expect(container.querySelectorAll('[data-message-timestamp]').length).toBeLessThan(20);
+	});
+
+	it('scrolls to messages whose timestamp is a numeric string', () => {
+		const ref = createRef<GroupChatMessagesHandle>();
+		const timestamp = 1700000000000;
+		const result = render(
+			<GroupChatMessages
+				ref={ref}
+				theme={mockTheme}
+				messages={[{ timestamp: String(timestamp), from: 'Alice', content: 'target' }]}
+				participants={participants}
+				state="idle"
+			/>
+		);
+		const container = result.container.querySelector('[role="region"]') as HTMLElement;
+		const scrollTo = vi.fn();
+		container.scrollTo = scrollTo;
+
+		act(() => ref.current?.scrollToMessage(timestamp));
+
+		expect(scrollTo).toHaveBeenCalled();
 	});
 
 	it('scrolls to the bottom on new messages when auto-scroll is enabled', () => {

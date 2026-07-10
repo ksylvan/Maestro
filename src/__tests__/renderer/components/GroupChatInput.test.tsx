@@ -139,6 +139,55 @@ describe('GroupChatInput', () => {
 			expect(onDraftChange).toHaveBeenCalledOnce();
 			expect(onDraftChange).toHaveBeenCalledWith('keep this draft', 'test-group-chat');
 		});
+
+		it('publishes fresh text before opening Prompt Composer', () => {
+			vi.useFakeTimers();
+			const onDraftChange = vi.fn();
+			const onOpenPromptComposer = vi.fn();
+			render(<GroupChatInput {...createDefaultProps({ onDraftChange, onOpenPromptComposer })} />);
+
+			const textarea = screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement;
+			typeInTextarea(textarea, 'fresh composer text');
+			expect(onDraftChange).not.toHaveBeenCalled();
+			fireEvent.click(screen.getByTitle('Open Prompt Composer'));
+
+			expect(onDraftChange).toHaveBeenLastCalledWith('fresh composer text', 'test-group-chat');
+			expect(onDraftChange.mock.invocationCallOrder.at(-1)).toBeLessThan(
+				onOpenPromptComposer.mock.invocationCallOrder[0]
+			);
+		});
+
+		it('publishes fresh text before delegating an external file drop', () => {
+			vi.useFakeTimers();
+			const onDraftChange = vi.fn();
+			const handleDrop = vi.fn();
+			render(<GroupChatInput {...createDefaultProps({ onDraftChange, handleDrop })} />);
+
+			const textarea = screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement;
+			typeInTextarea(textarea, 'fresh drop text');
+			expect(onDraftChange).not.toHaveBeenCalled();
+			fireEvent.drop(textarea, { dataTransfer: { files: [] } });
+
+			expect(onDraftChange).toHaveBeenLastCalledWith('fresh drop text', 'test-group-chat');
+			expect(onDraftChange.mock.invocationCallOrder.at(-1)).toBeLessThan(
+				handleDrop.mock.invocationCallOrder[0]
+			);
+		});
+
+		it('exposes a flush ref for global shortcuts and outer drop zones', () => {
+			vi.useFakeTimers();
+			const onDraftChange = vi.fn();
+			const draftFlushRef = { current: null as (() => void) | null };
+			render(<GroupChatInput {...createDefaultProps({ onDraftChange, draftFlushRef })} />);
+
+			const textarea = screen.getByPlaceholderText(/Type a message/i) as HTMLTextAreaElement;
+			typeInTextarea(textarea, 'global path text');
+			expect(onDraftChange).not.toHaveBeenCalled();
+
+			draftFlushRef.current?.();
+
+			expect(onDraftChange).toHaveBeenCalledWith('global path text', 'test-group-chat');
+		});
 	});
 
 	describe('@mention autocomplete', () => {

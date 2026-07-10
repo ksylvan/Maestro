@@ -863,6 +863,7 @@ function MaestroConsoleInner() {
 	const fileTreeKeyboardNavRef = useRef(false); // Shared between useInputHandlers and useFileExplorerEffects
 	const rightPanelRef = useRef<RightPanelHandle>(null);
 	const mainPanelRef = useRef<MainPanelHandle>(null);
+	const groupChatDraftFlushRef = useRef<(() => void) | null>(null);
 
 	// Refs for accessing latest values in event handlers
 	const customAICommandsRef = useRef(customAICommands);
@@ -1763,6 +1764,23 @@ function MaestroConsoleInner() {
 		activeSessionIdRef,
 	});
 
+	const flushGroupChatDraft = useCallback(() => {
+		groupChatDraftFlushRef.current?.();
+	}, []);
+
+	const handleOpenGroupChatPromptComposer = useCallback(() => {
+		flushGroupChatDraft();
+		setPromptComposerOpen(true);
+	}, [flushGroupChatDraft, setPromptComposerOpen]);
+
+	const handleGroupChatDrop = useCallback(
+		(e: React.DragEvent) => {
+			flushGroupChatDraft();
+			handleDrop(e);
+		},
+		[flushGroupChatDraft, handleDrop]
+	);
+
 	// In-place recovery from session_not_found errors. The hook drives the
 	// inline SessionRecoveryCard surfaced by useAgentErrorListener — it grooms
 	// (or passes raw) the tab's prior conversation, sets pendingMergedContext,
@@ -2477,6 +2495,7 @@ function MaestroConsoleInner() {
 		// Group chat context
 		activeGroupChatId,
 		groupChatInputRef,
+		flushGroupChatDraft,
 		groupChatStagedImages,
 		setGroupChatRightTab,
 		// Navigation handlers from useKeyboardNavigation hook
@@ -2939,7 +2958,7 @@ function MaestroConsoleInner() {
 
 	// Chat-attach drop zone for the group chat view (parity with the main panel).
 	// Scoped to the group chat container so only that region reacts.
-	const groupChatDropZone = useChatFileDropZone(theme, handleDrop);
+	const groupChatDropZone = useChatFileDropZone(theme, handleGroupChatDrop);
 
 	const handleCloseDrawers = useCallback(() => {
 		setLeftSidebarOpen(false);
@@ -3056,14 +3075,15 @@ function MaestroConsoleInner() {
 								shortcuts={shortcuts}
 								sessions={sessions}
 								onDraftChange={handleGroupChatDraftChange}
-								onOpenPromptComposer={() => setPromptComposerOpen(true)}
+								onOpenPromptComposer={handleOpenGroupChatPromptComposer}
+								draftFlushRef={groupChatDraftFlushRef}
 								stagedImages={groupChatStagedImages}
 								setStagedImages={setGroupChatStagedImages}
 								readOnlyMode={groupChatReadOnlyMode}
 								setReadOnlyMode={setGroupChatReadOnlyMode}
 								inputRef={groupChatInputRef}
 								handlePaste={handlePaste}
-								handleDrop={handleDrop}
+								handleDrop={handleGroupChatDrop}
 								onOpenLightbox={handleSetLightboxImage}
 								executionQueue={groupChatExecutionQueue.filter(
 									(item) => item.tabId === activeGroupChatId

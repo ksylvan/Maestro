@@ -64,6 +64,7 @@ interface GroupChatInputProps {
 	draftMessage?: string;
 	onDraftChange?: (draft: string, groupChatId: string) => void;
 	onOpenPromptComposer?: () => void;
+	draftFlushRef?: React.MutableRefObject<(() => void) | null>;
 	// Lifted state for sync with PromptComposer
 	stagedImages?: string[];
 	setStagedImages?: React.Dispatch<React.SetStateAction<string[]>>;
@@ -102,6 +103,7 @@ export const GroupChatInput = React.memo(function GroupChatInput({
 	draftMessage,
 	onDraftChange,
 	onOpenPromptComposer,
+	draftFlushRef,
 	stagedImages: stagedImagesProp,
 	setStagedImages: setStagedImagesProp,
 	readOnlyMode: readOnlyModeProp,
@@ -154,6 +156,14 @@ export const GroupChatInput = React.memo(function GroupChatInput({
 		300,
 		{ flushOnUnmount: true }
 	);
+
+	useEffect(() => {
+		if (!draftFlushRef) return;
+		draftFlushRef.current = flushDraft;
+		return () => {
+			if (draftFlushRef.current === flushDraft) draftFlushRef.current = null;
+		};
+	}, [draftFlushRef, flushDraft]);
 
 	// Build list of mentionable items: groups first, then individual agents
 	// Groups expand into all their member @mentions when selected
@@ -425,6 +435,20 @@ export const GroupChatInput = React.memo(function GroupChatInput({
 		[message, persistDraft, groupChatId, handlePaste]
 	);
 
+	const handleDropWrapped = useCallback(
+		(e: React.DragEvent<HTMLTextAreaElement>) => {
+			e.stopPropagation();
+			flushDraft();
+			handleDrop?.(e);
+		},
+		[flushDraft, handleDrop]
+	);
+
+	const handleOpenPromptComposer = useCallback(() => {
+		flushDraft();
+		onOpenPromptComposer?.();
+	}, [flushDraft, onOpenPromptComposer]);
+
 	const handleImageSelect = useCallback(
 		(e: React.ChangeEvent<HTMLInputElement>) => {
 			const files = Array.from(e.target.files || []);
@@ -613,10 +637,7 @@ export const GroupChatInput = React.memo(function GroupChatInput({
 							onChange={handleChange}
 							onKeyDown={handleKeyDown}
 							onPaste={handlePasteWrapped}
-							onDrop={(e) => {
-								e.stopPropagation();
-								handleDrop?.(e);
-							}}
+							onDrop={handleDropWrapped}
 							onDragOver={(e) => e.preventDefault()}
 							placeholder={
 								isBusy ? 'Type to queue message...' : 'Type a message... (@ to mention agent)'
@@ -637,7 +658,7 @@ export const GroupChatInput = React.memo(function GroupChatInput({
 						<div className="flex gap-1 items-center">
 							{onOpenPromptComposer && (
 								<button
-									onClick={onOpenPromptComposer}
+									onClick={handleOpenPromptComposer}
 									className="p-1 hover:bg-white/10 rounded opacity-50 hover:opacity-100"
 									title={`Open Prompt Composer${shortcuts?.openPromptComposer ? ` (${formatShortcutKeys(shortcuts.openPromptComposer.keys)})` : ''}`}
 								>
