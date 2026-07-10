@@ -24,6 +24,7 @@ const EMPTY: AggregatedContributions = {
 	tools: [],
 	keybindings: [],
 	uiItems: [],
+	hostViews: [],
 	errorsByPlugin: {},
 };
 

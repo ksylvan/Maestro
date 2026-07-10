@@ -160,13 +160,16 @@ describe('@maestro/plugin-sdk authoring surface', () => {
 	it('types host-rendered views and their ui:hostView runtime methods', () => {
 		expectTypeOf<HostViewContribution>().toHaveProperty('surface');
 		expectTypeOf<HostViewContribution>().toHaveProperty('blocks');
-		expectTypeOf<MaestroSdk['ui']>().toHaveProperty('hostViewUpdate');
-		expectTypeOf<MaestroSdk['ui']['hostViewUpdate']>().parameter(0).toBeString();
-		expectTypeOf<MaestroSdk['ui']['hostViewUpdate']>().parameter(1).toEqualTypeOf<HostViewBlocks>();
-		expectTypeOf<MaestroSdk['ui']['hostViewUpdate']>().returns.resolves.toBeVoid();
-		expectTypeOf<MaestroSdk['ui']>().toHaveProperty('hostViewRemove');
-		expectTypeOf<MaestroSdk['ui']['hostViewRemove']>().parameter(0).toBeString();
-		expectTypeOf<MaestroSdk['ui']['hostViewRemove']>().returns.resolves.toBeVoid();
+		expectTypeOf<MaestroSdk['ui']>().toHaveProperty('hostView');
+		expectTypeOf<MaestroSdk['ui']['hostView']>().toHaveProperty('update');
+		expectTypeOf<MaestroSdk['ui']['hostView']['update']>().parameter(0).toBeString();
+		expectTypeOf<MaestroSdk['ui']['hostView']['update']>()
+			.parameter(1)
+			.toEqualTypeOf<HostViewBlocks>();
+		expectTypeOf<MaestroSdk['ui']['hostView']['update']>().returns.resolves.toBeVoid();
+		expectTypeOf<MaestroSdk['ui']['hostView']>().toHaveProperty('remove');
+		expectTypeOf<MaestroSdk['ui']['hostView']['remove']>().parameter(0).toBeString();
+		expectTypeOf<MaestroSdk['ui']['hostView']['remove']>().returns.resolves.toBeVoid();
 	});
 
 	it('loads from a packed standalone SDK copy without repo-internal imports', async () => {

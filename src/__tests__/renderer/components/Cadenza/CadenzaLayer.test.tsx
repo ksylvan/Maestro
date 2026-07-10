@@ -37,13 +37,10 @@ describe('CadenzaLayer', () => {
 			viewType: 'view',
 			title: 'Release summary',
 			body: JSON.stringify({ blocks: [] }),
+			sourcePlugin: 'Acme Metrics',
 		});
-
 		render(<CadenzaLayer theme={mockTheme} />);
 
-		expect(screen.getByText('from com.acme.metrics')).toHaveAttribute(
-			'title',
-			'from com.acme.metrics'
-		);
+		expect(screen.getByText('from Acme Metrics')).toHaveAttribute('title', 'from Acme Metrics');
 	});
 });

@@ -245,16 +245,17 @@ Only `action: 'notify'` runs on tier 0. `action: 'dispatch'` needs `agents:dispa
 { "id": "vet-panel", "title": "Vet Panel", "entry": "panel.html", "placement": "right" }
 ```
 
-### hostViews (tier 1, host-rendered)
+### hostViews (tier 0 static; tier 1 updates)
 
 `{ id, surface: 'movement' | 'cadenza', title, description?, blocks? }` declares a static,
 host-rendered view. A host view is **not** a plugin panel: Maestro renders its BlockView data
-with the active theme, and no plugin renderer code or HTML executes. It needs `ui:hostView`,
-so declare `minHostApi: "1.9.0"` and request that capability in a tier-1 manifest.
+with the active theme, and no plugin renderer code or HTML executes. A tier-0 manifest can use
+this contribution with no code and no permission grant. A tier-1 plugin needs `ui:hostView` only
+to update or remove a view after activation, and should declare `minHostApi: "1.9.0"`.
 
-`blocks` is optional and must be either a bare BlockView block array or `{ "blocks": [...] }`.
-Its JSON serialization is capped at 1,000,000 UTF-8 bytes. A cadenza host view is visual data
-only: it cannot carry a cadenza `decision` payload, options, or agent/session routing.
+`blocks` is optional and must be a BlockView block array. Its JSON serialization is capped at
+1,000,000 UTF-8 bytes. A cadenza host view is visual data only: it cannot carry a cadenza
+`decision` payload, options, or agent/session routing.
 
 ```json
 {
@@ -270,10 +271,10 @@ only: it cannot carry a cadenza `decision` payload, options, or agent/session ro
 ```
 
 The manifest author writes the local `id`; Maestro namespaces it to
-`<pluginId>/run-status`. An enabled plugin without `ui:hostView` contributes none of its
-host views. A running plugin may change only the blocks of one of its own declared views with
-`maestro.ui.hostViewUpdate('run-status', blocks)`, or remove it with
-`maestro.ui.hostViewRemove('run-status')`; it cannot change the title or surface.
+`<pluginId>/run-status`. An enabled plugin renders its declared static blocks. A running,
+granted tier-1 plugin may change only the blocks of one of its own declared views with
+`maestro.ui.hostView.update('run-status', blocks)`, or remove it with
+`maestro.ui.hostView.remove('run-status')`; it cannot change the title or surface.
 
 ### agents (tier 1)
 
@@ -331,9 +332,9 @@ Request these in `permissions` as `{ capability, scope?, reason? }`. `scope` nar
 
 The `ui:*` capabilities gate what the host accepts and renders: `ui:contribute` admits
 declarative `uiItems`, `ui:panel` admits sandboxed `panels`, and `ui:hostView` admits
-host-rendered `hostViews` plus their brokered block updates/removals. `ui:render-unsafe` is the
-high-trust escape hatch for full custom UI, not a substitute for any of those grants. An enabled
-plugin WITHOUT the matching grant contributes none of that surface.
+brokered updates/removals for declared host views. Static `hostViews` remain available to tier-0
+plugins because they are host-rendered data, not a plugin UI. `ui:render-unsafe` is the
+high-trust escape hatch for full custom UI, not a substitute for any of those grants.
 
 ---
 
@@ -394,8 +395,8 @@ Every method below is broker-gated and needs the matching capability granted. Si
 | `maestro.storage.set(key, value)` (value is a string)                           | `storage:write`              |
 | `maestro.storage.delete(key)`                                                   | `storage:write`              |
 | `maestro.ui.runCommand(commandId, args?)`                                       | `ui:command`                 |
-| `maestro.ui.hostViewUpdate(localId, blocks)` -> `Promise<void>`                 | `ui:hostView`                |
-| `maestro.ui.hostViewRemove(localId)` -> `Promise<void>`                         | `ui:hostView`                |
+| `maestro.ui.hostView.update(localId, blocks)` -> `Promise<void>`                | `ui:hostView`                |
+| `maestro.ui.hostView.remove(localId)` -> `Promise<void>`                        | `ui:hostView`                |
 | `maestro.events.on(topic, handler(payload, meta))`                              | - (delivery needs subscribe) |
 | `maestro.events.subscribe(topics[])`                                            | `events:subscribe`           |
 | `maestro.events.unsubscribe(topics?)`                                           | `events:subscribe`           |

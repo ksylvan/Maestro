@@ -26,7 +26,7 @@ export interface MovementItem {
 	title?: string;
 	/** Parsed BlockView spec. Parse failures become an error callout. */
 	spec: BlockSpec;
-	/** Plugin id inferred from a namespaced host view id, for header provenance. */
+	/** Host-stamped plugin display name (or legacy id inference) for header provenance. */
 	sourcePlugin?: string;
 	/** Actual rendered height (px), measured by the overlay - so `movement state`
 	 *  reports a real footprint even for auto-sized (unset `height`) panels. */
@@ -224,7 +224,7 @@ export function applyMovementPayload(p: MovementPayload): void {
 		height: p.height ?? existing?.height,
 		title: p.title ?? existing?.title,
 		spec: p.body !== undefined ? parseSpec(p.body) : (existing?.spec ?? { blocks: [] }),
-		sourcePlugin: sourcePluginFromViewId(p.id),
+		sourcePlugin: p.sourcePlugin ?? existing?.sourcePlugin ?? sourcePluginFromViewId(p.id),
 		timestamp: Date.now(),
 	});
 }

@@ -16,6 +16,7 @@ import {
 	MAX_HOST_VIEW_BLOCKS_BYTES,
 	serializedJsonByteLength,
 	capabilityRisk,
+	isHostViewBlocks,
 	describeCapability,
 	isPluginCategory,
 	validatePluginManifest,
@@ -47,6 +48,7 @@ import {
 	MAX_HOST_VIEW_BLOCKS_BYTES as SRC_MAX_HOST_VIEW_BLOCKS_BYTES,
 	serializedJsonByteLength as srcSerializedJsonByteLength,
 	UI_SURFACES as SRC_UI_SURFACES,
+	isHostViewBlocks as srcIsHostViewBlocks,
 } from '../../../../src/shared/plugins/contributions';
 
 // This package VENDORS the frozen plugin contracts so it can publish standalone
@@ -108,6 +110,17 @@ describe('@maestro/plugin-sdk vendored-contract drift guard', () => {
 	it('serialized JSON byte measurement matches the source contract', () => {
 		for (const value of [[], { blocks: [{ kind: 'text', content: '🪄' }] }]) {
 			expect(serializedJsonByteLength(value)).toBe(srcSerializedJsonByteLength(value));
+		}
+	});
+
+	it('host view block-shape validation matches the source contract', () => {
+		for (const value of [
+			[],
+			{ blocks: [] },
+			{ blocks: [], extra: true },
+			{ viewType: 'decision', blocks: [] },
+		]) {
+			expect(isHostViewBlocks(value)).toBe(srcIsHostViewBlocks(value));
 		}
 	});
 

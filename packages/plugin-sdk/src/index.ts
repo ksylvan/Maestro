@@ -904,16 +904,18 @@ export function isHostViewSurface(value: unknown): value is HostViewSurface {
 	return typeof value === 'string' && (HOST_VIEW_SURFACES as readonly string[]).includes(value);
 }
 
-/**
- * The only data accepted for a host view: the same BlockView top-level shapes
- * rendered by Maestro, never a cadenza command/prompt payload or plugin UI.
- */
-export type HostViewBlocks = unknown[] | { blocks: unknown[] };
+/** The only data accepted for a host view: the BlockView block array the host
+ * renders, never a cadenza command/prompt payload or plugin UI. */
+export type HostViewBlocks = unknown[];
+
+export function isHostViewBlocks(value: unknown): value is HostViewBlocks {
+	return Array.isArray(value);
+}
 
 /**
- * A host-rendered view declared by a tier-1 plugin. The host owns its renderer;
- * the plugin supplies only static BlockView data and may later update/remove
- * that declared view through the brokered `ui:hostView` RPC methods.
+ * A host-rendered view declared by a data-only or code plugin. The host owns its
+ * renderer; a code plugin may later update/remove that declared view through the
+ * brokered `ui:hostView` RPC methods.
  */
 export interface HostViewContribution {
 	id: string;
@@ -1303,14 +1305,17 @@ export interface MaestroStorageApi {
 	): Promise<MaestroSqlResult<Row>>;
 }
 
-/**
- * Invoke a registered command-palette command (`ui:command`) or update/remove
- * a previously declared host-rendered BlockView (`ui:hostView`).
- */
+/** Update or remove a previously declared host-rendered BlockView (`ui:hostView`). */
+export interface MaestroHostViewApi {
+	update(id: string, blocks: HostViewBlocks): Promise<void>;
+	remove(id: string): Promise<void>;
+}
+
+/** Invoke a registered command-palette command (`ui:command`) or access
+ * host-rendered BlockViews. */
 export interface MaestroUiApi {
 	runCommand(commandId: string, args?: unknown): Promise<unknown>;
-	hostViewUpdate(id: string, blocks: HostViewBlocks): Promise<void>;
-	hostViewRemove(id: string): Promise<void>;
+	readonly hostView: MaestroHostViewApi;
 }
 
 /** Manage Maestro tabs (`tabs:manage`). */

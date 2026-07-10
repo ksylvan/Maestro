@@ -21,13 +21,11 @@ describe('MovementOverlay', () => {
 			id: 'com.acme.metrics/release-summary',
 			title: 'Release summary',
 			body: JSON.stringify({ blocks: [] }),
+			sourcePlugin: 'Acme Metrics',
 		});
 
 		render(<MovementOverlay theme={mockTheme} />);
 
-		expect(screen.getByText('from com.acme.metrics')).toHaveAttribute(
-			'title',
-			'from com.acme.metrics'
-		);
+		expect(screen.getByText('from Acme Metrics')).toHaveAttribute('title', 'from Acme Metrics');
 	});
 });

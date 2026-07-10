@@ -132,6 +132,7 @@ describe('applyMovementPayload', () => {
 			id,
 			title: 'Release summary',
 			body: JSON.stringify({ blocks: [{ kind: 'text', text: 'Initial report' }] }),
+			sourcePlugin: 'Acme Metrics',
 		});
 		applyMovementPayload({
 			op: 'add',
@@ -145,7 +146,7 @@ describe('applyMovementPayload', () => {
 		expect(view).toMatchObject({
 			id,
 			title: 'Updated summary',
-			sourcePlugin: 'com.acme.metrics',
+			sourcePlugin: 'Acme Metrics',
 			spec: { blocks: [{ kind: 'text', text: 'Updated report' }] },
 		});
 

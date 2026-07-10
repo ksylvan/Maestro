@@ -70,6 +70,7 @@ describe('applyCadenzaPayload', () => {
 			viewType: 'view',
 			title: 'Release summary',
 			body: JSON.stringify({ blocks: [{ kind: 'text', text: 'Initial report' }] }),
+			sourcePlugin: 'Acme Metrics',
 		});
 		applyCadenzaPayload({
 			op: 'update',
@@ -82,7 +83,7 @@ describe('applyCadenzaPayload', () => {
 				id,
 				viewType: 'view',
 				title: 'Release summary',
-				sourcePlugin: 'com.acme.metrics',
+				sourcePlugin: 'Acme Metrics',
 				body: JSON.stringify({ blocks: [{ kind: 'text', text: 'Updated report' }] }),
 			},
 		]);

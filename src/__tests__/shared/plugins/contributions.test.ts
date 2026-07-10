@@ -468,12 +468,12 @@ describe('hostViews contribution (host-rendered BlockView data)', () => {
 					},
 				],
 			},
-			1
+			0
 		);
 
 	it.each([
 		['movement', [{ kind: 'text', content: 'Movement data' }]],
-		['cadenza', { blocks: [{ kind: 'heading', text: 'Cadenza data' }] }],
+		['cadenza', [{ kind: 'heading', text: 'Cadenza data' }]],
 	])('parses and namespaces a valid %s host view', (surface, blocks) => {
 		const c = collectContributions(hostView({ surface, blocks }));
 
@@ -533,12 +533,13 @@ describe('hostViews contribution (host-rendered BlockView data)', () => {
 		expect(agg.errorsByPlugin['com.host-view']?.join(' ')).toContain('duplicate hostViews');
 	});
 
-	it('requires ui:hostView and does not let ui:render-unsafe substitute for it', () => {
+	it('keeps static host views when no ui:hostView grant exists', () => {
 		const collected = collectContributions(hostView());
 
-		expect(gateContributions(collected, () => false).hostViews).toEqual([]);
-		expect(gateContributions(collected, (cap) => cap === 'ui:hostView').hostViews).toHaveLength(1);
-		expect(gateContributions(collected, (cap) => cap === 'ui:render-unsafe').hostViews).toEqual([]);
+		expect(gateContributions(collected, () => false).hostViews).toHaveLength(1);
+		expect(
+			gateContributions(collected, (cap) => cap === 'ui:render-unsafe').hostViews
+		).toHaveLength(1);
 	});
 });
 

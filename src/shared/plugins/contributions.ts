@@ -256,16 +256,14 @@ export function isHostViewSurface(value: unknown): value is HostViewSurface {
 	return typeof value === 'string' && (HOST_VIEW_SURFACES as readonly string[]).includes(value);
 }
 
-/**
- * The only data accepted for a host view: the same BlockView top-level shapes
- * rendered by Maestro, never a cadenza command/prompt payload or plugin UI.
- */
-export type HostViewBlocks = unknown[] | { blocks: unknown[] };
+/** The only data accepted for a host view: the BlockView block array the host
+ * renders, never a cadenza command/prompt payload or plugin UI. */
+export type HostViewBlocks = unknown[];
 
 /**
- * A host-rendered view declared by a tier-1 plugin. The host owns its renderer;
- * the plugin supplies only static BlockView data and may later update/remove
- * that declared view through the brokered `ui:hostView` RPC methods.
+ * A host-rendered view declared by a data-only or code plugin. The host owns its
+ * renderer; a code plugin may later update/remove that declared view through the
+ * brokered `ui:hostView` RPC methods.
  */
 export interface HostViewContribution {
 	id: string;
@@ -440,13 +438,9 @@ export function collectContributions(manifest: PluginManifest): PluginContributi
 		}
 	}
 	if (contributes.hostViews !== undefined) {
-		if (!isCodeTier) {
-			out.errors.push(`[${pluginId}] hostViews require tier >= 1 (they are capability-gated)`);
-		} else {
-			for (const raw of asArray(contributes.hostViews)) {
-				const hostView = parseHostView(pluginId, raw, out.errors);
-				if (hostView) out.hostViews.push(hostView);
-			}
+		for (const raw of asArray(contributes.hostViews)) {
+			const hostView = parseHostView(pluginId, raw, out.errors);
+			if (hostView) out.hostViews.push(hostView);
 		}
 	}
 	return out;
@@ -883,11 +877,8 @@ function parseUiItem(pluginId: string, raw: unknown, errors: string[]): UiItemCo
 	};
 }
 
-function isHostViewBlocks(value: unknown): value is HostViewBlocks {
-	return (
-		Array.isArray(value) ||
-		(isPlainObject(value) && Object.keys(value).length === 1 && Array.isArray(value.blocks))
-	);
+export function isHostViewBlocks(value: unknown): value is HostViewBlocks {
+	return Array.isArray(value);
 }
 
 function parseHostView(
@@ -941,7 +932,9 @@ function parseHostView(
  * Drop capability-gated contributions a plugin does NOT hold the grant for. The
  * render host calls this with the plugin's VERIFIED grants so customization is
  * gated per-capability, not merely by the plugin being enabled: UI items need
- * `ui:contribute`, panels need `ui:panel`, and host views need `ui:hostView`.
+ * `ui:contribute` and panels need `ui:panel`. `hostViews` are data-only
+ * contributions, so static views are deliberately available to tier-0 plugins;
+ * `ui:hostView` gates only their tier-1 runtime update/remove methods.
  */
 export function gateContributions(
 	plugin: PluginContributions,
@@ -951,7 +944,6 @@ export function gateContributions(
 		...plugin,
 		uiItems: hasCapability('ui:contribute') ? plugin.uiItems : [],
 		panels: hasCapability('ui:panel') ? plugin.panels : [],
-		hostViews: hasCapability('ui:hostView') ? plugin.hostViews : [],
 	};
 }
 
