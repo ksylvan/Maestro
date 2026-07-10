@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parsePermissions } from '../../../shared/plugins/permissions';
+import { SETTINGS_METADATA } from '../../../shared/settingsMetadata';
 import {
 	FIRST_PARTY_PLUGIN_DEFINITIONS,
 	FIRST_PARTY_PLUGINS,
@@ -67,6 +68,10 @@ describe('Groups+ first-party plugin definition', () => {
 		const parsed = parsePermissions(GROUPS_PLUS_FIRST_PARTY_PLUGIN_PERMISSIONS);
 		expect(parsed.errors).toEqual([]);
 		expect(parsed.requests.map((permission) => permission.capability)).toEqual(['settings:read']);
+	});
+
+	it('defaults its Encore flag to off', () => {
+		expect(SETTINGS_METADATA.encoreFeatures.default).toMatchObject({ groupsPlus: false });
 	});
 });
 
