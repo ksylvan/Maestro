@@ -45,6 +45,7 @@ import { useGroupChatStore } from '../../../renderer/stores/groupChatStore';
 import { useUIStore } from '../../../renderer/stores/uiStore';
 import { useSettingsStore } from '../../../renderer/stores/settingsStore';
 import type { Session } from '../../../renderer/types';
+import { resetStores } from '../../helpers';
 
 // ============================================================================
 // Helpers
@@ -133,49 +134,12 @@ function makeOpenStarred(parentSessionId: string, tabId: string, displayName: st
 }
 
 // ============================================================================
-// Store reset helpers
-// ============================================================================
-
-const defaultSessionStoreState = {
-	sessions: [],
-	groups: [],
-	activeSessionId: '',
-	cyclePosition: -1,
-};
-
-const defaultGroupChatStoreState = {
-	groupChats: [],
-	activeGroupChatId: null,
-};
-
-const defaultUIStoreState = {
-	leftSidebarOpen: true,
-	bookmarksCollapsed: false,
-	showUnreadAgentsOnly: false,
-	// Cycle reads this for starred-row position tracking; reset so a starred
-	// selection from a prior test doesn't leak into the next.
-	sidebarExtraSelection: null,
-};
-
-const defaultSettingsStoreState = {
-	ungroupedCollapsed: false,
-	groupChatsExpanded: true,
-};
-
-function resetStores() {
-	useSessionStore.setState(defaultSessionStoreState as any);
-	useGroupChatStore.setState(defaultGroupChatStoreState as any);
-	useUIStore.setState(defaultUIStoreState as any);
-	useSettingsStore.setState(defaultSettingsStoreState as any);
-}
-
-// ============================================================================
 // Setup / Teardown
 // ============================================================================
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	resetStores();
+	resetStores(useSessionStore, useGroupChatStore, useUIStore, useSettingsStore);
 });
 
 afterEach(() => {
