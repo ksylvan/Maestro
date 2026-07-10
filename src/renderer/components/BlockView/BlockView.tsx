@@ -287,7 +287,14 @@ function KeyValue({ block, theme }: { block: Extract<Block, { kind: 'keyValue' }
 
 function CodeBlock({ block, theme }: { block: Extract<Block, { kind: 'code' }>; theme: Theme }) {
 	if (!block.code) return null;
-	const lang = block.language ?? '';
+	// The language tag is spliced into the fence line; strip anything that could
+	// break out of it (backticks, whitespace/newlines).
+	const lang = (block.language ?? '').replace(/[^0-9A-Za-z#+.-]/g, '');
+	// Fence longer than any backtick run inside the code, so agent snippets that
+	// themselves contain ``` cannot close the fence early and leak the rest of
+	// the snippet into normal markdown.
+	const longestRun = block.code.match(/`+/g)?.reduce((m, r) => Math.max(m, r.length), 0) ?? 0;
+	const fence = '`'.repeat(Math.max(3, longestRun + 1));
 	// Reuse the Markdown code-fence path so snippets get Shiki syntax highlighting
 	// and the copy affordance, consistent with the rest of the app.
 	return (
@@ -313,7 +320,7 @@ function CodeBlock({ block, theme }: { block: Extract<Block, { kind: 'code' }>; 
 					{block.filename}
 				</div>
 			)}
-			<Markdown content={`\`\`\`${lang}\n${block.code}\n\`\`\``} theme={theme} preset="chat" />
+			<Markdown content={`${fence}${lang}\n${block.code}\n${fence}`} theme={theme} preset="chat" />
 		</div>
 	);
 }

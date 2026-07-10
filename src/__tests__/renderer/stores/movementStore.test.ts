@@ -101,6 +101,21 @@ describe('applyMovementPayload', () => {
 		expect(useMovementStore.getState().items[0]).toMatchObject({ x: 0, y: 30 });
 	});
 
+	it('clamps far-positive coordinates so the header stays reachable', () => {
+		useMovementStore.getState().setViewport(1920, 1080);
+		applyMovementPayload({ op: 'add', id: 'a', x: 5000, y: 4000 });
+		expect(useMovementStore.getState().items[0]).toMatchObject({ x: 1800, y: 1040 });
+		applyMovementPayload({ op: 'update', id: 'a', x: 99999 });
+		expect(useMovementStore.getState().items[0]).toMatchObject({ x: 1800, y: 1040 });
+		useMovementStore.getState().moveItem('a', 2500, 30);
+		expect(useMovementStore.getState().items[0]).toMatchObject({ x: 1800, y: 30 });
+	});
+
+	it('an unknown viewport (0x0) clamps only at zero, never at an upper bound', () => {
+		applyMovementPayload({ op: 'add', id: 'a', x: 5000, y: 4000 });
+		expect(useMovementStore.getState().items[0]).toMatchObject({ x: 5000, y: 4000 });
+	});
+
 	it('remove drops the item; clear empties all', () => {
 		applyMovementPayload({ op: 'add', id: 'a' });
 		applyMovementPayload({ op: 'add', id: 'b' });

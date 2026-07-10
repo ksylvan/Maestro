@@ -5,7 +5,7 @@
  * content, and a malformed/unknown block degrades instead of crashing the whole
  * view (the isolation the feature leans on).
  */
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import { BlockView } from '../../../../renderer/components/BlockView';
 import type { BlockSpec } from '../../../../renderer/components/BlockView';
@@ -34,6 +34,17 @@ describe('BlockView', () => {
 		expect(screen.getByText('Area')).toBeInTheDocument();
 		expect(screen.getByText('renderer')).toBeInTheDocument();
 		expect(screen.getByText('PASS')).toBeInTheDocument();
+	});
+
+	it('keeps fence-breaking code content literal instead of leaking markdown', async () => {
+		const spec: BlockSpec = {
+			blocks: [{ kind: 'code', code: 'before\n```\n# not a heading\nafter', language: 'markdown' }],
+		};
+		const { container } = render(<BlockView spec={spec} theme={mockTheme} />);
+		// The inner ``` must not close the fence early; pre-fix, the trailing
+		// lines rendered as markdown (an <h1> here).
+		await waitFor(() => expect(container.textContent).toContain('# not a heading'));
+		expect(container.querySelector('h1')).toBeNull();
 	});
 
 	it('accepts both the bare-array and { blocks } spec shapes', () => {

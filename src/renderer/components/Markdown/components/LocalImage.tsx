@@ -42,6 +42,19 @@ export interface LocalImageProps {
 	sshRemoteId?: string;
 }
 
+/** Extract the path from a file:// URL. Agent-authored paths can carry
+ *  malformed percent-encoding (e.g. %ZZ) that makes decodeURIComponent throw
+ *  mid-render; fall back to the raw path so one bad URL degrades to a broken
+ *  image instead of taking down the surface rendering it. */
+function safeDecodeFileUrl(src: string): string {
+	const raw = src.replace('file://', '');
+	try {
+		return decodeURIComponent(raw);
+	} catch {
+		return raw;
+	}
+}
+
 // Helper to compute initial image state synchronously from cache.
 // This prevents flickering when ReactMarkdown rebuilds the component tree.
 function getLocalImageInitialState(src: string | undefined) {
@@ -62,7 +75,7 @@ function getLocalImageInitialState(src: string | undefined) {
 	// Check cache for file paths
 	let filePath = src;
 	if (src.startsWith('file://')) {
-		filePath = decodeURIComponent(src.replace('file://', ''));
+		filePath = safeDecodeFileUrl(src);
 	}
 
 	if (localImageCache.has(filePath)) {
@@ -98,7 +111,7 @@ export const LocalImage = memo((props: LocalImageProps) => {
 		// For file:// URLs, extract the path and load via IPC
 		let filePath = src;
 		if (src.startsWith('file://')) {
-			filePath = decodeURIComponent(src.replace('file://', ''));
+			filePath = safeDecodeFileUrl(src);
 		}
 
 		// Double-check cache

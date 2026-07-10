@@ -73,6 +73,26 @@ export type MovementStore = MovementStoreState & MovementStoreActions;
 const MIN_ITEM_WIDTH = 200;
 const MIN_ITEM_HEIGHT = 120;
 
+/** How much of a panel must stay inside the viewport so its header (the only
+ *  drag handle + close button) remains reachable (px). */
+const VISIBLE_MARGIN_X = 120;
+const VISIBLE_MARGIN_Y = 40;
+
+/** Clamp a panel position on both ends: never negative, and when the viewport
+ *  size is known (non-zero), never so far right/down that the header is
+ *  unreachable. An unknown viewport (0, before the overlay first reports)
+ *  only clamps at zero. */
+function clampPosition(
+	x: number,
+	y: number,
+	viewportWidth: number,
+	viewportHeight: number
+): { x: number; y: number } {
+	const maxX = viewportWidth > 0 ? Math.max(0, viewportWidth - VISIBLE_MARGIN_X) : Infinity;
+	const maxY = viewportHeight > 0 ? Math.max(0, viewportHeight - VISIBLE_MARGIN_Y) : Infinity;
+	return { x: Math.min(Math.max(0, x), maxX), y: Math.min(Math.max(0, y), maxY) };
+}
+
 export const useMovementStore = create<MovementStore>()((set, get) => ({
 	items: [],
 	viewportWidth: 0,
@@ -87,7 +107,9 @@ export const useMovementStore = create<MovementStore>()((set, get) => ({
 
 	moveItem: (id, x, y) =>
 		set((s) => ({
-			items: s.items.map((v) => (v.id === id ? { ...v, x: Math.max(0, x), y: Math.max(0, y) } : v)),
+			items: s.items.map((v) =>
+				v.id === id ? { ...v, ...clampPosition(x, y, s.viewportWidth, s.viewportHeight) } : v
+			),
 		})),
 
 	resizeItem: (id, width, height) =>
@@ -161,10 +183,19 @@ export function applyMovementPayload(p: MovementPayload): void {
 
 	if (p.op === 'update') {
 		const patch: Partial<Omit<MovementItem, 'id'>> = {};
-		// Clamp to >= 0 like moveItem does, so an agent can't strand a panel (and
-		// its only drag handle + close button) off the top/left edge.
-		if (typeof p.x === 'number') patch.x = Math.max(0, p.x);
-		if (typeof p.y === 'number') patch.y = Math.max(0, p.y);
+		// Clamp on both ends like moveItem does, so an agent can't strand a panel
+		// (and its only drag handle + close button) off ANY edge of the viewport.
+		const target = store.items.find((v) => v.id === p.id);
+		if (typeof p.x === 'number' || typeof p.y === 'number') {
+			const clamped = clampPosition(
+				typeof p.x === 'number' ? p.x : (target?.x ?? 0),
+				typeof p.y === 'number' ? p.y : (target?.y ?? 0),
+				store.viewportWidth,
+				store.viewportHeight
+			);
+			if (typeof p.x === 'number') patch.x = clamped.x;
+			if (typeof p.y === 'number') patch.y = clamped.y;
+		}
 		if (typeof p.width === 'number') patch.width = p.width;
 		if (typeof p.height === 'number') patch.height = p.height;
 		if (p.title !== undefined) patch.title = p.title;
@@ -181,8 +212,12 @@ export function applyMovementPayload(p: MovementPayload): void {
 	store.setHidden(false);
 	store.upsertItem({
 		id: p.id,
-		x: Math.max(0, p.x ?? existing?.x ?? 24 + step),
-		y: Math.max(0, p.y ?? existing?.y ?? 24 + step),
+		...clampPosition(
+			p.x ?? existing?.x ?? 24 + step,
+			p.y ?? existing?.y ?? 24 + step,
+			store.viewportWidth,
+			store.viewportHeight
+		),
 		width: p.width ?? existing?.width ?? MOVEMENT_ITEM_DEFAULT_WIDTH,
 		height: p.height ?? existing?.height,
 		title: p.title ?? existing?.title,

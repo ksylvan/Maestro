@@ -120,7 +120,9 @@ const CadenzaCard = memo(function CadenzaCard({
 	onClose: (id: string) => void;
 }) {
 	const accent = colorValue(view.color, theme);
-	const Icon = ICON_FOR_TYPE[view.viewType];
+	// Bridge payloads are not runtime-validated, so an unknown viewType must
+	// degrade to a generic card icon rather than crash the whole layer.
+	const Icon = ICON_FOR_TYPE[view.viewType] ?? Activity;
 	const canExpand = view.viewType === 'file' && !!view.sessionId && !!view.path;
 	const isContent =
 		view.viewType === 'markdown' ||
