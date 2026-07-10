@@ -13,6 +13,7 @@ import {
 	GroupAppearancePicker,
 } from '../../../../renderer/components/ui/EmojiPickerField';
 import type { Theme } from '../../../../renderer/types';
+import type { IconPackContribution } from '../../../../shared/plugins/contributions';
 
 // Mock emoji-mart to avoid loading actual emoji data in tests
 vi.mock('@emoji-mart/data', () => ({
@@ -768,6 +769,63 @@ describe('GroupAppearancePicker', () => {
 		expect(screen.getByRole('button', { name: /select emoji/i })).toBeInTheDocument();
 		expect(screen.queryByText('Standard icon')).not.toBeInTheDocument();
 		expect(screen.queryByText('Label color')).not.toBeInTheDocument();
+		expect(screen.queryByText('Acme Bright')).not.toBeInTheDocument();
+	});
+
+	it('renders contributed icon and color sections after built-ins', () => {
+		const onEmojiChange = vi.fn();
+		const onIconChange = vi.fn();
+		const onColorChange = vi.fn();
+		const iconPacks: IconPackContribution[] = [
+			{
+				id: 'com.acme/bright',
+				localId: 'bright',
+				pluginId: 'com.acme',
+				label: 'Acme Bright',
+				icons: [
+					{
+						id: 'com.acme/bright/bolt',
+						localId: 'bolt',
+						label: 'Bolt',
+						path: 'M13 2L3 14H12L11 22L21 10H12L13 2',
+					},
+				],
+				colors: [
+					{
+						id: 'com.acme/bright/lime',
+						localId: 'lime',
+						label: 'Lime',
+						value: '#22C55E',
+					},
+				],
+			},
+		];
+		render(
+			<GroupAppearancePicker
+				theme={mockTheme}
+				emoji="📂"
+				icon={undefined}
+				color={undefined}
+				iconPacks={iconPacks}
+				onEmojiChange={onEmojiChange}
+				onIconChange={onIconChange}
+				onColorChange={onColorChange}
+				groupsPlusEnabled
+			/>
+		);
+
+		const standardIcons = screen.getByText('Standard icon');
+		const packLabel = screen.getByText('Acme Bright');
+		expect(
+			standardIcons.compareDocumentPosition(packLabel) & Node.DOCUMENT_POSITION_FOLLOWING
+		).not.toBe(0);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Use Bolt icon' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Use Lime label color' }));
+
+		expect(onIconChange).toHaveBeenCalledWith('com.acme/bright/bolt');
+		expect(onEmojiChange).toHaveBeenCalledWith('');
+		expect(onColorChange).toHaveBeenCalledWith('com.acme/bright/lime');
 	});
 
 	it('clears the icon when an emoji is selected', () => {
