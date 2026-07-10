@@ -61,6 +61,8 @@ export interface GroupAppearancePickerProps {
 	onEmojiChange: (emoji: string) => void;
 	onIconChange: (icon: string | undefined) => void;
 	onColorChange: (color: string | undefined) => void;
+	/** Enables the Groups+ icon and label-color controls. */
+	groupsPlusEnabled?: boolean;
 	restoreFocusRef?: React.RefObject<HTMLElement>;
 }
 
@@ -222,6 +224,7 @@ export function GroupAppearancePicker({
 	onIconChange,
 	onColorChange,
 	restoreFocusRef,
+	groupsPlusEnabled = false,
 }: GroupAppearancePickerProps) {
 	return (
 		<div className="space-y-4">
@@ -236,77 +239,81 @@ export function GroupAppearancePicker({
 					label="Emoji"
 					restoreFocusRef={restoreFocusRef}
 				/>
-				<div className="flex-1">
+				{groupsPlusEnabled && (
+					<div className="flex-1">
+						<label
+							className="block text-xs font-bold opacity-70 uppercase mb-2"
+							style={{ color: theme.colors.textMain }}
+						>
+							Standard icon
+						</label>
+						<div className="grid grid-cols-8 gap-1">
+							{GROUP_ICON_OPTIONS.map((option) => {
+								const Icon = option.Icon;
+								const selected = icon === option.id;
+
+								return (
+									<button
+										key={option.id}
+										type="button"
+										className="p-1.5 rounded border hover:bg-white/5 transition-colors"
+										style={{
+											borderColor: selected ? theme.colors.accent : theme.colors.border,
+											backgroundColor: selected ? `${theme.colors.accent}1A` : 'transparent',
+											color: selected ? color || theme.colors.accent : theme.colors.textDim,
+										}}
+										onClick={() => {
+											onIconChange(option.id);
+											onEmojiChange('');
+										}}
+										aria-label={`Use ${option.label} icon`}
+										aria-pressed={selected}
+										title={option.label}
+									>
+										{Icon && <Icon className="w-4 h-4" />}
+									</button>
+								);
+							})}
+						</div>
+					</div>
+				)}
+			</div>
+			{groupsPlusEnabled && (
+				<div>
 					<label
 						className="block text-xs font-bold opacity-70 uppercase mb-2"
 						style={{ color: theme.colors.textMain }}
 					>
-						Standard icon
+						Label color
 					</label>
-					<div className="grid grid-cols-8 gap-1">
-						{GROUP_ICON_OPTIONS.map((option) => {
-							const Icon = option.Icon;
-							const selected = icon === option.id;
-
-							return (
-								<button
-									key={option.id}
-									type="button"
-									className="p-1.5 rounded border hover:bg-white/5 transition-colors"
-									style={{
-										borderColor: selected ? theme.colors.accent : theme.colors.border,
-										backgroundColor: selected ? `${theme.colors.accent}1A` : 'transparent',
-										color: selected ? color || theme.colors.accent : theme.colors.textDim,
-									}}
-									onClick={() => {
-										onIconChange(option.id);
-										onEmojiChange('');
-									}}
-									aria-label={`Use ${option.label} icon`}
-									aria-pressed={selected}
-									title={option.label}
-								>
-									{Icon && <Icon className="w-4 h-4" />}
-								</button>
-							);
-						})}
+					<div className="flex items-center gap-2">
+						<button
+							type="button"
+							className="w-5 h-5 rounded border hover:bg-white/5 transition-colors"
+							style={{ borderColor: color ? theme.colors.border : theme.colors.accent }}
+							onClick={() => onColorChange(undefined)}
+							aria-label="Clear label color"
+							aria-pressed={!color}
+							title="No color"
+						/>
+						{GROUP_LABEL_COLORS.map((option) => (
+							<button
+								key={option.value}
+								type="button"
+								className="w-5 h-5 rounded-full border-2 transition-colors"
+								style={{
+									backgroundColor: option.value,
+									borderColor: color === option.value ? theme.colors.textMain : 'transparent',
+								}}
+								onClick={() => onColorChange(option.value)}
+								aria-label={`Use ${option.label} label color`}
+								aria-pressed={color === option.value}
+								title={option.label}
+							/>
+						))}
 					</div>
 				</div>
-			</div>
-			<div>
-				<label
-					className="block text-xs font-bold opacity-70 uppercase mb-2"
-					style={{ color: theme.colors.textMain }}
-				>
-					Label color
-				</label>
-				<div className="flex items-center gap-2">
-					<button
-						type="button"
-						className="w-5 h-5 rounded border hover:bg-white/5 transition-colors"
-						style={{ borderColor: color ? theme.colors.border : theme.colors.accent }}
-						onClick={() => onColorChange(undefined)}
-						aria-label="Clear label color"
-						aria-pressed={!color}
-						title="No color"
-					/>
-					{GROUP_LABEL_COLORS.map((option) => (
-						<button
-							key={option.value}
-							type="button"
-							className="w-5 h-5 rounded-full border-2 transition-colors"
-							style={{
-								backgroundColor: option.value,
-								borderColor: color === option.value ? theme.colors.textMain : 'transparent',
-							}}
-							onClick={() => onColorChange(option.value)}
-							aria-label={`Use ${option.label} label color`}
-							aria-pressed={color === option.value}
-							title={option.label}
-						/>
-					))}
-				</div>
-			</div>
+			)}
 		</div>
 	);
 }

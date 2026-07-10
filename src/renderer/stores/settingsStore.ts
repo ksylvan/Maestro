@@ -675,6 +675,10 @@ export interface SettingsStoreActions {
 
 export type SettingsStore = SettingsStoreState & SettingsStoreActions;
 
+/** Shared renderer selector for every Groups+ surface. */
+export const selectGroupsPlusEnabled = (state: SettingsStore) =>
+	state.encoreFeatures.groupsPlus === true;
+
 // ============================================================================
 // Store Implementation
 // ============================================================================

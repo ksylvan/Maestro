@@ -742,6 +742,7 @@ describe('GroupAppearancePicker', () => {
 				onEmojiChange={onEmojiChange}
 				onIconChange={onIconChange}
 				onColorChange={vi.fn()}
+				groupsPlusEnabled
 			/>
 		);
 
@@ -749,6 +750,24 @@ describe('GroupAppearancePicker', () => {
 
 		expect(onIconChange).toHaveBeenCalledWith('folder');
 		expect(onEmojiChange).toHaveBeenCalledWith('');
+	});
+
+	it('keeps emoji selection available when Groups+ is off but hides icon and color controls', () => {
+		render(
+			<GroupAppearancePicker
+				theme={mockTheme}
+				emoji="📂"
+				icon="folder"
+				color="#22C55E"
+				onEmojiChange={vi.fn()}
+				onIconChange={vi.fn()}
+				onColorChange={vi.fn()}
+			/>
+		);
+
+		expect(screen.getByRole('button', { name: /select emoji/i })).toBeInTheDocument();
+		expect(screen.queryByText('Standard icon')).not.toBeInTheDocument();
+		expect(screen.queryByText('Label color')).not.toBeInTheDocument();
 	});
 
 	it('clears the icon when an emoji is selected', () => {

@@ -14,6 +14,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { RenameGroupModal } from '../../../renderer/components/RenameGroupModal';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme, Group } from '../../../renderer/types';
+import { useSettingsStore } from '../../../renderer/stores/settingsStore';
 
 // Mock lucide-react
 vi.mock('lucide-react', async (importOriginal) => ({
@@ -102,6 +103,9 @@ describe('RenameGroupModal', () => {
 		setGroupColor = vi.fn();
 		onClose = vi.fn();
 		vi.useFakeTimers();
+		useSettingsStore.setState({
+			encoreFeatures: { ...useSettingsStore.getState().encoreFeatures, groupsPlus: false },
+		});
 	});
 
 	afterEach(() => {
@@ -389,6 +393,39 @@ describe('RenameGroupModal', () => {
 
 			// Other groups should be unchanged
 			expect(result.find((g: Group) => g.id === 'group-2')).toEqual(groups[1]);
+		});
+
+		it('preserves stored icon and color fields when renaming while Groups+ is disabled', async () => {
+			groups = [
+				{
+					...groups[0],
+					emoji: '',
+					icon: 'folder',
+					color: '#22C55E',
+				},
+				groups[1],
+			];
+			renderWithLayerStack(
+				<RenameGroupModal
+					{...defaultProps()}
+					groupName="renamed"
+					groupEmoji=""
+					groupIcon="folder"
+					groupColor="#22C55E"
+				/>
+			);
+
+			expect(screen.queryByText('Standard icon')).not.toBeInTheDocument();
+			await act(async () => {
+				fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+			});
+
+			const updater = setGroups.mock.calls[0][0];
+			expect(updater(groups).find((group: Group) => group.id === 'group-1')).toMatchObject({
+				name: 'RENAMED',
+				icon: 'folder',
+				color: '#22C55E',
+			});
 		});
 
 		it('should trim whitespace from group name on rename', async () => {

@@ -8,6 +8,8 @@ interface GroupContextMenuProps {
 	y: number;
 	theme: Theme;
 	group: Group;
+	/** Enables hierarchy-specific menu actions. */
+	groupsPlusEnabled?: boolean;
 	memberCount: number;
 	onRename: () => void;
 	onNewAgent: () => void;
@@ -27,6 +29,7 @@ export function GroupContextMenu({
 	y,
 	theme,
 	group,
+	groupsPlusEnabled = false,
 	memberCount,
 	onRename,
 	onNewAgent,
@@ -107,7 +110,7 @@ export function GroupContextMenu({
 				New Agent in Group...
 			</button>
 
-			{eligibleParentGroups.length > 0 && onMoveInto && (
+			{groupsPlusEnabled && eligibleParentGroups.length > 0 && onMoveInto && (
 				<div>
 					<button
 						type="button"
@@ -139,7 +142,7 @@ export function GroupContextMenu({
 				</div>
 			)}
 
-			{group.parentGroupId && onMoveToTopLevel && (
+			{groupsPlusEnabled && group.parentGroupId && onMoveToTopLevel && (
 				<button
 					type="button"
 					onClick={() => {
@@ -154,7 +157,7 @@ export function GroupContextMenu({
 				</button>
 			)}
 
-			{!group.parentGroupId && onNewGroupInside && (
+			{groupsPlusEnabled && !group.parentGroupId && onNewGroupInside && (
 				<button
 					type="button"
 					onClick={() => {

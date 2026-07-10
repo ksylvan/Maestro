@@ -22,6 +22,12 @@ import { useSettingsStore } from '../../../renderer/stores/settingsStore';
 
 // Deep-cloned default autoRunStats captured from a fresh store (no longer exported).
 const DEFAULT_AUTO_RUN_STATS = JSON.parse(JSON.stringify(useSettingsStore.getState().autoRunStats));
+const DEFAULT_ENCORE_FEATURES = { ...useSettingsStore.getState().encoreFeatures };
+
+const enableGroupsPlus = () =>
+	useSettingsStore.setState({
+		encoreFeatures: { ...useSettingsStore.getState().encoreFeatures, groupsPlus: true },
+	});
 import { useBatchStore } from '../../../renderer/stores/batchStore';
 import { useModalStore } from '../../../renderer/stores/modalStore';
 import type { BatchRunState } from '../../../renderer/types';
@@ -279,6 +285,7 @@ describe('SessionList', () => {
 			ungroupedCollapsed: false,
 			groupChatsExpanded: false,
 			autoRunStats: { ...DEFAULT_AUTO_RUN_STATS },
+			encoreFeatures: { ...DEFAULT_ENCORE_FEATURES },
 		});
 		useBatchStore.setState({ batchRunStates: {} });
 		// Reset tunnel mock
@@ -786,6 +793,7 @@ describe('SessionList', () => {
 		});
 
 		it('renders a selected standard icon and label color', () => {
+			enableGroupsPlus();
 			const group = createMockGroup({
 				id: 'g1',
 				name: 'My Group',
@@ -803,7 +811,29 @@ describe('SessionList', () => {
 			expect(screen.getByText('My Group')).toHaveStyle({ color: '#22C55E' });
 		});
 
+		it('flattens persisted nested groups and ignores stored appearance while Groups+ is off', () => {
+			const parent = createMockGroup({ id: 'company', name: 'Company', collapsed: true });
+			const child = createMockGroup({
+				id: 'project',
+				name: 'Project',
+				emoji: '',
+				icon: 'folder',
+				color: '#22C55E',
+				parentGroupId: 'company',
+			});
+			const sessions = [createMockSession({ id: 's1', name: 'Project Agent', groupId: 'project' })];
+			useSessionStore.setState({ sessions, groups: [parent, child] });
+
+			render(<SessionList {...createDefaultProps({ sortedSessions: sessions })} />);
+
+			expect(screen.getByText('Project').closest('[data-group-depth="0"]')).not.toHaveClass('ml-4');
+			expect(screen.getByText('Project Agent')).toBeInTheDocument();
+			expect(screen.getByTestId('icon-folder')).not.toHaveStyle({ color: '#22C55E' });
+			expect(screen.getByText('Project')).not.toHaveStyle({ color: '#22C55E' });
+		});
+
 		it('renders child groups indented beneath their parent', () => {
+			enableGroupsPlus();
 			const parent = createMockGroup({ id: 'company', name: 'Company' });
 			const child = createMockGroup({
 				id: 'project',
@@ -821,6 +851,7 @@ describe('SessionList', () => {
 		});
 
 		it('hides child groups and their agents when the parent is collapsed', () => {
+			enableGroupsPlus();
 			const parent = createMockGroup({ id: 'company', name: 'Company', collapsed: true });
 			const child = createMockGroup({
 				id: 'project',
@@ -839,6 +870,7 @@ describe('SessionList', () => {
 		});
 
 		it('shows a child group with unread agents even when its parent is collapsed', () => {
+			enableGroupsPlus();
 			const parent = createMockGroup({ id: 'company', name: 'Company', collapsed: true });
 			const child = createMockGroup({
 				id: 'project',
@@ -1683,6 +1715,7 @@ describe('SessionList', () => {
 		});
 
 		it('nests a dragged group header under another group header', () => {
+			enableGroupsPlus();
 			const setGroupParent = vi.fn();
 			const parent = createMockGroup({ id: 'company', name: 'Company' });
 			const child = createMockGroup({ id: 'project', name: 'Project' });

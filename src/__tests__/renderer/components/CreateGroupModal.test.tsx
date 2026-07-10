@@ -14,6 +14,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { CreateGroupModal } from '../../../renderer/components/CreateGroupModal';
 import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme, Group } from '../../../renderer/types';
+import { useSettingsStore } from '../../../renderer/stores/settingsStore';
 
 // Mock lucide-react
 vi.mock('lucide-react', async (importOriginal) => ({
@@ -85,6 +86,11 @@ const renderWithLayerStack = (ui: React.ReactElement) => {
 	return render(<LayerStackProvider>{ui}</LayerStackProvider>);
 };
 
+const setGroupsPlusEnabled = (enabled: boolean) =>
+	useSettingsStore.setState({
+		encoreFeatures: { ...useSettingsStore.getState().encoreFeatures, groupsPlus: enabled },
+	});
+
 describe('CreateGroupModal', () => {
 	let theme: Theme;
 	let groups: Group[];
@@ -97,6 +103,7 @@ describe('CreateGroupModal', () => {
 		setGroups = vi.fn();
 		onClose = vi.fn();
 		vi.useFakeTimers();
+		setGroupsPlusEnabled(false);
 	});
 
 	afterEach(() => {
@@ -146,6 +153,12 @@ describe('CreateGroupModal', () => {
 			renderModal();
 
 			expect(screen.getByText('Group Name')).toBeInTheDocument();
+		});
+
+		it('hides the folder hierarchy control while Groups+ is disabled', () => {
+			renderModal({ initialParentGroupId: 'group-1' });
+
+			expect(screen.queryByLabelText('Inside folder')).not.toBeInTheDocument();
 		});
 
 		it('renders emoji button with default emoji 📂', () => {
@@ -503,6 +516,7 @@ describe('CreateGroupModal', () => {
 		});
 
 		it('offers only root groups as folder parents', () => {
+			setGroupsPlusEnabled(true);
 			renderModal({
 				groups: [
 					{ id: 'company', name: 'COMPANY', emoji: '📁', collapsed: false },
@@ -523,6 +537,7 @@ describe('CreateGroupModal', () => {
 		});
 
 		it('creates a group inside the selected root folder', () => {
+			setGroupsPlusEnabled(true);
 			renderModal({ initialParentGroupId: 'group-1' });
 
 			fireEvent.change(screen.getByPlaceholderText('Enter group name...'), {

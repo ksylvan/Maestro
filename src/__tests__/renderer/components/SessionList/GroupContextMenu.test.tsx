@@ -12,6 +12,7 @@ function setup(overrides: Record<string, unknown> = {}) {
 		y: 0,
 		theme: mockTheme,
 		group,
+		groupsPlusEnabled: true,
 		memberCount: 0,
 		onRename: vi.fn(),
 		onNewAgent: vi.fn(),
@@ -74,5 +75,17 @@ describe('GroupContextMenu', () => {
 		const rootProps = setup();
 		fireEvent.click(screen.getByText('New group inside...'));
 		expect(rootProps.onNewGroupInside).toHaveBeenCalledTimes(1);
+	});
+
+	it('hides hierarchy actions while Groups+ is disabled', () => {
+		setup({
+			groupsPlusEnabled: false,
+			group: { ...group, parentGroupId: 'parent' },
+			eligibleParentGroups: [{ id: 'parent', name: 'Company', emoji: '🏢', collapsed: false }],
+		});
+
+		expect(screen.queryByText('Move into...')).not.toBeInTheDocument();
+		expect(screen.queryByText('Move to top level')).not.toBeInTheDocument();
+		expect(screen.queryByText('New group inside...')).not.toBeInTheDocument();
 	});
 });

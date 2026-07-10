@@ -36,7 +36,7 @@ import { useLiveOverlay, useResizablePanel, useViewportBreakpoint } from '../../
 import { useGitFileStatus } from '../../contexts/GitStatusContext';
 import { useUIStore } from '../../stores/uiStore';
 import { useSessionStore } from '../../stores/sessionStore';
-import { useSettingsStore } from '../../stores/settingsStore';
+import { selectGroupsPlusEnabled, useSettingsStore } from '../../stores/settingsStore';
 import { useBatchStore, selectActiveBatchSessionIds } from '../../stores/batchStore';
 import { useActiveOutageSessionSignature } from '../../stores/retryStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -210,6 +210,7 @@ function SessionListInner(props: SessionListProps) {
 	const starredSectionCollapsed = useSettingsStore((s) => s.starredSessionsCollapsed);
 	const showStarredSessionsSection = useSettingsStore((s) => s.showStarredSessionsSection);
 	const pianolaEnabled = useSettingsStore((s) => s.encoreFeatures?.pianola);
+	const groupsPlusEnabled = useSettingsStore(selectGroupsPlusEnabled);
 	const pianolaSession = useSessionStore((s) => s.sessions.find((x) => x.isPianola));
 	const showLeftPanelGroupMemberCount = useSettingsStore((s) => s.showLeftPanelGroupMemberCount);
 	const leftPanelCollapsedPillsPerRow = useSettingsStore((s) => s.leftPanelCollapsedPillsPerRow);
@@ -523,14 +524,14 @@ function SessionListInner(props: SessionListProps) {
 		: 0;
 	const groupContextMenuEligibleParentGroups = useMemo(
 		() =>
-			groupContextMenuGroup
+			groupsPlusEnabled && groupContextMenuGroup
 				? groups.filter(
 						(candidate) =>
 							candidate.id !== groupContextMenuGroup.parentGroupId &&
 							canSetGroupParent(groups, groupContextMenuGroup.id, candidate.id)
 					)
 				: [],
-		[groups, groupContextMenuGroup]
+		[groups, groupContextMenuGroup, groupsPlusEnabled]
 	);
 	const menuRef = useRef<HTMLDivElement>(null);
 	// Phones swap the anchored hamburger dropdown for a full-screen sheet.
@@ -561,6 +562,7 @@ function SessionListInner(props: SessionListProps) {
 				return;
 			}
 			if (
+				groupsPlusEnabled &&
 				draggingGroupId &&
 				(target === UNGROUPED_DROP_TARGET || canSetGroupParent(groups, draggingGroupId, target))
 			) {
@@ -582,25 +584,25 @@ function SessionListInner(props: SessionListProps) {
 	const handleGroupDrop = useCallback(
 		(groupId: string) => {
 			setDragOverTarget(null);
-			if (draggingGroupId) {
+			if (groupsPlusEnabled && draggingGroupId) {
 				setGroupParent(draggingGroupId, groupId);
 				setDraggingGroupId(null);
 				return;
 			}
 			handleDropOnGroup(groupId);
 		},
-		[draggingGroupId, handleDropOnGroup, setGroupParent]
+		[draggingGroupId, groupsPlusEnabled, handleDropOnGroup, setGroupParent]
 	);
 
 	const handleUngroupedDrop = useCallback(() => {
 		setDragOverTarget(null);
-		if (draggingGroupId) {
+		if (groupsPlusEnabled && draggingGroupId) {
 			setGroupParent(draggingGroupId, undefined);
 			setDraggingGroupId(null);
 			return;
 		}
 		handleDropOnUngrouped();
-	}, [draggingGroupId, handleDropOnUngrouped, setGroupParent]);
+	}, [draggingGroupId, groupsPlusEnabled, handleDropOnUngrouped, setGroupParent]);
 
 	// Toggle bookmark for a session - memoized to prevent SessionItem re-renders
 	const toggleBookmark = useCallback(
@@ -750,6 +752,14 @@ function SessionListInner(props: SessionListProps) {
 
 	const { orderedGroups, groupById, childrenByParentId } = useMemo(() => {
 		const groupById = new Map(sortedGroups.map((group) => [group.id, group]));
+		if (!groupsPlusEnabled) {
+			return {
+				orderedGroups: sortedGroups,
+				groupById,
+				childrenByParentId: new Map<string, Group[]>(),
+			};
+		}
+
 		const childrenByParentId = new Map<string, Group[]>();
 		const rootGroups: Group[] = [];
 
@@ -776,7 +786,7 @@ function SessionListInner(props: SessionListProps) {
 			groupById,
 			childrenByParentId,
 		};
-	}, [sortedGroups]);
+	}, [groupsPlusEnabled, sortedGroups]);
 
 	// PERF: Cached callback maps to prevent SessionItem re-renders.
 	// These Maps store stable function references keyed by session id. They only
@@ -1525,21 +1535,23 @@ function SessionListInner(props: SessionListProps) {
 					    as a flat focused list (see the flat-list branch below). */}
 					{(isSecondaryWindow ? [] : orderedGroups).map((group) => {
 						const groupSessions = sortedGroupSessionsById.get(group.id) || [];
-						const parentGroup = group.parentGroupId
-							? groupById.get(group.parentGroupId)
-							: undefined;
+						const parentGroup =
+							groupsPlusEnabled && group.parentGroupId
+								? groupById.get(group.parentGroupId)
+								: undefined;
 						const isNestedGroup = Boolean(parentGroup && !parentGroup.parentGroupId);
 						if (isNestedGroup && parentGroup?.collapsed && !showUnreadAgentsOnly) return null;
-						const childGroups = childrenByParentId.get(group.id) ?? [];
+						const childGroups = groupsPlusEnabled ? (childrenByParentId.get(group.id) ?? []) : [];
 						const hasVisibleChild = childGroups.some(
 							(childGroup) => (sortedGroupSessionsById.get(childGroup.id) || []).length > 0
 						);
 						// Keep a parent visible for a matching child while filtering by unread agents.
 						if (showUnreadAgentsOnly && groupSessions.length === 0 && !hasVisibleChild) return null;
 						const groupCollapsedPills = groupSessions.filter((session) => !session.parentSessionId);
-						const GroupIcon = group.icon
-							? GROUP_ICON_OPTIONS.find((option) => option.id === group.icon)?.Icon
-							: undefined;
+						const GroupIcon =
+							groupsPlusEnabled && group.icon
+								? GROUP_ICON_OPTIONS.find((option) => option.id === group.icon)?.Icon
+								: undefined;
 						return (
 							<div
 								key={group.id}
@@ -1560,16 +1572,24 @@ function SessionListInner(props: SessionListProps) {
 								<LongPressable
 									role="button"
 									tabIndex={0}
-									draggable={editingGroupId !== group.id}
-									onDragStart={(event) => {
-										event.dataTransfer.effectAllowed = 'move';
-										event.dataTransfer.setData('text/plain', group.id);
-										setDraggingGroupId(group.id);
-									}}
-									onDragEnd={() => {
-										setDraggingGroupId(null);
-										setDragOverTarget(null);
-									}}
+									draggable={groupsPlusEnabled && editingGroupId !== group.id}
+									onDragStart={
+										groupsPlusEnabled
+											? (event) => {
+													event.dataTransfer.effectAllowed = 'move';
+													event.dataTransfer.setData('text/plain', group.id);
+													setDraggingGroupId(group.id);
+												}
+											: undefined
+									}
+									onDragEnd={
+										groupsPlusEnabled
+											? () => {
+													setDraggingGroupId(null);
+													setDragOverTarget(null);
+												}
+											: undefined
+									}
 									aria-expanded={!group.collapsed}
 									onKeyDown={(e) => {
 										if (e.key === 'Enter' || e.key === ' ') {
@@ -1604,10 +1624,16 @@ function SessionListInner(props: SessionListProps) {
 										{GroupIcon ? (
 											<GroupIcon
 												className="w-4 h-4"
-												style={{ color: group.color || theme.colors.textDim }}
+												style={{
+													color: groupsPlusEnabled
+														? group.color || theme.colors.textDim
+														: theme.colors.textDim,
+												}}
 											/>
-										) : (
+										) : group.emoji ? (
 											<span className="text-sm">{group.emoji}</span>
+										) : (
+											<Folder className="w-4 h-4" />
 										)}
 										{editingGroupId === group.id ? (
 											<input
@@ -1633,7 +1659,9 @@ function SessionListInner(props: SessionListProps) {
 										) : (
 											<span
 												onDoubleClick={() => startRenamingGroup(group.id)}
-												style={group.color ? { color: group.color } : undefined}
+												style={
+													groupsPlusEnabled && group.color ? { color: group.color } : undefined
+												}
 											>
 												{group.name}
 												{showLeftPanelGroupMemberCount && groupCollapsedPills.length > 0 && (
@@ -2037,6 +2065,7 @@ function SessionListInner(props: SessionListProps) {
 					group={groupContextMenuGroup}
 					memberCount={groupContextMenuMemberCount}
 					eligibleParentGroups={groupContextMenuEligibleParentGroups}
+					groupsPlusEnabled={groupsPlusEnabled}
 					onMoveInto={(parentGroupId) => setGroupParent(groupContextMenuGroup.id, parentGroupId)}
 					onMoveToTopLevel={() => setGroupParent(groupContextMenuGroup.id, undefined)}
 					onNewGroupInside={() => createNewGroup(groupContextMenuGroup.id)}
