@@ -54,11 +54,7 @@ export type { UseSessionCrudDeps, UseSessionCrudReturn } from './useSessionCrud'
 
 // Session cycling (Cmd+Shift+[/])
 export { useCycleSession, cycleSession } from './useCycleSession';
-export type {
-	CycleSessionDeps,
-	UseCycleSessionDeps,
-	UseCycleSessionReturn,
-} from './useCycleSession';
+export type { CycleSessionDeps, UseCycleSessionReturn } from './useCycleSession';
 
 // Starred Sessions list + activation (Left Bar section, shared with cycling)
 export { useStarredItems } from './useStarredItems';

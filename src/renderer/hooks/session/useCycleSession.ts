@@ -61,9 +61,6 @@ export interface CycleSessionDeps {
 	ownsSession?: (sessionId: string) => boolean;
 }
 
-/** @deprecated Prefer {@link CycleSessionDeps} */
-export type UseCycleSessionDeps = CycleSessionDeps;
-
 export interface UseCycleSessionReturn {
 	/** Cycle to next or previous session/group chat in visual order */
 	cycleSession: (dir: 'next' | 'prev') => void;
