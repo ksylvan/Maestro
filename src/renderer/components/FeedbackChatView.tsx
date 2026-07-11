@@ -25,7 +25,10 @@ import {
 	PlusCircle,
 	Check,
 	Copy,
+	Gauge,
 } from 'lucide-react';
+import { formatSize } from '../../shared/formatters';
+import { useUIStore } from '../stores/uiStore';
 import { Spinner } from './ui/Spinner';
 import { safeClipboardWrite } from '../utils/clipboard';
 import { MarkdownRenderer } from './MarkdownRenderer';
@@ -101,6 +104,11 @@ interface FeedbackChatViewProps {
 	onSubmitSuccess: (sessionId: string) => void;
 	/** Called when the view's desired modal width changes */
 	onWidthChange?: (width: number) => void;
+	/**
+	 * Minimize the modal (keeping the draft) so the user can reproduce an issue.
+	 * Invoked when a performance-trace recording starts.
+	 */
+	onRequestMinimize?: () => void;
 }
 
 // ============================================================================
@@ -118,7 +126,12 @@ interface ExistingIssue {
 	commentCount: number;
 }
 
-export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackChatViewProps) {
+export function FeedbackChatView({
+	theme,
+	onCancel,
+	onWidthChange,
+	onRequestMinimize,
+}: FeedbackChatViewProps) {
 	// --- State ---
 	const [step, setStep] = useState<'gh-check' | 'chat' | 'matching' | 'submitting' | 'done'>(
 		'gh-check'
@@ -140,6 +153,13 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 	const [attachments, setAttachments] = useState<FeedbackAttachment[]>([]);
 	const [isDragging, setIsDragging] = useState(false);
 	const [includeDebugPackage, setIncludeDebugPackage] = useState(false);
+	// --- Performance trace capture ---
+	const [isTracing, setIsTracing] = useState(false); // recording in flight
+	const [traceBusy, setTraceBusy] = useState(false); // stopping/bundling
+	const [tracePath, setTracePath] = useState<string | null>(null); // captured temp zip
+	const [traceSizeBytes, setTraceSizeBytes] = useState(0);
+	const [traceError, setTraceError] = useState('');
+	const setProfilingActive = useUIStore((s) => s.setProfilingActive);
 	const [submitError, setSubmitError] = useState('');
 	const [matchingIssues, setMatchingIssues] = useState<ExistingIssue[]>([]);
 	const [searchingIssues, setSearchingIssues] = useState(false);
@@ -155,6 +175,13 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const startedRef = useRef(false);
+	// Mirror trace state into refs so the unmount cleanup (empty-dep effect) can
+	// stop an in-flight recording / drop an unsubmitted temp trace without
+	// re-subscribing. submittedRef flips true once the report is sent, so we
+	// don't discard a trace the submit handler already consumed.
+	const isTracingRef = useRef(false);
+	const tracePathRef = useRef<string | null>(null);
+	const submittedRef = useRef(false);
 
 	// --- Report desired width based on current step ---
 	useEffect(() => {
@@ -230,8 +257,23 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 		return () => {
 			managerRef.current.cleanup();
 			useFeedbackDraftStore.getState().reset();
+			// Never leave a recording running or a large temp trace behind when the
+			// modal is torn down. If the report was submitted, the main process
+			// already consumed and deleted the trace zip, so skip that path.
+			if (isTracingRef.current) {
+				setProfilingActive(false);
+				void window.maestro.debug
+					.stopProfilingToFile()
+					.then((r) => {
+						if (r?.path) void window.maestro.debug.discardTrace(r.path);
+					})
+					.catch(() => {});
+			}
+			if (tracePathRef.current && !submittedRef.current) {
+				void window.maestro.debug.discardTrace(tracePathRef.current);
+			}
 		};
-	}, []);
+	}, [setProfilingActive]);
 
 	// --- Publish draft state so the sidebar Feedback button + close handler
 	//     know whether the user has unsaved work that would be lost. We only
@@ -240,9 +282,12 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 	//     issue is submitted (step === 'done') there's nothing left to lose.
 	useEffect(() => {
 		const hasSentMessage = messages.some((m) => m.role === 'user');
-		const hasDraft = hasSentMessage && step !== 'done';
+		// An in-flight recording or a captured-but-unsubmitted trace is also work
+		// worth warning about before a discard.
+		const hasTraceWork = isTracing || tracePath !== null;
+		const hasDraft = (hasSentMessage || hasTraceWork) && step !== 'done';
 		useFeedbackDraftStore.getState().setHasDraft(hasDraft);
-	}, [messages, step]);
+	}, [messages, step, isTracing, tracePath]);
 
 	// --- Background issue search — fires after every agent response ---
 	const runIssueSearch = useCallback(async (query: string) => {
@@ -386,9 +431,13 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 				additionalContext: lastResponse.structured.additionalContext || undefined,
 				attachments: attachments.map((a) => ({ name: a.name, dataUrl: a.dataUrl })),
 				includeDebugPackage,
+				performanceTracePath: tracePath ?? undefined,
 			});
 
 			if (result.success) {
+				// The main process consumed and deleted the temp trace on success;
+				// mark it so the unmount cleanup doesn't try to discard it again.
+				if (tracePath) submittedRef.current = true;
 				setCreatedIssueUrl(result.issueUrl ?? null);
 				setStep('done');
 			} else {
@@ -399,7 +448,7 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 			setSubmitError(error instanceof Error ? error.message : 'Submission failed.');
 			setStep('chat');
 		}
-	}, [lastResponse, attachments, includeDebugPackage]);
+	}, [lastResponse, attachments, includeDebugPackage, tracePath]);
 
 	// --- Submit: always search first, then show matches or create ---
 	const searchAndSubmit = useCallback(async () => {
@@ -511,6 +560,74 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 	const removeAttachment = useCallback((id: string) => {
 		setAttachments((prev) => prev.filter((a) => a.id !== id));
 	}, []);
+
+	// --- Performance trace capture ---
+	// Keep refs in sync so the unmount cleanup can act on the latest values.
+	useEffect(() => {
+		isTracingRef.current = isTracing;
+		tracePathRef.current = tracePath;
+	}, [isTracing, tracePath]);
+
+	// Reconcile with the main-process recording singleton on mount: a recording
+	// may already be running (started here before a minimize, or via Cmd+K), in
+	// which case the control should show "Stop" instead of "Start".
+	useEffect(() => {
+		let mounted = true;
+		(async () => {
+			try {
+				const status = await window.maestro.debug.getProfilingStatus();
+				if (mounted && status.active) setIsTracing(true);
+			} catch {
+				// best-effort reconcile
+			}
+		})();
+		return () => {
+			mounted = false;
+		};
+	}, []);
+
+	const startTrace = useCallback(async () => {
+		setTraceError('');
+		try {
+			await window.maestro.debug.startProfiling();
+			setIsTracing(true);
+			setProfilingActive(true);
+			// Minimize so the user can reproduce the slow behavior; the recording
+			// keeps running in the main process. Reopening reconciles the Stop state.
+			onRequestMinimize?.();
+		} catch (e) {
+			setTraceError(e instanceof Error ? e.message : 'Failed to start recording.');
+		}
+	}, [onRequestMinimize, setProfilingActive]);
+
+	const stopTrace = useCallback(async () => {
+		setTraceBusy(true);
+		setTraceError('');
+		try {
+			const result = await window.maestro.debug.stopProfilingToFile();
+			setIsTracing(false);
+			setProfilingActive(false);
+			if (result.success && result.path) {
+				setTracePath(result.path);
+				setTraceSizeBytes(result.bundleSizeBytes);
+			} else {
+				setTraceError(result.error || 'Failed to capture the trace.');
+			}
+		} catch (e) {
+			setIsTracing(false);
+			setProfilingActive(false);
+			setTraceError(e instanceof Error ? e.message : 'Failed to capture the trace.');
+		} finally {
+			setTraceBusy(false);
+		}
+	}, [setProfilingActive]);
+
+	const removeTrace = useCallback(() => {
+		const path = tracePath;
+		setTracePath(null);
+		setTraceSizeBytes(0);
+		if (path) void window.maestro.debug.discardTrace(path);
+	}, [tracePath]);
 
 	// --- Key handler ---
 	const handleKeyDown = useCallback(
@@ -1121,8 +1238,8 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 					/>
 				</div>
 
-				{/* Support package + error */}
-				<div className="pb-2 flex items-center gap-3">
+				{/* Support package + performance trace + error */}
+				<div className="pb-2 flex items-center gap-3 flex-wrap">
 					<label className="flex items-center gap-1.5 cursor-pointer select-none shrink-0">
 						<input
 							type="checkbox"
@@ -1136,16 +1253,79 @@ export function FeedbackChatView({ theme, onCancel, onWidthChange }: FeedbackCha
 							Include support package
 						</span>
 					</label>
-					{submitError && (
+
+					{/* Performance trace: record -> reproduce -> stop -> attach */}
+					{tracePath ? (
+						<span
+							className="flex items-center gap-1.5 shrink-0 px-2 py-1 rounded"
+							style={{
+								backgroundColor: `${theme.colors.success}18`,
+								color: theme.colors.textMain,
+							}}
+							title="A performance trace is attached to this report"
+						>
+							<Gauge className="w-3 h-3" style={{ color: theme.colors.success }} />
+							<span className="text-[10px]">Performance trace ({formatSize(traceSizeBytes)})</span>
+							<button
+								type="button"
+								onClick={removeTrace}
+								className="p-0.5 rounded hover:opacity-70"
+								aria-label="Remove performance trace"
+								title="Remove performance trace"
+							>
+								<X className="w-3 h-3" style={{ color: theme.colors.textDim }} />
+							</button>
+						</span>
+					) : isTracing ? (
+						<button
+							type="button"
+							onClick={stopTrace}
+							disabled={traceBusy}
+							className="flex items-center gap-1.5 shrink-0 px-2 py-1 rounded border disabled:opacity-50"
+							style={{ borderColor: theme.colors.error, color: theme.colors.error }}
+							title="Stop recording and attach the trace"
+						>
+							{traceBusy ? (
+								<Spinner size={12} />
+							) : (
+								<span
+									className="w-2 h-2 rounded-full animate-pulse"
+									style={{ backgroundColor: theme.colors.error }}
+								/>
+							)}
+							<span className="text-[10px] font-semibold">
+								{traceBusy ? 'Saving trace...' : 'Stop recording'}
+							</span>
+						</button>
+					) : (
+						<button
+							type="button"
+							onClick={startTrace}
+							disabled={step === 'submitting'}
+							className="flex items-center gap-1.5 shrink-0 px-2 py-1 rounded border disabled:opacity-40"
+							style={{ borderColor: theme.colors.border, color: theme.colors.textDim }}
+							title="Record a performance trace, then reproduce the slow behavior"
+						>
+							<Gauge className="w-3 h-3" />
+							<span className="text-[10px]">Record performance trace</span>
+						</button>
+					)}
+
+					{(traceError || submitError) && (
 						<p
 							className="text-[10px] truncate"
 							style={{ color: theme.colors.error }}
-							title={submitError}
+							title={traceError || submitError}
 						>
-							{submitError}
+							{traceError || submitError}
 						</p>
 					)}
 				</div>
+				{isTracing && !traceBusy && (
+					<p className="pb-2 text-[10px]" style={{ color: theme.colors.textDim, opacity: 0.8 }}>
+						Recording... reproduce the issue, then reopen this window and click Stop recording.
+					</p>
+				)}
 
 				{/* Text input + send + submit */}
 				<div>
