@@ -176,6 +176,7 @@ import type {
 	PluginListSnapshot,
 	PluginGrantsSnapshot,
 	PluginActivityMap,
+	PluginGroupingSnapshot,
 } from '../main/ipc/handlers/plugins';
 import type { InstallResult as PluginInstallResult } from '../main/plugins/plugin-manager';
 import type { AggregatedContributions as PluginContributions } from '../shared/plugins/contributions';
@@ -633,7 +634,12 @@ interface MaestroAPI {
 			result: { success: boolean; error?: string }
 		) => void;
 		onRemoteCreateGroup: (
-			callback: (name: string, emoji: string | undefined, responseChannel: string) => void
+			callback: (
+				name: string,
+				emoji: string | undefined,
+				parentGroupId: string | undefined,
+				responseChannel: string
+			) => void
 		) => () => void;
 		sendRemoteCreateGroupResponse: (responseChannel: string, result: { id: string } | null) => void;
 		onRemoteRenameGroup: (
@@ -1283,6 +1289,7 @@ interface MaestroAPI {
 		) => Promise<boolean>;
 		getCustomEnvVars: (agentId: string) => Promise<Record<string, string> | null>;
 		getAllCustomEnvVars: () => Promise<Record<string, Record<string, string>>>;
+		getKnownAuthDirs: () => Promise<{ claudeConfigDirs: string[]; codexHomes: string[] }>;
 		getModels: (agentId: string, forceRefresh?: boolean, sshRemoteId?: string) => Promise<string[]>;
 		getConfigOptions: (
 			agentId: string,
@@ -3803,7 +3810,9 @@ interface MaestroAPI {
 		invokeCommand: (commandId: string, args?: unknown) => Promise<{ dispatched: boolean }>;
 		invokeTool: (toolId: string, args?: unknown) => Promise<{ result: unknown }>;
 		getActivity: () => Promise<PluginActivityMap>;
+		getGroupings: () => Promise<PluginGroupingSnapshot>;
 		onChanged: (callback: () => void) => () => void;
+		onGroupingsChanged: (callback: () => void) => () => void;
 		onRunUiCommand: (
 			callback: (commandId: string, args: unknown) => boolean | Promise<boolean>
 		) => () => void;
