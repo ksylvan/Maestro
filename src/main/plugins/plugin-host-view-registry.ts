@@ -27,6 +27,8 @@ export interface PluginHostViewRegistryDeps {
 	isEnabled: () => boolean;
 	/** Active declarations, normally PluginManager.getContributions().hostViews. */
 	getHostViews: () => readonly HostViewContribution[];
+	/** Whether a plugin record loaded a valid manifest for declaration reconciliation. */
+	isPluginRecordLoaded: (pluginId: string) => boolean;
 	/** Host-owned bridge to Concerto's existing Movement/Cadenza payload channels. */
 	forward: (mutation: HostViewMutation) => boolean;
 }
@@ -71,7 +73,10 @@ export class PluginHostViewRegistry {
 		const declaredById = new Map(declarations.map((view) => [view.id, view]));
 		for (const [id, live] of this.live) {
 			const declaration = declaredById.get(id);
-			if (!declaration || (live.source === 'static' && declaration.blocks === undefined)) {
+			if (
+				(!declaration && this.deps.isPluginRecordLoaded(live.view.pluginId)) ||
+				(live.source === 'static' && declaration?.blocks === undefined)
+			) {
 				this.removeLive(id, false);
 			}
 		}

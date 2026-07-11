@@ -267,10 +267,13 @@ describe('agents IPC handlers', () => {
 			});
 		});
 
-		it('excludes sessions with a truthy migrated SSH enabled value', async () => {
+		it('excludes sessions whose migrated SSH enabled value explicitly enables SSH', async () => {
 			mockAgentConfigsStore.get.mockReturnValue({
 				'claude-code': {
 					customEnvVars: { CLAUDE_CONFIG_DIR: '/Users/me/.claude-agent' },
+				},
+				codex: {
+					customEnvVars: { CODEX_HOME: '/Users/me/.codex-agent' },
 				},
 			});
 			const sessionsStore = {
@@ -280,6 +283,18 @@ describe('agents IPC handlers', () => {
 						cwd: '/Users/me/project',
 						sessionSshRemoteConfig: { enabled: 'true' },
 						customEnvVars: { CLAUDE_CONFIG_DIR: '/remote/.claude-migrated' },
+					},
+					{
+						toolType: 'claude-code',
+						cwd: '/Users/me/project',
+						sessionSshRemoteConfig: { enabled: 'TRUE' },
+						customEnvVars: { CLAUDE_CONFIG_DIR: '/remote/.claude-uppercase' },
+					},
+					{
+						toolType: 'codex',
+						cwd: '/Users/me/project',
+						sessionSshRemoteConfig: { enabled: 1 },
+						customEnvVars: { CODEX_HOME: '/remote/.codex-migrated' },
 					},
 				]),
 			};
@@ -295,6 +310,41 @@ describe('agents IPC handlers', () => {
 
 			expect(result).toEqual({
 				claudeConfigDirs: [path.resolve('/Users/me/.claude-agent')],
+				codexHomes: [path.resolve('/Users/me/.codex-agent')],
+			});
+		});
+
+		it('includes session auth paths when a migrated SSH enabled value explicitly disables SSH', async () => {
+			mockAgentConfigsStore.get.mockReturnValue({
+				'claude-code': {
+					customEnvVars: { CLAUDE_CONFIG_DIR: '/Users/me/.claude-agent' },
+				},
+			});
+			const sessionsStore = {
+				get: vi.fn().mockReturnValue([
+					{
+						toolType: 'claude-code',
+						cwd: '/Users/me/project',
+						sessionSshRemoteConfig: { enabled: 'false' },
+						customEnvVars: { CLAUDE_CONFIG_DIR: '/Users/me/.claude-migrated' },
+					},
+				]),
+			};
+			registerAgentsHandlers({
+				...deps,
+				sessionsStore: sessionsStore as unknown as NonNullable<
+					AgentsHandlerDependencies['sessionsStore']
+				>,
+			});
+
+			const handler = handlers.get('agents:getKnownAuthDirs');
+			const result = await handler?.({});
+
+			expect(result).toEqual({
+				claudeConfigDirs: [
+					path.resolve('/Users/me/.claude-agent'),
+					path.resolve('/Users/me/.claude-migrated'),
+				],
 				codexHomes: [],
 			});
 		});

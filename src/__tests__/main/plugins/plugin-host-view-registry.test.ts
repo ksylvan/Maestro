@@ -63,6 +63,7 @@ describe('PluginHostViewRegistry', () => {
 		const registry = new PluginHostViewRegistry({
 			isEnabled: () => enabled,
 			getHostViews: () => (enabled ? views : []),
+			isPluginRecordLoaded: () => true,
 			forward: forwardToMovement,
 		});
 
@@ -87,6 +88,7 @@ describe('PluginHostViewRegistry', () => {
 		const registry = new PluginHostViewRegistry({
 			isEnabled: () => true,
 			getHostViews: () => views,
+			isPluginRecordLoaded: () => true,
 			forward,
 		});
 
@@ -126,6 +128,7 @@ describe('PluginHostViewRegistry', () => {
 		const registry = new PluginHostViewRegistry({
 			isEnabled: () => true,
 			getHostViews: () => views,
+			isPluginRecordLoaded: () => true,
 			forward,
 		});
 
@@ -151,6 +154,7 @@ describe('PluginHostViewRegistry', () => {
 		const registry = new PluginHostViewRegistry({
 			isEnabled: () => true,
 			getHostViews: () => [view],
+			isPluginRecordLoaded: () => true,
 			forward,
 		});
 
@@ -170,7 +174,7 @@ describe('PluginHostViewRegistry', () => {
 		);
 	});
 
-	it('removes a live runtime view when its declaration disappears on sync', () => {
+	it('removes a live runtime view when a loaded plugin replaces its declaration on sync', () => {
 		const view: HostViewContribution = {
 			id: 'com.example.runtime/status',
 			localId: 'status',
@@ -183,16 +187,79 @@ describe('PluginHostViewRegistry', () => {
 		const registry = new PluginHostViewRegistry({
 			isEnabled: () => true,
 			getHostViews: () => views,
+			isPluginRecordLoaded: () => true,
+			forward,
+		});
+
+		registry.update('com.example.runtime', 'status', [{ kind: 'text', text: 'Live' }]);
+		views = [
+			{
+				...view,
+				id: 'com.example.runtime/replacement',
+				localId: 'replacement',
+			},
+		];
+		registry.sync();
+		registry.purge('com.example.runtime');
+
+		expect(forward).toHaveBeenNthCalledWith(2, expect.objectContaining({ kind: 'remove', view }));
+		expect(forward.mock.calls[1][0]).not.toHaveProperty('force');
+		expect(forward).toHaveBeenCalledTimes(2);
+	});
+
+	it('removes a live runtime view when its loaded plugin has zero declarations', () => {
+		const view: HostViewContribution = {
+			id: 'com.example.runtime/status',
+			localId: 'status',
+			pluginId: 'com.example.runtime',
+			surface: 'cadenza',
+			title: 'Runtime status',
+		};
+		let views: readonly HostViewContribution[] = [view];
+		const forward = vi.fn(() => true);
+		const registry = new PluginHostViewRegistry({
+			isEnabled: () => true,
+			getHostViews: () => views,
+			isPluginRecordLoaded: () => true,
 			forward,
 		});
 
 		registry.update('com.example.runtime', 'status', [{ kind: 'text', text: 'Live' }]);
 		views = [];
 		registry.sync();
-		registry.purge('com.example.runtime');
 
 		expect(forward).toHaveBeenNthCalledWith(2, expect.objectContaining({ kind: 'remove', view }));
 		expect(forward.mock.calls[1][0]).not.toHaveProperty('force');
+	});
+
+	it('retains a live runtime view while its plugin record is transiently unavailable', () => {
+		const view: HostViewContribution = {
+			id: 'com.example.runtime/status',
+			localId: 'status',
+			pluginId: 'com.example.runtime',
+			surface: 'cadenza',
+			title: 'Runtime status',
+		};
+		let views: readonly HostViewContribution[] = [view];
+		let pluginRecordLoaded = true;
+		const forward = vi.fn(() => true);
+		const registry = new PluginHostViewRegistry({
+			isEnabled: () => true,
+			getHostViews: () => views,
+			isPluginRecordLoaded: () => pluginRecordLoaded,
+			forward,
+		});
+
+		registry.update('com.example.runtime', 'status', [{ kind: 'text', text: 'Live' }]);
+		views = [];
+		pluginRecordLoaded = false;
+		registry.sync();
+		registry.replay();
+
+		expect(forward).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({ kind: 'upsert', view, blocks: [{ kind: 'text', text: 'Live' }] })
+		);
 		expect(forward).toHaveBeenCalledTimes(2);
 	});
 
@@ -217,6 +284,7 @@ describe('PluginHostViewRegistry', () => {
 		const registry = new PluginHostViewRegistry({
 			isEnabled: () => true,
 			getHostViews: () => [view],
+			isPluginRecordLoaded: () => true,
 			forward,
 		});
 
@@ -250,6 +318,7 @@ describe('PluginHostViewRegistry', () => {
 				},
 			],
 			forward,
+			isPluginRecordLoaded: () => true,
 		});
 
 		expect(registry.update('com.example.disabled', 'status', [])).toBe(false);

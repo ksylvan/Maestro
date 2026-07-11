@@ -70,6 +70,11 @@ function getCustomEnvVars(value: unknown): Record<string, unknown> {
 		: {};
 }
 
+function isSshEnabled(value: unknown): boolean {
+	if (value === true || value === 1) return true;
+	return typeof value === 'string' && (value === '1' || value.toLowerCase() === 'true');
+}
+
 function isLocalSession(session: Record<string, unknown>): boolean {
 	if (typeof session.sshRemoteId === 'string' && session.sshRemoteId.length > 0) {
 		return false;
@@ -79,7 +84,7 @@ function isLocalSession(session: Record<string, unknown>): boolean {
 		sshRemoteConfig &&
 		typeof sshRemoteConfig === 'object' &&
 		'enabled' in sshRemoteConfig &&
-		Boolean(sshRemoteConfig.enabled)
+		isSshEnabled(sshRemoteConfig.enabled)
 	) {
 		return false;
 	}

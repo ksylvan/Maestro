@@ -698,6 +698,10 @@ function forwardPluginHostView(mutation: HostViewMutation): boolean {
 const pluginHostViews = new PluginHostViewRegistry({
 	isEnabled: arePluginHostViewsEnabled,
 	getHostViews: () => pluginManager?.getContributions().hostViews ?? [],
+	isPluginRecordLoaded: (pluginId) =>
+		pluginManager
+			?.getRegistry()
+			.records.some((record) => record.id === pluginId && record.loadStatus === 'ok') ?? false,
 	forward: forwardPluginHostView,
 });
 
