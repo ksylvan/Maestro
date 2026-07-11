@@ -27,7 +27,8 @@ import { HamburgerDropdown } from './HamburgerDropdown';
 import type { Session, Group, Theme } from '../../types';
 import { isWorktreeGroup } from '../../../shared/types';
 import { canSetGroupParent, removeGroupAndPromoteChildren } from '../../../shared/groupHierarchy';
-import { GROUP_ICON_OPTIONS } from '../ui/groupAppearanceOptions';
+import { resolveGroupAppearance } from '../ui/groupAppearanceOptions';
+import { SafeSvgIcon } from '../ui/SafeSvgIcon';
 import { getBadgeForTime } from '../../constants/conductorBadges';
 import { SessionItem } from '../SessionItem';
 import { LongPressable, longPressMouseEvent } from '../shared/LongPressable';
@@ -62,6 +63,7 @@ import { captureException } from '../../utils/sentry';
 import { isWebDesktop } from '../../utils/runtimeContext';
 import { useEventListener } from '../../hooks/utils/useEventListener';
 import type { StarredItem } from '../../hooks/session/useStarredItems';
+import { usePluginContributions } from '../../hooks/usePluginContributions';
 import { usePluginGroupings } from '../../hooks/usePluginGroupings';
 import { buildVirtualGrouping } from '../../utils/pluginGroupings';
 
@@ -155,6 +157,7 @@ interface SessionListProps {
 const UNGROUPED_DROP_TARGET = '__ungrouped__';
 
 function SessionListInner(props: SessionListProps) {
+	const pluginContributions = usePluginContributions();
 	// Store subscriptions
 	// PERF: Equality fn skips re-renders driven purely by streaming log/usage
 	// updates. The sidebar only reads name/state/bookmarked/groupId/aiTabs.hasUnread,
@@ -977,8 +980,9 @@ function SessionListInner(props: SessionListProps) {
 		// When wrapped, use 'ungrouped' styling for flat sessions (no mx-3, consistent with grouped look)
 		const effectiveVariant = needsWorktreeWrapper && variant === 'flat' ? 'ungrouped' : variant;
 
-		// Bookmarks and virtual groupings are presentation-only views, not real
-		// containers. Dragging in either would mutate persisted session.groupId.
+		// The Bookmarks section is a filtered view, not a real container - dragging
+		// agents out of it or dropping them into it has no meaningful target (drops
+		// previously fell through to "ungroup"). Disable drag/drop for those rows.
 		const dragDisabled = variant === 'bookmark' || activeVirtualGrouping !== undefined;
 
 		const content = (
@@ -1383,7 +1387,7 @@ function SessionListInner(props: SessionListProps) {
 							className="mx-3 mb-2 flex items-center gap-2 text-xs"
 							style={{ color: theme.colors.textDim }}
 						>
-							<span>Grouping</span>
+							<span>Session grouping</span>
 							<select
 								aria-label="Session grouping mode"
 								value={activeVirtualGrouping?.id ?? 'manual'}
@@ -1394,7 +1398,7 @@ function SessionListInner(props: SessionListProps) {
 								<option value="manual">Manual</option>
 								{pluginGroupings.map((grouping) => (
 									<option key={grouping.id} value={grouping.id}>
-										{grouping.label ?? grouping.localId}
+										{grouping.label}
 									</option>
 								))}
 							</select>
@@ -1605,17 +1609,14 @@ function SessionListInner(props: SessionListProps) {
 									(session) => virtualGrouping.assignments[session.id] === group.id
 								);
 								return (
-									<div key={group.id} className={`${parent ? 'ml-4 ' : ''}mb-1 rounded`}>
+									<div key={group.id} className={parent ? 'ml-4 mb-1 rounded' : 'mb-1 rounded'}>
 										<button
 											type="button"
 											className="w-full px-3 py-1.5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider hover:bg-opacity-50"
 											style={{ color: theme.colors.textDim }}
 											aria-expanded={!collapsed}
 											onClick={() =>
-												setVirtualCollapsed((previous) => ({
-													...previous,
-													[group.id]: !collapsed,
-												}))
+												setVirtualCollapsed((previous) => ({ ...previous, [group.id]: !collapsed }))
 											}
 										>
 											{collapsed ? (
@@ -1636,7 +1637,7 @@ function SessionListInner(props: SessionListProps) {
 											>
 												{groupSessions.map((session) =>
 													renderSessionWithWorktrees(session, 'group', {
-														keyPrefix: `virtual-${group.id}`,
+														keyPrefix: ['virtual', group.id].join('-'),
 													})
 												)}
 											</div>
@@ -1645,7 +1646,8 @@ function SessionListInner(props: SessionListProps) {
 								);
 							})}
 
-					{/* Persisted groups are hidden while a virtual grouping is active. */}
+					{/* GROUPS - hidden in a secondary window, which renders its owned agents
+					    as a flat focused list (see the flat-list branch below). */}
 					{!activeVirtualGrouping &&
 						(isSecondaryWindow ? [] : orderedGroups).map((group) => {
 							const groupSessions = sortedGroupSessionsById.get(group.id) || [];
@@ -1665,10 +1667,11 @@ function SessionListInner(props: SessionListProps) {
 							const groupCollapsedPills = groupSessions.filter(
 								(session) => !session.parentSessionId
 							);
-							const GroupIcon =
-								groupsPlusEnabled && group.icon
-									? GROUP_ICON_OPTIONS.find((option) => option.id === group.icon)?.Icon
-									: undefined;
+							const appearance = resolveGroupAppearance(
+								groupsPlusEnabled ? group.icon : undefined,
+								groupsPlusEnabled ? group.color : undefined,
+								groupsPlusEnabled ? (pluginContributions.iconPacks ?? []) : []
+							);
 							return (
 								<div
 									key={group.id}
@@ -1738,15 +1741,20 @@ function SessionListInner(props: SessionListProps) {
 											) : (
 												<ChevronDown className="w-3 h-3" />
 											)}
-											{GroupIcon ? (
-												<GroupIcon
-													className="w-4 h-4"
-													style={{
-														color: groupsPlusEnabled
-															? group.color || theme.colors.textDim
-															: theme.colors.textDim,
-													}}
-												/>
+											{appearance.icon ? (
+												appearance.icon.kind === 'plugin' ? (
+													<SafeSvgIcon
+														className="w-4 h-4"
+														path={appearance.icon.path}
+														viewBox={appearance.icon.viewBox}
+														style={{ color: appearance.color || theme.colors.textDim }}
+													/>
+												) : (
+													<appearance.icon.Icon
+														className="w-4 h-4"
+														style={{ color: appearance.color || theme.colors.textDim }}
+													/>
+												)
 											) : group.emoji ? (
 												<span className="text-sm">{group.emoji}</span>
 											) : (
@@ -1776,9 +1784,7 @@ function SessionListInner(props: SessionListProps) {
 											) : (
 												<span
 													onDoubleClick={() => startRenamingGroup(group.id)}
-													style={
-														groupsPlusEnabled && group.color ? { color: group.color } : undefined
-													}
+													style={appearance.color ? { color: appearance.color } : undefined}
 												>
 													{group.name}
 													{showLeftPanelGroupMemberCount && groupCollapsedPills.length > 0 && (

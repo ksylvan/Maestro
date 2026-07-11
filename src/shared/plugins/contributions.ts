@@ -15,6 +15,44 @@
 import type { PluginManifest } from './plugin-manifest';
 import type { PluginCapability } from './permissions';
 
+/**
+ * Maximum UTF-8 size of one host view's serialized BlockView data. This pure
+ * contract is shared by declaration parsing and runtime host-view updates so
+ * plugin input cannot bypass the sandbox RPC message limit.
+ */
+export const MAX_HOST_VIEW_BLOCKS_BYTES = 1_000_000;
+
+/**
+ * Size of JSON data as it crosses a UTF-8 message boundary. Returns null when
+ * the value is not serializable, rather than throwing from an input validator.
+ */
+export function serializedJsonByteLength(value: unknown): number | null {
+	let serialized: string | undefined;
+	try {
+		serialized = JSON.stringify(value);
+	} catch {
+		return null;
+	}
+	if (typeof serialized !== 'string') return null;
+
+	let bytes = 0;
+	for (let index = 0; index < serialized.length; index += 1) {
+		const codePoint = serialized.codePointAt(index);
+		if (codePoint === undefined) continue;
+		if (codePoint <= 0x7f) {
+			bytes += 1;
+		} else if (codePoint <= 0x7ff) {
+			bytes += 2;
+		} else if (codePoint <= 0xffff) {
+			bytes += 3;
+		} else {
+			bytes += 4;
+			index += 1;
+		}
+	}
+	return bytes;
+}
+
 /** A theme a plugin adds to the theme picker. Colors are validated loosely
  * (a string map) here; the renderer maps them onto its ThemeColors shape. */
 export interface ThemeContribution {
@@ -27,6 +65,39 @@ export interface ThemeContribution {
 	name: string;
 	mode: 'light' | 'dark';
 	colors: Record<string, string>;
+}
+
+/** A single safe SVG path within an icon pack. The host owns all SVG markup. */
+export interface IconPackIconContribution {
+	/** Namespaced id: `<pluginId>/<packId>/<localId>`. */
+	id: string;
+	localId: string;
+	label: string;
+	/** Validated SVG path `d` data only; never arbitrary SVG markup. */
+	path: string;
+	/** Optional validated four-number SVG viewBox string. */
+	viewBox?: string;
+}
+
+/** A label color within an icon pack. */
+export interface IconPackColorContribution {
+	/** Namespaced id: `<pluginId>/<packId>/<localId>`. */
+	id: string;
+	localId: string;
+	label: string;
+	/** Validated `#rrggbb` color value. */
+	value: string;
+}
+
+/** A tier-0 pack of host-rendered group icons and label colors. */
+export interface IconPackContribution {
+	/** Namespaced id: `<pluginId>/<localId>`. */
+	id: string;
+	localId: string;
+	pluginId: string;
+	label: string;
+	icons: IconPackIconContribution[];
+	colors: IconPackColorContribution[];
 }
 
 /** A reusable prompt a plugin adds to the prompt catalog. */
@@ -208,6 +279,34 @@ export interface UiItemContribution {
 	priority?: number;
 }
 
+/** The host-owned view surfaces that render only BlockView data. */
+export type HostViewSurface = 'movement' | 'cadenza';
+
+export const HOST_VIEW_SURFACES: readonly HostViewSurface[] = ['movement', 'cadenza'];
+
+/** Type guard for the two host-rendered view surfaces. */
+export function isHostViewSurface(value: unknown): value is HostViewSurface {
+	return typeof value === 'string' && (HOST_VIEW_SURFACES as readonly string[]).includes(value);
+}
+
+/** The only data accepted for a host view: the BlockView block array the host
+ * renders, never a cadenza command/prompt payload or plugin UI. */
+export type HostViewBlocks = unknown[];
+
+/**
+ * A host-rendered view declared by a data-only or code plugin. The host owns its
+ * renderer; a code plugin may later update/remove that declared view through the
+ * brokered `ui:hostView` RPC methods.
+ */
+export interface HostViewContribution {
+	id: string;
+	localId: string;
+	pluginId: string;
+	surface: HostViewSurface;
+	title: string;
+	description?: string;
+	blocks?: HostViewBlocks;
+}
 /** A metadata-only virtual grouping supplied by a plugin. Rules use a deliberately
  * small `*` wildcard grammar; patterns are never compiled as user RegExp. */
 export interface GroupingRule {
@@ -264,6 +363,7 @@ export function groupingRuleMatches(session: GroupingSessionMetadata, rule: Grou
 /** All contributions a single plugin declared, plus any per-item errors. */
 export interface PluginContributions {
 	themes: ThemeContribution[];
+	iconPacks: IconPackContribution[];
 	prompts: PromptContribution[];
 	settings: SettingContribution[];
 	commandMacros: CommandMacroContribution[];
@@ -274,6 +374,7 @@ export interface PluginContributions {
 	tools: AgentToolContribution[];
 	keybindings: KeybindingContribution[];
 	uiItems: UiItemContribution[];
+	hostViews: HostViewContribution[];
 	groupings: GroupingContribution[];
 	/** Human-readable reasons individual contributions were dropped. */
 	errors: string[];
@@ -282,6 +383,7 @@ export interface PluginContributions {
 /** Contributions aggregated across every active plugin. */
 export interface AggregatedContributions {
 	themes: ThemeContribution[];
+	iconPacks: IconPackContribution[];
 	prompts: PromptContribution[];
 	settings: SettingContribution[];
 	commandMacros: CommandMacroContribution[];
@@ -292,6 +394,7 @@ export interface AggregatedContributions {
 	tools: AgentToolContribution[];
 	keybindings: KeybindingContribution[];
 	uiItems: UiItemContribution[];
+	hostViews: HostViewContribution[];
 	groupings: GroupingContribution[];
 	/** Per-plugin errors keyed by plugin id (only plugins with errors appear). */
 	errorsByPlugin: Record<string, string[]>;
@@ -324,6 +427,7 @@ function asArray(value: unknown): unknown[] {
 export function collectContributions(manifest: PluginManifest): PluginContributions {
 	const out: PluginContributions = {
 		themes: [],
+		iconPacks: [],
 		prompts: [],
 		settings: [],
 		commandMacros: [],
@@ -334,6 +438,7 @@ export function collectContributions(manifest: PluginManifest): PluginContributi
 		tools: [],
 		keybindings: [],
 		uiItems: [],
+		hostViews: [],
 		groupings: [],
 		errors: [],
 	};
@@ -346,6 +451,10 @@ export function collectContributions(manifest: PluginManifest): PluginContributi
 	for (const raw of asArray(contributes.themes)) {
 		const t = parseTheme(pluginId, raw, out.errors);
 		if (t) out.themes.push(t);
+	}
+	for (const raw of asArray(contributes.iconPacks)) {
+		const pack = parseIconPack(pluginId, raw, out.errors);
+		if (pack) out.iconPacks.push(pack);
 	}
 	for (const raw of asArray(contributes.prompts)) {
 		const p = parsePrompt(pluginId, raw, out.errors);
@@ -427,6 +536,12 @@ export function collectContributions(manifest: PluginManifest): PluginContributi
 			}
 		}
 	}
+	if (contributes.hostViews !== undefined) {
+		for (const raw of asArray(contributes.hostViews)) {
+			const hostView = parseHostView(pluginId, raw, out.errors);
+			if (hostView) out.hostViews.push(hostView);
+		}
+	}
 	return out;
 }
 
@@ -444,6 +559,7 @@ export function aggregateContributions(
 ): AggregatedContributions {
 	const agg: AggregatedContributions = {
 		themes: [],
+		iconPacks: [],
 		prompts: [],
 		settings: [],
 		commandMacros: [],
@@ -454,6 +570,7 @@ export function aggregateContributions(
 		tools: [],
 		keybindings: [],
 		uiItems: [],
+		hostViews: [],
 		groupings: [],
 		errorsByPlugin: {},
 	};
@@ -486,6 +603,7 @@ export function aggregateContributions(
 			(agg.errorsByPlugin[manifest.id] ??= []).push(...c.errors);
 		}
 		c.themes.forEach((t) => pushUnique('themes', agg.themes, t));
+		c.iconPacks.forEach((pack) => pushUnique('iconPacks', agg.iconPacks, pack));
 		c.prompts.forEach((p) => pushUnique('prompts', agg.prompts, p));
 		c.settings.forEach((s) => pushUnique('settings', agg.settings, s));
 		c.commandMacros.forEach((m) => pushUnique('commandMacros', agg.commandMacros, m));
@@ -496,6 +614,7 @@ export function aggregateContributions(
 		c.tools.forEach((t) => pushUnique('tools', agg.tools, t));
 		c.keybindings.forEach((k) => pushUnique('keybindings', agg.keybindings, k));
 		c.uiItems.forEach((u) => pushUnique('uiItems', agg.uiItems, u));
+		c.hostViews.forEach((view) => pushUnique('hostViews', agg.hostViews, view));
 		c.groupings.forEach((grouping) => pushUnique('groupings', agg.groupings, grouping));
 	}
 	return agg;
@@ -553,6 +672,165 @@ function parseTheme(pluginId: string, raw: unknown, errors: string[]): ThemeCont
 		mode: raw.mode,
 		colors,
 	};
+}
+
+const MAX_SVG_PATH_LENGTH = 4096;
+const SVG_PATH_DATA_PATTERN = /^[MmLlHhVvCcSsQqTtAaZz0-9 ,.+\-eE]+$/;
+const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
+const SVG_NUMBER_PATTERN = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+function parseSvgViewBox(
+	pluginId: string,
+	packLocalId: string,
+	iconLocalId: string,
+	value: unknown,
+	errors: string[]
+): string | undefined | null {
+	if (value === undefined) return undefined;
+	if (typeof value !== 'string') {
+		errors.push(
+			`[${pluginId}] icon pack "${packLocalId}" icon "${iconLocalId}" viewBox must be four numbers`
+		);
+		return null;
+	}
+	const parts = value.trim().split(/[ ,]+/);
+	if (
+		parts.length !== 4 ||
+		parts.some((part) => !SVG_NUMBER_PATTERN.test(part) || !Number.isFinite(Number(part)))
+	) {
+		errors.push(
+			`[${pluginId}] icon pack "${packLocalId}" icon "${iconLocalId}" viewBox must be four numbers`
+		);
+		return null;
+	}
+	return value.trim();
+}
+
+function parseIconPackIcon(
+	pluginId: string,
+	packId: string,
+	packLocalId: string,
+	raw: unknown,
+	errors: string[]
+): IconPackIconContribution | null {
+	if (!isPlainObject(raw)) {
+		errors.push(`[${pluginId}] an icon pack icon is not an object`);
+		return null;
+	}
+	const localId = parseLocalId(pluginId, raw, errors);
+	if (!localId) return null;
+	if (!isNonEmptyString(raw.label)) {
+		errors.push(`[${pluginId}] icon pack "${packLocalId}" icon "${localId}" is missing a label`);
+		return null;
+	}
+	if (
+		!isNonEmptyString(raw.path) ||
+		raw.path.length > MAX_SVG_PATH_LENGTH ||
+		!SVG_PATH_DATA_PATTERN.test(raw.path)
+	) {
+		errors.push(
+			`[${pluginId}] icon pack "${packLocalId}" icon "${localId}" path must be safe SVG path data`
+		);
+		return null;
+	}
+	const viewBox = parseSvgViewBox(pluginId, packLocalId, localId, raw.viewBox, errors);
+	if (viewBox === null) return null;
+	return {
+		id: namespaced(packId, localId),
+		localId,
+		label: raw.label.trim(),
+		path: raw.path,
+		...(viewBox !== undefined ? { viewBox } : {}),
+	};
+}
+
+function parseIconPackColor(
+	pluginId: string,
+	packId: string,
+	packLocalId: string,
+	raw: unknown,
+	errors: string[]
+): IconPackColorContribution | null {
+	if (!isPlainObject(raw)) {
+		errors.push(`[${pluginId}] an icon pack color is not an object`);
+		return null;
+	}
+	const localId = parseLocalId(pluginId, raw, errors);
+	if (!localId) return null;
+	if (!isNonEmptyString(raw.label)) {
+		errors.push(`[${pluginId}] icon pack "${packLocalId}" color "${localId}" is missing a label`);
+		return null;
+	}
+	if (!isNonEmptyString(raw.value) || !HEX_COLOR_PATTERN.test(raw.value)) {
+		errors.push(
+			`[${pluginId}] icon pack "${packLocalId}" color "${localId}" value must be #rrggbb`
+		);
+		return null;
+	}
+	return {
+		id: namespaced(packId, localId),
+		localId,
+		label: raw.label.trim(),
+		value: raw.value,
+	};
+}
+
+function parseIconPack(
+	pluginId: string,
+	raw: unknown,
+	errors: string[]
+): IconPackContribution | null {
+	if (!isPlainObject(raw)) {
+		errors.push(`[${pluginId}] an icon pack contribution is not an object`);
+		return null;
+	}
+	const localId = parseLocalId(pluginId, raw, errors);
+	if (!localId) return null;
+	if (!isNonEmptyString(raw.label)) {
+		errors.push(`[${pluginId}] icon pack "${localId}" is missing a label`);
+		return null;
+	}
+	const id = namespaced(pluginId, localId);
+	const icons: IconPackIconContribution[] = [];
+	const colors: IconPackColorContribution[] = [];
+	const iconIds = new Set<string>();
+	const colorIds = new Set<string>();
+
+	if (raw.icons !== undefined && !Array.isArray(raw.icons)) {
+		errors.push(`[${pluginId}] icon pack "${localId}" icons must be an array`);
+	} else {
+		for (const item of asArray(raw.icons)) {
+			const icon = parseIconPackIcon(pluginId, id, localId, item, errors);
+			if (!icon) continue;
+			if (iconIds.has(icon.id)) {
+				errors.push(`[${pluginId}] icon pack "${localId}" has duplicate icon id "${icon.localId}"`);
+				continue;
+			}
+			iconIds.add(icon.id);
+			icons.push(icon);
+		}
+	}
+	if (raw.colors !== undefined && !Array.isArray(raw.colors)) {
+		errors.push(`[${pluginId}] icon pack "${localId}" colors must be an array`);
+	} else {
+		for (const item of asArray(raw.colors)) {
+			const color = parseIconPackColor(pluginId, id, localId, item, errors);
+			if (!color) continue;
+			if (colorIds.has(color.id)) {
+				errors.push(
+					`[${pluginId}] icon pack "${localId}" has duplicate color id "${color.localId}"`
+				);
+				continue;
+			}
+			colorIds.add(color.id);
+			colors.push(color);
+		}
+	}
+	if (icons.length === 0 && colors.length === 0) {
+		errors.push(`[${pluginId}] icon pack "${localId}" has no valid icons or colors`);
+		return null;
+	}
+	return { id, localId, pluginId, label: raw.label.trim(), icons, colors };
 }
 
 function parsePrompt(pluginId: string, raw: unknown, errors: string[]): PromptContribution | null {
@@ -861,6 +1139,57 @@ function parseUiItem(pluginId: string, raw: unknown, errors: string[]): UiItemCo
 	};
 }
 
+export function isHostViewBlocks(value: unknown): value is HostViewBlocks {
+	return Array.isArray(value);
+}
+
+function parseHostView(
+	pluginId: string,
+	raw: unknown,
+	errors: string[]
+): HostViewContribution | null {
+	if (!isPlainObject(raw)) {
+		errors.push(`[${pluginId}] a hostView contribution is not an object`);
+		return null;
+	}
+	const localId = parseLocalId(pluginId, raw, errors);
+	if (!localId) return null;
+	if (!isHostViewSurface(raw.surface)) {
+		errors.push(`[${pluginId}] hostView "${localId}" has an invalid or missing surface`);
+		return null;
+	}
+	if (!isNonEmptyString(raw.title)) {
+		errors.push(`[${pluginId}] hostView "${localId}" is missing a title`);
+		return null;
+	}
+	if (raw.blocks !== undefined) {
+		if (!isHostViewBlocks(raw.blocks)) {
+			errors.push(`[${pluginId}] hostView "${localId}" blocks must be BlockView data`);
+			return null;
+		}
+		const blockBytes = serializedJsonByteLength(raw.blocks);
+		if (blockBytes === null) {
+			errors.push(`[${pluginId}] hostView "${localId}" blocks must be JSON-serializable`);
+			return null;
+		}
+		if (blockBytes > MAX_HOST_VIEW_BLOCKS_BYTES) {
+			errors.push(
+				`[${pluginId}] hostView "${localId}" blocks exceed the ${MAX_HOST_VIEW_BLOCKS_BYTES}-byte size limit`
+			);
+			return null;
+		}
+	}
+	return {
+		id: namespaced(pluginId, localId),
+		localId,
+		pluginId,
+		surface: raw.surface,
+		title: raw.title.trim(),
+		...(isNonEmptyString(raw.description) ? { description: raw.description.trim() } : {}),
+		...(raw.blocks !== undefined ? { blocks: raw.blocks } : {}),
+	};
+}
+
 const MAX_GROUPING_PATTERN_LENGTH = 256;
 const MAX_GROUPING_LABEL_LENGTH = 120;
 
@@ -937,12 +1266,13 @@ function parseGrouping(
 		...(rules !== undefined ? { rules } : {}),
 	};
 }
-
 /**
  * Drop capability-gated contributions a plugin does NOT hold the grant for. The
  * render host calls this with the plugin's VERIFIED grants so customization is
  * gated per-capability, not merely by the plugin being enabled: UI items need
- * `ui:contribute`, panels need `ui:panel`. Other categories pass through.
+ * `ui:contribute` and panels need `ui:panel`. `hostViews` are data-only
+ * contributions, so static views are deliberately available to tier-0 plugins;
+ * `ui:hostView` gates only their tier-1 runtime update/remove methods.
  */
 export function gateContributions(
 	plugin: PluginContributions,
