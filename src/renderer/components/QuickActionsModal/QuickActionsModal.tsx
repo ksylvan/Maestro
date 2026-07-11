@@ -46,7 +46,6 @@ import { buildNavigationCommands } from './commands/navigationCommands';
 import { buildPluginCommandPaletteCommands } from './commands/pluginCommandPaletteCommands';
 import { mergePluginContributions } from '../../utils/pluginContributionMerge';
 import { buildRightPanelCommands } from './commands/rightPanelCommands';
-import { buildRegistryCommands } from './commands/registryCommands';
 import { buildSearchCommands } from './commands/searchCommands';
 import {
 	buildSessionJumpCommands,
@@ -429,8 +428,6 @@ export const QuickActionsModal = memo(function QuickActionsModal(props: QuickAct
 	const mainActions: QuickAction[] = [
 		...sessionActions,
 		...groupChatActions,
-		// Shared command registry (the SAME entries plugins reach via ui.runCommand):
-		...buildRegistryCommands(),
 		...buildNavigationCommands({
 			activeSession,
 			activeSessionId,
