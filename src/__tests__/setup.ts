@@ -240,24 +240,20 @@ const mockMaestro = {
 		createPackage: vi.fn().mockResolvedValue({ success: true }),
 		previewPackage: vi.fn().mockResolvedValue({}),
 		getAppStats: vi.fn().mockResolvedValue({}),
-		getProfilingStatus: vi
-			.fn()
-			.mockResolvedValue({
-				success: true,
-				active: false,
-				startedAt: 0,
-				elapsedMs: 0,
-				categories: [],
-			}),
-		startProfiling: vi
-			.fn()
-			.mockResolvedValue({
-				success: true,
-				active: true,
-				startedAt: 0,
-				elapsedMs: 0,
-				categories: [],
-			}),
+		getProfilingStatus: vi.fn().mockResolvedValue({
+			success: true,
+			active: false,
+			startedAt: 0,
+			elapsedMs: 0,
+			categories: [],
+		}),
+		startProfiling: vi.fn().mockResolvedValue({
+			success: true,
+			active: true,
+			startedAt: 0,
+			elapsedMs: 0,
+			categories: [],
+		}),
 		stopProfiling: vi.fn().mockResolvedValue({
 			success: true,
 			path: null,
