@@ -4,6 +4,8 @@ import {
 	aggregateContributions,
 	gateContributions,
 	MAX_HOST_VIEW_BLOCKS_BYTES,
+	groupingRuleMatches,
+	matchesGroupingPattern,
 } from '../../../shared/plugins/contributions';
 import type { PluginManifest } from '../../../shared/plugins/plugin-manifest';
 
@@ -700,5 +702,77 @@ describe('aggregateContributions — gated aggregation', () => {
 		const gated = aggregateContributions([m], () => false);
 		expect(gated.uiItems).toEqual([]); // gated out without ui:contribute
 		expect(gated.commands).toHaveLength(1); // ungated category survives
+	});
+});
+
+describe('groupings contribution', () => {
+	it('collects tier-0 rules, namespaces its id, and rejects unsafe patterns', () => {
+		const c = collectContributions(
+			manifest('com.acme', {
+				groupings: [
+					{
+						id: 'by-type',
+						label: 'Group by agent type',
+						rules: [{ match: { toolType: 'claude' }, group: 'Claude' }],
+					},
+					{
+						id: 'bad-pattern',
+						label: 'Bad',
+						rules: [{ match: { namePattern: 'x'.repeat(257) }, group: 'Nope' }],
+					},
+				],
+			})
+		);
+		expect(c.groupings).toEqual([
+			expect.objectContaining({ id: 'com.acme/by-type', localId: 'by-type', pluginId: 'com.acme' }),
+		]);
+		expect(c.errors.join(' ')).toContain('pattern');
+	});
+
+	it('evaluates each matcher with literal-safe wildcards', () => {
+		const session = {
+			id: 'session-1',
+			toolType: 'claude-code',
+			cwd: 'C:/work/api',
+			name: 'API [draft]',
+		};
+		expect(
+			groupingRuleMatches(session, { match: { toolType: 'claude-code' }, group: 'Tool' })
+		).toBe(true);
+		expect(groupingRuleMatches(session, { match: { cwdGlob: 'C:/work/*' }, group: 'Cwd' })).toBe(
+			true
+		);
+		expect(groupingRuleMatches(session, { match: { namePattern: 'API [*]' }, group: 'Name' })).toBe(
+			true
+		);
+		expect(matchesGroupingPattern('abc', 'a.c')).toBe(false);
+	});
+});
+
+describe('combined contribution surfaces', () => {
+	it('collects hostViews, iconPacks, and groupings together', () => {
+		const c = collectContributions(
+			manifest('com.acme', {
+				iconPacks: [
+					{
+						id: 'pack',
+						label: 'Pack',
+						icons: [{ id: 'folder', label: 'Folder', path: 'M1 1h2v2H1z' }],
+						colors: [],
+					},
+				],
+				hostViews: [{ id: 'status', surface: 'movement', title: 'Status', blocks: [] }],
+				groupings: [
+					{
+						id: 'by-tool',
+						label: 'By tool',
+						rules: [{ match: { toolType: 'claude' }, group: 'Claude' }],
+					},
+				],
+			})
+		);
+		expect(c.iconPacks).toHaveLength(1);
+		expect(c.hostViews).toHaveLength(1);
+		expect(c.groupings).toHaveLength(1);
 	});
 });

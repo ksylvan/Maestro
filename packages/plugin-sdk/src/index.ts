@@ -89,6 +89,7 @@ export type PluginCapability =
 	| 'ui:contribute' // add host-rendered items to Maestro's UI (menus, panels, theming, …)
 	| 'ui:panel' // show its own sandboxed interactive panels
 	| 'ui:hostView' // contribute and update host-rendered BlockView data
+	| 'ui:grouping' // publish virtual session grouping snapshots (presentation only)
 	| 'ui:render-unsafe'; // render arbitrary UI with full interface access (escape hatch)
 
 export const PLUGIN_CAPABILITIES: readonly PluginCapability[] = [
@@ -121,6 +122,7 @@ export const PLUGIN_CAPABILITIES: readonly PluginCapability[] = [
 	'ui:contribute',
 	'ui:panel',
 	'ui:hostView',
+	'ui:grouping',
 	'ui:render-unsafe',
 ];
 
@@ -157,6 +159,7 @@ const CAPABILITY_RISK: Record<PluginCapability, CapabilityRisk> = {
 	'ui:contribute': 'medium',
 	'ui:panel': 'medium',
 	'ui:hostView': 'medium',
+	'ui:grouping': 'low',
 	'ui:render-unsafe': 'high',
 };
 
@@ -207,6 +210,7 @@ const CAPABILITY_SCOPE_KIND: Record<PluginCapability, ScopeKind> = {
 	'ui:contribute': 'none',
 	'ui:panel': 'none',
 	'ui:hostView': 'none',
+	'ui:grouping': 'none',
 	'ui:render-unsafe': 'none',
 };
 
@@ -382,6 +386,8 @@ export function describeCapability(capability: PluginCapability): string {
 			return 'Show its own panels inside Maestro';
 		case 'ui:hostView':
 			return 'Show and update host-rendered BlockView data in Maestro';
+		case 'ui:grouping':
+			return 'Organize session metadata into virtual sidebar groups';
 		case 'ui:render-unsafe':
 			return "Render its own custom UI with full access to Maestro's interface (advanced — only enable for authors you fully trust)";
 	}
@@ -390,8 +396,10 @@ export function describeCapability(capability: PluginCapability): string {
 // --- Host API version (from shared/plugins/host-api.ts) ---------------------
 
 /**
- * The host API version this Maestro build implements. Bumped to 1.10.0 for the
- * backward-compatible, data-only `iconPacks` contribution. (1.9.0 added
+ * The host API version this Maestro build implements. Bumped to 1.11.0 for virtual
+ * `groupings` contributions and the presentation-only `ui:grouping` publish/clear
+ * methods. 1.10.0 added the backward-compatible, data-only `iconPacks` contribution.
+ * 1.9.0 added
  * host-rendered `hostViews`, their `ui:hostView` capability, and the
  * `ui.hostViewUpdate` / `ui.hostViewRemove` RPC methods; 1.8.0 added
  * `background.list`; 1.7.0 added history/session/tab/transcript
@@ -403,7 +411,7 @@ export function describeCapability(capability: PluginCapability): string {
  * `ui:contribute` / `ui:panel` / `ui:render-unsafe` UI capabilities; 1.3.0
  * added `tools` + `keybindings`; 1.2.0 added `transcripts:read`.)
  */
-export const HOST_API_VERSION = '1.10.0';
+export const HOST_API_VERSION = '1.11.0';
 
 /** Result of checking a plugin's declared host-API requirement. */
 export interface HostApiCompatibility {
@@ -960,6 +968,23 @@ export interface HostViewContribution {
 	description?: string;
 	blocks?: HostViewBlocks;
 }
+/** A metadata-only virtual grouping supplied by a plugin. Rules use a deliberately
+ * small `*` wildcard grammar; patterns are never compiled as user RegExp. */
+export interface GroupingRule {
+	match: { toolType?: string; cwdGlob?: string; namePattern?: string };
+	group: string;
+	parentGroup?: string;
+}
+
+export interface GroupingContribution {
+	id: string;
+	localId: string;
+	pluginId: string;
+	pluginName: string;
+	label: string;
+	description?: string;
+	rules?: GroupingRule[];
+}
 
 /** All contributions a single plugin declared, plus any per-item errors. */
 export interface PluginContributions {
@@ -976,6 +1001,7 @@ export interface PluginContributions {
 	keybindings: KeybindingContribution[];
 	uiItems: UiItemContribution[];
 	hostViews: HostViewContribution[];
+	groupings: GroupingContribution[];
 	errors: string[];
 }
 
@@ -994,6 +1020,7 @@ export interface AggregatedContributions {
 	keybindings: KeybindingContribution[];
 	uiItems: UiItemContribution[];
 	hostViews: HostViewContribution[];
+	groupings: GroupingContribution[];
 	/** Per-plugin errors keyed by plugin id (only plugins with errors appear). */
 	errorsByPlugin: Record<string, string[]>;
 }
@@ -1157,6 +1184,8 @@ export const HOST_API = {
 	'background.register': { capability: 'background:service' },
 	'background.unregister': { capability: 'background:service' },
 	'background.list': { capability: 'background:service' },
+	'ui.groupingPublish': { capability: 'ui:grouping' },
+	'ui.groupingClear': { capability: 'ui:grouping' },
 } as const satisfies Record<string, { capability: PluginCapability }>;
 
 /** The fixed set of host methods a sandbox may call (derived from HOST_API). */
@@ -1349,9 +1378,19 @@ export interface MaestroHostViewApi {
 
 /** Invoke a registered command-palette command (`ui:command`) or access
  * host-rendered BlockViews. */
+export interface MaestroGroupingApi {
+	publish(params: {
+		id: string;
+		groups: readonly { id: string; label: string; parentId?: string }[];
+		assignments: Record<string, string>;
+	}): Promise<void>;
+	clear(id: string): Promise<void>;
+}
+
 export interface MaestroUiApi {
 	runCommand(commandId: string, args?: unknown): Promise<unknown>;
 	readonly hostView: MaestroHostViewApi;
+	readonly grouping: MaestroGroupingApi;
 }
 
 /** Manage Maestro tabs (`tabs:manage`). */

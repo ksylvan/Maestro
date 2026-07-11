@@ -21,8 +21,10 @@
 import semver from 'semver';
 
 /**
- * The host API version this Maestro build implements. Bumped to 1.10.0 for the
- * backward-compatible, data-only `iconPacks` contribution. (1.9.0 added
+ * The host API version this Maestro build implements. Bumped to 1.11.0 for virtual
+ * `groupings` contributions and the presentation-only `ui:grouping` publish/clear
+ * methods. 1.10.0 added the backward-compatible, data-only `iconPacks` contribution.
+ * 1.9.0 added
  * host-rendered `hostViews`, their `ui:hostView` capability, and the
  * `ui.hostViewUpdate` / `ui.hostViewRemove` RPC methods; 1.8.0 added
  * `background.list`; 1.7.0 added history/session/tab/transcript
@@ -34,7 +36,7 @@ import semver from 'semver';
  * `ui:contribute` / `ui:panel` / `ui:render-unsafe` UI capabilities; 1.3.0
  * added `tools` + `keybindings`; 1.2.0 added `transcripts:read`.)
  */
-export const HOST_API_VERSION = '1.10.0';
+export const HOST_API_VERSION = '1.11.0';
 
 /** Result of checking a plugin's declared host-API requirement. */
 export interface HostApiCompatibility {

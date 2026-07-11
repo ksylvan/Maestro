@@ -45,6 +45,7 @@ import { evaluateScheduledDispatch } from '../shared/plugins/plugin-dispatch-gat
 import { PermissionBroker } from './plugins/permission-broker';
 import { PluginSandboxHost } from './plugins/plugin-sandbox-host';
 import { PluginBackgroundSupervisor } from './plugins/plugin-background-supervisor';
+import { PluginGroupingRegistry } from './plugins/plugin-grouping-registry';
 import { setActivePluginManager } from './plugins/plugin-manager-singleton';
 import { PluginSchedulerHost } from './plugins/plugin-scheduler-host';
 import {
@@ -492,6 +493,7 @@ let pianolaRelearnScheduler: PianolaRelearnScheduler | null = null;
 let pluginManager: PluginManager | null = null;
 let pluginScheduler: PluginSchedulerHost | null = null;
 let pluginSandboxHost: PluginSandboxHost | null = null;
+let pluginGroupingRegistry: PluginGroupingRegistry | null = null;
 let pluginBackgroundSupervisor: PluginBackgroundSupervisor | null = null;
 let pluginAuthStore: AuthorizationStore | null = null;
 let pluginEventBus: PluginEventBusImpl | null = null;
@@ -743,6 +745,10 @@ const pluginHostViews = new PluginHostViewRegistry({
 // read path to refresh plugin discovery.
 store.onDidChange('encoreFeatures', (encoreFeatures) => {
 	if (encoreFeatures?.concerto !== true) closeCadenzaHudWindow();
+	if (encoreFeatures?.plugins !== true) {
+		pluginSandboxHost?.stopAll();
+		pluginGroupingRegistry?.clearAll();
+	}
 	if (!arePluginHostViewsEnabled()) {
 		pluginHostViews.purgeAll();
 		return;
@@ -2098,6 +2104,14 @@ app
 		}
 
 		let pluginResourceCleanup: ((pluginId: string) => void) | undefined;
+		const groupingRegistry = new PluginGroupingRegistry(() => {
+			try {
+				mainWindow?.webContents.send('plugins:groupings-changed');
+			} catch {
+				// Renderer may be gone during shutdown; ignore.
+			}
+		});
+		pluginGroupingRegistry = groupingRegistry;
 		const sandboxHost = new PluginSandboxHost({
 			broker: pluginBroker,
 			handlers: buildHostCallHandlers({
@@ -2111,6 +2125,13 @@ app
 				settingsDeleteNamespace: pluginSettingsDeleteNamespace,
 				sessionsList: pluginSessionsList,
 				sessionsGet: pluginSessionsGet,
+				groupingRegistry,
+				isDeclaredGrouping: (pluginId, localId) =>
+					pluginManager
+						?.getContributions()
+						.groupings.some(
+							(grouping) => grouping.pluginId === pluginId && grouping.localId === localId
+						) ?? false,
 				sessionsCreate: pluginSessionsCreate,
 				sessionsUpdate: pluginSessionsUpdate,
 				sessionsDelete: pluginSessionsDelete,
@@ -2252,12 +2273,14 @@ app
 			onCrash: (pluginId, code) => {
 				pluginResourceCleanup?.(pluginId);
 				pluginHostViews.purge(pluginId);
+				groupingRegistry.removePlugin(pluginId);
 				logger.warn(`[Plugins] plugin "${pluginId}" crashed (code ${code})`, '[Plugins]');
 				backgroundSupervisor.onPluginCrash(pluginId, code);
 			},
 			onStop: (pluginId) => {
 				pluginResourceCleanup?.(pluginId);
 				pluginHostViews.purge(pluginId);
+				groupingRegistry.removePlugin(pluginId);
 				backgroundSupervisor.onPluginStopped(pluginId);
 			},
 		});
@@ -2296,6 +2319,7 @@ app
 					eventBus,
 					hostViews: pluginHostViews,
 				});
+				groupingRegistry.removePlugin(id);
 				backgroundSupervisor.teardown(id);
 			},
 			onChange: (registry) => {
@@ -3096,6 +3120,7 @@ function setupIpcHandlers() {
 			manager: pluginManager,
 			sandboxHost: pluginSandboxHost ?? undefined,
 			authStore: pluginAuthStore,
+			groupingRegistry: pluginGroupingRegistry ?? undefined,
 		});
 	}
 

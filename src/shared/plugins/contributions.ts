@@ -307,6 +307,58 @@ export interface HostViewContribution {
 	description?: string;
 	blocks?: HostViewBlocks;
 }
+/** A metadata-only virtual grouping supplied by a plugin. Rules use a deliberately
+ * small `*` wildcard grammar; patterns are never compiled as user RegExp. */
+export interface GroupingRule {
+	match: { toolType?: string; cwdGlob?: string; namePattern?: string };
+	group: string;
+	parentGroup?: string;
+}
+
+export interface GroupingContribution {
+	id: string;
+	localId: string;
+	pluginId: string;
+	pluginName: string;
+	label: string;
+	description?: string;
+	rules?: GroupingRule[];
+}
+
+/** Session metadata used to evaluate a declarative virtual grouping. */
+export interface GroupingSessionMetadata {
+	id: string;
+	name?: string;
+	toolType?: string;
+	cwd?: string;
+}
+
+/** Safe, linear wildcard matching: `*` matches any characters, everything else is literal. */
+export function matchesGroupingPattern(value: string, pattern: string): boolean {
+	const parts = pattern.split('*');
+	let offset = 0;
+	if (!pattern.startsWith('*')) {
+		if (!value.startsWith(parts[0])) return false;
+		offset = parts[0].length;
+	}
+	for (let index = pattern.startsWith('*') ? 0 : 1; index < parts.length; index += 1) {
+		const part = parts[index];
+		if (!part) continue;
+		const found = value.indexOf(part, offset);
+		if (found === -1) return false;
+		offset = found + part.length;
+	}
+	return pattern.endsWith('*') || offset === value.length;
+}
+
+export function groupingRuleMatches(session: GroupingSessionMetadata, rule: GroupingRule): boolean {
+	const { toolType, cwdGlob, namePattern } = rule.match;
+	return (
+		(toolType === undefined || session.toolType === toolType) &&
+		(cwdGlob === undefined || matchesGroupingPattern(session.cwd ?? '', cwdGlob)) &&
+		(namePattern === undefined || matchesGroupingPattern(session.name ?? '', namePattern))
+	);
+}
 
 /** All contributions a single plugin declared, plus any per-item errors. */
 export interface PluginContributions {
@@ -323,6 +375,7 @@ export interface PluginContributions {
 	keybindings: KeybindingContribution[];
 	uiItems: UiItemContribution[];
 	hostViews: HostViewContribution[];
+	groupings: GroupingContribution[];
 	/** Human-readable reasons individual contributions were dropped. */
 	errors: string[];
 }
@@ -342,6 +395,7 @@ export interface AggregatedContributions {
 	keybindings: KeybindingContribution[];
 	uiItems: UiItemContribution[];
 	hostViews: HostViewContribution[];
+	groupings: GroupingContribution[];
 	/** Per-plugin errors keyed by plugin id (only plugins with errors appear). */
 	errorsByPlugin: Record<string, string[]>;
 }
@@ -385,6 +439,7 @@ export function collectContributions(manifest: PluginManifest): PluginContributi
 		keybindings: [],
 		uiItems: [],
 		hostViews: [],
+		groupings: [],
 		errors: [],
 	};
 	const contributes = manifest.contributes;
@@ -416,6 +471,10 @@ export function collectContributions(manifest: PluginManifest): PluginContributi
 	for (const raw of asArray(contributes.cueTriggers)) {
 		const t = parseCueTrigger(pluginId, raw, out.errors);
 		if (t) out.cueTriggers.push(t);
+	}
+	for (const raw of asArray(contributes.groupings)) {
+		const grouping = parseGrouping(pluginId, manifest.name, raw, out.errors);
+		if (grouping) out.groupings.push(grouping);
 	}
 	if (contributes.commands !== undefined) {
 		if (!isCodeTier) {
@@ -512,6 +571,7 @@ export function aggregateContributions(
 		keybindings: [],
 		uiItems: [],
 		hostViews: [],
+		groupings: [],
 		errorsByPlugin: {},
 	};
 	const seen = new Set<string>();
@@ -555,6 +615,7 @@ export function aggregateContributions(
 		c.keybindings.forEach((k) => pushUnique('keybindings', agg.keybindings, k));
 		c.uiItems.forEach((u) => pushUnique('uiItems', agg.uiItems, u));
 		c.hostViews.forEach((view) => pushUnique('hostViews', agg.hostViews, view));
+		c.groupings.forEach((grouping) => pushUnique('groupings', agg.groupings, grouping));
 	}
 	return agg;
 }
@@ -1129,6 +1190,82 @@ function parseHostView(
 	};
 }
 
+const MAX_GROUPING_PATTERN_LENGTH = 256;
+const MAX_GROUPING_LABEL_LENGTH = 120;
+
+function isSafeGroupingPattern(value: unknown): value is string {
+	return (
+		typeof value === 'string' &&
+		value.length > 0 &&
+		value.length <= MAX_GROUPING_PATTERN_LENGTH &&
+		!/[\0\r\n]/.test(value)
+	);
+}
+
+function parseGrouping(
+	pluginId: string,
+	pluginName: string,
+	raw: unknown,
+	errors: string[]
+): GroupingContribution | null {
+	if (!isPlainObject(raw)) {
+		errors.push(`[${pluginId}] a grouping contribution is not an object`);
+		return null;
+	}
+	const localId = parseLocalId(pluginId, raw, errors);
+	if (!localId) return null;
+	if (!isNonEmptyString(raw.label) || raw.label.trim().length > MAX_GROUPING_LABEL_LENGTH) {
+		errors.push(`[${pluginId}] grouping "${localId}" has an invalid label`);
+		return null;
+	}
+	let rules: GroupingRule[] | undefined;
+	if (raw.rules !== undefined) {
+		if (!Array.isArray(raw.rules)) {
+			errors.push(`[${pluginId}] grouping "${localId}" rules must be an array`);
+			return null;
+		}
+		rules = [];
+		for (const rawRule of raw.rules) {
+			if (
+				!isPlainObject(rawRule) ||
+				!isPlainObject(rawRule.match) ||
+				!isNonEmptyString(rawRule.group)
+			) {
+				errors.push(`[${pluginId}] grouping "${localId}" has an invalid rule`);
+				return null;
+			}
+			const { toolType, cwdGlob, namePattern } = rawRule.match;
+			if (
+				(toolType !== undefined && !isNonEmptyString(toolType)) ||
+				(cwdGlob !== undefined && !isSafeGroupingPattern(cwdGlob)) ||
+				(namePattern !== undefined && !isSafeGroupingPattern(namePattern)) ||
+				(rawRule.parentGroup !== undefined && !isNonEmptyString(rawRule.parentGroup)) ||
+				rawRule.group.trim().length > MAX_GROUPING_LABEL_LENGTH
+			) {
+				errors.push(`[${pluginId}] grouping "${localId}" has an invalid rule pattern or label`);
+				return null;
+			}
+			rules.push({
+				match: {
+					...(toolType !== undefined ? { toolType: toolType.trim() } : {}),
+					...(cwdGlob !== undefined ? { cwdGlob } : {}),
+					...(namePattern !== undefined ? { namePattern } : {}),
+				},
+				group: rawRule.group.trim(),
+				...(rawRule.parentGroup !== undefined ? { parentGroup: rawRule.parentGroup.trim() } : {}),
+			});
+		}
+	}
+	return {
+		id: namespaced(pluginId, localId),
+		localId,
+		pluginId,
+		pluginName,
+		label: raw.label.trim(),
+		...(isNonEmptyString(raw.description) ? { description: raw.description.trim() } : {}),
+		...(rules !== undefined ? { rules } : {}),
+	};
+}
 /**
  * Drop capability-gated contributions a plugin does NOT hold the grant for. The
  * render host calls this with the plugin's VERIFIED grants so customization is
