@@ -192,17 +192,18 @@ function resolveFocusedAiTabId(group: TabGroup): string | null {
 }
 
 /**
- * Locate the tiled group and leaf-pane id that hold a given AI tab, or null when
- * the tab isn't tiled into any group (i.e. it's a standalone tab). Walks each
- * group's layout locally to avoid a circular import with panelLayout (which
- * imports from this module). Used by setActiveTab so selecting a group-member AI
- * tab (e.g. from the Tab Switcher) activates its group and focuses its pane
- * instead of trying to render it standalone - group members have no standalone
- * chip and are excluded from buildUnifiedTabs, so the standalone path leaves
- * focus stuck on whatever was already showing.
+ * Locate the tiled group and leaf-pane id that hold a given tab (of any kind),
+ * or null when the tab isn't tiled into any group (i.e. it's a standalone tab).
+ * Walks each group's layout locally to avoid a circular import with panelLayout
+ * (which imports from this module). Used so selecting or opening a group-member
+ * tab activates its group and focuses its pane instead of trying to render it
+ * standalone - group members have no standalone chip and are excluded from
+ * buildUnifiedTabs, so the standalone path leaves focus stuck on whatever was
+ * already showing.
  */
-function findGroupPaneForAiTab(
+export function findGroupPaneForTab(
 	session: Session,
+	type: UnifiedTabRef['type'],
 	tabId: string
 ): { groupId: string; leafId: string } | null {
 	const groups = session.tabGroups;
@@ -212,7 +213,7 @@ function findGroupPaneForAiTab(
 		const walk = (node: PanelLayoutNode): void => {
 			if (leafId) return;
 			if (node.kind === 'leaf') {
-				if (node.tab.type === 'ai' && node.tab.id === tabId) leafId = node.id;
+				if (node.tab.type === type && node.tab.id === tabId) leafId = node.id;
 				return;
 			}
 			node.children.forEach(walk);
@@ -221,6 +222,17 @@ function findGroupPaneForAiTab(
 		if (leafId) return { groupId: group.id, leafId };
 	}
 	return null;
+}
+
+/**
+ * AI-tab shortcut for {@link findGroupPaneForTab}. Kept as a named wrapper so the
+ * AI-specific call sites read clearly.
+ */
+function findGroupPaneForAiTab(
+	session: Session,
+	tabId: string
+): { groupId: string; leafId: string } | null {
+	return findGroupPaneForTab(session, 'ai', tabId);
 }
 
 /**
