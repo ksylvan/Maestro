@@ -2017,7 +2017,12 @@ interface MaestroAPI {
 		delete: (entryId: string, sessionId?: string) => Promise<boolean>;
 		update: (
 			entryId: string,
-			updates: { validated?: boolean },
+			updates: {
+				validated?: boolean;
+				summary?: string;
+				fullResponse?: string;
+				sessionName?: string;
+			},
 			sessionId?: string
 		) => Promise<boolean>;
 		updateSessionName: (agentSessionId: string, sessionName: string) => Promise<number>;

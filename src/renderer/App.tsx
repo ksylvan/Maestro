@@ -1765,6 +1765,7 @@ function MaestroConsoleInner() {
 		allCustomCommands,
 		sessionsRef,
 		activeSessionIdRef,
+		spawnBackgroundSynopsis,
 	});
 
 	const flushGroupChatDraft = useCallback(() => {
