@@ -272,6 +272,13 @@ export function getRepairedUnifiedTabOrder(session: Session): UnifiedTabRef[] {
 		const key = `${ref.type}:${ref.id}`;
 		if (seen.has(key)) return false;
 		seen.add(key);
+		// A tab tiled into a group is represented by the group ref, never its own
+		// standalone ref. buildUnifiedTabs filters these out at the end, so a lingering
+		// member ref in the order stays invisible in the strip - but navigation would
+		// still walk it, making Cmd+N / next-prev step through group members one by one
+		// instead of treating the group as a single stop. Drop member refs here so the
+		// navigable order matches exactly what the tab bar renders.
+		if (ref.type !== 'group' && groupMemberKeys.has(key)) return false;
 		if (ref.type === 'ai') return liveAiIds.has(ref.id);
 		if (ref.type === 'file') return liveFileIds.has(ref.id);
 		if (ref.type === 'browser') return liveBrowserIds.has(ref.id);

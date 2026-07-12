@@ -1859,8 +1859,9 @@ describe('tabHelpers', () => {
 		it('navigates to a group by unified index (sets activeGroupId, syncs focused AI pane)', () => {
 			const tab1 = createMockTab({ id: 'tab-1' });
 			const grouped = createMockTab({ id: 'grouped-ai' });
+			const groupedB = createMockTab({ id: 'grouped-ai-b' });
 			const session = createMockSession({
-				aiTabs: [tab1, grouped],
+				aiTabs: [tab1, grouped, groupedB],
 				activeTabId: 'tab-1',
 				activeFileTabId: null,
 				unifiedTabOrder: [
@@ -1880,7 +1881,7 @@ describe('tabHelpers', () => {
 							sizes: [0.5, 0.5],
 							children: [
 								{ kind: 'leaf', id: 'leaf-a', tab: { type: 'ai', id: 'grouped-ai' } },
-								{ kind: 'leaf', id: 'leaf-b', tab: { type: 'ai', id: 'tab-1' } },
+								{ kind: 'leaf', id: 'leaf-b', tab: { type: 'ai', id: 'grouped-ai-b' } },
 							],
 						},
 					},
@@ -1903,8 +1904,9 @@ describe('tabHelpers', () => {
 		it('clears activeGroupId when navigating from a group to a standalone tab', () => {
 			const tab1 = createMockTab({ id: 'tab-1' });
 			const grouped = createMockTab({ id: 'grouped-ai' });
+			const groupedB = createMockTab({ id: 'grouped-ai-b' });
 			const session = createMockSession({
-				aiTabs: [tab1, grouped],
+				aiTabs: [tab1, grouped, groupedB],
 				activeTabId: 'grouped-ai',
 				activeFileTabId: null,
 				unifiedTabOrder: [
@@ -1924,7 +1926,7 @@ describe('tabHelpers', () => {
 							sizes: [0.5, 0.5],
 							children: [
 								{ kind: 'leaf', id: 'leaf-a', tab: { type: 'ai', id: 'grouped-ai' } },
-								{ kind: 'leaf', id: 'leaf-b', tab: { type: 'ai', id: 'tab-1' } },
+								{ kind: 'leaf', id: 'leaf-b', tab: { type: 'ai', id: 'grouped-ai-b' } },
 							],
 						},
 					},
@@ -4181,6 +4183,51 @@ describe('tabHelpers', () => {
 			expect(result).toHaveLength(2);
 			expect(result[0]).toEqual({ type: 'ai', id: 'tab-1' });
 			expect(result[1]).toEqual({ type: 'ai', id: 'tab-2' });
+		});
+
+		it('drops a lingering member ref for a tab tiled into a group so navigation matches the strip', () => {
+			// A tab that is tiled into a group is represented by the group ref, never its own
+			// standalone ref. buildUnifiedTabs filters such member refs out of the rendered
+			// strip; the repaired order (which drives Cmd+N / next-prev) must do the same, or
+			// navigation would step through group members individually instead of treating the
+			// group as a single stop.
+			const standalone = createMockTab({ id: 'tab-1' });
+			const groupedA = createMockTab({ id: 'grouped-a' });
+			const groupedB = createMockTab({ id: 'grouped-b' });
+			const session = createMockSession({
+				aiTabs: [standalone, groupedA, groupedB],
+				// A stale member ref (grouped-a) lingers in the order alongside the group ref.
+				unifiedTabOrder: [
+					{ type: 'ai', id: 'tab-1' },
+					{ type: 'ai', id: 'grouped-a' },
+					{ type: 'group', id: 'g1' },
+				],
+				tabGroups: [
+					{
+						id: 'g1',
+						name: 'Group',
+						createdAt: 0,
+						focusedPaneId: 'leaf-a',
+						layout: {
+							kind: 'split',
+							id: 'split-1',
+							direction: 'row',
+							sizes: [0.5, 0.5],
+							children: [
+								{ kind: 'leaf', id: 'leaf-a', tab: { type: 'ai', id: 'grouped-a' } },
+								{ kind: 'leaf', id: 'leaf-b', tab: { type: 'ai', id: 'grouped-b' } },
+							],
+						},
+					},
+				] as never,
+			});
+
+			const result = getRepairedUnifiedTabOrder(session);
+			// Only the standalone tab and the group remain — no individual member refs.
+			expect(result).toEqual([
+				{ type: 'ai', id: 'tab-1' },
+				{ type: 'group', id: 'g1' },
+			]);
 		});
 	});
 
