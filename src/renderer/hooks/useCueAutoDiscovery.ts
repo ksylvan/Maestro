@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
-import type { Session, EncoreFeatureFlags } from '../types';
+import type { EncoreFeatureFlags } from '../types';
 import { useSessionStore } from '../stores/sessionStore';
+import { selectCueDiscoverySignature } from '../stores/sessionEquality';
 import { notifyToast } from '../stores/notificationStore';
 import { captureException } from '../utils/sentry';
 import { logger } from '../utils/logger';
@@ -18,9 +19,14 @@ import { logger } from '../utils/logger';
  * Session discovery always runs so the Cue indicator shows in the Left Bar
  * whenever a .maestro/cue.yaml exists. The encore feature flag only gates
  * engine execution (start/stop), not config discovery.
+ *
+ * PERF: Subscribes to a compact id+projectRoot signature (not the full
+ * sessions array) so streaming log/token updates do not re-render App.
+ * Session objects are read via getState() inside effects at event time.
  */
-export function useCueAutoDiscovery(sessions: Session[], encoreFeatures: EncoreFeatureFlags) {
+export function useCueAutoDiscovery(encoreFeatures: EncoreFeatureFlags) {
 	const sessionsLoaded = useSessionStore((s) => s.sessionsLoaded);
+	const cueDiscoverySignature = useSessionStore(selectCueDiscoverySignature);
 	const prevSessionIdsRef = useRef<Set<string>>(new Set());
 	const prevMaestroCueEnabledRef = useRef<boolean>(encoreFeatures.maestroCue);
 	const initialScanDoneRef = useRef(false);
@@ -33,6 +39,7 @@ export function useCueAutoDiscovery(sessions: Session[], encoreFeatures: EncoreF
 	useEffect(() => {
 		if (!sessionsLoaded) return;
 
+		const sessions = useSessionStore.getState().sessions;
 		const currentIds = new Set(sessions.map((s) => s.id));
 		const prevIds = prevSessionIdsRef.current;
 
@@ -75,7 +82,7 @@ export function useCueAutoDiscovery(sessions: Session[], encoreFeatures: EncoreF
 		}
 
 		prevSessionIdsRef.current = currentIds;
-	}, [sessions, sessionsLoaded]);
+	}, [cueDiscoverySignature, sessionsLoaded]);
 
 	// Track encore feature toggle. Queues enable/disable calls on a single
 	// chain so rapid ON/OFF/ON toggles always apply in the order the user
@@ -89,7 +96,9 @@ export function useCueAutoDiscovery(sessions: Session[], encoreFeatures: EncoreF
 
 		if (wasEnabled === isEnabled) return;
 
-		const sessionsSnapshot = sessions.filter((session) => !!session.projectRoot);
+		const sessionsSnapshot = useSessionStore
+			.getState()
+			.sessions.filter((session) => !!session.projectRoot);
 
 		toggleChainRef.current = toggleChainRef.current.then(async () => {
 			if (isEnabled) {
@@ -133,5 +142,5 @@ export function useCueAutoDiscovery(sessions: Session[], encoreFeatures: EncoreF
 				}
 			}
 		});
-	}, [encoreFeatures.maestroCue, sessions, sessionsLoaded]);
+	}, [encoreFeatures.maestroCue, sessionsLoaded]);
 }
