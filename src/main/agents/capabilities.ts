@@ -61,6 +61,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 		usesCombinedContextWindow: false, // Claude has separate input/output limits
 		supportsAppendSystemPrompt: true, // --append-system-prompt flag
 		supportsProjectMemory: true, // ~/.claude/projects/<path>/memory/
+		supportsAdditionalDirectories: true, // --add-dir <directories...> (verified against the installed CLI)
 	},
 
 	/**
@@ -93,6 +94,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 		usesCombinedContextWindow: false,
 		supportsAppendSystemPrompt: false,
 		supportsProjectMemory: false,
+		supportsAdditionalDirectories: false,
 	},
 
 	/**
@@ -128,6 +130,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 		usesCombinedContextWindow: true, // OpenAI models use combined context window
 		supportsAppendSystemPrompt: false,
 		supportsProjectMemory: false,
+		supportsAdditionalDirectories: true, // --add-dir <DIR>, repeatable. Codex scopes it to WRITABLE roots.
 		imageResumeMode: 'prompt-embed', // codex exec resume doesn't support -i; embed file paths in prompt text
 	},
 
@@ -163,6 +166,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 		usesCombinedContextWindow: false, // PLACEHOLDER
 		supportsAppendSystemPrompt: false,
 		supportsProjectMemory: false,
+		supportsAdditionalDirectories: false, // Unverified - no Gemini CLI available to probe
 	},
 
 	/**
@@ -197,6 +201,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 		usesCombinedContextWindow: false, // PLACEHOLDER
 		supportsAppendSystemPrompt: false,
 		supportsProjectMemory: false,
+		supportsAdditionalDirectories: false, // PLACEHOLDER - unverified
 	},
 
 	/**
@@ -232,6 +237,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 		usesCombinedContextWindow: false, // Depends on model provider
 		supportsAppendSystemPrompt: false,
 		supportsProjectMemory: false,
+		supportsAdditionalDirectories: false, // No directory-grant flag (--dir only relocates the cwd)
 	},
 
 	/**
@@ -266,6 +272,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 		usesCombinedContextWindow: false, // Depends on model provider
 		supportsAppendSystemPrompt: false,
 		supportsProjectMemory: false,
+		supportsAdditionalDirectories: false, // Unverified - no Droid CLI available to probe
 	},
 
 	/**
@@ -299,6 +306,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 		supportsGroupChatModeration: true, // Group chat moderation uses the standard batch-mode orchestration path
 		supportsAppendSystemPrompt: false, // No --append-system-prompt equivalent
 		supportsProjectMemory: false, // No project memory mechanism
+		supportsAdditionalDirectories: true, // --add-dir <directory>, repeatable (verified against the installed CLI)
 		usesJsonLineOutput: true, // --output-format json produces JSONL
 		usesCombinedContextWindow: true, // Copilot's own usage layer reports cumulative input (includes cache) regardless of underlying model, so the gauge math must follow the combined formula
 	},

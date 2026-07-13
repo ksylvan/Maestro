@@ -518,6 +518,7 @@ export function useRemoteHandlers(deps: UseRemoteHandlersDeps): UseRemoteHandler
 					readOnlyMode: isReadOnly,
 					sessionCustomPath: session.customPath,
 					sessionCustomArgs: session.customArgs,
+					sessionAdditionalDirectories: session.additionalDirectories,
 					sessionCustomEnvVars: session.customEnvVars,
 					sessionCustomModel: session.customModel,
 					sessionCustomContextWindow: session.customContextWindow,

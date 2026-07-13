@@ -14,6 +14,7 @@ import {
 	resolveClaudeSpawnMode,
 	buildRemoteInteractiveSpawn,
 } from '../../agents/resolveClaudeSpawnMode';
+import type { AdditionalDirectory } from '../../../shared/types';
 import { getClaudeTokenMode } from '../../../shared/claudeTokenMode';
 import { resolveConfigDirKey } from '../../stores/claudeUsageStore';
 import { isWindows } from '../../../shared/platformDetection';
@@ -188,6 +189,10 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 				sessionCustomModel?: string; // Session-specific model selection
 				sessionCustomEffort?: string; // Session-specific effort/reasoning level
 				sessionCustomContextWindow?: number; // Session-specific context window size
+				// Session's Additional Directories. Providers that declare
+				// `supportsAdditionalDirectories` turn these into native grant flags
+				// (e.g. --add-dir); every agent also gets them via the system prompt.
+				sessionAdditionalDirectories?: AdditionalDirectory[];
 				// Per-session SSH remote config (takes precedence over agent-level SSH config)
 				sessionSshRemoteConfig?: {
 					enabled: boolean;
@@ -426,6 +431,7 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 					modelId: config.modelId,
 					yoloMode: config.yoloMode,
 					agentSessionId: config.agentSessionId,
+					additionalDirectories: config.sessionAdditionalDirectories,
 				});
 
 				// ========================================================================

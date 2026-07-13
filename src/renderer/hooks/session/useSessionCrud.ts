@@ -15,7 +15,7 @@
  */
 
 import { useCallback, useState } from 'react';
-import type { ToolType, Session, AITab } from '../../types';
+import type { AdditionalDirectory, ToolType, Session, AITab } from '../../types';
 import { useSessionStore, selectSessionById } from '../../stores/sessionStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useUIStore } from '../../stores/uiStore';
@@ -76,7 +76,8 @@ export interface UseSessionCrudReturn {
 		maestroPPath?: string,
 		maestroPMode?: 'interactive' | 'dynamic',
 		retryOnAvailabilityErrors?: boolean,
-		retryOnTokenExhaustion?: boolean
+		retryOnTokenExhaustion?: boolean,
+		additionalDirectories?: AdditionalDirectory[]
 	) => Promise<void>;
 	/** Opens the delete agent confirmation modal */
 	deleteSession: (id: string) => void;
@@ -157,7 +158,8 @@ export function useSessionCrud(deps: UseSessionCrudDeps): UseSessionCrudReturn {
 			maestroPPath?: string,
 			maestroPMode?: 'interactive' | 'dynamic',
 			retryOnAvailabilityErrors?: boolean,
-			retryOnTokenExhaustion?: boolean
+			retryOnTokenExhaustion?: boolean,
+			additionalDirectories?: AdditionalDirectory[]
 		) => {
 			try {
 				// Get agent definition to get correct command
@@ -229,6 +231,7 @@ export function useSessionCrud(deps: UseSessionCrudDeps): UseSessionCrudReturn {
 					cwd: workingDir,
 					fullPath: workingDir,
 					projectRoot: workingDir,
+					additionalDirectories,
 					createdAt: Date.now(),
 					isGitRepo,
 					gitBranches,

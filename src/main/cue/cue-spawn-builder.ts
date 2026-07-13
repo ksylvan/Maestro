@@ -70,6 +70,7 @@ export async function buildSpawnSpec(
 	substitutedPrompt: string
 ): Promise<SpawnBuildResult> {
 	const {
+		session,
 		toolType,
 		projectRoot,
 		sshRemoteConfig,
@@ -100,6 +101,9 @@ export async function buildSpawnSpec(
 		baseArgs: agentDef.args,
 		prompt: substitutedPrompt,
 		cwd: projectRoot,
+		// A Cue-triggered run is the same agent doing the same work unattended, so
+		// it gets the same directory grants an interactive turn would.
+		additionalDirectories: session?.additionalDirectories,
 		yoloMode: true, // Cue runs always use YOLO mode like Auto Run
 		// Cue spawns with `stdio: ['ignore', 'pipe', 'pipe']` and no TTY, so the
 		// agent must run in batch mode every time. Without this, a prompt that

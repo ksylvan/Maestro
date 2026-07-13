@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { AgentConfig, Session, ToolType, Theme } from '../../types';
+import type { AdditionalDirectory, AgentConfig, Session, ToolType, Theme } from '../../types';
 
 // Maximum character length for nudge message and new session message
 export const NUDGE_MESSAGE_MAX_LENGTH = 1000;
@@ -56,7 +56,8 @@ export interface NewInstanceModalProps {
 		maestroPPath?: string,
 		maestroPMode?: 'interactive' | 'dynamic',
 		retryOnAvailabilityErrors?: boolean,
-		retryOnTokenExhaustion?: boolean
+		retryOnTokenExhaustion?: boolean,
+		additionalDirectories?: AdditionalDirectory[]
 	) => void;
 	theme: Theme;
 	existingSessions: Session[];
@@ -84,7 +85,8 @@ export interface EditAgentModalProps {
 		maestroPPath?: string,
 		maestroPMode?: 'interactive' | 'dynamic',
 		retryOnAvailabilityErrors?: boolean,
-		retryOnTokenExhaustion?: boolean
+		retryOnTokenExhaustion?: boolean,
+		additionalDirectories?: AdditionalDirectory[]
 	) => void;
 	theme: Theme;
 	session: Session | null;
