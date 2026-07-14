@@ -387,7 +387,7 @@ function AppStandaloneModalsInner({
 					<CueModal
 						theme={theme}
 						onClose={() => setCueModalOpen(false)}
-						cueShortcutKeys={shortcuts.maestroCue?.keys}
+						cueShortcutKeys={shortcuts.openCue?.keys}
 					/>
 				</Suspense>
 			)}

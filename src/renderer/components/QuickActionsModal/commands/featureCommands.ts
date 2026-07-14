@@ -51,15 +51,13 @@ interface BuildFeatureCommandsArgs {
 		usageDashboard?: QuickAction['shortcut'];
 		agentSessions?: QuickAction['shortcut'];
 		openMemoryViewer?: QuickAction['shortcut'];
-		mergeSession?: QuickAction['shortcut'];
-		sendToAgent?: QuickAction['shortcut'];
+		executionQueue?: QuickAction['shortcut'];
 		openSymphony?: QuickAction['shortcut'];
 		directorNotes?: QuickAction['shortcut'];
-		maestroCue?: QuickAction['shortcut'];
+		openCue?: QuickAction['shortcut'];
 		fuzzyFileSearch?: QuickAction['shortcut'];
 		editClipboardImage?: QuickAction['shortcut'];
 	};
-	tabShortcuts?: Record<string, QuickAction['shortcut']>;
 }
 
 function flash(
@@ -108,7 +106,6 @@ export function buildFeatureCommands({
 	showStarredSessionsSection,
 	setShowStarredSessionsSection,
 	shortcuts,
-	tabShortcuts,
 }: BuildFeatureCommandsArgs): QuickAction[] {
 	const commands: QuickAction[] = [
 		{
@@ -184,6 +181,7 @@ export function buildFeatureCommands({
 		commands.push({
 			id: 'executionQueue',
 			label: 'View Execution Queue',
+			shortcut: shortcuts.executionQueue,
 			subtext: 'Browse and manage queued prompts across agents',
 			action: () => {
 				onOpenQueueBrowser();
@@ -237,7 +235,6 @@ export function buildFeatureCommands({
 		commands.push({
 			id: 'summarizeAndContinue',
 			label: 'Context: Compact',
-			shortcut: tabShortcuts?.summarizeAndContinue,
 			subtext: 'Compact context into a fresh tab',
 			action: () => {
 				onSummarizeAndContinue();
@@ -255,7 +252,6 @@ export function buildFeatureCommands({
 		commands.push({
 			id: 'mergeSession',
 			label: 'Context: Merge Into',
-			shortcut: shortcuts.mergeSession,
 			subtext: 'Merge current context into another session',
 			action: () => {
 				onOpenMergeSession();
@@ -273,7 +269,6 @@ export function buildFeatureCommands({
 		commands.push({
 			id: 'sendToAgent',
 			label: 'Context: Send to Agent',
-			shortcut: shortcuts.sendToAgent,
 			subtext: 'Transfer context to a different AI agent',
 			action: () => {
 				onOpenSendToAgent();
@@ -324,7 +319,7 @@ export function buildFeatureCommands({
 		commands.push({
 			id: 'maestro-cue',
 			label: 'Maestro Cue',
-			shortcut: shortcuts.maestroCue,
+			shortcut: shortcuts.openCue,
 			subtext: 'Event-driven automation dashboard',
 			action: () => {
 				onOpenMaestroCue();
