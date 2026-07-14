@@ -1053,14 +1053,26 @@ export const FilePreview = React.memo(
 			[file, siblingImagePath, writeEditedImage]
 		);
 
-		// Track scroll position to show/hide stats bar and report changes
+		// Track scroll position to show/hide stats bar and report changes.
+		// Hysteresis: only hide when overflow is larger than the collapsing chrome
+		// (stats row + path line). When content is just barely taller than the
+		// viewport, hiding that chrome grows clientHeight, clamps scrollTop to 0,
+		// re-shows the bar, and the cycle jitters forever.
 		useEffect(() => {
 			const contentEl = contentRef.current;
 			if (!contentEl) return;
 
+			// Stats subbar (~28px) + directory path row (~20px) + cushion.
+			const STATS_CHROME_HIDE_MIN_OVERFLOW = 64;
+
 			const handleScroll = () => {
-				// Show stats bar when scrolled to top (within 10px), hide otherwise
-				setShowStatsBar(contentEl.scrollTop <= 10);
+				const { scrollTop, scrollHeight, clientHeight } = contentEl;
+				const overflow = scrollHeight - clientHeight;
+				setShowStatsBar((prev) => {
+					if (scrollTop <= 10) return true;
+					if (overflow > STATS_CHROME_HIDE_MIN_OVERFLOW) return false;
+					return prev;
+				});
 
 				// Throttled scroll position save (200ms) - same timing as TerminalOutput
 				if (onScrollPositionChange) {
